@@ -153,6 +153,12 @@ class ErpRestoreService
                 }
 
                 $destination = $target.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $name);
+                if (str_ends_with($name, '/')) {
+                    File::ensureDirectoryExists($destination);
+
+                    continue;
+                }
+
                 File::ensureDirectoryExists(dirname($destination));
                 $input = $zip->getStream($name);
                 $output = fopen($destination, 'wb');

@@ -86,6 +86,7 @@ class BackupRestoreTest extends TestCase
         foreach ($manifest['files'] as $file) {
             $path = $result['path'].'/'.$file['filename'];
             $this->assertFileExists($path);
+            $this->assertGreaterThan(0, $file['bytes']);
             $this->assertSame($file['sha256'], hash_file('sha256', $path));
         }
 
@@ -105,6 +106,58 @@ class BackupRestoreTest extends TestCase
         $this->assertContains('private/documents/recovery.txt', $names);
         $this->assertNotContains('private/livewire-tmp/temporary.txt', $names);
         $this->assertNotContains('public/.gitignore', $names);
+    }
+
+    public function test_storage_only_backup_creates_a_verified_archive_for_empty_configured_roots(): void
+    {
+        File::deleteDirectory($this->workspace.'/storage/public');
+        File::deleteDirectory($this->workspace.'/storage/private');
+        File::ensureDirectoryExists($this->workspace.'/storage/public');
+        File::ensureDirectoryExists($this->workspace.'/storage/private');
+
+        $result = app(ErpBackupService::class)->create(includeDatabase: false, includeStorage: true);
+        $manifest = $result['manifest'];
+        $storage = $manifest['files'][0];
+        $archive = $result['path'].'/storage.zip';
+
+        $this->assertCount(1, $manifest['files']);
+        $this->assertSame('storage', $storage['kind']);
+        $this->assertFileExists($archive);
+        $this->assertGreaterThan(0, filesize($archive));
+        $this->assertSame(filesize($archive), $storage['bytes']);
+        $this->assertSame(hash_file('sha256', $archive), $storage['sha256']);
+
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($archive));
+        $names = [];
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $names[] = $zip->getNameIndex($index);
+        }
+        $zip->close();
+
+        $this->assertContains('public/', $names);
+        $this->assertContains('private/', $names);
+        $this->assertFileDoesNotExist($result['path'].'/database.sqlite');
+    }
+
+    public function test_storage_only_backup_includes_normal_files_and_preserves_exclusions(): void
+    {
+        $result = app(ErpBackupService::class)->create(includeDatabase: false, includeStorage: true);
+        $archive = $result['path'].'/storage.zip';
+        $zip = new ZipArchive;
+
+        $this->assertTrue($zip->open($archive));
+        $names = [];
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $names[] = $zip->getNameIndex($index);
+        }
+        $zip->close();
+
+        $this->assertContains('public/company-profile/logo.png', $names);
+        $this->assertContains('private/documents/recovery.txt', $names);
+        $this->assertNotContains('private/livewire-tmp/temporary.txt', $names);
+        $this->assertNotContains('public/.gitignore', $names);
+        $this->assertFileDoesNotExist($result['path'].'/database.sqlite');
     }
 
     public function test_disposable_restore_preserves_database_and_storage(): void

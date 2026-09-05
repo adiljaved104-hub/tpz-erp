@@ -145,6 +145,11 @@ class ErpBackupService
                     continue;
                 }
 
+                $archiveRoot = trim((string) $prefix, '/');
+                if ($archiveRoot !== '' && ! $zip->addEmptyDir($archiveRoot)) {
+                    throw new RuntimeException('Unable to add a configured storage root to the backup archive.');
+                }
+
                 $iterator = new \RecursiveIteratorIterator(
                     new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
                     \RecursiveIteratorIterator::LEAVES_ONLY,
@@ -160,12 +165,24 @@ class ErpBackupService
                         continue;
                     }
 
-                    $zip->addFile($file->getPathname(), trim((string) $prefix, '/').'/'.$relative);
+                    if (! $zip->addFile($file->getPathname(), $archiveRoot.'/'.$relative)) {
+                        throw new RuntimeException('Unable to add an eligible storage file to the backup archive.');
+                    }
                 }
             }
         } finally {
             $zip->close();
         }
+
+        if (! is_file($destination) || filesize($destination) === 0) {
+            throw new RuntimeException('The storage backup archive was not created successfully.');
+        }
+
+        $verification = new ZipArchive;
+        if ($verification->open($destination) !== true) {
+            throw new RuntimeException('The storage backup archive could not be verified.');
+        }
+        $verification->close();
     }
 
     private function storagePathExcluded(string $relative): bool

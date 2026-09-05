@@ -14,6 +14,10 @@
 /.zed
 /auth.json
 /node_modules
+/.pnpm-store/
+/output/
+/tmp/
+/timestamps()
 /public/build
 /public/fonts-manifest.dev.json
 /public/hot
@@ -21,6 +25,8 @@
 /storage/*.key
 /storage/pail
 /vendor
+/backups/
+/storage/app/backups/
 _ide_helper.php
 Homestead.json
 Homestead.yaml

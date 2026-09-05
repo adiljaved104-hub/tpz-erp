@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\Teams\Pages;
 
 use App\Filament\Resources\Teams\TeamResource;
-use Filament\Actions\DeleteAction;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 
@@ -15,7 +14,6 @@ class EditTeam extends EditRecord
     {
         return [
             ViewAction::make(),
-            DeleteAction::make(),
         ];
     }
 }

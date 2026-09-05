@@ -2,6 +2,19 @@
 
 return [
 
+    'notifications_enabled' => env('EMAIL_NOTIFICATIONS_ENABLED', true),
+
+    'environment_fallback' => [
+        'default' => env('MAIL_MAILER', 'log'),
+        'host' => env('MAIL_HOST', '127.0.0.1'),
+        'port' => env('MAIL_PORT', 2525),
+        'username' => env('MAIL_USERNAME'),
+        'password' => env('MAIL_PASSWORD'),
+        'scheme' => env('MAIL_SCHEME', env('MAIL_ENCRYPTION') === 'ssl' ? 'smtps' : null),
+        'from_address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
+        'from_name' => env('MAIL_FROM_NAME', env('APP_NAME', 'TPZ ERP')),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Default Mailer
@@ -39,7 +52,7 @@ return [
 
         'smtp' => [
             'transport' => 'smtp',
-            'scheme' => env('MAIL_SCHEME'),
+            'scheme' => env('MAIL_SCHEME', env('MAIL_ENCRYPTION') === 'ssl' ? 'smtps' : null),
             'url' => env('MAIL_URL'),
             'host' => env('MAIL_HOST', '127.0.0.1'),
             'port' => env('MAIL_PORT', 2525),
@@ -112,7 +125,7 @@ return [
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
+        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'TPZ ERP')),
     ],
 
 ];

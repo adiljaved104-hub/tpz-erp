@@ -41,7 +41,7 @@ return [
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
-            'after_commit' => false,
+            'after_commit' => env('DB_QUEUE_AFTER_COMMIT', true),
         ],
 
         'beanstalkd' => [
@@ -124,6 +124,10 @@ return [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),
         'database' => env('DB_CONNECTION', 'sqlite'),
         'table' => 'failed_jobs',
+    ],
+
+    'health' => [
+        'stale_after' => (int) env('QUEUE_STALE_AFTER', 600),
     ],
 
 ];

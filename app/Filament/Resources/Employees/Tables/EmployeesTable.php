@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\Employees\Tables;
 
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
@@ -28,7 +26,7 @@ class EmployeesTable
                     ->sortable(),
 
                 TextColumn::make('email')
-                    ->label('Email')
+                    ->label('Contact Email')
                     ->searchable()
                     ->copyable()
                     ->copyMessage('Email copied')
@@ -56,12 +54,6 @@ class EmployeesTable
 
                 TextColumn::make('role')
                     ->badge()
-                    ->colors([
-                        'danger' => 'Owner',
-                        'warning' => 'Admin',
-                        'success' => 'Manager',
-                        'gray' => 'Staff',
-                    ])
                     ->sortable(),
 
                 IconColumn::make('status')
@@ -97,10 +89,6 @@ class EmployeesTable
                 EditAction::make(),
             ])
 
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
-            ]);
+            ->toolbarActions([]);
     }
 }

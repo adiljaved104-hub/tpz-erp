@@ -1,0 +1,22 @@
+<?php
+
+namespace App\Actions\Responsibilities;
+
+use App\DTOs\Responsibilities\DeactivateResponsibilityAssignmentData;
+use App\Enums\ResponsibilityPermission;
+use App\Models\ResponsibilityAssignment;
+use App\Models\User;
+use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\Responsibilities\ResponsibilityAssignmentService;
+
+class DeactivateResponsibilityAssignment
+{
+    public function __construct(private readonly ResponsibilityAuthorization $authorization, private readonly ResponsibilityAssignmentService $service) {}
+
+    public function handle(ResponsibilityAssignment $assignment, DeactivateResponsibilityAssignmentData $data, User $actor): ResponsibilityAssignment
+    {
+        $this->authorization->authorize($actor, ResponsibilityPermission::Deactivate, $assignment);
+
+        return $this->service->deactivate($assignment, $data, $actor);
+    }
+}

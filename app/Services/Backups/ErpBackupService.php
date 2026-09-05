@@ -17,6 +17,10 @@ class ErpBackupService
 {
     public const VERSION = 1;
 
+    private const DIRECTORY_MODE = 0770;
+
+    private const FILE_MODE = 0660;
+
     /** @return array<string, mixed> */
     public function create(bool $includeDatabase = true, bool $includeStorage = true): array
     {
@@ -31,7 +35,7 @@ class ErpBackupService
         $name = $timestamp->format('Y-m-d_His');
         $temporary = $root.DIRECTORY_SEPARATOR.'.incomplete-'.$name.'-'.Str::lower(Str::random(8));
         $final = $root.DIRECTORY_SEPARATOR.$name;
-        File::ensureDirectoryExists($temporary, 0700);
+        $this->ensureBackupDirectory($temporary);
 
         try {
             $files = [];
@@ -68,6 +72,7 @@ class ErpBackupService
             return ['path' => $final, 'manifest' => $manifest];
         } catch (Throwable $exception) {
             $this->writeManifest($temporary, $this->manifest($timestamp->toImmutable(), (string) DB::connection()->getDriverName(), [], 'failed'));
+            $this->secureIncompleteBackup($temporary);
             Log::error('ERP backup failed safely.', ['exception' => $exception::class, 'backup_path' => $temporary]);
 
             throw $exception;
@@ -93,6 +98,8 @@ class ErpBackupService
         if (count($backup->query('PRAGMA foreign_key_check')->fetchAll()) !== 0) {
             throw new RuntimeException('The SQLite backup contains foreign-key violations.');
         }
+
+        $this->secureBackupFile($destination);
     }
 
     private function backupMysql(string $destination): void
@@ -123,6 +130,7 @@ class ErpBackupService
             if (! $process->isSuccessful() || ! is_file($destination) || filesize($destination) === 0) {
                 throw new RuntimeException('The MySQL logical backup command failed.');
             }
+            $this->secureBackupFile($destination);
         } finally {
             File::delete($credentials);
         }
@@ -177,6 +185,7 @@ class ErpBackupService
         if (! is_file($destination) || filesize($destination) === 0) {
             throw new RuntimeException('The storage backup archive was not created successfully.');
         }
+        $this->secureBackupFile($destination);
 
         $verification = new ZipArchive;
         if ($verification->open($destination) !== true) {
@@ -226,16 +235,18 @@ class ErpBackupService
     /** @param array<string, mixed> $manifest */
     private function writeManifest(string $directory, array $manifest): void
     {
+        $path = $directory.DIRECTORY_SEPARATOR.'manifest.json';
         file_put_contents(
-            $directory.DIRECTORY_SEPARATOR.'manifest.json',
+            $path,
             json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR).PHP_EOL,
             LOCK_EX,
         );
+        $this->secureBackupFile($path);
     }
 
     private function ensureTargetReady(string $root, bool $includeDatabase, bool $includeStorage): void
     {
-        File::ensureDirectoryExists($root, 0700);
+        $this->ensureBackupDirectory($root);
         if (! is_writable($root)) {
             throw new RuntimeException('The configured backup location is not writable.');
         }
@@ -271,6 +282,69 @@ class ErpBackupService
         }
 
         return $bytes;
+    }
+
+    private function ensureBackupDirectory(string $path): void
+    {
+        File::ensureDirectoryExists($path, self::DIRECTORY_MODE);
+        $this->applyPosixMode($path, self::DIRECTORY_MODE, true);
+    }
+
+    private function secureBackupFile(string $path): void
+    {
+        if (! is_file($path)) {
+            throw new RuntimeException('A required backup file was not created.');
+        }
+
+        $this->applyPosixMode($path, self::FILE_MODE, false);
+    }
+
+    private function secureIncompleteBackup(string $directory): void
+    {
+        if (PHP_OS_FAMILY === 'Windows' || ! is_dir($directory)) {
+            return;
+        }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+
+        foreach ($iterator as $entry) {
+            if ($entry->isLink()) {
+                continue;
+            }
+
+            $this->applyPosixMode(
+                $entry->getPathname(),
+                $entry->isDir() ? self::DIRECTORY_MODE : self::FILE_MODE,
+                $entry->isDir(),
+            );
+        }
+
+        $this->applyPosixMode($directory, self::DIRECTORY_MODE, true);
+    }
+
+    private function applyPosixMode(string $path, int $mode, bool $preserveDirectorySpecialBits): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            return;
+        }
+
+        clearstatcache(true, $path);
+        $permissions = fileperms($path);
+        if ($permissions === false) {
+            throw new RuntimeException('Unable to inspect backup filesystem permissions.');
+        }
+
+        if (($permissions & 0777) === $mode) {
+            return;
+        }
+
+        $specialBits = $preserveDirectorySpecialBits ? ($permissions & 07000) : 0;
+        if (! chmod($path, $specialBits | $mode)) {
+            throw new RuntimeException('Unable to apply private shared-group backup permissions.');
+        }
     }
 
     private function sqliteDatabasePath(): string

@@ -160,6 +160,21 @@ class BackupRestoreTest extends TestCase
         $this->assertFileDoesNotExist($result['path'].'/database.sqlite');
     }
 
+    public function test_backup_artifacts_use_private_shared_group_permissions_on_posix(): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $this->markTestSkipped('POSIX permission bits are not available on Windows.');
+        }
+
+        $result = app(ErpBackupService::class)->create();
+
+        $this->assertPosixMode(config('backup.root'), 0770);
+        $this->assertPosixMode($result['path'], 0770);
+        $this->assertPosixMode($result['path'].'/database.sqlite', 0660);
+        $this->assertPosixMode($result['path'].'/storage.zip', 0660);
+        $this->assertPosixMode($result['path'].'/manifest.json', 0660);
+    }
+
     public function test_disposable_restore_preserves_database_and_storage(): void
     {
         $backup = app(ErpBackupService::class)->create();
@@ -258,6 +273,14 @@ class BackupRestoreTest extends TestCase
 
         $this->assertDirectoryExists($good['path']);
         $this->assertFileExists($good['path'].'/manifest.json');
+
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $incomplete = collect(File::directories(config('backup.root')))
+                ->first(fn (string $path): bool => str_starts_with(basename($path), '.incomplete-'));
+            $this->assertNotNull($incomplete);
+            $this->assertPosixMode($incomplete, 0770);
+            $this->assertPosixMode($incomplete.'/manifest.json', 0660);
+        }
     }
 
     public function test_backup_health_reports_latest_checksum_state(): void
@@ -272,5 +295,13 @@ class BackupRestoreTest extends TestCase
             str_replace('\\', '/', $health['manifest_path']),
         );
         $this->assertSame(0, $health['age_hours']);
+    }
+
+    private function assertPosixMode(string $path, int $expected): void
+    {
+        clearstatcache(true, $path);
+        $permissions = fileperms($path);
+        $this->assertNotFalse($permissions);
+        $this->assertSame($expected, $permissions & 0777);
     }
 }

@@ -443,6 +443,7 @@ class AppServiceProvider extends ServiceProvider
         Relation::enforceMorphMap([
             'user' => User::class,
             'employee' => Employee::class,
+            'team' => Team::class,
             'supplier' => Supplier::class,
             'warehouse' => Warehouse::class,
             'product' => Product::class,

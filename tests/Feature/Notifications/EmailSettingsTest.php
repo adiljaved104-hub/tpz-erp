@@ -89,12 +89,14 @@ class EmailSettingsTest extends TestCase
         $this->assertTrue($service->configured());
         $this->assertTrue($service->apply());
         $this->assertSame('env.smtp.test', config('mail.mailers.smtp.host'));
+        $this->assertSame('Tech Point Zone ERP', config('mail.from.name'));
 
         $owner = $this->user(EmployeeRole::Owner);
         $service->save($this->settingsData('database-secret'), $owner);
         $this->assertTrue($service->apply());
         $this->assertSame('db.smtp.test', config('mail.mailers.smtp.host'));
         $this->assertSame('notifications@techpointzone.com', config('mail.from.address'));
+        $this->assertSame('Tech Point Zone ERP', config('mail.from.name'));
     }
 
     public function test_disabling_email_preserves_in_app_task_notification_without_queueing_mail(): void

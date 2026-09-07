@@ -24,7 +24,7 @@ class CustomerReturnAlertObserver implements ShouldHandleEventsAfterCommit
                 'category' => 'return', 'event' => 'return.awaiting_qc', 'title' => 'Return Awaiting QC',
                 'message' => $return->reference.' is ready for inspection.', 'reference' => $return->reference,
                 'status' => $return->status->getLabel(), 'target_type' => 'customer_return', 'target_id' => $return->id,
-            ], '[ERP] Return Awaiting QC — '.$return->reference, CustomerReturnResource::getUrl('view', ['record' => $return]));
+            ], 'Return Awaiting QC — '.$return->reference, CustomerReturnResource::getUrl('view', ['record' => $return]));
         }
     }
 }

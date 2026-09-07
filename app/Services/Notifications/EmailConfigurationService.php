@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Notifications\SmtpTestNotification;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\EmailSettingsAuthorization;
+use App\Services\Branding\ApplicationBranding;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -21,6 +22,7 @@ class EmailConfigurationService
     public function __construct(
         private readonly EmailSettingsAuthorization $authorization,
         private readonly ActivityLogger $activity,
+        private readonly ApplicationBranding $branding,
     ) {}
 
     public function settings(): ?EmailSetting
@@ -67,7 +69,7 @@ class EmailConfigurationService
                 'mail.mailers.smtp.password' => config('mail.environment_fallback.password'),
                 'mail.mailers.smtp.scheme' => config('mail.environment_fallback.scheme'),
                 'mail.from.address' => config('mail.environment_fallback.from_address'),
-                'mail.from.name' => config('mail.environment_fallback.from_name'),
+                'mail.from.name' => $this->branding->emailSenderName(config('mail.environment_fallback.from_name')),
             ]);
             Mail::purge('smtp');
 
@@ -86,7 +88,7 @@ class EmailConfigurationService
             'mail.mailers.smtp.password' => $settings->smtp_password_encrypted,
             'mail.mailers.smtp.scheme' => $settings->encryption === 'ssl' ? 'smtps' : null,
             'mail.from.address' => $settings->from_email,
-            'mail.from.name' => $settings->from_name,
+            'mail.from.name' => $this->branding->emailSenderName($settings->from_name),
         ]);
         Mail::purge('smtp');
 

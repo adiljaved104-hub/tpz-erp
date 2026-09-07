@@ -12,7 +12,7 @@ return [
         'password' => env('MAIL_PASSWORD'),
         'scheme' => env('MAIL_SCHEME', env('MAIL_ENCRYPTION') === 'ssl' ? 'smtps' : null),
         'from_address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'from_name' => env('MAIL_FROM_NAME', env('APP_NAME', 'TPZ ERP')),
+        'from_name' => env('MAIL_FROM_NAME', 'Tech Point Zone ERP'),
     ],
 
     /*
@@ -125,7 +125,7 @@ return [
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'TPZ ERP')),
+        'name' => env('MAIL_FROM_NAME', 'Tech Point Zone ERP'),
     ],
 
 ];

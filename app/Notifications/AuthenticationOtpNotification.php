@@ -5,6 +5,7 @@ namespace App\Notifications;
 use App\Enums\AuthenticationOtpPurpose;
 use App\Models\AuthenticationOtpChallenge;
 use App\Services\AuthenticationOtpService;
+use App\Services\Branding\ApplicationBranding;
 use App\Services\Notifications\EmailConfigurationService;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -40,17 +41,16 @@ class AuthenticationOtpNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $subject = match ($this->purpose) {
-            AuthenticationOtpPurpose::Login => 'Your Tech Point Zone ERP verification code',
-            AuthenticationOtpPurpose::TwoFactor => 'Your ERP sign-in verification code',
-            AuthenticationOtpPurpose::PasswordReset => 'Your password reset verification code',
-            AuthenticationOtpPurpose::EmailChangeCurrent => 'Confirm your current ERP login email',
-            AuthenticationOtpPurpose::EmailChangeNew => 'Verify your new ERP login email',
-            AuthenticationOtpPurpose::EmailRecoveryNew => 'Verify your recovered ERP login email',
+        $purpose = match ($this->purpose) {
+            AuthenticationOtpPurpose::Login => 'Verification Code',
+            AuthenticationOtpPurpose::TwoFactor => 'Two-Factor Verification',
+            AuthenticationOtpPurpose::PasswordReset => 'Password Reset',
+            AuthenticationOtpPurpose::EmailChangeCurrent => 'Login Email Verification',
+            AuthenticationOtpPurpose::EmailChangeNew => 'New Login Email Verification',
+            AuthenticationOtpPurpose::EmailRecoveryNew => 'Login Email Recovery Verification',
         };
 
-        return (new MailMessage)
-            ->subject($subject)
+        return app(ApplicationBranding::class)->mail(new MailMessage, $purpose)
             ->greeting('Verification code')
             ->line("Your verification code is: {$this->code}")
             ->line("This code expires in {$this->expiryMinutes} minutes.")

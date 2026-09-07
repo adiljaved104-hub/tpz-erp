@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Invoice Verification</title>
+    <title>{{ app(\App\Services\Branding\ApplicationBranding::class)->fullName() }} – Invoice Verification</title>
     <style>
         * { box-sizing: border-box; }
         body { align-items: center; background: #f4f7fb; color: #172033; display: flex; font-family: Arial, sans-serif; justify-content: center; margin: 0; min-height: 100vh; padding: 24px; }

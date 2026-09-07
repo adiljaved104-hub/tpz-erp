@@ -41,7 +41,7 @@ class SendWarrantySlaNotifications extends Command
                             'category' => 'warranty', 'event' => $type, 'title' => $title,
                             'message' => $case->reference.' · '.$reason, 'reference' => $case->reference,
                             'status' => $case->status->getLabel(), 'target_type' => 'warranty_repair', 'target_id' => $case->id,
-                        ], '[ERP] '.$title.' — '.$case->reference, WarrantyRepairResource::getUrl('view', ['record' => $case]));
+                        ], $title.' — '.$case->reference, WarrantyRepairResource::getUrl('view', ['record' => $case]));
                     }
                 }
             });

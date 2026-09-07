@@ -24,7 +24,7 @@ class SafetClaimAlertObserver implements ShouldHandleEventsAfterCommit
                 'category' => 'claim', 'event' => 'claim.needs_filing', 'title' => 'Claim Needs Filing',
                 'message' => $claim->reference.' requires filing.', 'reference' => $claim->reference,
                 'status' => $claim->status->getLabel(), 'target_type' => 'safet_claim', 'target_id' => $claim->id,
-            ], '[ERP] Claim Needs Filing — '.$claim->reference, SafetClaimResource::getUrl('view', ['record' => $claim]));
+            ], 'Claim Needs Filing — '.$claim->reference, SafetClaimResource::getUrl('view', ['record' => $claim]));
         }
     }
 }

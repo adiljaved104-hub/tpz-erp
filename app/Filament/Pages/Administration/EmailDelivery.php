@@ -6,6 +6,7 @@ use App\Enums\EmailSettingsPermission;
 use App\Models\User;
 use App\Notifications\SmtpTestNotification;
 use App\Services\Authorization\EmailSettingsAuthorization;
+use App\Services\Branding\ApplicationBranding;
 use App\Services\Notifications\EmailConfigurationService;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -70,7 +71,7 @@ class EmailDelivery extends Page
         $this->smtpUsername = (string) ($settings?->smtp_username ?? config('mail.environment_fallback.username'));
         $this->smtpPassword = '';
         $this->fromEmail = (string) ($settings?->from_email ?? config('mail.environment_fallback.from_address'));
-        $this->fromName = (string) ($settings?->from_name ?? config('mail.environment_fallback.from_name'));
+        $this->fromName = app(ApplicationBranding::class)->emailSenderName($settings?->from_name ?? config('mail.environment_fallback.from_name'));
         $this->recipientEmail = (string) auth()->user()->routeNotificationForMail(new SmtpTestNotification);
     }
 

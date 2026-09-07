@@ -18,7 +18,7 @@
     </style>
 </head>
 <body>
-    <h1>TPZ ERP · {{ $report->title }}</h1>
+    <h1>{{ app(\App\Services\Branding\ApplicationBranding::class)->fullName() }} · {{ $report->title }}</h1>
     <div class="meta">Generated {{ now()->format('d M Y H:i T') }} · {{ collect($report->filters)->filter(fn ($value) => filled($value))->map(fn ($value, $key) => str($key)->replace('_', ' ')->title().': '.$value)->implode(' · ') }}</div>
     <div class="summary">@foreach ($report->summary as $label => $value)<span>{{ $label }}: {{ \App\Support\ReportValueFormatter::summary($report, $label, $value) }}</span>@endforeach</div>
     <table>

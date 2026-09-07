@@ -40,7 +40,7 @@ class BrandedOtpAuthenticationTest extends TestCase
         CompanyProfile::query()->create(['id' => 1, 'company_name_en' => 'Fallback Company', 'logo_path' => 'company/logo.png']);
 
         $fallback = app(LoginBrandingService::class)->presentation();
-        $this->assertSame('TPZ ERP', $fallback['title']);
+        $this->assertSame('Tech Point Zone ERP', $fallback['title']);
         $this->assertSame('company_profile', $fallback['logo_source']);
 
         Storage::disk('public')->put('login-branding/login.png', 'login-logo');
@@ -77,7 +77,7 @@ class BrandedOtpAuthenticationTest extends TestCase
 
         $response = $this->get(route('auth.otp.request'))
             ->assertOk()
-            ->assertSee('TPZ ERP')
+            ->assertSee('Tech Point Zone ERP')
             ->assertSee('Internal Business Management System')
             ->assertSee('Login with Email OTP')
             ->assertSee('Enter your company email and we’ll send you a verification code.')
@@ -107,7 +107,7 @@ class BrandedOtpAuthenticationTest extends TestCase
 
         $this->get(route('auth.otp.request'))
             ->assertOk()
-            ->assertSee('TPZ ERP')
+            ->assertSee('Tech Point Zone ERP')
             ->assertDontSee('<img', false)
             ->assertDontSee('Legal Company Name');
     }
@@ -180,7 +180,7 @@ class BrandedOtpAuthenticationTest extends TestCase
         foreach ([route('filament.admin.auth.login'), route('auth.otp.request'), route('auth.password.request')] as $url) {
             $this->get($url)
                 ->assertOk()
-                ->assertSee('TPZ ERP')
+                ->assertSee('Tech Point Zone ERP')
                 ->assertSee('Internal Business Management System')
                 ->assertDontSee('Laravel');
         }
@@ -188,7 +188,7 @@ class BrandedOtpAuthenticationTest extends TestCase
         $this->withSession(['auth_otp.password_reset_user' => $user->id])
             ->get(route('auth.password.reset'))
             ->assertOk()
-            ->assertSee('TPZ ERP')
+            ->assertSee('Tech Point Zone ERP')
             ->assertDontSee('Laravel');
     }
 

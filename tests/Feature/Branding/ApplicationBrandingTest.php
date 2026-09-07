@@ -90,6 +90,10 @@ class ApplicationBrandingTest extends TestCase
         $html = (string) (new SmtpTestNotification)->toMail(new \stdClass)->render();
         $this->assertStringContainsString('src="'.$branding->emailLogoUrl().'"', $html);
         $this->assertStringContainsString('alt="Tech Point Zone ERP"', $html);
+        $this->assertStringContainsString('width="180"', $html);
+        $this->assertStringContainsString('width: 180px', $html);
+        $this->assertStringContainsString('height: auto', $html);
+        $this->assertStringContainsString('margin: 15px auto 10px', $html);
 
         config(['branding.email.logo_path' => 'branding/missing-logo.png']);
         $this->assertNull($branding->emailLogoUrl());

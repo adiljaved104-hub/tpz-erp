@@ -7,6 +7,7 @@ use App\Models\CompanyProfile;
 use App\Models\LoginSecuritySetting;
 use App\Models\User;
 use App\Services\Authorization\AuthSecurityAuthorization;
+use App\Services\Branding\ApplicationBranding;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -16,6 +17,7 @@ class LoginBrandingService
     public function __construct(
         private readonly AuthSecurityAuthorization $authorization,
         private readonly ActivityLogger $activity,
+        private readonly ApplicationBranding $applicationBranding,
     ) {}
 
     public function settings(): ?LoginSecuritySetting
@@ -33,7 +35,7 @@ class LoginBrandingService
         $path = $dedicatedLogo ?: $companyLogo;
 
         return [
-            'title' => filled($settings?->login_title) ? $settings->login_title : (string) config('auth_branding.title', 'TPZ ERP'),
+            'title' => $this->applicationBranding->loginTitle($settings?->login_title ?? config('auth_branding.title')),
             'subtitle' => filled($settings?->login_subtitle) ? $settings->login_subtitle : (string) config('auth_branding.subtitle', 'Internal Business Management System'),
             'logo_url' => filled($path) ? route('auth.branding.logo') : null,
             'logo_source' => filled($dedicatedLogo) ? 'login_settings' : (filled($companyLogo) ? 'company_profile' : 'text'),

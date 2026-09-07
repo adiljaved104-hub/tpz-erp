@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Services\Branding\ApplicationBranding;
 use App\Services\Notifications\EmailConfigurationService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
@@ -36,8 +37,7 @@ class LoginEmailChangedNotification extends Notification implements ShouldBeEncr
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject('Your ERP login email was changed')
+        return app(ApplicationBranding::class)->mail(new MailMessage, 'Login Email Changed')
             ->greeting('Login email updated')
             ->line($this->isPreviousAddress
                 ? 'The ERP login email previously associated with your account has been changed.'

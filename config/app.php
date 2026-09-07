@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'TPZ ERP'),
+    'name' => env('APP_NAME', 'Tech Point Zone ERP'),
 
     /*
     |--------------------------------------------------------------------------

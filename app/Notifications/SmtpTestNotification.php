@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Services\Branding\ApplicationBranding;
 use App\Services\Notifications\EmailConfigurationService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -25,8 +26,7 @@ class SmtpTestNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject('[ERP] Email Delivery Test')
+        return app(ApplicationBranding::class)->mail(new MailMessage, 'Email Delivery Test')
             ->greeting('Email delivery is configured')
             ->line('This is a test message from Tech Point Zone ERP.')
             ->line('No business record was created or changed.');

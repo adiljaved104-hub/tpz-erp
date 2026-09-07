@@ -45,7 +45,7 @@ class ProductInventoryObserver implements ShouldHandleEventsAfterCommit
                 'message' => $reference.' has '.$after.' sellable unit(s) at '.$inventory->warehouse->name.'.',
                 'reference' => $reference, 'status' => $after === 0 ? 'Out of Stock' : 'Low Stock',
                 'target_type' => 'product_inventory', 'target_id' => $inventory->id,
-            ], '[ERP] '.$title.' — '.$reference, ProductInventoryResource::getUrl('view', ['record' => $inventory]));
+            ], $title.' — '.$reference, ProductInventoryResource::getUrl('view', ['record' => $inventory]));
         }
     }
 

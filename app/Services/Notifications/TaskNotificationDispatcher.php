@@ -208,7 +208,7 @@ class TaskNotificationDispatcher
         if ($email && ($inApp || $this->rules->claimEmailDelivery($type, $eventKey, $recipient))) {
             $delivered = $this->criticalAlerts->queueEmail(
                 $recipient,
-                '[ERP] '.$title.' — '.$task->reference,
+                $title.' — '.$task->reference,
                 $title,
                 $task->reference,
                 $message,

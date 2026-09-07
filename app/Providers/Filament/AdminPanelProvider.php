@@ -5,7 +5,7 @@ namespace App\Providers\Filament;
 use App\Auth\EmailOtpAuthenticationProvider;
 use App\Filament\Auth\Login;
 use App\Filament\Widgets\ErpDashboardOverview;
-use App\Services\LoginBrandingService;
+use App\Services\Branding\ApplicationBranding;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -35,7 +35,7 @@ class AdminPanelProvider extends PanelProvider
                 Css::make('access-control', resource_path('css/filament/access-control.css')),
             ])
             ->login(Login::class)
-            ->brandName(fn (): string => app(LoginBrandingService::class)->presentation()['title'])
+            ->brandName(fn (): string => app(ApplicationBranding::class)->fullName())
             ->multiFactorAuthentication([
                 app(EmailOtpAuthenticationProvider::class),
             ], isRequired: false)

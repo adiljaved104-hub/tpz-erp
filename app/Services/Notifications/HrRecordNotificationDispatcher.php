@@ -32,7 +32,7 @@ class HrRecordNotificationDispatcher
             'warning_reference' => $warning->reference,
             'acknowledgment_required' => $warning->acknowledgment_required,
             'sound' => true,
-        ], '[ERP] Warning Issued — '.$warning->reference, EmployeeWarningResource::getUrl('view', ['record' => $warning]), [
+        ], 'Warning Issued — '.$warning->reference, EmployeeWarningResource::getUrl('view', ['record' => $warning]), [
             'Category' => $warning->category?->name ?? 'Uncategorized',
             'Issue date' => $warning->issued_date?->format('d M Y'),
             'Subject' => Str::limit($warning->title, 160),
@@ -60,7 +60,7 @@ class HrRecordNotificationDispatcher
                 'notice_reference' => $notice->reference,
                 'acknowledgment_required' => $notice->acknowledgment_required,
                 'sound' => $notice->priority === 'important',
-            ], '[ERP] HR Notice — '.$notice->reference, HrNoticeResource::getUrl('view', ['record' => $notice]), [
+            ], 'HR Notice — '.$notice->reference, HrNoticeResource::getUrl('view', ['record' => $notice]), [
                 'Title' => Str::limit($notice->title, 160),
                 'Category' => $notice->category?->name ?? 'Uncategorized',
                 'Priority' => Str::headline($notice->priority),

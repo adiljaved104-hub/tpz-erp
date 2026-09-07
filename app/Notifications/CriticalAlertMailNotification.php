@@ -22,6 +22,7 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
+use App\Services\Branding\ApplicationBranding;
 use App\Services\Notifications\EmailConfigurationService;
 use App\Services\Notifications\NotificationRuleService;
 use Illuminate\Bus\Queueable;
@@ -68,8 +69,7 @@ class CriticalAlertMailNotification extends Notification implements ShouldBeEncr
 
     public function toMail(object $notifiable): MailMessage
     {
-        $mail = (new MailMessage)
-            ->subject($this->subject)
+        $mail = app(ApplicationBranding::class)->mail(new MailMessage, $this->subject)
             ->greeting($this->title)
             ->line($this->reference)
             ->line($this->reason);
@@ -88,9 +88,7 @@ class CriticalAlertMailNotification extends Notification implements ShouldBeEncr
             $mail->action('Open in ERP', $this->url);
         }
 
-        return $mail
-            ->line('This operational alert contains no financial information.')
-            ->salutation('Tech Point Zone ERP');
+        return $mail->line('This operational alert contains no financial information.');
     }
 
     public function shouldSend(object $notifiable, string $channel): bool

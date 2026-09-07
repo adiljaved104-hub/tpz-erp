@@ -1,6 +1,6 @@
 <?php
 
 return [
-    'title' => 'TPZ ERP',
+    'title' => 'Tech Point Zone ERP',
     'subtitle' => 'Internal Business Management System',
 ];

@@ -4,7 +4,7 @@
 <x-slot:header>
 <x-mail::header :url="config('app.url')">
 @if ($applicationBrand->emailLogoUrl())
-<img src="{{ $applicationBrand->emailLogoUrl() }}" class="logo" alt="{{ config('branding.email.logo_alt', $applicationBrand->fullName()) }}">
+<img src="{{ $applicationBrand->emailLogoUrl() }}" width="180" alt="{{ config('branding.email.logo_alt', $applicationBrand->fullName()) }}" style="display: block; width: 180px; max-width: 100%; height: auto; margin: 15px auto 10px;">
 @else
 {{ $applicationBrand->fullName() }}
 @endif

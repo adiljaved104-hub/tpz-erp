@@ -81,18 +81,21 @@ class ApplicationBrandingTest extends TestCase
         CarbonImmutable::setTestNow();
     }
 
-    public function test_email_logo_uses_a_local_asset_when_configured_and_text_when_absent(): void
+    public function test_email_logo_uses_the_official_local_asset_and_falls_back_to_text_when_absent(): void
     {
         $branding = app(ApplicationBranding::class);
         $this->assertSame('branding/tech-point-zone-logo.png', config('branding.email.logo_path'));
-        $this->assertNull($branding->emailLogoUrl());
-
-        config(['branding.email.logo_path' => 'favicon.ico']);
-        $this->assertStringEndsWith('/favicon.ico', $branding->emailLogoUrl());
+        $this->assertStringEndsWith('/branding/tech-point-zone-logo.png', $branding->emailLogoUrl());
 
         $html = (string) (new SmtpTestNotification)->toMail(new \stdClass)->render();
         $this->assertStringContainsString('src="'.$branding->emailLogoUrl().'"', $html);
         $this->assertStringContainsString('alt="Tech Point Zone ERP"', $html);
+
+        config(['branding.email.logo_path' => 'branding/missing-logo.png']);
+        $this->assertNull($branding->emailLogoUrl());
+        $fallback = (string) (new SmtpTestNotification)->toMail(new \stdClass)->render();
+        $this->assertStringContainsString('Tech Point Zone ERP', $fallback);
+        $this->assertStringNotContainsString('<img', $fallback);
     }
 
     public function test_filament_panel_uses_the_full_application_brand(): void

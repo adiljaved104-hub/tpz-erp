@@ -6,6 +6,8 @@ use App\Actions\Orders\FulfillOrder;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationType;
+use App\Enums\ProductCondition;
+use App\Enums\QuotationItemSourceType;
 use App\Enums\QuotationPermission;
 use App\Enums\QuotationStatus;
 use App\Exceptions\ImmutableInventoryRecordException;
@@ -306,15 +308,18 @@ class QuotationSourcingTest extends TestCase
         }
     }
 
-    public function test_invoice_only_conversion_never_sources_inventory_or_exports_internal_cost(): void
+    public function test_sourced_quotation_cannot_bypass_inventory_through_direct_invoice_conversion(): void
     {
         $quote = $this->accepted(['source_note' => 'INTERNAL-SUPPLIER-NOTE']);
         $before = $this->fingerprint();
-        $invoice = app(QuotationConversionService::class)->toInvoice($quote, $this->owner);
-        $this->assertSame($before, $this->fingerprint());
-        $this->assertStringNotContainsString('INTERNAL-SUPPLIER-NOTE', json_encode($invoice->toArray()));
-        $response = $this->actingAs($this->owner)->get(route('quotations.pdf', ['quotation' => $quote, 'print' => 1]));
-        $response->assertOk()->assertDontSee('INTERNAL-SUPPLIER-NOTE')->assertDontSee('Purchase Cost');
+        try {
+            app(QuotationConversionService::class)->toInvoice($quote, $this->owner);
+            $this->fail('Sourced quotation bypassed Order inventory handling.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('conversion', $exception->errors());
+            $this->assertSame($before, $this->fingerprint());
+            $this->assertDatabaseCount('tax_invoices', 0);
+        }
     }
 
     public function test_multiple_repeater_lines_keep_the_correct_source_cost_and_explicit_order_link(): void
@@ -419,7 +424,7 @@ class QuotationSourcingTest extends TestCase
         }
     }
 
-    public function test_source_cost_is_absent_from_unauthorized_livewire_view_and_server_query(): void
+    public function test_source_cost_is_absent_from_unauthorized_livewire_view_and_sql_projection(): void
     {
         $quote = $this->accepted(['purchase_unit_cost' => '187.4321', 'source_note' => 'CONFIDENTIAL-SOURCE']);
         $admin = $this->actor(EmployeeRole::Admin);
@@ -430,7 +435,8 @@ class QuotationSourcingTest extends TestCase
             ->assertSuccessful()->assertDontSee('187.4321')->assertDontSee('CONFIDENTIAL-SOURCE');
         $queries = collect(DB::getQueryLog())->pluck('query')->implode(' ');
         DB::disableQueryLog();
-        $this->assertStringNotContainsString('quotation_item_sourcing_instructions', $queries);
+        $this->assertStringNotContainsString('purchase_unit_cost', $queries);
+        $this->assertStringNotContainsString('source_note', $queries);
     }
 
     public function test_quotation_form_shows_inline_sourcing_and_saves_without_receiving_stock(): void
@@ -442,6 +448,190 @@ class QuotationSourcingTest extends TestCase
         $this->assertDatabaseCount('quotation_item_sourcing_instructions', 1);
         $this->assertDatabaseCount('quotation_sourcing_postings', 0);
         $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_manual_sourced_draft_and_non_converting_lifecycle_create_no_product_or_inventory(): void
+    {
+        $baselineProducts = Product::query()->count();
+        $service = app(QuotationService::class);
+        $draft = $service->create($this->manualData(), $this->owner);
+        $item = $draft->items->sole();
+        $this->assertSame(QuotationItemSourceType::ManualSourced, $item->source_type);
+        $this->assertNull($item->product_id);
+        $this->assertNull($item->materialized_product_id);
+        $this->assertSame(5, $item->sourcingInstruction->planned_source_quantity_snapshot);
+        $this->assertSame($baselineProducts, Product::query()->count());
+        $this->assertDatabaseCount('product_inventories', 1);
+        $this->assertDatabaseCount('stock_movements', 0);
+        $this->assertDatabaseCount('inventory_reservations', 0);
+
+        $sent = $service->transition($draft, QuotationStatus::Sent, $this->owner);
+        $this->assertSame($baselineProducts, Product::query()->count());
+        $service->transition($sent, QuotationStatus::Rejected, $this->owner, 'Customer declined');
+        $this->assertSame($baselineProducts, Product::query()->count());
+        $this->assertDatabaseCount('stock_movements', 0);
+
+        $cancelled = $service->create($this->manualData(), $this->owner);
+        $service->transition($cancelled, QuotationStatus::Cancelled, $this->owner, 'Cancelled draft');
+        $this->assertSame($baselineProducts, Product::query()->count());
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_accepted_manual_line_materializes_product_receives_full_quantity_and_reserves_order(): void
+    {
+        $quote = $this->acceptedManual();
+        $beforeProducts = Product::query()->count();
+        $order = $this->convert($quote);
+        $line = $quote->items->sole()->refresh();
+        $product = $line->materializedProduct;
+        $posting = QuotationSourcingPosting::query()->sole();
+        $inventory = ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $this->warehouse->id)->sole();
+
+        $this->assertSame($beforeProducts + 1, Product::query()->count());
+        $this->assertMatchesRegularExpression('/^TPZ-\d{6}$/', $product->sku);
+        $this->assertSame('Manually sourced laptop', $product->name);
+        $this->assertSame('650.00', $product->selling_price);
+        $this->assertNull($product->cost_price);
+        $this->assertSame($product->id, $order->items->sole()->product_id);
+        $this->assertSame($line->id, $order->items->sole()->quotation_item_id);
+        $this->assertSame(5, $posting->quantity);
+        $this->assertSame('400.0000', $posting->purchase_unit_cost);
+        $this->assertSame(5, $inventory->available_quantity);
+        $this->assertSame(5, $inventory->reserved_quantity);
+        $this->assertSame('400.0000', $inventory->average_cost);
+        $this->assertSame('quotation_sourcing_receipt', $posting->movement->movement_type->value);
+        $this->assertSame($order->id, $quote->refresh()->order_id);
+        $this->assertDatabaseCount('purchases', 0);
+        $this->assertSame($this->owner->id, $line->materialized_by_user_id);
+        $this->assertNotNull($line->materialized_at);
+        $this->assertDatabaseHas('activity_logs', [
+            'event' => 'quotation.manual_product_materialized',
+            'subject_type' => 'quotation_item',
+            'subject_id' => $line->id,
+        ]);
+    }
+
+    public function test_mixed_existing_and_manual_lines_preserve_existing_stock_and_source_only_manual_quantity(): void
+    {
+        $this->inventory->update(['available_quantity' => 5]);
+        $data = $this->data(['quantity' => 5, 'source_inventory' => false, 'purchase_unit_cost' => null]);
+        $data['items'][] = $this->manualLine();
+        $service = app(QuotationService::class);
+        $quote = $service->create($data, $this->owner);
+        $service->transition($quote, QuotationStatus::Sent, $this->owner);
+        $quote = $service->transition($quote->fresh(), QuotationStatus::Accepted, $this->owner)->load('items');
+        $order = $this->convert($quote);
+
+        $this->assertCount(2, $order->items);
+        $this->assertDatabaseCount('quotation_sourcing_postings', 1);
+        $this->assertSame(5, QuotationSourcingPosting::query()->sole()->quantity);
+        $this->assertSame(5, $this->inventory->refresh()->available_quantity);
+        $this->assertSame(5, $this->inventory->reserved_quantity);
+        $this->assertDatabaseCount('inventory_reservations', 2);
+    }
+
+    public function test_manual_fulfillment_uses_ledger_cost_and_retry_is_idempotent(): void
+    {
+        $quote = $this->acceptedManual();
+        $order = $this->convert($quote);
+        $before = $this->manualFingerprint();
+        $this->assertSame($order->id, $this->convert($quote->fresh())->id);
+        $this->assertSame($before, $this->manualFingerprint());
+
+        app(FulfillOrder::class)->handle($order, (string) Str::uuid(), $this->owner);
+        $fulfillment = $order->items->sole()->fulfillmentItem;
+        $this->assertSame('2000.0000', $fulfillment->cogs_total);
+        $read = app(WebSalesReadService::class)->orders($this->owner)->whereKey($order->id)->firstOrFail();
+        $this->assertEqualsWithDelta(1250.0, (float) $read->gross_profit, 0.0001);
+    }
+
+    public function test_manual_conversion_failure_rolls_back_product_receipt_order_and_link(): void
+    {
+        $quote = $this->acceptedManual();
+        $before = $this->manualFingerprint();
+        $this->mock(OrderUpgradeService::class, function ($mock): void {
+            $mock->shouldReceive('assertInstallStock')->once()->andThrow(ValidationException::withMessages(['items' => 'Simulated failure.']));
+        });
+
+        try {
+            $this->convert($quote);
+            $this->fail('Expected atomic rollback.');
+        } catch (ValidationException) {
+            $this->assertSame($before, $this->manualFingerprint());
+            $this->assertNull($quote->items->sole()->refresh()->materialized_product_id);
+            $this->assertNull($quote->refresh()->order_id);
+        }
+    }
+
+    public function test_manual_sourcing_requires_cost_permissions_and_cannot_escape_responsibility_scope(): void
+    {
+        $admin = $this->actor(EmployeeRole::Admin);
+        app(EmployeePermissionOverrideService::class)->change(
+            $admin->employee,
+            QuotationPermission::ViewSourceCost->value,
+            EmployeePermissionEffect::Deny,
+            'Test manual cost denial',
+            $this->owner,
+        );
+        $this->expectException(AuthorizationException::class);
+        app(QuotationService::class)->create($this->manualData(), $admin);
+    }
+
+    public function test_responsibility_scoped_user_with_sourcing_permissions_still_cannot_create_manual_line(): void
+    {
+        $staff = $this->actor(EmployeeRole::Staff);
+        foreach ([QuotationPermission::SourceInventory, QuotationPermission::ViewSourceCost] as $permission) {
+            app(EmployeePermissionOverrideService::class)->change($staff->employee, $permission->value, EmployeePermissionEffect::Allow, 'Test manual scope', $this->owner);
+        }
+
+        try {
+            app(QuotationService::class)->create($this->manualData(), $staff);
+            $this->fail('Responsibility-scoped actor materialized an unassigned Product.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('items.0.source_type', $exception->errors());
+            $this->assertDatabaseCount('quotations', 0);
+        }
+    }
+
+    public function test_direct_manual_conversion_action_reauthorizes_sourcing_permissions(): void
+    {
+        $quote = $this->acceptedManual();
+        $admin = $this->actor(EmployeeRole::Admin);
+        app(EmployeePermissionOverrideService::class)->change(
+            $admin->employee,
+            QuotationPermission::ViewSourceCost->value,
+            EmployeePermissionEffect::Deny,
+            'Test direct conversion denial',
+            $this->owner,
+        );
+        $beforeProducts = Product::query()->count();
+
+        try {
+            app(QuotationConversionService::class)->toOrder($quote, $this->warehouse->id, $admin);
+            $this->fail('Direct conversion bypassed sourcing authorization.');
+        } catch (AuthorizationException) {
+            $this->assertSame($beforeProducts, Product::query()->count());
+            $this->assertNull($quote->items->sole()->refresh()->materialized_product_id);
+            $this->assertDatabaseCount('orders', 0);
+            $this->assertDatabaseCount('quotation_sourcing_postings', 0);
+        }
+    }
+
+    public function test_manual_source_form_fields_and_direct_invoice_action_are_safely_present_or_hidden(): void
+    {
+        Livewire::actingAs($this->owner)->test(CreateQuotation::class)
+            ->fillForm($this->manualData())
+            ->assertSee('Manual Sourced Product')
+            ->assertSee('Product Name / Description')
+            ->assertSee('Planned Sourced Qty (estimate)')
+            ->call('create')->assertHasNoFormErrors();
+
+        $quote = Quotation::query()->sole();
+        app(QuotationService::class)->transition($quote, QuotationStatus::Sent, $this->owner);
+        app(QuotationService::class)->transition($quote->fresh(), QuotationStatus::Accepted, $this->owner);
+        Livewire::actingAs($this->owner)->test(ViewQuotation::class, ['record' => $quote->id])
+            ->assertActionHidden('convertInvoice')
+            ->assertActionVisible('convertOrder');
     }
 
     public function test_competing_conversions_of_the_same_quotation_create_only_one_receipt_and_order(): void
@@ -518,6 +708,90 @@ class QuotationSourcingTest extends TestCase
         }
     }
 
+    public function test_competing_manual_conversions_create_only_one_product_receipt_and_order(): void
+    {
+        $quote = $this->acceptedManual();
+        $this->runManualConcurrencyCheck($quote);
+    }
+
+    private function runManualConcurrencyCheck(Quotation $quote): void
+    {
+        $path = sys_get_temp_dir().'/tpz-source-race-manual-'.Str::uuid().'.sqlite';
+        touch($path);
+        $workers = [];
+        try {
+            $copy = new \PDO('sqlite:'.$path);
+            $copy->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+            $copy->exec('PRAGMA foreign_keys=OFF');
+            $tables = DB::select("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+            foreach ($tables as $table) {
+                $copy->exec($table->sql);
+                foreach (DB::table($table->name)->get() as $record) {
+                    $fields = array_keys((array) $record);
+                    $statement = $copy->prepare('INSERT INTO "'.$table->name.'" ("'.implode('","', $fields).'") VALUES ('.implode(',', array_fill(0, count($fields), '?')).')');
+                    $statement->execute(array_values((array) $record));
+                }
+            }
+            foreach (DB::select("SELECT sql FROM sqlite_master WHERE type IN ('index','trigger') AND sql IS NOT NULL") as $object) {
+                $copy->exec($object->sql);
+            }
+            $statement = null;
+            $copy = null;
+
+            foreach ([0, 1] as $slot) {
+                $worker = new Process([PHP_BINARY, base_path('tests/Support/QuotationSourcingConversionWorker.php'), $path, (string) $quote->id, (string) $this->owner->id, (string) $slot], base_path(), timeout: 45);
+                $worker->start();
+                $workers[] = $worker;
+            }
+            $readinessStartedAt = microtime(true);
+            $deadline = microtime(true) + 20;
+            while ((! is_file($path.'.ready.0') || ! is_file($path.'.ready.1')) && microtime(true) < $deadline) {
+                foreach ($workers as $slot => $worker) {
+                    if (! is_file($path.'.ready.'.$slot) && ! $worker->isRunning()) {
+                        break 2;
+                    }
+                }
+                usleep(10000);
+            }
+            $diagnostics = $this->workerDiagnostics($workers, $path, microtime(true) - $readinessStartedAt);
+            $this->assertFileExists($path.'.ready.0', $diagnostics);
+            $this->assertFileExists($path.'.ready.1', $diagnostics);
+            touch($path.'.go');
+            $ids = [];
+            foreach ($workers as $worker) {
+                $worker->wait();
+                $this->assertTrue($worker->isSuccessful(), $this->workerDiagnostics($workers, $path, microtime(true) - $readinessStartedAt));
+                $ids[] = json_decode($worker->getOutput(), true, flags: JSON_THROW_ON_ERROR)['order_id'];
+            }
+            $this->assertSame($ids[0], $ids[1]);
+
+            $copy = new \PDO('sqlite:'.$path);
+            $copy->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+            foreach (['orders', 'order_items', 'quotation_sourcing_postings', 'inventory_reservations'] as $table) {
+                $this->assertSame(1, (int) $copy->query('SELECT count(*) FROM '.$table)->fetchColumn());
+            }
+            $this->assertSame(2, (int) $copy->query('SELECT count(*) FROM products')->fetchColumn());
+            $this->assertSame(2, (int) $copy->query('SELECT count(*) FROM stock_movements')->fetchColumn());
+            $productId = (int) $copy->query('SELECT materialized_product_id FROM quotation_items WHERE id='.(int) $quote->items->sole()->id)->fetchColumn();
+            $this->assertGreaterThan(0, $productId);
+            $this->assertSame(5, (int) $copy->query('SELECT available_quantity FROM product_inventories WHERE product_id='.$productId)->fetchColumn());
+            $this->assertSame(5, (int) $copy->query('SELECT reserved_quantity FROM product_inventories WHERE product_id='.$productId)->fetchColumn());
+        } finally {
+            foreach ($workers as $worker) {
+                if ($worker->isRunning()) {
+                    $worker->stop();
+                }
+            }
+            $statement = null;
+            $copy = null;
+            foreach ([$path, $path.'-wal', $path.'-shm', $path.'-journal', $path.'.ready.0', $path.'.ready.1', $path.'.go'] as $temporary) {
+                if (is_file($temporary)) {
+                    unlink($temporary);
+                }
+            }
+        }
+    }
+
     /** @param array<int, Process> $workers */
     private function workerDiagnostics(array $workers, string $path, float $elapsed): string
     {
@@ -555,6 +829,15 @@ class QuotationSourcingTest extends TestCase
         return $service->transition($quote->fresh(), QuotationStatus::Accepted, $this->owner)->load('items');
     }
 
+    private function acceptedManual(): Quotation
+    {
+        $service = app(QuotationService::class);
+        $quote = $service->create($this->manualData(), $this->owner);
+        $service->transition($quote, QuotationStatus::Sent, $this->owner);
+
+        return $service->transition($quote->fresh(), QuotationStatus::Accepted, $this->owner)->load('items');
+    }
+
     private function data(array $line = []): array
     {
         return ['customer_phone' => '+971500000000'] + $this->documentData($line);
@@ -563,6 +846,40 @@ class QuotationSourcingTest extends TestCase
     private function documentData(array $line): array
     {
         return ['warehouse_id' => $this->warehouse->id, 'document_type' => 'quotation', 'quotation_date' => today()->toDateString(), 'valid_until' => today()->addDays(7)->toDateString(), 'customer_name' => 'Buyer', 'customer_address' => 'Dubai', 'idempotency_key' => (string) Str::uuid(), 'items' => [[...['product_id' => $this->product->id, 'description' => 'Laptop', 'quantity' => 3, 'unit_price_including_vat' => '200.00', 'discount_amount' => '0.00', 'vat_rate' => '5.0000', 'source_inventory' => true, 'purchase_unit_cost' => '200.0000'], ...$line]]];
+    }
+
+    private function manualData(array $line = []): array
+    {
+        return [
+            'warehouse_id' => $this->warehouse->id,
+            'document_type' => 'quotation',
+            'quotation_date' => today()->toDateString(),
+            'valid_until' => today()->addDays(7)->toDateString(),
+            'customer_name' => 'Manual Buyer',
+            'customer_phone' => '+971500000001',
+            'customer_address' => 'Dubai',
+            'idempotency_key' => (string) Str::uuid(),
+            'items' => [[...$this->manualLine(), ...$line]],
+        ];
+    }
+
+    private function manualLine(): array
+    {
+        return [
+            'source_type' => QuotationItemSourceType::ManualSourced->value,
+            'product_id' => null,
+            'description' => 'Manually sourced laptop',
+            'manual_brand_id' => $this->product->brand_id,
+            'manual_category_id' => $this->product->category_id,
+            'manual_model' => 'Manual Model',
+            'manual_condition' => ProductCondition::New->value,
+            'quantity' => 5,
+            'unit_price_including_vat' => '650.00',
+            'discount_amount' => '0.00',
+            'vat_rate' => '5.0000',
+            'purchase_unit_cost' => '400.0000',
+            'source_note' => 'Approved supplier quote',
+        ];
     }
 
     private function convert(Quotation $quote): Order
@@ -581,5 +898,13 @@ class QuotationSourcingTest extends TestCase
     private function fingerprint(): array
     {
         return collect(['product_inventories', 'stock_movements', 'orders', 'order_items', 'inventory_reservations', 'quotation_sourcing_postings'])->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()])->all();
+    }
+
+    private function manualFingerprint(): array
+    {
+        return collect([
+            'products', 'product_inventories', 'stock_movements', 'orders', 'order_items',
+            'inventory_reservations', 'quotation_sourcing_postings',
+        ])->mapWithKeys(fn ($table) => [$table => DB::table($table)->orderBy('id')->get()->toJson()])->all();
     }
 }

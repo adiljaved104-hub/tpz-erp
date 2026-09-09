@@ -2,11 +2,15 @@
 
 namespace App\Services\Quotations;
 
+use App\Enums\ProductCondition;
 use App\Enums\ProductStatus;
 use App\Enums\QuotationDocumentType;
+use App\Enums\QuotationItemSourceType;
 use App\Enums\QuotationPermission;
 use App\Enums\QuotationStatus;
 use App\Models\Product;
+use App\Models\ProductBrand;
+use App\Models\ProductCategory;
 use App\Models\Quotation;
 use App\Models\QuotationItemSourcingInstruction;
 use App\Models\User;
@@ -41,13 +45,14 @@ class QuotationService
             return $existing->load('items');
         }
         $products = $this->products($validated['items']);
+        $catalog = $this->manualCatalog($validated['items']);
         $instructions = $this->sourcing->validateInstructions($validated['items'], (int) $validated['warehouse_id'], $actor);
         $priced = $this->pricing->calculate($validated['items']);
         $reference = $this->references->nextQuotationReference((int) substr($validated['quotation_date'], 0, 4));
         $profile = $this->company->snapshot();
         $settings = $this->settings->settings();
 
-        return DB::transaction(function () use ($validated, $actor, $products, $priced, $reference, $profile, $settings, $instructions): Quotation {
+        return DB::transaction(function () use ($validated, $actor, $products, $catalog, $priced, $reference, $profile, $settings, $instructions): Quotation {
             $quote = Quotation::query()->create([
                 ...collect($validated)->except('items')->all(),
                 'reference' => $reference,
@@ -63,7 +68,7 @@ class QuotationService
                 'salesperson_employee_id' => $actor->employee->id,
                 'created_by_user_id' => $actor->id,
             ]);
-            $this->storeItems($quote, $priced['lines'], $products, $instructions);
+            $this->storeItems($quote, $priced['lines'], $products, $catalog, $instructions);
             $this->activity->log('quotation.created', $actor, $quote, ['quotation_reference' => $quote->reference, 'item_count' => count($priced['lines']), 'actor_id' => $actor->id]);
 
             return $quote->load(['items', 'salesperson']);
@@ -76,9 +81,10 @@ class QuotationService
         $validated = $this->validate($data, false);
         $instructions = $this->sourcing->validateInstructions($validated['items'], (int) ($validated['warehouse_id'] ?? 0), $actor, $quotation);
         $products = $this->products($validated['items']);
+        $catalog = $this->manualCatalog($validated['items']);
         $priced = $this->pricing->calculate($validated['items']);
 
-        return DB::transaction(function () use ($quotation, $validated, $products, $priced, $actor, $instructions): Quotation {
+        return DB::transaction(function () use ($quotation, $validated, $products, $catalog, $priced, $actor, $instructions): Quotation {
             $locked = Quotation::query()->lockForUpdate()->findOrFail($quotation->id);
             if ($locked->status !== QuotationStatus::Draft || $locked->effectiveStatus() === QuotationStatus::Expired) {
                 throw ValidationException::withMessages(['status' => 'Only an unexpired Draft quotation can be edited.']);
@@ -94,7 +100,7 @@ class QuotationService
                 'vat_amount' => $priced['vat'], 'grand_total' => $priced['grand'],
             ])->save();
             $locked->items()->delete();
-            $this->storeItems($locked, $priced['lines'], $products, $instructions);
+            $this->storeItems($locked, $priced['lines'], $products, $catalog, $instructions);
             $this->activity->log('quotation.updated', $actor, $locked, ['quotation_reference' => $locked->reference, 'item_count' => count($priced['lines']), 'actor_id' => $actor->id]);
 
             return $locked->load('items');
@@ -146,6 +152,15 @@ class QuotationService
 
     private function validate(array $data, bool $creating = true): array
     {
+        $data['items'] = collect($data['items'] ?? [])->map(function (array $item): array {
+            $item['source_type'] ??= QuotationItemSourceType::ExistingProduct->value;
+            if ($item['source_type'] === QuotationItemSourceType::ManualSourced->value) {
+                $item['product_id'] = null;
+                $item['source_inventory'] = true;
+            }
+
+            return $item;
+        })->all();
         $rules = [
             'warehouse_id' => [$creating ? 'required' : 'nullable', 'integer', Rule::exists('warehouses', 'id')->where('status', true)],
             'document_type' => ['required', Rule::enum(QuotationDocumentType::class)],
@@ -154,7 +169,13 @@ class QuotationService
             'customer_phone' => ['nullable', 'string', 'max:40'], 'customer_email' => ['nullable', 'email', 'max:190'],
             'customer_address' => ['nullable', 'string', 'max:4000'], 'customer_trn' => ['nullable', 'string', 'max:50'],
             'external_reference' => ['nullable', 'string', 'max:100'], 'notes' => ['nullable', 'string', 'max:4000'],
-            'items' => ['required', 'array', 'min:1', 'max:100'], 'items.*.product_id' => ['required', 'integer', 'distinct'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*.source_type' => ['required', Rule::enum(QuotationItemSourceType::class)],
+            'items.*.product_id' => ['nullable', 'integer', 'required_if:items.*.source_type,'.QuotationItemSourceType::ExistingProduct->value],
+            'items.*.manual_brand_id' => ['nullable', 'integer', 'required_if:items.*.source_type,'.QuotationItemSourceType::ManualSourced->value, Rule::exists('product_brands', 'id')->where('status', true)],
+            'items.*.manual_category_id' => ['nullable', 'integer', 'required_if:items.*.source_type,'.QuotationItemSourceType::ManualSourced->value, Rule::exists('product_categories', 'id')->where('status', true)],
+            'items.*.manual_condition' => ['nullable', 'required_if:items.*.source_type,'.QuotationItemSourceType::ManualSourced->value, Rule::enum(ProductCondition::class)],
+            'items.*.manual_model' => ['nullable', 'string', 'max:120'],
             'items.*.description' => ['required', 'string', 'max:500'], 'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.unit_price_including_vat' => ['required', 'decimal:0,2', 'gt:0'],
             'items.*.discount_amount' => ['nullable', 'decimal:0,2', 'min:0'], 'items.*.vat_rate' => ['required', 'decimal:0,4', 'between:0,100'],
@@ -166,7 +187,22 @@ class QuotationService
             $rules['idempotency_key'] = ['required', 'uuid'];
         }
 
-        $validated = validator($data, $rules)->validate();
+        $validator = validator($data, $rules);
+        $validator->after(function ($validator) use ($data): void {
+            $existing = collect($data['items'] ?? [])
+                ->where('source_type', QuotationItemSourceType::ExistingProduct->value)
+                ->pluck('product_id')->filter();
+            if ($existing->duplicates()->isNotEmpty()) {
+                $validator->errors()->add('items', 'An existing Product may appear only once in a Quotation.');
+            }
+            foreach ($data['items'] ?? [] as $index => $item) {
+                if (($item['source_type'] ?? null) === QuotationItemSourceType::ManualSourced->value
+                    && mb_strlen(trim((string) ($item['description'] ?? ''))) > 255) {
+                    $validator->errors()->add("items.{$index}.description", 'The manual Product name or description must not exceed 255 characters.');
+                }
+            }
+        });
+        $validated = $validator->validate();
         if (isset($validated['warehouse_id'])) {
             app(OrderFulfillmentLocationService::class)->assertSelectable(
                 Warehouse::query()->findOrFail($validated['warehouse_id']), null,
@@ -180,8 +216,13 @@ class QuotationService
 
     private function products(array $items)
     {
-        $products = Product::query()->products()->with('brandRelation')->whereKey(collect($items)->pluck('product_id'))->get()->keyBy('id');
+        $existingItems = collect($items)->where('source_type', QuotationItemSourceType::ExistingProduct->value);
+        $products = Product::query()->products()->with(['brandRelation', 'categoryRelation'])
+            ->whereKey($existingItems->pluck('product_id'))->get()->keyBy('id');
         foreach ($items as $index => $item) {
+            if ($item['source_type'] === QuotationItemSourceType::ManualSourced->value) {
+                continue;
+            }
             if (($product = $products->get($item['product_id'])) === null || $product->status !== ProductStatus::Active) {
                 throw ValidationException::withMessages(["items.{$index}.product_id" => 'Select an active Product.']);
             }
@@ -190,15 +231,43 @@ class QuotationService
         return $products;
     }
 
-    private function storeItems(Quotation $quote, array $lines, $products, array $instructions = []): void
+    private function manualCatalog(array $items): array
+    {
+        $manual = collect($items)->where('source_type', QuotationItemSourceType::ManualSourced->value);
+
+        return [
+            'brands' => ProductBrand::query()->active()->whereKey($manual->pluck('manual_brand_id'))->get()->keyBy('id'),
+            'categories' => ProductCategory::query()->active()->whereKey($manual->pluck('manual_category_id'))->get()->keyBy('id'),
+        ];
+    }
+
+    private function storeItems(Quotation $quote, array $lines, $products, array $catalog, array $instructions = []): void
     {
         foreach ($lines as $index => $line) {
-            $product = $products->get($line['product_id']);
-            unset($line['source_inventory'], $line['purchase_unit_cost'], $line['source_note']);
+            $manual = $line['source_type'] === QuotationItemSourceType::ManualSourced->value;
+            $product = $manual ? null : $products->get($line['product_id']);
+            $brand = $manual ? $catalog['brands']->get($line['manual_brand_id']) : null;
+            $category = $manual ? $catalog['categories']->get($line['manual_category_id']) : null;
             $item = $quote->items()->create([
-                ...$line,
-                'sku' => $product->sku, 'product_name' => $product->name,
-                'brand_name' => $product->displayBrandName(), 'model_name' => $product->model,
+                'source_type' => $line['source_type'],
+                'product_id' => $product?->id,
+                'sku' => $product?->sku,
+                'product_name' => $product?->name ?? $line['description'],
+                'brand_name' => $product?->displayBrandName() ?? $brand?->name,
+                'category_name' => $product?->displayCategoryName() ?? $category?->name,
+                'model_name' => $product?->model ?? ($line['manual_model'] ?? null),
+                'manual_brand_id' => $manual ? $brand?->id : null,
+                'manual_category_id' => $manual ? $category?->id : null,
+                'manual_condition' => $manual ? $line['manual_condition'] : null,
+                'description' => $line['description'],
+                'quantity' => $line['quantity'],
+                'unit_price_including_vat' => $line['unit_price_including_vat'],
+                'discount_amount' => $line['discount_amount'],
+                'vat_rate' => $line['vat_rate'],
+                'subtotal_excluding_vat' => $line['subtotal_excluding_vat'],
+                'vat_amount' => $line['vat_amount'],
+                'total_including_vat' => $line['total_including_vat'],
+                'line_number' => $line['line_number'],
             ]);
             if (isset($instructions[$index])) {
                 $item->sourcingInstruction()->create($instructions[$index]);

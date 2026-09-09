@@ -5,6 +5,7 @@ namespace App\Services\Quotations;
 use App\Enums\InventoryPermission;
 use App\Enums\OrderPermission;
 use App\Enums\ProductStatus;
+use App\Enums\QuotationItemSourceType;
 use App\Enums\QuotationPermission;
 use App\Models\Order;
 use App\Models\Product;
@@ -48,6 +49,11 @@ class QuotationSourcingService
         $this->authorization->authorize($actor, QuotationPermission::ViewSourceCost, $quotation);
     }
 
+    public function canManageManualProducts(User $actor, ?Quotation $quotation = null): bool
+    {
+        return $this->canManage($actor, $quotation) && ! $this->scope->requiresScope($actor);
+    }
+
     public function canPreviewMargin(User $actor): bool
     {
         return $this->authorization->allows($actor, QuotationPermission::ViewSourceCost)
@@ -61,17 +67,18 @@ class QuotationSourcingService
         if (! $this->canPreviewMargin($actor)) {
             return null; // Deliberately before any financial SQL projection.
         }
-        $stock = $this->availability([$line], $warehouseId, $actor)[0] ?? null;
         $quantity = (int) ($line['quantity'] ?? 0);
+        $manual = ($line['source_type'] ?? QuotationItemSourceType::ExistingProduct->value) === QuotationItemSourceType::ManualSourced->value;
+        $stock = $this->availability([$line], $warehouseId, $actor)[0] ?? null;
         if ($stock === null || $quantity < 1 || ! preg_match('/^\d{1,11}(?:\.\d{0,2})?$/', (string) ($line['unit_price_including_vat'] ?? ''))) {
             return null;
         }
-        $balance = ProductInventory::query()->where('product_id', $line['product_id'])->where('warehouse_id', $warehouseId)
+        $balance = $manual ? null : ProductInventory::query()->where('product_id', $line['product_id'])->where('warehouse_id', $warehouseId)
             ->first(['id', 'available_quantity', 'damaged_quantity', 'average_cost']);
         $average = $balance?->average_cost;
         if ($stock['missing'] > 0) {
             $cost = (string) ($line['purchase_unit_cost'] ?? '');
-            if (empty($line['source_inventory']) || ! preg_match('/^\d{1,11}(?:\.\d{1,4})?$/', $cost) || bccomp($cost, '0', 4) <= 0
+            if ((! $manual && empty($line['source_inventory'])) || ! preg_match('/^\d{1,11}(?:\.\d{1,4})?$/', $cost) || bccomp($cost, '0', 4) <= 0
                 || ($balance?->totalOnHand() > 0 && $average === null)) {
                 return null;
             }
@@ -98,6 +105,11 @@ class QuotationSourcingService
             ->mapWithKeys(fn ($i) => [$i->product_id => $i->sellableQuantity()])->all();
         $result = [];
         foreach ($lines as $key => $line) {
+            if (($line['source_type'] ?? QuotationItemSourceType::ExistingProduct->value) === QuotationItemSourceType::ManualSourced->value) {
+                $result[$key] = ['available' => 0, 'missing' => max(0, (int) ($line['quantity'] ?? 0))];
+
+                continue;
+            }
             $id = (int) ($line['product_id'] ?? 0);
             if (! $products->contains($id)) {
                 continue;
@@ -118,17 +130,23 @@ class QuotationSourcingService
         $availability = $this->availability($lines, $warehouseId, $actor);
         $instructions = [];
         foreach ($lines as $key => $line) {
-            if (! empty($line['source_inventory']) || filled($line['purchase_unit_cost'] ?? null) || filled($line['source_note'] ?? null)) {
+            $manual = ($line['source_type'] ?? QuotationItemSourceType::ExistingProduct->value) === QuotationItemSourceType::ManualSourced->value;
+            if ($manual || ! empty($line['source_inventory']) || filled($line['purchase_unit_cost'] ?? null) || filled($line['source_note'] ?? null)) {
                 $this->authorizeManage($actor, $quotation);
             }
-            if (empty($line['source_inventory'])) {
+            if ($manual && $this->scope->requiresScope($actor)) {
+                throw ValidationException::withMessages([
+                    "items.{$key}.source_type" => 'Manual sourced Products are unavailable under Responsibility-scoped access.',
+                ]);
+            }
+            if (! $manual && empty($line['source_inventory'])) {
                 continue;
             }
             if (! isset($availability[$key])) {
                 throw ValidationException::withMessages(["items.{$key}.product_id" => 'This Product is outside your authorized Responsibility scope.']);
             }
             $missing = $availability[$key]['missing'];
-            if ($missing === 0 && blank($line['purchase_unit_cost'] ?? null)) {
+            if (! $manual && $missing === 0 && blank($line['purchase_unit_cost'] ?? null)) {
                 continue;
             }
             $validator = validator($line, [
@@ -158,7 +176,11 @@ class QuotationSourcingService
         }
         $remaining = [];
         $inventoryIds = [];
-        foreach ($quotation->items->pluck('product_id')->unique()->sort() as $productId) {
+        $productIds = $quotation->items->map(fn ($item): ?int => $item->resolvedProductId())->filter()->unique()->sort();
+        if ($productIds->count() !== $quotation->items->count()) {
+            throw new \LogicException('Every quotation line must resolve to a Product before sourcing planning.');
+        }
+        foreach ($productIds as $productId) {
             $product = Product::query()->products()->whereKey($productId)->lockForUpdate()->first();
             if ($product?->status !== ProductStatus::Active || ! $this->scope->canAccessProduct($actor, $productId, null, $warehouseId)) {
                 throw ValidationException::withMessages(['items' => 'A Product is inactive or outside your Responsibility scope.']);
@@ -169,9 +191,11 @@ class QuotationSourcingService
         }
         $plan = [];
         foreach ($quotation->items as $line) {
-            $used = min($line->quantity, $remaining[$line->product_id]);
-            $remaining[$line->product_id] -= $used;
-            $missing = $line->quantity - $used;
+            $productId = $line->resolvedProductId();
+            $manual = $line->source_type === QuotationItemSourceType::ManualSourced;
+            $used = $manual ? 0 : min($line->quantity, $remaining[$productId]);
+            $remaining[$productId] -= $used;
+            $missing = $manual ? $line->quantity : $line->quantity - $used;
             if ($missing === 0) {
                 continue;
             }
@@ -180,7 +204,7 @@ class QuotationSourcingService
             if ($instruction === null || bccomp((string) $instruction->purchase_unit_cost, '0', 4) <= 0) {
                 throw ValidationException::withMessages(['items' => "{$line->sku} is short by {$missing}. An authorized sourcing instruction with Purchase Cost is required."]);
             }
-            $plan[$line->id] = ['instruction' => $instruction, 'quantity' => $missing, 'inventory_id' => $inventoryIds[$line->product_id]];
+            $plan[$line->id] = ['instruction' => $instruction, 'quantity' => $missing, 'inventory_id' => $inventoryIds[$productId]];
         }
 
         return $plan;
@@ -195,7 +219,7 @@ class QuotationSourcingService
         $group = (string) Str::uuid();
         foreach ($quotation->items->values() as $index => $line) {
             $item = $order->items->values()[$index];
-            if ($item->product_id !== $line->product_id || $item->ordered_quantity !== $line->quantity) {
+            if ($item->product_id !== $line->resolvedProductId() || $item->ordered_quantity !== $line->quantity) {
                 throw new \LogicException('Quotation and Order line identities do not match.');
             }
             $item->forceFill(['quotation_item_id' => $line->id])->save();
@@ -243,5 +267,16 @@ class QuotationSourcingService
                 'source_inventory' => true, 'purchase_unit_cost' => (string) $i->purchase_unit_cost,
                 'source_note' => $i->source_note,
             ]])->all();
+    }
+
+    /** Sourced quotations must pass through Order receipt/reservation before invoicing. */
+    public function requiresOrderConversion(Quotation $quotation): bool
+    {
+        return $quotation->items()
+            ->where('source_type', QuotationItemSourceType::ManualSourced->value)
+            ->exists()
+            || QuotationItemSourcingInstruction::query()
+                ->whereIn('quotation_item_id', $quotation->items()->select('id'))
+                ->value('quotation_item_id') !== null;
     }
 }

@@ -6,6 +6,7 @@ use App\DTOs\Orders\CancelOrderData;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\OrderUpgradePlan;
 use App\DTOs\Orders\PreparedOrderReservation;
+use App\DTOs\Orders\PreparedPlainOrderReferences;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\Enums\OrderPermission;
 use App\Enums\OrderSource;
@@ -100,6 +101,63 @@ class OrderService
         }
 
         return new PreparedOrderReservation($data, $reference, $reservationReferences, $movementReferences, $postingKeys, $lineKeys, $upgradePlans);
+    }
+
+    /** Allocate all references for a plain-product Order before its business transaction. */
+    public function preallocatePlainReservationReferences(int $year, int $itemCount, User $actor): PreparedPlainOrderReferences
+    {
+        $this->authorization->authorize($actor, OrderPermission::Create);
+        $this->authorization->authorize($actor, OrderPermission::Reserve);
+        $this->authorization->authorize($actor, OrderPermission::EditSellingPrice);
+        if ($itemCount < 1 || $itemCount > 100) {
+            throw ValidationException::withMessages(['items' => 'An Order must contain between 1 and 100 items.']);
+        }
+
+        $reference = $this->references->nextSalesOrderReference($year);
+        $reservationReferences = [];
+        $movementReferences = [];
+        $postingKeys = [];
+        $lineKeys = [];
+        foreach (range(0, $itemCount - 1) as $index) {
+            $lineKeys[$index] = (string) Str::uuid();
+            $reservationReferences[$index]['base'] = $this->references->nextInventoryReservationReference();
+            $movementReferences[$index]['base'] = $this->references->nextStockMovementReference();
+            $postingKeys[$index]['base'] = (string) Str::uuid();
+        }
+
+        return new PreparedPlainOrderReferences(
+            $reference,
+            $reservationReferences,
+            $movementReferences,
+            $postingKeys,
+            $lineKeys,
+        );
+    }
+
+    /** Build a plain-product reservation plan after quotation Products exist, without allocating references. */
+    public function preparePlainReservation(
+        SaveAndReserveOrderData $data,
+        User $actor,
+        PreparedPlainOrderReferences $references,
+    ): PreparedOrderReservation {
+        $this->authorization->authorize($actor, OrderPermission::Create);
+        $this->authorization->authorize($actor, OrderPermission::Reserve);
+        $this->authorization->authorize($actor, OrderPermission::EditSellingPrice);
+        $this->validate($data, $actor);
+        if (count($data->items) !== count($references->lineKeys)
+            || collect($data->items)->contains(fn (OrderItemData $item): bool => $item->salesConfigurationId !== null || $item->upgradeRecipeId !== null)) {
+            throw new \LogicException('Prepared plain Order references do not match the quotation lines.');
+        }
+
+        return new PreparedOrderReservation(
+            $data,
+            $references->reference,
+            $references->reservationReferences,
+            $references->movementReferences,
+            $references->postingKeys,
+            $references->lineKeys,
+            array_fill(0, count($data->items), null),
+        );
     }
 
     /**

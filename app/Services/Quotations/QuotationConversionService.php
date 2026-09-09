@@ -10,10 +10,13 @@ use App\Models\Order;
 use App\Models\Quotation;
 use App\Models\TaxInvoice;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Invoices\TaxInvoiceService;
+use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\Orders\OrderService;
+use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -25,46 +28,65 @@ class QuotationConversionService
         private readonly OrderService $orders,
         private readonly TaxInvoiceService $invoices,
         private readonly ActivityLogger $activity,
+        private readonly QuotationSourcingService $sourcing,
+        private readonly ReferenceSequenceService $references,
     ) {}
 
     public function toOrder(Quotation $quotation, int $warehouseId, User $actor, ?string $idempotencyKey = null): Order
     {
         $this->authorization->authorize($actor, QuotationPermission::ConvertOrder, $quotation);
-        $quotation->loadMissing('items');
+        $quotation = $quotation->fresh(['items', 'order']);
         if ($quotation->order_id) {
             return $quotation->order;
         }
         $this->assertConvertible($quotation);
+        if ($quotation->warehouse_id !== null && (int) $quotation->warehouse_id !== $warehouseId) {
+            throw ValidationException::withMessages(['warehouse_id' => 'Use the Quotation Fulfilment Warehouse.']);
+        }
         $key = $this->reserveConversionKey($quotation, 'order_conversion_idempotency_key', $idempotencyKey);
-        $items = $quotation->items->map(fn ($item) => new OrderItemData(
-            productId: $item->product_id,
-            quantity: $item->quantity,
-            sellingPrice: (string) $item->unit_price_including_vat,
-            discountTotal: (string) $item->discount_amount,
-            vatRate: '0.0000',
-            notes: "Converted from {$quotation->reference}",
-        ))->all();
-        $order = $this->orders->saveAndReserve(new SaveAndReserveOrderData(
+        $data = new SaveAndReserveOrderData(
             warehouseId: $warehouseId, platformId: null, externalOrderNumber: null,
             orderDate: today()->toDateString(), handledByEmployeeId: $quotation->salesperson_employee_id,
             notes: "Converted from {$quotation->reference}".($quotation->notes ? "\n{$quotation->notes}" : ''),
-            items: $items, idempotencyKey: $key, webSalesChannel: 'other',
+            items: $quotation->items->map(fn ($item) => new OrderItemData(
+                productId: $item->product_id, quantity: $item->quantity,
+                sellingPrice: (string) $item->unit_price_including_vat,
+                discountTotal: (string) $item->discount_amount, vatRate: '0.0000',
+                notes: "Converted from {$quotation->reference}",
+            ))->all(),
+            idempotencyKey: $key, webSalesChannel: 'other',
             customerName: $quotation->customer_name, customerPhone: $quotation->customer_phone,
             deliveryType: 'shop_pickup',
-        ), $actor);
+        );
+        $prepared = $this->orders->prepareReservation($data, $actor);
+        $references = [];
+        foreach ($quotation->items as $item) {
+            $references[$item->id] = $this->references->nextStockMovementReference();
+        }
 
-        DB::transaction(function () use ($quotation, $order, $key, $actor): void {
-            $locked = Quotation::query()->lockForUpdate()->findOrFail($quotation->id);
-            if ($locked->order_id && $locked->order_id !== $order->id) {
-                throw ValidationException::withMessages(['conversion' => 'This Quotation has already been converted to another Order.']);
+        return DB::transaction(function () use ($quotation, $warehouseId, $actor, $key, $prepared, $references): Order {
+            $locked = $this->lockQuotation($quotation);
+            $this->authorization->authorize($actor, QuotationPermission::ConvertOrder, $locked);
+            if ($locked->order_id) {
+                return $locked->order;
             }
-            if (! $locked->order_id) {
-                $locked->forceFill(['order_id' => $order->id, 'order_conversion_idempotency_key' => $key, 'status' => QuotationStatus::Converted, 'converted_at' => now()])->save();
-                $this->activity->log('quotation.converted_to_order', $actor, $locked, ['quotation_reference' => $locked->reference, 'order_reference' => $order->reference, 'actor_id' => $actor->id]);
-            }
-        });
+            $this->assertConvertible($locked);
+            $locked->setRelation('items', $locked->items()->lockForUpdate()->get());
+            $warehouse = Warehouse::query()->lockForUpdate()->findOrFail($warehouseId);
+            app(OrderFulfillmentLocationService::class)->assertSelectable($warehouse, null);
+            $shortfalls = $this->sourcing->lockedShortfalls($locked, $warehouseId, $actor);
+            $order = $this->orders->postPreparedReservation($prepared, $actor,
+                fn (Order $order) => $this->sourcing->post($locked, $order, $shortfalls, $references, $actor));
+            $locked->forceFill([
+                'order_id' => $order->id, 'order_conversion_idempotency_key' => $key,
+                'status' => QuotationStatus::Converted, 'converted_at' => now(),
+            ])->save();
+            $this->activity->log('quotation.converted_to_order', $actor, $locked, [
+                'quotation_reference' => $locked->reference, 'order_reference' => $order->reference, 'actor_id' => $actor->id,
+            ]);
 
-        return $order;
+            return $order;
+        }, 5);
     }
 
     public function toInvoice(Quotation $quotation, User $actor, ?string $idempotencyKey = null): TaxInvoice
@@ -113,7 +135,7 @@ class QuotationConversionService
     private function reserveConversionKey(Quotation $quotation, string $column, ?string $requested): string
     {
         return DB::transaction(function () use ($quotation, $column, $requested): string {
-            $locked = Quotation::query()->lockForUpdate()->findOrFail($quotation->id);
+            $locked = $this->lockQuotation($quotation);
             if (filled($locked->{$column})) {
                 return $locked->{$column};
             }
@@ -122,6 +144,21 @@ class QuotationConversionService
             $locked->forceFill([$column => $key])->save();
 
             return $key;
-        });
+        }, 5);
+    }
+
+    private function lockQuotation(Quotation $quotation): Quotation
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Quotation locking requires an active transaction.');
+        }
+        if (DB::getDriverName() === 'sqlite') {
+            // SQLite ignores FOR UPDATE. Acquire its writer lock BEFORE reading so two
+            // deferred transactions cannot deadlock while upgrading their read locks.
+            // No commercial field, timestamp, or workflow value is changed.
+            DB::table('quotations')->where('id', $quotation->id)->update(['status' => DB::raw('status')]);
+        }
+
+        return Quotation::query()->lockForUpdate()->findOrFail($quotation->id);
     }
 }

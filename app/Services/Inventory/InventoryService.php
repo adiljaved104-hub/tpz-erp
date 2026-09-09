@@ -12,6 +12,7 @@ use App\Enums\InventoryPermission;
 use App\Enums\InventoryReservationKind;
 use App\Enums\InventoryReservationStatus;
 use App\Enums\ProductStatus;
+use App\Enums\QuotationPermission;
 use App\Enums\StockMovementType;
 use App\Exceptions\DuplicateInventoryPostingException;
 use App\Exceptions\ExactDecimalUnavailableException;
@@ -29,6 +30,7 @@ use App\Models\OrderUpgradeExecution;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\PurchaseReceiptItem;
+use App\Models\QuotationSourcingPosting;
 use App\Models\StockMovement;
 use App\Models\StockTransferItem;
 use App\Models\UpgradeRecipeLine;
@@ -36,6 +38,8 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Authorization\QuotationAuthorization;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -379,6 +383,38 @@ class InventoryService
             $receiptItem->posting_key,
             $receiptItem->inventory_unit_cost,
         );
+    }
+
+    public function receiveQuotationSourcing(QuotationSourcingPosting $posting, User $actor, string $reference, string $group): StockMovement
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Quotation sourcing requires an active transaction.');
+        }
+        $quotation = $posting->quotationItem->quotation;
+        $auth = app(QuotationAuthorization::class);
+        $auth->authorize($actor, QuotationPermission::SourceInventory, $quotation);
+        $auth->authorize($actor, QuotationPermission::ViewSourceCost, $quotation);
+        $item = $posting->orderItem;
+        $inventory = $this->balances->lock($posting->product_inventory_id);
+        if ($inventory->product_id !== $item->product_id || $inventory->warehouse_id !== $item->order->warehouse_id
+            || $item->quotation_item_id !== $posting->quotation_item_id
+            || ! app(OrderResponsibilityScopeService::class)->canAccessProduct($actor, $inventory->product_id, null, $inventory->warehouse_id)) {
+            throw new InventoryInvariantException('Quotation sourcing linkage or Responsibility scope is invalid.');
+        }
+        if ($existing = StockMovement::query()->where('idempotency_key', $posting->idempotency_key)->first()) {
+            if ($existing->source_type !== $posting->getMorphClass() || $existing->source_id !== $posting->id) {
+                throw new DuplicateInventoryPostingException('Sourcing posting key belongs to another inventory operation.');
+            }
+
+            return $existing;
+        }
+        $before = $this->snapshot($inventory);
+        $average = $this->costs->weightedAverage($inventory->totalOnHand(), $inventory->average_cost, $posting->quantity, (string) $posting->purchase_unit_cost);
+        $inventory->forceFill(['available_quantity' => $inventory->available_quantity + $posting->quantity, 'average_cost' => $average])->save();
+
+        return $this->createMovement($inventory, $actor, $reference, $group, StockMovementType::QuotationSourcingReceipt,
+            $posting->quantity, $posting->quantity, 0, 0, $before, $posting,
+            'Stock received for accepted quotation', $posting->idempotency_key, (string) $posting->purchase_unit_cost);
     }
 
     public function reserveOrderItem(OrderItem $item, User $actor, string $reservationReference, string $movementReference, string $idempotencyKey, string $movementGroup): InventoryReservation

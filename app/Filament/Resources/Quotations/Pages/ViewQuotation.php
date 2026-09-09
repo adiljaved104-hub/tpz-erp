@@ -5,7 +5,7 @@ namespace App\Filament\Resources\Quotations\Pages;
 use App\Enums\QuotationPermission;
 use App\Enums\QuotationStatus;
 use App\Filament\Resources\Quotations\QuotationResource;
-use App\Models\Warehouse;
+use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\Quotations\QuotationConversionService;
 use App\Services\Quotations\QuotationEmailService;
 use App\Services\Quotations\QuotationService;
@@ -48,7 +48,7 @@ class ViewQuotation extends ViewRecord
             Action::make('accept')->color('success')->requiresConfirmation()->visible(fn () => QuotationResource::allowed(QuotationPermission::Accept, $this->record) && $status === QuotationStatus::Sent)->action(fn () => app(QuotationService::class)->transition($this->record, QuotationStatus::Accepted, auth()->user())),
             Action::make('reject')->color('danger')->schema([Textarea::make('reason')->required()])->visible(fn () => QuotationResource::allowed(QuotationPermission::Reject, $this->record) && $status === QuotationStatus::Sent)->action(fn (array $d) => app(QuotationService::class)->transition($this->record, QuotationStatus::Rejected, auth()->user(), $d['reason'])),
             Action::make('cancel')->color('danger')->schema([Textarea::make('reason')->required()])->visible(fn () => QuotationResource::allowed(QuotationPermission::Cancel, $this->record) && in_array($status, [QuotationStatus::Draft, QuotationStatus::Sent, QuotationStatus::Accepted], true))->action(fn (array $d) => app(QuotationService::class)->transition($this->record, QuotationStatus::Cancelled, auth()->user(), $d['reason'])),
-            Action::make('convertOrder')->label('Convert to Order')->icon('heroicon-o-shopping-cart')->schema([Select::make('warehouse_id')->label('Fulfilment Location')->options(fn () => Warehouse::query()->active()->pluck('name', 'id'))->required()])->visible(fn () => QuotationResource::allowed(QuotationPermission::ConvertOrder, $this->record) && $status === QuotationStatus::Accepted && ! $this->record->order_id)->action(function (array $d): void {
+            Action::make('convertOrder')->label('Convert to Order')->icon('heroicon-o-shopping-cart')->schema([Select::make('warehouse_id')->label('Fulfilment Warehouse')->default(fn () => $this->record->warehouse_id)->disabled(fn () => $this->record->warehouse_id !== null)->dehydrated()->options(fn () => app(OrderFulfillmentLocationService::class)->options(null))->required()])->visible(fn () => QuotationResource::allowed(QuotationPermission::ConvertOrder, $this->record) && $status === QuotationStatus::Accepted && ! $this->record->order_id)->action(function (array $d): void {
                 $o = app(QuotationConversionService::class)->toOrder($this->record, (int) $d['warehouse_id'], auth()->user());
                 Notification::make()->success()->title("Converted to Order {$o->reference}")->send();
                 $this->record->refresh();

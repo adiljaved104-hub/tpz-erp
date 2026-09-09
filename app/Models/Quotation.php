@@ -73,6 +73,11 @@ class Quotation extends Model
         return $this->hasMany(QuotationItem::class)->orderBy('line_number');
     }
 
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
+    }
+
     public function salesperson(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'salesperson_employee_id');

@@ -18,7 +18,7 @@ class QuotationAuthorization
     {
         return match ($user->employee?->role) {
             EmployeeRole::Owner, EmployeeRole::Admin => true,
-            EmployeeRole::Manager => ! in_array($permission, [QuotationPermission::Cancel], true),
+            EmployeeRole::Manager => ! in_array($permission, [QuotationPermission::Cancel, QuotationPermission::SourceInventory, QuotationPermission::ViewSourceCost], true),
             EmployeeRole::Staff => in_array($permission, [
                 QuotationPermission::View, QuotationPermission::Create, QuotationPermission::Update,
                 QuotationPermission::Send, QuotationPermission::Export,

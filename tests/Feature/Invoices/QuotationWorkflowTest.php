@@ -248,6 +248,13 @@ class QuotationWorkflowTest extends TestCase
 
     private function data(array $items): array
     {
+        $warehouse = Warehouse::query()->latest('id')->first() ?? Warehouse::factory()->create();
+
+        return ['warehouse_id' => $warehouse->id] + $this->documentData($items);
+    }
+
+    private function documentData(array $items): array
+    {
         return ['document_type' => 'quotation', 'quotation_date' => today()->toDateString(), 'valid_until' => today()->addDays(14)->toDateString(), 'customer_name' => 'Acme Customer', 'customer_company' => 'Acme', 'customer_phone' => '+971500000000', 'customer_email' => 'buyer@example.test', 'customer_address' => 'Dubai UAE', 'customer_trn' => null, 'external_reference' => 'RFQ-1', 'notes' => 'Valid while stocks last.', 'idempotency_key' => (string) Str::uuid(), 'items' => $items];
     }
 

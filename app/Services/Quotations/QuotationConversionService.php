@@ -29,6 +29,7 @@ class QuotationConversionService
         private readonly TaxInvoiceService $invoices,
         private readonly ActivityLogger $activity,
         private readonly QuotationSourcingService $sourcing,
+        private readonly QuotationManualProductMaterializer $manualProducts,
         private readonly ReferenceSequenceService $references,
     ) {}
 
@@ -44,27 +45,22 @@ class QuotationConversionService
             throw ValidationException::withMessages(['warehouse_id' => 'Use the Quotation Fulfilment Warehouse.']);
         }
         $key = $this->reserveConversionKey($quotation, 'order_conversion_idempotency_key', $idempotencyKey);
-        $data = new SaveAndReserveOrderData(
-            warehouseId: $warehouseId, platformId: null, externalOrderNumber: null,
-            orderDate: today()->toDateString(), handledByEmployeeId: $quotation->salesperson_employee_id,
-            notes: "Converted from {$quotation->reference}".($quotation->notes ? "\n{$quotation->notes}" : ''),
-            items: $quotation->items->map(fn ($item) => new OrderItemData(
-                productId: $item->product_id, quantity: $item->quantity,
-                sellingPrice: (string) $item->unit_price_including_vat,
-                discountTotal: (string) $item->discount_amount, vatRate: '0.0000',
-                notes: "Converted from {$quotation->reference}",
-            ))->all(),
-            idempotencyKey: $key, webSalesChannel: 'other',
-            customerName: $quotation->customer_name, customerPhone: $quotation->customer_phone,
-            deliveryType: 'shop_pickup',
+        $orderDate = today()->toDateString();
+        $preparedReferences = $this->orders->preallocatePlainReservationReferences(
+            (int) substr($orderDate, 0, 4),
+            $quotation->items->count(),
+            $actor,
         );
-        $prepared = $this->orders->prepareReservation($data, $actor);
-        $references = [];
+        $movementReferences = [];
+        $manualProductSkus = [];
         foreach ($quotation->items as $item) {
-            $references[$item->id] = $this->references->nextStockMovementReference();
+            $movementReferences[$item->id] = $this->references->nextStockMovementReference();
+            if ($item->product_id === null && $item->materialized_product_id === null) {
+                $manualProductSkus[$item->id] = $this->references->nextProductSku();
+            }
         }
 
-        return DB::transaction(function () use ($quotation, $warehouseId, $actor, $key, $prepared, $references): Order {
+        return DB::transaction(function () use ($quotation, $warehouseId, $actor, $key, $orderDate, $preparedReferences, $movementReferences, $manualProductSkus): Order {
             $locked = $this->lockQuotation($quotation);
             $this->authorization->authorize($actor, QuotationPermission::ConvertOrder, $locked);
             if ($locked->order_id) {
@@ -74,9 +70,25 @@ class QuotationConversionService
             $locked->setRelation('items', $locked->items()->lockForUpdate()->get());
             $warehouse = Warehouse::query()->lockForUpdate()->findOrFail($warehouseId);
             app(OrderFulfillmentLocationService::class)->assertSelectable($warehouse, null);
+            $this->manualProducts->materialize($locked, $actor, $manualProductSkus);
+            $data = new SaveAndReserveOrderData(
+                warehouseId: $warehouseId, platformId: null, externalOrderNumber: null,
+                orderDate: $orderDate, handledByEmployeeId: $locked->salesperson_employee_id,
+                notes: "Converted from {$locked->reference}".($locked->notes ? "\n{$locked->notes}" : ''),
+                items: $locked->items->map(fn ($item) => new OrderItemData(
+                    productId: $item->resolvedProductId(), quantity: $item->quantity,
+                    sellingPrice: (string) $item->unit_price_including_vat,
+                    discountTotal: (string) $item->discount_amount, vatRate: '0.0000',
+                    notes: "Converted from {$locked->reference}",
+                ))->all(),
+                idempotencyKey: $key, webSalesChannel: 'other',
+                customerName: $locked->customer_name, customerPhone: $locked->customer_phone,
+                deliveryType: 'shop_pickup',
+            );
+            $prepared = $this->orders->preparePlainReservation($data, $actor, $preparedReferences);
             $shortfalls = $this->sourcing->lockedShortfalls($locked, $warehouseId, $actor);
             $order = $this->orders->postPreparedReservation($prepared, $actor,
-                fn (Order $order) => $this->sourcing->post($locked, $order, $shortfalls, $references, $actor));
+                fn (Order $order) => $this->sourcing->post($locked, $order, $shortfalls, $movementReferences, $actor));
             $locked->forceFill([
                 'order_id' => $order->id, 'order_conversion_idempotency_key' => $key,
                 'status' => QuotationStatus::Converted, 'converted_at' => now(),
@@ -97,6 +109,11 @@ class QuotationConversionService
             return $quotation->taxInvoice;
         }
         $this->assertConvertible($quotation);
+        if ($this->sourcing->requiresOrderConversion($quotation)) {
+            throw ValidationException::withMessages([
+                'conversion' => 'A sourced Quotation must be converted to an Order so inventory receipt and reservation are recorded.',
+            ]);
+        }
         $key = $this->reserveConversionKey($quotation, 'invoice_conversion_idempotency_key', $idempotencyKey);
         $invoice = $this->invoices->create([
             'customer_name' => $quotation->customer_name,

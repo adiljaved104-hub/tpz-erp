@@ -25,7 +25,8 @@ class QuotationReportHandler implements ReportHandler
             ->whereIn('q.id', $ids)->whereBetween('q.quotation_date', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])
             ->when($f['status'], fn (Builder $x) => $x->where('q.status', $f['status']))
             ->when($f['employee_id'], fn (Builder $x) => $x->where('q.salesperson_employee_id', $f['employee_id']))
-            ->when($f['product_id'], fn (Builder $x) => $x->whereExists(fn ($s) => $s->selectRaw('1')->from('quotation_items as qi')->whereColumn('qi.quotation_id', 'q.id')->where('qi.product_id', $f['product_id'])));
+            ->when($f['product_id'], fn (Builder $x) => $x->whereExists(fn ($s) => $s->selectRaw('1')->from('quotation_items as qi')->whereColumn('qi.quotation_id', 'q.id')
+                ->where(fn ($product) => $product->where('qi.product_id', $f['product_id'])->orWhere('qi.materialized_product_id', $f['product_id']))));
         $periodExpression = DB::getDriverName() === 'sqlite' ? "strftime('%Y-%m', q.quotation_date)" : "DATE_FORMAT(q.quotation_date, '%Y-%m')";
         [$query,$columns,$sum] = match ($definition->key) {
             'sales.quotations' => $this->detail($base),

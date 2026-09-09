@@ -53,7 +53,7 @@ class ViewQuotation extends ViewRecord
                 Notification::make()->success()->title("Converted to Order {$o->reference}")->send();
                 $this->record->refresh();
             }),
-            Action::make('convertInvoice')->label('Convert to Tax Invoice')->icon('heroicon-o-document-currency-dollar')->requiresConfirmation()->visible(fn () => QuotationResource::allowed(QuotationPermission::ConvertInvoice, $this->record) && $status === QuotationStatus::Accepted && ! $this->record->tax_invoice_id)->action(function (): void {
+            Action::make('convertInvoice')->label('Convert to Tax Invoice')->icon('heroicon-o-document-currency-dollar')->requiresConfirmation()->visible(fn () => QuotationResource::allowed(QuotationPermission::ConvertInvoice, $this->record) && $status === QuotationStatus::Accepted && ! $this->record->tax_invoice_id && QuotationResource::canConvertDirectlyToInvoice($this->record))->action(function (): void {
                 $i = app(QuotationConversionService::class)->toInvoice($this->record, auth()->user());
                 Notification::make()->success()->title("Converted to Invoice {$i->invoice_number}")->send();
                 $this->record->refresh();

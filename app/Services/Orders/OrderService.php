@@ -5,6 +5,7 @@ namespace App\Services\Orders;
 use App\DTOs\Orders\CancelOrderData;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\OrderUpgradePlan;
+use App\DTOs\Orders\PreparedOrderReservation;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\Enums\OrderPermission;
 use App\Enums\OrderSource;
@@ -27,6 +28,7 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Inventory\InventoryService;
 use App\Services\ReferenceSequenceService;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -57,9 +59,26 @@ class OrderService
         if ($existing = Order::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
             return $existing->load(['items.reservations', 'items.upgradeSelection', 'statusEvents']);
         }
+        $prepared = $this->prepareReservation($data, $actor);
+        try {
+            return DB::transaction(fn () => $this->postPreparedReservation($prepared, $actor), 5);
+        } catch (UniqueConstraintViolationException $exception) {
+            if ($existing = Order::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
+                return $existing->load(['items.reservations', 'items.upgradeSelection', 'statusEvents']);
+            }
+            if ($data->platformId !== null && filled($data->externalOrderNumber)) {
+                throw ValidationException::withMessages(['external_order_number' => 'This Platform Order Number already exists.']);
+            }
+            throw $exception;
+        }
+    }
 
+    public function prepareReservation(SaveAndReserveOrderData $data, User $actor): PreparedOrderReservation
+    {
+        $this->authorization->authorize($actor, OrderPermission::Create);
+        $this->authorization->authorize($actor, OrderPermission::Reserve);
+        $this->authorization->authorize($actor, OrderPermission::EditSellingPrice);
         $validated = $this->validate($data, $actor);
-        $calculated = $this->totals->calculate($data->items);
         $upgradePlans = $this->upgradePlanning->plans($data->items);
         $reference = $this->references->nextSalesOrderReference((int) substr($validated['order_date'], 0, 4));
         $reservationReferences = [];
@@ -80,147 +99,167 @@ class OrderService
             }
         }
 
-        try {
-            return DB::transaction(function () use ($data, $actor, $validated, $calculated, $upgradePlans, $reference, $reservationReferences, $movementReferences, $postingKeys, $lineKeys): Order {
-                $warehouse = Warehouse::query()->lockForUpdate()->findOrFail($validated['warehouse_id']);
-                $platform = $validated['marketplace_platform_id'] === null
-                    ? null
-                    : MarketplacePlatform::query()->lockForUpdate()->findOrFail($validated['marketplace_platform_id']);
+        return new PreparedOrderReservation($data, $reference, $reservationReferences, $movementReferences, $postingKeys, $lineKeys, $upgradePlans);
+    }
 
-                $this->locations->assertSelectable($warehouse, $platform);
-
-                if ($this->responsibilities->requiresScope($actor)) {
-                    ResponsibilityAssignment::query()->active()->where('employee_id', $actor->employee->id)->lockForUpdate()->get();
-                }
-
-                $products = Product::query()->products()
-                    ->with('brandRelation')
-                    ->whereKey(collect($data->items)->pluck('productId')->sort()->values())
-                    ->lockForUpdate()
-                    ->get()
-                    ->keyBy('id');
-
-                $inventories = ProductInventory::query()
-                    ->where('warehouse_id', $warehouse->id)
-                    ->whereIn('product_id', $products->keys())
-                    ->orderBy('product_id')
-                    ->lockForUpdate()
-                    ->get()
-                    ->keyBy('product_id');
-
-                $requiredByProduct = collect($data->items)->groupBy(fn (OrderItemData $item): int => $item->productId)
-                    ->map(fn ($items): int => (int) $items->sum(fn (OrderItemData $item): int => $item->quantity));
-                foreach ($requiredByProduct as $productId => $requiredQuantity) {
-                    $product = $products->get((int) $productId);
-                    $inventory = $inventories->get((int) $productId);
-
-                    if ($product?->status !== ProductStatus::Active || $inventory === null || $inventory->sellableQuantity() < $requiredQuantity) {
-                        throw ValidationException::withMessages(['items' => $this->stockError($product, $warehouse, $inventory)]);
-                    }
-                }
-                foreach ($data->items as $item) {
-                    if (! $this->responsibilities->canAccessProduct($actor, $item->productId, $platform?->id, $warehouse->id)) {
-                        throw ValidationException::withMessages(['items' => 'A Product is outside your active Responsibility Assignments.']);
-                    }
-                }
-                $this->upgrades->assertInstallStock($upgradePlans, $warehouse->id);
-
-                $order = Order::query()->create([
-                    'reference' => $reference,
-                    'source' => OrderSource::Manual,
-                    'web_sales_channel' => $validated['web_sales_channel'],
-                    'status' => OrderStatus::Draft,
-                    'warehouse_id' => $warehouse->id,
-                    'marketplace_platform_id' => $platform?->id,
-                    'external_order_number' => $validated['external_order_number'],
-                    'external_identity_hash' => $validated['external_identity_hash'],
-                    'customer_name' => $validated['customer_name'],
-                    'customer_phone' => $validated['customer_phone'],
-                    'delivery_type' => $validated['delivery_type'],
-                    'courier_name' => $validated['courier_name'],
-                    'tracking_number' => $validated['tracking_number'],
-                    'order_date' => $validated['order_date'],
-                    'subtotal' => $calculated['subtotal'],
-                    'discount_total' => $calculated['discount_total'],
-                    'vat_total' => $calculated['vat_total'],
-                    'grand_total' => $calculated['grand_total'],
-                    'handled_by_employee_id' => $validated['handled_by_employee_id'],
-                    'notes' => $validated['notes'],
-                    'idempotency_key' => $data->idempotencyKey,
-                    'created_by_user_id' => $actor->id,
-                ]);
-                $this->timeline($order, null, OrderStatus::Draft, $actor, null, ['item_count' => count($data->items)]);
-                $movementGroup = (string) Str::uuid();
-                $totalQuantity = 0;
-
-                foreach ($calculated['lines'] as $index => $line) {
-                    $product = $products->get($line['product_id']);
-                    $item = $order->items()->create([
-                        ...$line,
-                        'line_number' => $index + 1,
-                        'line_key' => $lineKeys[$index],
-                        'product_name' => $product->name,
-                        'sku' => $product->sku,
-                        'brand_name' => $product->displayBrandName(),
-                    ]);
-                    $this->inventory->reserveOrderItem(
-                        $item->setRelation('order', $order),
-                        $actor,
-                        $reservationReferences[$index]['base'],
-                        $movementReferences[$index]['base'],
-                        $postingKeys[$index]['base'],
-                        $movementGroup,
-                    );
-                    if ($upgradePlans[$index] instanceof OrderUpgradePlan) {
-                        $selection = $this->upgradePlanning->lockAndCreateSelection($item, $upgradePlans[$index], $actor);
-                        $this->upgrades->reserveComponents(
-                            $selection,
-                            $upgradePlans[$index],
-                            $actor,
-                            $reservationReferences[$index]['components'] ?? [],
-                            $movementReferences[$index]['components'] ?? [],
-                            $postingKeys[$index]['components'] ?? [],
-                            $movementGroup,
-                        );
-                    }
-                    $totalQuantity += $item->ordered_quantity;
-                }
-
-                $order->forceFill([
-                    'status' => OrderStatus::Reserved,
-                    'reserved_by_user_id' => $actor->id,
-                    'reserved_at' => now(),
-                ])->save();
-                $this->timeline($order, OrderStatus::Draft, OrderStatus::Reserved, $actor, null, [
-                    'item_count' => count($data->items),
-                    'total_quantity' => $totalQuantity,
-                ]);
-                $this->activity->log('order.created', $actor, $order, [
-                    'order_reference' => $order->reference,
-                    'warehouse_id' => $order->warehouse_id,
-                    'platform_id' => $order->marketplace_platform_id,
-                    'item_count' => count($data->items),
-                    'handled_by_employee_id' => $order->handled_by_employee_id,
-                ]);
-                $this->activity->log('order.reserved', $actor, $order, [
-                    'order_reference' => $order->reference,
-                    'item_count' => count($data->items),
-                    'reserved_quantity' => $totalQuantity,
-                ]);
-
-                return $order->load(['items.reservations', 'items.upgradeSelection', 'statusEvents', 'warehouse', 'platform', 'handledBy']);
-            }, 5);
-        } catch (UniqueConstraintViolationException $exception) {
-            if ($existing = Order::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
-                return $existing->load(['items.reservations', 'items.upgradeSelection', 'statusEvents']);
-            }
-
-            if ($validated['external_identity_hash'] !== null) {
-                throw ValidationException::withMessages(['external_order_number' => 'This Platform Order Number already exists.']);
-            }
-
-            throw $exception;
+    /**
+     * Internal posting operation. The caller owns the transaction and must let failures roll it back.
+     * The optional stock provisioner runs after identities exist, before any reservation.
+     *
+     * @param  ?\Closure(Order):void  $provisionStock
+     */
+    public function postPreparedReservation(PreparedOrderReservation $prepared, User $actor, ?\Closure $provisionStock = null): Order
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Order posting requires an active transaction.');
         }
+        $this->authorization->authorize($actor, OrderPermission::Create);
+        $this->authorization->authorize($actor, OrderPermission::Reserve);
+        $this->authorization->authorize($actor, OrderPermission::EditSellingPrice);
+        $data = $prepared->data;
+        $validated = $this->validate($data, $actor);
+        $calculated = $this->totals->calculate($data->items);
+        $upgradePlans = $prepared->upgradePlans;
+        $reference = $prepared->reference;
+        $reservationReferences = $prepared->reservationReferences;
+        $movementReferences = $prepared->movementReferences;
+        $postingKeys = $prepared->postingKeys;
+        $lineKeys = $prepared->lineKeys;
+        $warehouse = Warehouse::query()->lockForUpdate()->findOrFail($validated['warehouse_id']);
+        $platform = $validated['marketplace_platform_id'] === null
+            ? null
+            : MarketplacePlatform::query()->lockForUpdate()->findOrFail($validated['marketplace_platform_id']);
+
+        $this->locations->assertSelectable($warehouse, $platform);
+
+        if ($this->responsibilities->requiresScope($actor)) {
+            ResponsibilityAssignment::query()->active()->where('employee_id', $actor->employee->id)->lockForUpdate()->get();
+        }
+
+        $products = Product::query()->products()
+            ->with('brandRelation')
+            ->whereKey(collect($data->items)->pluck('productId')->sort()->values())
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        $inventories = ProductInventory::query()
+            ->where('warehouse_id', $warehouse->id)
+            ->whereIn('product_id', $products->keys())
+            ->orderBy('product_id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('product_id');
+
+        $requiredByProduct = collect($data->items)->groupBy(fn (OrderItemData $item): int => $item->productId)
+            ->map(fn ($items): int => (int) $items->sum(fn (OrderItemData $item): int => $item->quantity));
+        foreach ($requiredByProduct as $productId => $requiredQuantity) {
+            $product = $products->get((int) $productId);
+            $inventory = $inventories->get((int) $productId);
+
+            if ($product?->status !== ProductStatus::Active || ($provisionStock === null && ($inventory === null || $inventory->sellableQuantity() < $requiredQuantity))) {
+                throw ValidationException::withMessages(['items' => $this->stockError($product, $warehouse, $inventory)]);
+            }
+        }
+        foreach ($data->items as $item) {
+            if (! $this->responsibilities->canAccessProduct($actor, $item->productId, $platform?->id, $warehouse->id)) {
+                throw ValidationException::withMessages(['items' => 'A Product is outside your active Responsibility Assignments.']);
+            }
+        }
+
+        $order = Order::query()->create([
+            'reference' => $reference,
+            'source' => OrderSource::Manual,
+            'web_sales_channel' => $validated['web_sales_channel'],
+            'status' => OrderStatus::Draft,
+            'warehouse_id' => $warehouse->id,
+            'marketplace_platform_id' => $platform?->id,
+            'external_order_number' => $validated['external_order_number'],
+            'external_identity_hash' => $validated['external_identity_hash'],
+            'customer_name' => $validated['customer_name'],
+            'customer_phone' => $validated['customer_phone'],
+            'delivery_type' => $validated['delivery_type'],
+            'courier_name' => $validated['courier_name'],
+            'tracking_number' => $validated['tracking_number'],
+            'order_date' => $validated['order_date'],
+            'subtotal' => $calculated['subtotal'],
+            'discount_total' => $calculated['discount_total'],
+            'vat_total' => $calculated['vat_total'],
+            'grand_total' => $calculated['grand_total'],
+            'handled_by_employee_id' => $validated['handled_by_employee_id'],
+            'notes' => $validated['notes'],
+            'idempotency_key' => $data->idempotencyKey,
+            'created_by_user_id' => $actor->id,
+        ]);
+        $this->timeline($order, null, OrderStatus::Draft, $actor, null, ['item_count' => count($data->items)]);
+        $movementGroup = (string) Str::uuid();
+        $totalQuantity = 0;
+
+        $createdItems = [];
+        foreach ($calculated['lines'] as $index => $line) {
+            $product = $products->get($line['product_id']);
+            $item = $order->items()->create([
+                ...$line,
+                'line_number' => $index + 1,
+                'line_key' => $lineKeys[$index],
+                'product_name' => $product->name,
+                'sku' => $product->sku,
+                'brand_name' => $product->displayBrandName(),
+            ]);
+            $createdItems[$index] = $item->setRelation('order', $order);
+        }
+        $order->setRelation('items', new Collection($createdItems));
+        if ($provisionStock !== null) {
+            $provisionStock($order);
+        }
+        $this->upgrades->assertInstallStock($upgradePlans, $warehouse->id);
+        foreach ($createdItems as $index => $item) {
+            $this->inventory->reserveOrderItem(
+                $item->setRelation('order', $order),
+                $actor,
+                $reservationReferences[$index]['base'],
+                $movementReferences[$index]['base'],
+                $postingKeys[$index]['base'],
+                $movementGroup,
+            );
+            if ($upgradePlans[$index] instanceof OrderUpgradePlan) {
+                $selection = $this->upgradePlanning->lockAndCreateSelection($item, $upgradePlans[$index], $actor);
+                $this->upgrades->reserveComponents(
+                    $selection,
+                    $upgradePlans[$index],
+                    $actor,
+                    $reservationReferences[$index]['components'] ?? [],
+                    $movementReferences[$index]['components'] ?? [],
+                    $postingKeys[$index]['components'] ?? [],
+                    $movementGroup,
+                );
+            }
+            $totalQuantity += $item->ordered_quantity;
+        }
+
+        $order->forceFill([
+            'status' => OrderStatus::Reserved,
+            'reserved_by_user_id' => $actor->id,
+            'reserved_at' => now(),
+        ])->save();
+        $this->timeline($order, OrderStatus::Draft, OrderStatus::Reserved, $actor, null, [
+            'item_count' => count($data->items),
+            'total_quantity' => $totalQuantity,
+        ]);
+        $this->activity->log('order.created', $actor, $order, [
+            'order_reference' => $order->reference,
+            'warehouse_id' => $order->warehouse_id,
+            'platform_id' => $order->marketplace_platform_id,
+            'item_count' => count($data->items),
+            'handled_by_employee_id' => $order->handled_by_employee_id,
+        ]);
+        $this->activity->log('order.reserved', $actor, $order, [
+            'order_reference' => $order->reference,
+            'item_count' => count($data->items),
+            'reserved_quantity' => $totalQuantity,
+        ]);
+
+        return $order->load(['items.reservations', 'items.upgradeSelection', 'statusEvents', 'warehouse', 'platform', 'handledBy']);
     }
 
     public function saveAsShipped(SaveAndReserveOrderData $data, User $actor): Order

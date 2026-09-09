@@ -15,4 +15,6 @@ enum QuotationPermission: string
     case ConvertInvoice = 'quotation.convert_invoice';
     case Cancel = 'quotation.cancel';
     case Export = 'quotation.export';
+    case SourceInventory = 'quotation.source_inventory';
+    case ViewSourceCost = 'quotation.view_source_cost';
 }

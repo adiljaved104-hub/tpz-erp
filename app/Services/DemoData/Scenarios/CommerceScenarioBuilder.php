@@ -160,6 +160,7 @@ final class CommerceScenarioBuilder
             if ($quotation === null) {
                 $product = $context->products[($number + 4) % 18];
                 $quotation = $this->at($date, fn (): Quotation => $this->quotations->create([
+                    'warehouse_id' => $context->warehouse->id,
                     'document_type' => $number % 3 === 0 ? QuotationDocumentType::ProformaInvoice : QuotationDocumentType::Quotation,
                     'quotation_date' => $date->toDateString(), 'valid_until' => $date->addDays(30)->toDateString(),
                     'customer_name' => sprintf('Demo Customer %03d', $number),

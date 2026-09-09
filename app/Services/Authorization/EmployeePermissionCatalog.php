@@ -142,6 +142,8 @@ class EmployeePermissionCatalog
                 $this->item(QuotationPermission::ConvertInvoice, 'Convert Quotations to Invoices', true),
                 $this->item(QuotationPermission::Cancel, 'Cancel Quotations', true),
                 $this->item(QuotationPermission::Export, 'Export Quotations'),
+                $this->item(QuotationPermission::SourceInventory, 'Source Inventory for Quotations', true),
+                $this->item(QuotationPermission::ViewSourceCost, 'View Quotation Source Cost', true, true),
             ],
             'Purchasing' => [
                 $this->item(PurchasePermission::SupplierView, 'View Suppliers'),

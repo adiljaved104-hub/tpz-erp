@@ -103,6 +103,7 @@ use App\Models\PurchaseReceiptItem;
 use App\Models\Quotation;
 use App\Models\QuotationEmailDelivery;
 use App\Models\QuotationItem;
+use App\Models\QuotationSourcingPosting;
 use App\Models\ResponsibilityAssignment;
 use App\Models\SafetClaim;
 use App\Models\SafetClaimStatusEvent;
@@ -512,6 +513,7 @@ class AppServiceProvider extends ServiceProvider
             'invoice_setting' => InvoiceSetting::class,
             'tax_invoice' => TaxInvoice::class,
             'quotation' => Quotation::class,
+            'quotation_sourcing_posting' => QuotationSourcingPosting::class,
             'quotation_item' => QuotationItem::class,
             'quotation_email_delivery' => QuotationEmailDelivery::class,
             'expense' => Expense::class,

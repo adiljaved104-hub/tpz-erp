@@ -55,6 +55,11 @@ class OrderItem extends Model
         return $this->belongsTo(Product::class);
     }
 
+    public function quotationItem(): BelongsTo
+    {
+        return $this->belongsTo(QuotationItem::class);
+    }
+
     public function reservation(): HasOne
     {
         return $this->hasOne(InventoryReservation::class)->where('reservation_kind', 'base_product');

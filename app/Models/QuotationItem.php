@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\QuotationStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use LogicException;
 
 class QuotationItem extends Model
@@ -40,5 +41,15 @@ class QuotationItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function sourcingInstruction(): HasOne
+    {
+        return $this->hasOne(QuotationItemSourcingInstruction::class);
+    }
+
+    public function orderItem(): HasOne
+    {
+        return $this->hasOne(OrderItem::class);
     }
 }

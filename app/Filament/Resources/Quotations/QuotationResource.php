@@ -13,13 +13,14 @@ use App\Filament\Resources\Quotations\Pages\ViewQuotation;
 use App\Models\Product;
 use App\Models\Quotation;
 use App\Models\User;
-use App\Models\Warehouse;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\DefaultWarehouseService;
+use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\Quotations\QuotationConversionService;
 use App\Services\Quotations\QuotationEmailService;
 use App\Services\Quotations\QuotationService;
+use App\Services\Quotations\QuotationSourcingService;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -32,6 +33,7 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
@@ -68,6 +70,11 @@ class QuotationResource extends Resource
             Section::make('Quotation Details')
                 ->columns(['default' => 1, 'md' => 3])
                 ->schema([
+                    Select::make('warehouse_id')
+                        ->label('Fulfilment Warehouse')
+                        ->options(fn () => app(OrderFulfillmentLocationService::class)->options(null))
+                        ->default(fn () => app(DefaultWarehouseService::class)->operationalDefault()->id)
+                        ->required()->live(),
                     Select::make('document_type')
                         ->options(QuotationDocumentType::options())
                         ->default('quotation')
@@ -202,11 +209,11 @@ class QuotationResource extends Resource
                                 ->searchDebounce(350)
                                 ->searchPrompt('Type at least 2 characters to search Products.')
                                 ->noSearchResultsMessage('No authorized Products match your search.')
-                                ->getSearchResultsUsing(fn (string $search): array => app(ProductSearchOptions::class)->search(
+                                ->getSearchResultsUsing(fn (string $search, Get $get): array => app(ProductSearchOptions::class)->search(
                                     $search,
                                     ProductMatchContext::Quotation,
                                     auth()->user(),
-                                    app(DefaultWarehouseService::class)->operationalDefault()->id,
+                                    (int) $get('../../warehouse_id'),
                                 ))
                                 ->getOptionLabelUsing(
                                     fn ($value): ?string => ($p = Product::query()
@@ -240,6 +247,47 @@ class QuotationResource extends Resource
                                 ->required()
                                 ->live(debounce: 300)
                                 ->columnSpan(2),
+
+                            Placeholder::make('stock_availability')
+                                ->label('Stock at Fulfilment Warehouse')
+                                ->content(function (Get $get): string {
+                                    $stock = self::lineAvailability($get);
+
+                                    return $stock === null ? 'Select an authorized Product and Warehouse.' : "Available: {$stock['available']} · Missing: {$stock['missing']}";
+                                })->columnSpanFull(),
+                            Toggle::make('source_inventory')
+                                ->label('Source for this quotation')->default(false)->live()
+                                ->visible(fn (Get $get) => self::canSource() && (($get('source_inventory') ?? false) || (self::lineAvailability($get)['missing'] ?? 0) > 0))
+                                ->helperText('Conversion records the actual missing quantity as received stock. Confirm sourcing only for goods being acquired and made available for this Order.')
+                                ->columnSpanFull(),
+                            Placeholder::make('planned_sourced_quantity')
+                                ->label('Planned Sourced Qty (estimate)')
+                                ->content(fn (Get $get) => (string) (self::lineAvailability($get)['missing'] ?? 0))
+                                ->visible(fn (Get $get) => self::canSource() && (bool) $get('source_inventory'))
+                                ->columnSpan(['default' => 1, 'md' => 3]),
+                            TextInput::make('purchase_unit_cost')
+                                ->label('Purchase Cost per Unit')->prefix('AED')->numeric()->minValue('0.0001')
+                                ->live(debounce: 400)
+                                ->required(fn (Get $get) => (bool) $get('source_inventory') && (self::lineAvailability($get)['missing'] ?? 0) > 0)
+                                ->visible(fn (Get $get) => self::canSource() && (bool) $get('source_inventory'))
+                                ->dehydrated(fn () => self::canSource())->columnSpan(['default' => 1, 'md' => 3]),
+                            TextInput::make('source_note')
+                                ->label('Source / Supplier Note')->maxLength(1000)
+                                ->visible(fn (Get $get) => self::canSource() && (bool) $get('source_inventory'))
+                                ->dehydrated(fn () => self::canSource())->columnSpan(['default' => 1, 'md' => 6]),
+
+                            Placeholder::make('internal_margin_estimate')
+                                ->label('Estimated Gross Profit (internal)')
+                                ->visible(fn () => auth()->user() && app(QuotationSourcingService::class)->canPreviewMargin(auth()->user()))
+                                ->content(function (Get $get): string {
+                                    $estimate = app(QuotationSourcingService::class)->marginPreview([
+                                        'product_id' => $get('product_id'), 'quantity' => $get('quantity'),
+                                        'source_inventory' => $get('source_inventory'), 'purchase_unit_cost' => $get('purchase_unit_cost'),
+                                        'unit_price_including_vat' => $get('unit_price_including_vat'), 'discount_amount' => $get('discount_amount') ?? '0',
+                                    ], (int) $get('../../warehouse_id'), auth()->user());
+
+                                    return $estimate === null ? 'Unavailable until stock/cost is known.' : 'AED '.$estimate.' · Estimate on current Order pricing basis; final COGS is set at fulfilment.';
+                                })->columnSpanFull(),
 
                             TextInput::make('unit_price_including_vat')
                                 ->label('Unit Price incl. VAT')
@@ -390,6 +438,19 @@ class QuotationResource extends Resource
                     TextEntry::make('total_including_vat')->money('AED'),
                 ])
                 ->columns(6),
+
+            Section::make('Internal Sourcing')
+                ->visible(fn (Quotation $record) => self::allowed(QuotationPermission::ViewSourceCost, $record))
+                ->schema([
+                    TextEntry::make('internal_sourcing_summary')->label('Purchase Cost / Unit')
+                        ->state(function (Quotation $record): string {
+                            $instructions = app(QuotationSourcingService::class)->formInstructions($record, auth()->user());
+
+                            return $record->items->filter(fn ($item) => isset($instructions[$item->id]))
+                                ->map(fn ($item) => $item->sku.' · AED '.$instructions[$item->id]['purchase_unit_cost'])
+                                ->implode('; ') ?: 'No sourcing instruction.';
+                        }),
+                ]),
 
             RepeatableEntry::make('emailDeliveries')
                 ->label('Email Delivery History')
@@ -691,11 +752,11 @@ class QuotationResource extends Resource
                         ->schema([
                             Select::make('warehouse_id')
                                 ->label('Fulfilment Location')
+                                ->default(fn (Quotation $record) => $record->warehouse_id)
+                                ->disabled(fn (Quotation $record) => $record->warehouse_id !== null)
+                                ->dehydrated()
                                 ->options(
-                                    fn (): array => Warehouse::query()
-                                        ->active()
-                                        ->pluck('name', 'id')
-                                        ->all()
+                                    fn (): array => app(OrderFulfillmentLocationService::class)->options(null)
                                 )
                                 ->searchable()
                                 ->required(),
@@ -927,6 +988,27 @@ class QuotationResource extends Resource
             .' · '
             .$p->displayBrandName()
             .($p->model ? ' · '.$p->model : '');
+    }
+
+    public static function canSource(): bool
+    {
+        return auth()->user() instanceof User && app(QuotationSourcingService::class)->canManage(auth()->user());
+    }
+
+    private static function lineAvailability(Get $get): ?array
+    {
+        if (! auth()->user() instanceof User) {
+            return null;
+        }
+        $lines = (array) ($get('../../items') ?? []);
+        $stock = app(QuotationSourcingService::class)->availability($lines, (int) $get('../../warehouse_id'), auth()->user());
+        foreach ($lines as $key => $line) {
+            if ((string) ($line['product_id'] ?? '') === (string) $get('product_id')) {
+                return $stock[$key] ?? null;
+            }
+        }
+
+        return null;
     }
 
     private static function totals(Get $get): HtmlString

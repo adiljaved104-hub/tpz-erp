@@ -10,7 +10,9 @@ use App\Exceptions\DuplicateSupplierInvoiceException;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\Supplier;
+use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -19,10 +21,11 @@ class PurchaseDocumentService
     public function __construct(
         private readonly PurchaseTotalsCalculator $totals,
         private readonly SupplierInvoiceService $invoices,
+        private readonly OrderResponsibilityScopeService $responsibilities,
     ) {}
 
     /** @return array{header: array<string,mixed>, lines: array<int,array<string,mixed>>} */
-    public function prepare(CreatePurchaseData|UpdatePurchaseData $data, ?Purchase $purchase = null): array
+    public function prepare(CreatePurchaseData|UpdatePurchaseData $data, ?Purchase $purchase = null, ?User $actor = null): array
     {
         Validator::make([
             'supplier_id' => $data->supplierId,
@@ -63,6 +66,19 @@ class PurchaseDocumentService
 
         if ($products->count() !== $productIds->count() || $products->contains(fn (Product $product): bool => $product->status !== ProductStatus::Active)) {
             throw ValidationException::withMessages(['items' => 'Every Purchase line requires an active Product.']);
+        }
+
+        if ($actor !== null && $this->responsibilities->requiresScope($actor)) {
+            $outsideScope = $productIds->first(fn (int $productId): bool => ! $this->responsibilities->canAccessProduct(
+                $actor,
+                $productId,
+                $warehouse->marketplace_platform_id,
+                $data->warehouseId,
+            ));
+
+            if ($outsideScope !== null) {
+                throw ValidationException::withMessages(['items' => 'Every Purchase line must be within your active Responsibility scope.']);
+            }
         }
 
         $lines = array_map(fn (PurchaseItemData $item): array => $this->totals->line($item), $data->items);

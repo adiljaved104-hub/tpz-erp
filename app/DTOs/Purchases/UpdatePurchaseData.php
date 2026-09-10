@@ -19,5 +19,6 @@ final readonly class UpdatePurchaseData
         public string $otherChargesTotal = '0.00',
         public string $otherChargesVatRate = '0.00',
         public ?string $notes = null,
+        public ?int $handledByEmployeeId = null,
     ) {}
 }

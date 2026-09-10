@@ -39,6 +39,7 @@ class EditPurchase extends EditRecord
             externalAccountingReference: $data['external_accounting_reference'] ?? null,
             shippingTotal: (string) ($data['shipping_total'] ?? '0.00'), shippingVatRate: (string) ($data['shipping_vat_rate'] ?? '0.00'),
             otherChargesTotal: (string) ($data['other_charges_total'] ?? '0.00'), otherChargesVatRate: (string) ($data['other_charges_vat_rate'] ?? '0.00'), notes: $data['notes'] ?? null,
+            handledByEmployeeId: filled($data['handled_by_employee_id'] ?? null) ? (int) $data['handled_by_employee_id'] : null,
         ), auth()->user());
     }
 }

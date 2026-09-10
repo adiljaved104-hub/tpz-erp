@@ -25,6 +25,7 @@ class PurchasesTable
             TextColumn::make('warehouse.code')->label('Location'), TextColumn::make('purchase_date')->label('Purchased')->date('d M Y')->sortable(),
             TextColumn::make('expected_delivery_date')->label('Expected')->date('d M Y')->sortable()->toggleable(), TextColumn::make('status')->badge(),
             TextColumn::make('entry_type')->label('Entry Type')->badge()->formatStateUsing(fn (PurchaseEntryType $state): string => $state->getLabel())->color(fn (PurchaseEntryType $state): string => $state->getColor()),
+            TextColumn::make('handledBy.name')->label('Handled By')->placeholder('Unassigned')->searchable()->toggleable(),
             ...(self::allowed(PurchasePermission::ViewFinancials) ? [TextColumn::make('grand_total')->money('AED')->sortable()] : []),
         ])->filters([
             SelectFilter::make('status')->options(collect(PurchaseStatus::cases())->mapWithKeys(fn ($s) => [$s->value => $s->getLabel()])->all()),

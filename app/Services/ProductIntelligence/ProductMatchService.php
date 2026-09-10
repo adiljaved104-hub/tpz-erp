@@ -148,11 +148,13 @@ class ProductMatchService
         if (! $request->context->allowsComponents()) {
             $query->products();
         }
-        if (in_array($request->context, [ProductMatchContext::Order, ProductMatchContext::WebSales, ProductMatchContext::Quotation], true)) {
-            if (! $request->warehouseId) {
+        if (in_array($request->context, [ProductMatchContext::Order, ProductMatchContext::WebSales, ProductMatchContext::Quotation, ProductMatchContext::Purchase], true)) {
+            if ($this->responsibilities->requiresScope($request->user) && ! $request->warehouseId) {
                 return collect();
             }
-            $query = $this->responsibilities->applyProducts($query, $request->user, $request->platformId, $request->warehouseId);
+            if ($request->warehouseId) {
+                $query = $this->responsibilities->applyProducts($query, $request->user, $request->platformId, $request->warehouseId);
+            }
         }
 
         $tokens = collect($parsed->tokens)->reject(fn (string $token): bool => mb_strlen($token) < 2 || in_array($token, ['gb', 'tb', 'mb', 'core', 'ultra', 'intel', 'nvidia', 'geforce'], true))->take(8)->values();

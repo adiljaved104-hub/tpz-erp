@@ -18,5 +18,6 @@ readonly class CreateResponsibilityAssignmentData
         public string $reason,
         public ?string $notes,
         public string $idempotencyKey,
+        public ?int $categoryId = null,
     ) {}
 }

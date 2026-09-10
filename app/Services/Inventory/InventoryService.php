@@ -41,6 +41,7 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\ReferenceSequenceService;
+use App\Services\Responsibilities\ResponsibilityAllocationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -53,6 +54,7 @@ class InventoryService
         private readonly WeightedAverageCostCalculator $costs,
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
+        private readonly ResponsibilityAllocationService $allocations,
     ) {}
 
     public function postOpeningStock(PostOpeningStockData $data, User $actor): InventoryMutationResult
@@ -201,6 +203,7 @@ class InventoryService
             if ($validated['quantity'] > $inventory->sellableQuantity()) {
                 throw new InsufficientInventoryException('The reservation exceeds Sellable inventory.');
             }
+            $allocation = $this->allocations->lockAndAssert($actor, $inventory, null, $validated['quantity']);
 
             $reservation = InventoryReservation::query()->create([
                 'reference' => $reservationReference,
@@ -214,6 +217,9 @@ class InventoryService
                 'reserved_by_user_id' => $actor->id,
                 'reserved_at' => now(),
             ]);
+            if ($allocation !== null) {
+                $this->allocations->recordReservation($allocation['assignment_id'], $reservation);
+            }
             $before = $this->snapshot($inventory);
             $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $validated['quantity']])->save();
             $movement = $this->createMovement(
@@ -417,7 +423,7 @@ class InventoryService
             'Stock received for accepted quotation', $posting->idempotency_key, (string) $posting->purchase_unit_cost);
     }
 
-    public function reserveOrderItem(OrderItem $item, User $actor, string $reservationReference, string $movementReference, string $idempotencyKey, string $movementGroup): InventoryReservation
+    public function reserveOrderItem(OrderItem $item, User $actor, string $reservationReference, string $movementReference, string $idempotencyKey, string $movementGroup, ?int $responsibilityAssignmentId = null): InventoryReservation
     {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Order reservation requires an active transaction.');
@@ -451,6 +457,9 @@ class InventoryService
             'reserved_by_user_id' => $actor->id,
             'reserved_at' => now(),
         ]);
+        if ($responsibilityAssignmentId !== null) {
+            $this->allocations->recordReservation($responsibilityAssignmentId, $reservation);
+        }
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $item->ordered_quantity])->save();
         $movement = $this->createMovement(
             $inventory,
@@ -726,6 +735,7 @@ class InventoryService
         string $movementReference,
         string $postingKey,
         ?InventoryReservation $reservation = null,
+        ?int $responsibilityAssignmentId = null,
     ): OrderFulfillmentItem {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Order fulfilment requires an active transaction.');
@@ -781,6 +791,9 @@ class InventoryService
             'posting_key' => $postingKey,
             'created_at' => now(),
         ]);
+        if ($reservation === null && $responsibilityAssignmentId !== null) {
+            $this->allocations->recordFulfilment($responsibilityAssignmentId, $fulfillmentItem);
+        }
         $before = $this->snapshot($inventory);
         $reservedDelta = $reservation === null ? 0 : -$quantity;
         $inventory->forceFill([

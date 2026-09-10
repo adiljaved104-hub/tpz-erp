@@ -19,6 +19,7 @@ class ResponsibilityAssignmentInfolist
                 TextEntry::make('assignment_mode')->badge(),
                 TextEntry::make('status')->badge(),
                 TextEntry::make('brandScope.brand.name')->label('Brand')->placeholder('—'),
+                TextEntry::make('categoryScope.category.name')->label('Category')->placeholder('—'),
                 TextEntry::make('platformScope.platform.name')->label('Platform')->placeholder('—'),
                 TextEntry::make('product_name')->label('Product')->state(fn (ResponsibilityAssignment $record): ?string => $record->productScope?->product?->name ?? $record->quantityScope?->inventory?->product?->name)->placeholder('—'),
                 TextEntry::make('warehouse_name')->label('Warehouse')->state(fn (ResponsibilityAssignment $record): ?string => $record->quantityScope?->inventory?->warehouse?->name)->placeholder('—'),

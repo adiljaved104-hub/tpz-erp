@@ -15,13 +15,18 @@ use Illuminate\Support\Facades\DB;
 
 class ResponsibilityReadService
 {
-    public function __construct(private readonly ResponsibilityAuthorization $authorization, private readonly PurchaseAuthorization $purchaseAuthorization) {}
+    public function __construct(
+        private readonly ResponsibilityAuthorization $authorization,
+        private readonly PurchaseAuthorization $purchaseAuthorization,
+        private readonly ResponsibilityAllocationService $allocations,
+        private readonly ResponsibilityCapacityService $capacity,
+    ) {}
 
     public function assignmentsFor(User $user): Builder
     {
         $query = ResponsibilityAssignment::query()->with([
             'employee.team', 'assignedBy', 'endedBy', 'brandScope.brand', 'platformScope.platform',
-            'productScope.product.brandRelation', 'quantityScope.inventory.product.brandRelation', 'quantityScope.inventory.warehouse',
+            'categoryScope.category', 'productScope.product.brandRelation', 'quantityScope.inventory.product.brandRelation', 'quantityScope.inventory.warehouse',
         ]);
 
         $query->addSelect([
@@ -69,14 +74,27 @@ class ResponsibilityReadService
         $productReasons = [];
         $platforms = [];
         $ownQuantities = [];
+        $ownRemaining = [];
 
         foreach ($active as $assignment) {
             $platform = $assignment->platformScope?->platform?->name;
 
-            if ($assignment->brandScope !== null) {
-                $productIds = DB::table('products')->where('brand_id', $assignment->brandScope->product_brand_id)->pluck('id');
+            if ($assignment->brandScope !== null || $assignment->categoryScope !== null) {
+                $products = DB::table('products');
+                if ($assignment->brandScope !== null) {
+                    $products->where('brand_id', $assignment->brandScope->product_brand_id);
+                }
+                if ($assignment->categoryScope !== null) {
+                    $products->where('category_id', $assignment->categoryScope->product_category_id);
+                }
+
+                $productIds = $products->pluck('id');
+                $reason = collect([
+                    $assignment->categoryScope?->category?->name ? 'Category: '.$assignment->categoryScope->category->name : null,
+                    $assignment->brandScope?->brand?->name ? 'Brand: '.$assignment->brandScope->brand->name : null,
+                ])->filter()->implode(' + ');
                 foreach ($productIds as $productId) {
-                    $productReasons[$productId][] = 'Brand: '.$assignment->brandScope->brand->name;
+                    $productReasons[$productId][] = $reason;
                     if ($platform !== null) {
                         $platforms[$productId][] = $platform;
                     }
@@ -95,6 +113,7 @@ class ResponsibilityReadService
                 $productId = $assignment->quantityScope->inventory->product_id;
                 $productReasons[$productId][] = 'Quantity Assignment';
                 $ownQuantities[$assignment->quantityScope->product_inventory_id] = ($ownQuantities[$assignment->quantityScope->product_inventory_id] ?? 0) + $assignment->quantityScope->assigned_quantity;
+                $ownRemaining[$assignment->quantityScope->product_inventory_id] = ($ownRemaining[$assignment->quantityScope->product_inventory_id] ?? 0) + $this->allocations->usage($assignment)['remaining'];
                 if ($platform !== null) {
                     $platforms[$productId][] = $platform;
                 }
@@ -125,23 +144,21 @@ class ResponsibilityReadService
         }
 
         $rows = $rowsQuery->get();
-        $aggregate = DB::table('inventory_responsibility_quantities as irq')
-            ->join('responsibility_assignments as ra', 'ra.id', '=', 'irq.assignment_id')
-            ->where('ra.status', ResponsibilityAssignmentStatus::Active->value)
-            ->whereIn('irq.product_inventory_id', $rows->pluck('inventory_id')->filter())
-            ->select('irq.product_inventory_id')
-            ->selectRaw('SUM(irq.assigned_quantity) as aggregate_assigned')
-            ->groupBy('irq.product_inventory_id')->pluck('aggregate_assigned', 'product_inventory_id');
+        $capacity = collect(array_keys($ownQuantities))
+            ->mapWithKeys(fn (int $inventoryId): array => [$inventoryId => $this->capacity->summary($inventoryId)]);
 
-        return $rows->map(function (object $row) use ($productReasons, $platforms, $ownQuantities, $aggregate): object {
+        return $rows->map(function (object $row) use ($productReasons, $platforms, $ownQuantities, $ownRemaining, $capacity): object {
             $row->available = (int) ($row->available_quantity ?? 0);
             $row->reserved = (int) ($row->reserved_quantity ?? 0);
             $row->sellable = $row->available - $row->reserved;
             $row->damaged = (int) ($row->damaged_quantity ?? 0);
             $row->assigned_quantity = (int) ($ownQuantities[$row->inventory_id] ?? 0);
-            $row->aggregate_assigned = (int) ($aggregate[$row->inventory_id] ?? 0);
-            $row->remaining_assignable = $row->sellable - $row->aggregate_assigned;
-            $row->capacity_status = $row->aggregate_assigned > $row->sellable ? 'Over Assigned' : ($row->aggregate_assigned === $row->sellable ? 'At Capacity' : 'OK');
+            $row->remaining_allocation = (int) ($ownRemaining[$row->inventory_id] ?? 0);
+            $summary = $capacity->get($row->inventory_id);
+            $row->aggregate_assigned = (int) ($summary['assigned'] ?? 0);
+            $row->aggregate_outstanding = (int) ($summary['outstanding'] ?? 0);
+            $row->remaining_assignable = (int) ($summary['remaining'] ?? $row->sellable);
+            $row->capacity_status = $summary === null ? 'OK' : $summary['status']->getLabel();
             $row->visibility_reasons = array_values(array_unique($productReasons[$row->product_id]));
             $row->platforms = array_values(array_unique($platforms[$row->product_id] ?? []));
 
@@ -164,6 +181,7 @@ class ResponsibilityReadService
                 'reference' => $assignment->reference,
                 'platform' => $assignment->platformScope->platform->name,
                 'brand' => $assignment->brandScope?->brand?->name,
+                'category' => $assignment->categoryScope?->category?->name,
                 'product' => $assignment->productScope?->product?->name ?? $assignment->quantityScope?->inventory?->product?->name,
             ]);
     }

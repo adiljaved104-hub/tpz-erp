@@ -16,9 +16,11 @@ use App\Models\InventoryResponsibilityQuantity;
 use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductBrand;
+use App\Models\ProductCategory;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\ResponsibilityAssignmentBrand;
+use App\Models\ResponsibilityAssignmentCategory;
 use App\Models\ResponsibilityAssignmentPlatform;
 use App\Models\ResponsibilityAssignmentProduct;
 use App\Models\User;
@@ -35,6 +37,7 @@ class ResponsibilityAssignmentService
         private readonly ResponsibilityScopeFingerprint $fingerprints,
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
+        private readonly ResponsibilityAllocationService $allocations,
     ) {}
 
     public function create(CreateResponsibilityAssignmentData $data, User $actor): ResponsibilityAssignment
@@ -45,7 +48,7 @@ class ResponsibilityAssignmentService
 
         $scope = $this->validatedScope($data);
         $employee = $this->activeEmployee($data->employeeId);
-        $fingerprint = $this->fingerprints->make($employee->id, $data->mode, $scope['brand']?->id, $scope['platform']?->id, $scope['product']?->id, $scope['inventory']?->id);
+        $fingerprint = $this->fingerprints->make($employee->id, $data->mode, $scope['brand']?->id, $scope['platform']?->id, $scope['product']?->id, $scope['inventory']?->id, $scope['category']?->id);
         $this->assertFingerprintAvailable($fingerprint);
         $reference = $this->references->nextResponsibilityAssignmentReference();
 
@@ -99,8 +102,11 @@ class ResponsibilityAssignmentService
             $source = ResponsibilityAssignment::query()->lockForUpdate()->findOrFail($source->id);
             $source->load($this->relations());
             $this->assertActive($source);
+            if ($source->quantityScope !== null) {
+                $this->allocations->assertMaySupersede($source);
+            }
             $scope = $this->scopeFrom($source);
-            $fingerprint = $this->fingerprints->make($employee->id, $source->assignment_mode, $scope['brand']?->id, $scope['platform']?->id, $scope['product']?->id, $scope['inventory']?->id);
+            $fingerprint = $this->fingerprints->make($employee->id, $source->assignment_mode, $scope['brand']?->id, $scope['platform']?->id, $scope['product']?->id, $scope['inventory']?->id, $scope['category']?->id);
 
             $this->end($source, ResponsibilityAssignmentStatus::Transferred, $actor);
             $this->assertFingerprintAvailable($fingerprint, lock: true);
@@ -136,6 +142,7 @@ class ResponsibilityAssignmentService
             $source = ResponsibilityAssignment::query()->lockForUpdate()->findOrFail($source->id);
             $source->load($this->relations());
             $this->assertActive($source);
+            $this->allocations->assertMaySupersede($source);
             $scope = $this->scopeFrom($source);
             $fingerprint = $source->active_fingerprint;
             $employee = $source->employee;
@@ -166,6 +173,11 @@ class ResponsibilityAssignmentService
                 return $assignment;
             }
 
+            $assignment->load($this->relations());
+            if ($assignment->quantityScope !== null) {
+                $this->allocations->assertMayDeactivate($assignment);
+            }
+
             $this->end($assignment, ResponsibilityAssignmentStatus::Inactive, $actor);
             $this->activity->log('responsibility.deactivated', $actor, $assignment, [
                 'assignment_id' => $assignment->id,
@@ -180,7 +192,7 @@ class ResponsibilityAssignmentService
         });
     }
 
-    /** @return array{brand: ?ProductBrand, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory} */
+    /** @return array{brand: ?ProductBrand, category: ?ProductCategory, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory} */
     private function validatedScope(CreateResponsibilityAssignmentData $data): array
     {
         if (trim($data->reason) === '' || mb_strlen($data->reason) > 2000) {
@@ -193,27 +205,29 @@ class ResponsibilityAssignmentService
         }
 
         $brand = $data->brandId === null ? null : ProductBrand::query()->active()->findOrFail($data->brandId);
+        $category = $data->categoryId === null ? null : ProductCategory::query()->active()->findOrFail($data->categoryId);
         $platform = $data->platformId === null ? null : MarketplacePlatform::query()->active()->findOrFail($data->platformId);
         $product = $data->productId === null ? null : Product::query()->products()->where('status', ProductStatus::Active->value)->findOrFail($data->productId);
         $inventory = $data->productInventoryId === null ? null : ProductInventory::query()->whereHas('product', fn ($query) => $query->products())->with(['product', 'warehouse'])->findOrFail($data->productInventoryId);
 
-        if ($data->mode === ResponsibilityAssignmentMode::Scope) {
-            if ($inventory !== null || $data->assignedQuantity !== null || ($brand === null && $platform === null && $product === null)) {
-                throw new InvalidResponsibilityScopeException('Scope assignments require one exact Brand, Platform, or Product combination and cannot contain quantity.');
-            }
-        } elseif ($inventory === null || $data->assignedQuantity === null || $data->assignedQuantity < 1 || $brand !== null || $product !== null) {
-            throw new InvalidResponsibilityScopeException('Quantity assignments require exactly one Product Inventory and a positive quantity.');
-        }
-
         if ($brand !== null && $product !== null && $product->brand_id !== $brand->id) {
             throw ValidationException::withMessages(['product_id' => 'The selected Product does not belong to the selected Brand.']);
+        }
+
+        if ($data->mode === ResponsibilityAssignmentMode::Scope) {
+            if ($inventory !== null || $data->assignedQuantity !== null || ($brand === null && $category === null && $platform === null && $product === null)
+                || ($product !== null && ($brand !== null || $category !== null))) {
+                throw new InvalidResponsibilityScopeException('Scope assignments require Brand, Category, Brand + Category, Platform, or Product dimensions and cannot contain quantity.');
+            }
+        } elseif ($inventory === null || $data->assignedQuantity === null || $data->assignedQuantity < 1 || $brand !== null || $category !== null || $product !== null) {
+            throw new InvalidResponsibilityScopeException('Quantity assignments require exactly one Product Inventory and a positive quantity.');
         }
 
         if ($inventory !== null && ($inventory->product->status !== ProductStatus::Active || ! $inventory->warehouse->status)) {
             throw ValidationException::withMessages(['product_inventory_id' => 'The Product and Warehouse must both be active.']);
         }
 
-        return compact('brand', 'platform', 'product', 'inventory');
+        return compact('brand', 'category', 'platform', 'product', 'inventory');
     }
 
     private function activeEmployee(int $employeeId): Employee
@@ -248,11 +262,14 @@ class ResponsibilityAssignmentService
         ]);
     }
 
-    /** @param array{brand: ?ProductBrand, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory} $scope */
+    /** @param array{brand: ?ProductBrand, category: ?ProductCategory, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory} $scope */
     private function writeScopes(ResponsibilityAssignment $assignment, array $scope, ?int $quantity): void
     {
         if ($scope['brand'] !== null) {
             ResponsibilityAssignmentBrand::query()->create(['assignment_id' => $assignment->id, 'product_brand_id' => $scope['brand']->id]);
+        }
+        if ($scope['category'] !== null) {
+            ResponsibilityAssignmentCategory::query()->create(['assignment_id' => $assignment->id, 'product_category_id' => $scope['category']->id]);
         }
         if ($scope['platform'] !== null) {
             ResponsibilityAssignmentPlatform::query()->create(['assignment_id' => $assignment->id, 'marketplace_platform_id' => $scope['platform']->id]);
@@ -285,18 +302,19 @@ class ResponsibilityAssignmentService
         }
     }
 
-    /** @return array{brand: ?ProductBrand, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory} */
+    /** @return array{brand: ?ProductBrand, category: ?ProductCategory, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory} */
     private function scopeFrom(ResponsibilityAssignment $assignment): array
     {
         return [
             'brand' => $assignment->brandScope?->brand,
+            'category' => $assignment->categoryScope?->category,
             'platform' => $assignment->platformScope?->platform,
             'product' => $assignment->productScope?->product,
             'inventory' => $assignment->quantityScope?->inventory,
         ];
     }
 
-    /** @param array{brand: ?ProductBrand, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory} $scope */
+    /** @param array{brand: ?ProductBrand, category: ?ProductCategory, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory} $scope */
     private function safeProperties(ResponsibilityAssignment $assignment, array $scope, ?int $quantity, string $reason): array
     {
         return [
@@ -305,6 +323,7 @@ class ResponsibilityAssignmentService
             'employee_id' => $assignment->employee_id,
             'assignment_mode' => $assignment->assignment_mode->value,
             'brand_id' => $scope['brand']?->id,
+            'category_id' => $scope['category']?->id,
             'platform_id' => $scope['platform']?->id,
             'product_id' => $scope['product']?->id ?? $scope['inventory']?->product_id,
             'product_inventory_id' => $scope['inventory']?->id,
@@ -317,6 +336,6 @@ class ResponsibilityAssignmentService
 
     private function relations(): array
     {
-        return ['employee.team', 'brandScope.brand', 'platformScope.platform', 'productScope.product', 'quantityScope.inventory.product', 'quantityScope.inventory.warehouse'];
+        return ['employee.team', 'brandScope.brand', 'categoryScope.category', 'platformScope.platform', 'productScope.product', 'quantityScope.inventory.product', 'quantityScope.inventory.warehouse'];
     }
 }

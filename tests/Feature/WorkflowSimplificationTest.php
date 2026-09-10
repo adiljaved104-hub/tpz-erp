@@ -76,15 +76,15 @@ class WorkflowSimplificationTest extends TestCase
         Livewire::actingAs($owner)->test(CreateResponsibilityAssignment::class)
             ->assertFormSet(['scope_type' => 'brand'])
             ->assertSchemaComponentHidden('platform_id')
-            ->assertSchemaComponentHidden('product_id')
+            ->assertSchemaComponentHidden('product_ids')
             ->assertSchemaComponentHidden('product_inventory_id');
 
         $scope = CreateResponsibilityAssignment::normalizedScope([
-            'scope_type' => 'brand', 'brand_id' => $brand->id,
-            'product_id' => $unrelatedProduct->id, 'platform_id' => 999,
+            'scope_type' => 'brand', 'brand_ids' => [$brand->id],
+            'product_ids' => [$unrelatedProduct->id], 'platform_id' => 999,
         ]);
-        $this->assertSame($brand->id, $scope['brand_id']);
-        $this->assertNull($scope['product_id']);
+        $this->assertSame([$brand->id], $scope['brand_ids']);
+        $this->assertSame([], $scope['product_ids']);
         $this->assertNull($scope['platform_id']);
         $this->assertNull($scope['assigned_quantity']);
     }

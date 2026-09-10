@@ -12,6 +12,8 @@ use App\Enums\ResponsibilityAssignmentMode;
 use App\Enums\ResponsibilityAssignmentStatus;
 use App\Models\Employee;
 use App\Models\ResponsibilityAssignment;
+use App\Services\Responsibilities\ResponsibilityAllocationService;
+use App\Services\Responsibilities\ResponsibilityCapacityService;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
@@ -31,17 +33,21 @@ class ResponsibilityAssignmentsTable
             TextColumn::make('employee.name')->label('Employee')->searchable()->sortable()->description(fn (ResponsibilityAssignment $record): ?string => $record->employee?->employee_id),
             TextColumn::make('team_name_at_assignment')->label('Team')->placeholder('—'),
             TextColumn::make('brandScope.brand.name')->label('Brand')->placeholder('—'),
+            TextColumn::make('categoryScope.category.name')->label('Category')->placeholder('—'),
             TextColumn::make('platformScope.platform.name')->label('Platform')->placeholder('—'),
             TextColumn::make('product_display')->label('Product')->state(fn (ResponsibilityAssignment $record): ?string => $record->productScope?->product?->name ?? $record->quantityScope?->inventory?->product?->name)->placeholder('—')->wrap(),
             TextColumn::make('warehouse_display')->label('Warehouse')->state(fn (ResponsibilityAssignment $record): ?string => $record->quantityScope?->inventory?->warehouse?->name)->placeholder('—'),
             TextColumn::make('quantityScope.assigned_quantity')->label('Assigned Qty')->placeholder('—'),
+            TextColumn::make('allocation_remaining')->label('Allocation Remaining')->state(fn (ResponsibilityAssignment $record): ?int => $record->quantityScope === null ? null : app(ResponsibilityAllocationService::class)->usage($record)['remaining'])->placeholder('—'),
             TextColumn::make('physical_sellable')->label('Physical Sellable')->placeholder('—'),
-            TextColumn::make('aggregate_assigned')->label('Aggregate Assigned')->placeholder('—'),
-            TextColumn::make('remaining_assignable')->label('Remaining')->state(fn (ResponsibilityAssignment $record): ?int => $record->physical_sellable === null ? null : (int) $record->physical_sellable - (int) $record->aggregate_assigned)->placeholder('—'),
-            TextColumn::make('capacity_state')->label('Capacity')->state(fn (ResponsibilityAssignment $record): string => $record->physical_sellable === null ? 'Not Applicable' : ((int) $record->aggregate_assigned > (int) $record->physical_sellable ? 'Over Assigned' : ((int) $record->aggregate_assigned === (int) $record->physical_sellable ? 'At Capacity' : 'OK')))->badge()
-                ->color(fn (string $state): string => match ($state) {
-                    'Over Assigned' => 'danger', 'At Capacity' => 'warning', 'OK' => 'success', default => 'gray'
-                }),
+            TextColumn::make('capacity_summary')->label('Capacity')->state(function (ResponsibilityAssignment $record): string {
+                if ($record->quantityScope === null) {
+                    return 'Not Applicable';
+                }
+                $summary = app(ResponsibilityCapacityService::class)->summary($record->quantityScope->product_inventory_id);
+
+                return "{$summary['status']->getLabel()} · Outstanding {$summary['outstanding']} · Assignable {$summary['remaining']}";
+            })->wrap(),
             TextColumn::make('effective_at')->dateTime('d M Y, h:i A')->sortable(),
             TextColumn::make('ended_at')->dateTime('d M Y, h:i A')->placeholder('Active'),
             TextColumn::make('status')->badge(),

@@ -29,6 +29,7 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Inventory\InventoryService;
 use App\Services\ReferenceSequenceService;
+use App\Services\Responsibilities\ResponsibilityAllocationService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +50,7 @@ class OrderService
         private readonly OrderUpgradePlanningService $upgradePlanning,
         private readonly OrderUpgradeService $upgrades,
         private readonly ActivityLogger $activity,
+        private readonly ResponsibilityAllocationService $allocations,
     ) {}
 
     public function saveAndReserve(SaveAndReserveOrderData $data, User $actor): Order
@@ -225,6 +227,15 @@ class OrderService
             }
         }
 
+        $allocationAssignments = [];
+        foreach ($requiredByProduct as $productId => $requiredQuantity) {
+            $inventory = $inventories->get((int) $productId);
+            if ($inventory !== null) {
+                $allocation = $this->allocations->lockAndAssert($actor, $inventory, $platform?->id, (int) $requiredQuantity);
+                $allocationAssignments[(int) $productId] = $allocation['assignment_id'] ?? null;
+            }
+        }
+
         $order = Order::query()->create([
             'reference' => $reference,
             'source' => OrderSource::Manual,
@@ -279,6 +290,7 @@ class OrderService
                 $movementReferences[$index]['base'],
                 $postingKeys[$index]['base'],
                 $movementGroup,
+                $allocationAssignments[$item->product_id] ?? null,
             );
             if ($upgradePlans[$index] instanceof OrderUpgradePlan) {
                 $selection = $this->upgradePlanning->lockAndCreateSelection($item, $upgradePlans[$index], $actor);
@@ -402,6 +414,11 @@ class OrderService
                         throw ValidationException::withMessages(['items' => 'A Product is outside your active Responsibility Assignments.']);
                     }
                 }
+                $allocationAssignments = [];
+                foreach ($requiredByProduct as $productId => $requiredQuantity) {
+                    $allocation = $this->allocations->lockAndAssert($actor, $inventories->get((int) $productId), $platform?->id, (int) $requiredQuantity);
+                    $allocationAssignments[(int) $productId] = $allocation['assignment_id'] ?? null;
+                }
                 $this->upgrades->assertInstallStock($upgradePlans, $warehouse->id);
 
                 $order = Order::query()->create([
@@ -465,6 +482,8 @@ class OrderService
                         $actor,
                         $movementReferences[$index]['base'],
                         $postingKeys[$index]['base'],
+                        null,
+                        $allocationAssignments[$item->product_id] ?? null,
                     );
                     if ($item->upgradeSelection !== null) {
                         $this->upgrades->execute(
@@ -776,6 +795,11 @@ class OrderService
                     $this->upgradePlanning->assertSelectionCurrent($item->upgradeSelection);
                 }
             }
+            $allocationAssignments = [];
+            foreach ($requiredByProduct as $productId => $requiredQuantity) {
+                $allocation = $this->allocations->lockAndAssert($actor, $inventories->get((int) $productId), $platform?->id, (int) $requiredQuantity);
+                $allocationAssignments[(int) $productId] = $allocation['assignment_id'] ?? null;
+            }
             $this->upgrades->assertInstallStock(array_values($upgradePlans), $warehouse->id);
 
             $movementGroup = (string) Str::uuid();
@@ -789,6 +813,7 @@ class OrderService
                     $movementReferences[$item->id],
                     $postingKeys[$item->id],
                     $movementGroup,
+                    $allocationAssignments[$item->product_id] ?? null,
                 );
                 if ($item->upgradeSelection !== null) {
                     $this->upgrades->reserveComponents(

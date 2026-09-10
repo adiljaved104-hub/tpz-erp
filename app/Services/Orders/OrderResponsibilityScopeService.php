@@ -34,6 +34,7 @@ class OrderResponsibilityScopeService
             $employeeId,
             'products.id',
             'products.brand_id',
+            'products.category_id',
             $platformId,
             $warehouseId,
         ));
@@ -57,6 +58,7 @@ class OrderResponsibilityScopeService
                 $employeeId,
                 'products.id',
                 'products.brand_id',
+                'products.category_id',
                 $platformId,
                 $warehouseId,
             ))->exists();
@@ -99,6 +101,7 @@ class OrderResponsibilityScopeService
                     $employeeId,
                     'scoped_order_products.id',
                     'scoped_order_products.brand_id',
+                    'scoped_order_products.category_id',
                     'orders.marketplace_platform_id',
                     'orders.warehouse_id',
                 ));
@@ -126,6 +129,7 @@ class OrderResponsibilityScopeService
                     $employeeId,
                     'scoped_removal_products.id',
                     'scoped_removal_products.brand_id',
+                    'scoped_removal_products.category_id',
                     'marketplace_return_removals.marketplace_platform_id',
                     'marketplace_return_removals.source_warehouse_id',
                 ));
@@ -152,6 +156,7 @@ class OrderResponsibilityScopeService
                     $employeeId,
                     'scoped_case_products.id',
                     'scoped_case_products.brand_id',
+                    'scoped_case_products.category_id',
                     'warranty_repairs.marketplace_platform_id',
                     'warranty_repairs.warehouse_id',
                 ));
@@ -179,6 +184,7 @@ class OrderResponsibilityScopeService
                     $employeeId,
                     'scoped_claim_products.id',
                     'scoped_claim_products.brand_id',
+                    'scoped_claim_products.category_id',
                     'safet_claims.marketplace_platform_id',
                     'scoped_claim_damage.warehouse_id',
                 ));
@@ -209,6 +215,7 @@ class OrderResponsibilityScopeService
                             $employeeId,
                             'scoped_case_products.id',
                             'scoped_case_products.brand_id',
+                            'scoped_case_products.category_id',
                             'complaints.marketplace_platform_id',
                             'scoped_case_orders.warehouse_id',
                         ));
@@ -216,7 +223,7 @@ class OrderResponsibilityScopeService
         });
     }
 
-    private function matchingAssignmentByColumns(QueryBuilder $query, int $employeeId, string $productColumn, string $brandColumn, string $platformColumn, string $warehouseColumn): QueryBuilder
+    private function matchingAssignmentByColumns(QueryBuilder $query, int $employeeId, string $productColumn, string $brandColumn, string $categoryColumn, string $platformColumn, string $warehouseColumn): QueryBuilder
     {
         $query->selectRaw('1')
             ->from('responsibility_assignments as order_ra')
@@ -233,15 +240,13 @@ class OrderResponsibilityScopeService
                         ->whereColumn('order_platform_match.marketplace_platform_id', $platformColumn);
                 });
             })
-            ->where(function (QueryBuilder $product) use ($productColumn, $brandColumn, $warehouseColumn): void {
+            ->where(function (QueryBuilder $product) use ($productColumn, $brandColumn, $categoryColumn, $warehouseColumn): void {
                 $product->whereExists(function (QueryBuilder $scope) use ($productColumn): void {
                     $scope->selectRaw('1')->from('responsibility_assignment_products as order_product_scope')
                         ->whereColumn('order_product_scope.assignment_id', 'order_ra.id')
                         ->whereColumn('order_product_scope.product_id', $productColumn);
-                })->orWhereExists(function (QueryBuilder $scope) use ($brandColumn): void {
-                    $scope->selectRaw('1')->from('responsibility_assignment_brands as order_brand_scope')
-                        ->whereColumn('order_brand_scope.assignment_id', 'order_ra.id')
-                        ->whereColumn('order_brand_scope.product_brand_id', $brandColumn);
+                })->orWhere(function (QueryBuilder $dimensions) use ($brandColumn, $categoryColumn): void {
+                    $this->matchingBrandCategoryDimensions($dimensions, $brandColumn, $categoryColumn);
                 })->orWhereExists(function (QueryBuilder $scope) use ($productColumn, $warehouseColumn): void {
                     $scope->selectRaw('1')->from('inventory_responsibility_quantities as order_quantity_scope')
                         ->join('product_inventories as order_quantity_inventory', 'order_quantity_inventory.id', '=', 'order_quantity_scope.product_inventory_id')
@@ -259,6 +264,9 @@ class OrderResponsibilityScopeService
                         $scope->selectRaw('1')->from('responsibility_assignment_brands as order_no_brand')
                             ->whereColumn('order_no_brand.assignment_id', 'order_ra.id');
                     })->whereNotExists(function (QueryBuilder $scope): void {
+                        $scope->selectRaw('1')->from('responsibility_assignment_categories as order_no_category')
+                            ->whereColumn('order_no_category.assignment_id', 'order_ra.id');
+                    })->whereNotExists(function (QueryBuilder $scope): void {
                         $scope->selectRaw('1')->from('inventory_responsibility_quantities as order_no_quantity')
                             ->whereColumn('order_no_quantity.assignment_id', 'order_ra.id');
                     });
@@ -268,7 +276,7 @@ class OrderResponsibilityScopeService
         return $query;
     }
 
-    private function matchingAssignment(QueryBuilder $query, int $employeeId, string $productColumn, string $brandColumn, string|int|null $platformId, int $warehouseId): QueryBuilder
+    private function matchingAssignment(QueryBuilder $query, int $employeeId, string $productColumn, string $brandColumn, string $categoryColumn, string|int|null $platformId, int $warehouseId): QueryBuilder
     {
         $query->selectRaw('1')
             ->from('responsibility_assignments as order_ra')
@@ -289,15 +297,13 @@ class OrderResponsibilityScopeService
                     });
                 }
             })
-            ->where(function (QueryBuilder $product) use ($productColumn, $brandColumn, $warehouseId): void {
+            ->where(function (QueryBuilder $product) use ($productColumn, $brandColumn, $categoryColumn, $warehouseId): void {
                 $product->whereExists(function (QueryBuilder $scope) use ($productColumn): void {
                     $scope->selectRaw('1')->from('responsibility_assignment_products as order_product_scope')
                         ->whereColumn('order_product_scope.assignment_id', 'order_ra.id')
                         ->whereColumn('order_product_scope.product_id', $productColumn);
-                })->orWhereExists(function (QueryBuilder $scope) use ($brandColumn): void {
-                    $scope->selectRaw('1')->from('responsibility_assignment_brands as order_brand_scope')
-                        ->whereColumn('order_brand_scope.assignment_id', 'order_ra.id')
-                        ->whereColumn('order_brand_scope.product_brand_id', $brandColumn);
+                })->orWhere(function (QueryBuilder $dimensions) use ($brandColumn, $categoryColumn): void {
+                    $this->matchingBrandCategoryDimensions($dimensions, $brandColumn, $categoryColumn);
                 })->orWhereExists(function (QueryBuilder $scope) use ($productColumn, $warehouseId): void {
                     $scope->selectRaw('1')->from('inventory_responsibility_quantities as order_quantity_scope')
                         ->join('product_inventories as order_quantity_inventory', 'order_quantity_inventory.id', '=', 'order_quantity_scope.product_inventory_id')
@@ -315,6 +321,9 @@ class OrderResponsibilityScopeService
                         $scope->selectRaw('1')->from('responsibility_assignment_brands as order_no_brand')
                             ->whereColumn('order_no_brand.assignment_id', 'order_ra.id');
                     })->whereNotExists(function (QueryBuilder $scope): void {
+                        $scope->selectRaw('1')->from('responsibility_assignment_categories as order_no_category')
+                            ->whereColumn('order_no_category.assignment_id', 'order_ra.id');
+                    })->whereNotExists(function (QueryBuilder $scope): void {
                         $scope->selectRaw('1')->from('inventory_responsibility_quantities as order_no_quantity')
                             ->whereColumn('order_no_quantity.assignment_id', 'order_ra.id');
                     });
@@ -322,5 +331,33 @@ class OrderResponsibilityScopeService
             });
 
         return $query;
+    }
+
+    private function matchingBrandCategoryDimensions(QueryBuilder $query, string $brandColumn, string $categoryColumn): void
+    {
+        $query->where(function (QueryBuilder $present): void {
+            $present->whereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')
+                ->from('responsibility_assignment_brands as order_brand_present')
+                ->whereColumn('order_brand_present.assignment_id', 'order_ra.id'))
+                ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')
+                    ->from('responsibility_assignment_categories as order_category_present')
+                    ->whereColumn('order_category_present.assignment_id', 'order_ra.id'));
+        })->where(function (QueryBuilder $brand) use ($brandColumn): void {
+            $brand->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')
+                ->from('responsibility_assignment_brands as order_brand_none')
+                ->whereColumn('order_brand_none.assignment_id', 'order_ra.id'))
+                ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')
+                    ->from('responsibility_assignment_brands as order_brand_match')
+                    ->whereColumn('order_brand_match.assignment_id', 'order_ra.id')
+                    ->whereColumn('order_brand_match.product_brand_id', $brandColumn));
+        })->where(function (QueryBuilder $category) use ($categoryColumn): void {
+            $category->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')
+                ->from('responsibility_assignment_categories as order_category_none')
+                ->whereColumn('order_category_none.assignment_id', 'order_ra.id'))
+                ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')
+                    ->from('responsibility_assignment_categories as order_category_match')
+                    ->whereColumn('order_category_match.assignment_id', 'order_ra.id')
+                    ->whereColumn('order_category_match.product_category_id', $categoryColumn));
+        });
     }
 }

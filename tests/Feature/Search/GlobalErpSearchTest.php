@@ -86,6 +86,51 @@ class GlobalErpSearchTest extends TestCase
         $this->actingAs($admin)->get(ProductResource::getUrl('view', ['record' => $restrictedProduct]))->assertForbidden();
     }
 
+    public function test_owner_can_find_authorized_modules_by_label_and_partial_name(): void
+    {
+        [$owner] = $this->employee(EmployeeRole::Owner);
+        $this->actingAs($owner);
+        $search = app(GlobalSearchService::class);
+
+        foreach ([
+            'product' => 'Products',
+            'inventory overview' => 'Inventory Overview',
+            'purchase' => 'Purchases',
+            'order' => 'Orders',
+            'quotation' => 'Quotations',
+            'responsib' => 'Responsibility Assignments',
+            'employee' => 'Employees',
+        ] as $query => $label) {
+            $this->assertTrue(
+                $search->search($owner, $query)->get('Modules & Pages', collect())->contains('label', $label),
+                "Expected module [{$label}] for query [{$query}].",
+            );
+        }
+
+        $products = $search->search($owner, 'product')->get('Modules & Pages');
+        $this->assertSame(ProductResource::getUrl(), $products->firstWhere('label', 'Products')->url);
+        $this->assertCount($products->pluck('url')->unique()->count(), $products);
+    }
+
+    public function test_navigation_search_omits_modules_hidden_by_effective_permissions(): void
+    {
+        [$owner] = $this->employee(EmployeeRole::Owner);
+        [$admin, $employee] = $this->employee(EmployeeRole::Admin);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $employee->id,
+            'permission_key' => ProductPermission::View->value,
+            'effect' => EmployeePermissionEffect::Deny,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Navigation search security test',
+        ]);
+        $this->actingAs($admin);
+
+        $modules = app(GlobalSearchService::class)->search($admin, 'products')->get('Modules & Pages', collect());
+
+        $this->assertFalse($modules->contains('label', 'Products'));
+        $this->assertFalse($modules->contains('url', ProductResource::getUrl()));
+    }
+
     public function test_return_claim_warranty_and_complaint_references_are_searchable_without_financial_context(): void
     {
         [$owner] = $this->employee(EmployeeRole::Owner);

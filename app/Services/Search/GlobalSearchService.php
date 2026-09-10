@@ -21,6 +21,7 @@ class GlobalSearchService
         }
 
         return collect([
+            app(NavigationSearchProvider::class),
             app(CatalogPeopleSearchProvider::class),
             app(SalesServiceSearchProvider::class),
             app(PurchasingSearchProvider::class),

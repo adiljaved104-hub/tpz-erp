@@ -820,6 +820,13 @@ class QuotationResource extends Resource
                                 )
                                 ->searchable()
                                 ->required(),
+                            TextInput::make('customer_phone')
+                                ->label('Customer Phone')
+                                ->tel()
+                                ->default(fn (Quotation $record) => $record->customer_phone)
+                                ->required()
+                                ->maxLength(40)
+                                ->regex('/^\+?[0-9][0-9\s().-]{5,39}$/'),
                         ])
                         ->visible(
                             fn (Quotation $record): bool => self::allowed(
@@ -840,7 +847,8 @@ class QuotationResource extends Resource
                                 )->toOrder(
                                     $record,
                                     (int) $data['warehouse_id'],
-                                    auth()->user()
+                                    auth()->user(),
+                                    customerPhone: $data['customer_phone']
                                 );
 
                                 Notification::make()

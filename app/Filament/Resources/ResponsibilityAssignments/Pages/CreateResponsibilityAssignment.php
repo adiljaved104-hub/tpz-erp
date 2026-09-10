@@ -20,8 +20,13 @@ class CreateResponsibilityAssignment extends CreateRecord
         $scope = self::normalizedScope($data);
         $mode = $scope['mode'];
 
-        if (in_array($scope['type'], ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'product', 'product_platform'], true)) {
-            $kind = in_array($scope['type'], ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true) ? 'brand' : 'product';
+        if ($mode === ResponsibilityAssignmentMode::Scope && $scope['type'] !== 'category') {
+            $kind = match (true) {
+                in_array($scope['type'], ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true) => 'brand',
+                in_array($scope['type'], ['product', 'product_platform'], true) => 'product',
+                in_array($scope['type'], ['category', 'category_platform'], true) => 'category',
+                default => 'platform',
+            };
 
             return app(BulkResponsibilityAssignmentService::class)->create(new CreateResponsibilityAssignmentBatchData(
                 employeeId: (int) $data['employee_id'],
@@ -33,6 +38,7 @@ class CreateResponsibilityAssignment extends CreateRecord
                 reason: $data['reason'],
                 notes: $data['notes'] ?? null,
                 idempotencyKey: $data['idempotency_key'],
+                platformIds: $scope['platform_ids'],
             ), auth()->user())->firstOrFail();
         }
 
@@ -52,19 +58,25 @@ class CreateResponsibilityAssignment extends CreateRecord
         ), auth()->user());
     }
 
-    /** @return array{type:string,mode:ResponsibilityAssignmentMode,brand_ids:array<int,int>,category_id:?int,platform_id:?int,product_ids:array<int,int>,product_inventory_id:?int,assigned_quantity:?int} */
+    /** @return array{type:string,mode:ResponsibilityAssignmentMode,brand_ids:array<int,int>,category_id:?int,platform_id:?int,platform_ids:array<int,int>,product_ids:array<int,int>,product_inventory_id:?int,assigned_quantity:?int} */
     public static function normalizedScope(array $data): array
     {
         $type = (string) ($data['scope_type'] ?? '');
         abort_unless(in_array($type, ['brand', 'platform', 'brand_platform', 'category', 'category_platform', 'category_brand', 'category_brand_platform', 'product', 'product_platform', 'quantity', 'quantity_platform'], true), 422);
         $mode = str_starts_with($type, 'quantity') ? ResponsibilityAssignmentMode::Quantity : ResponsibilityAssignmentMode::Scope;
 
+        $usesMultiplePlatforms = in_array($type, ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform'], true);
+        $platformIds = $usesMultiplePlatforms
+            ? array_values(array_unique(array_map('intval', $data['platform_ids'] ?? (filled($data['platform_id'] ?? null) ? [$data['platform_id']] : []))))
+            : [];
+
         return [
             'type' => $type,
             'mode' => $mode,
             'brand_ids' => in_array($type, ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true) ? array_values(array_unique(array_map('intval', $data['brand_ids'] ?? []))) : [],
             'category_id' => in_array($type, ['category', 'category_platform', 'category_brand', 'category_brand_platform'], true) && filled($data['category_id'] ?? null) ? (int) $data['category_id'] : null,
-            'platform_id' => in_array($type, ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'quantity_platform'], true) && filled($data['platform_id'] ?? null) ? (int) $data['platform_id'] : null,
+            'platform_id' => $type === 'quantity_platform' && filled($data['platform_id'] ?? null) ? (int) $data['platform_id'] : ($platformIds[0] ?? null),
+            'platform_ids' => $platformIds,
             'product_ids' => in_array($type, ['product', 'product_platform'], true) ? array_values(array_unique(array_map('intval', $data['product_ids'] ?? []))) : [],
             'product_inventory_id' => in_array($type, ['quantity', 'quantity_platform'], true) && filled($data['product_inventory_id'] ?? null) ? (int) $data['product_inventory_id'] : null,
             'assigned_quantity' => in_array($type, ['quantity', 'quantity_platform'], true) && filled($data['assigned_quantity'] ?? null) ? (int) $data['assigned_quantity'] : null,

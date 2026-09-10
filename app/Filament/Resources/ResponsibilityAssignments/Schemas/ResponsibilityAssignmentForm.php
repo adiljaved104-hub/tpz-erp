@@ -58,7 +58,10 @@ class ResponsibilityAssignmentForm
                             if (! in_array($state, ['category', 'category_platform', 'category_brand', 'category_brand_platform'], true)) {
                                 $set('category_id', null);
                             }
-                            if (! in_array($state, ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'quantity_platform'], true)) {
+                            if (! in_array($state, ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform'], true)) {
+                                $set('platform_ids', []);
+                            }
+                            if ($state !== 'quantity_platform') {
                                 $set('platform_id', null);
                             }
                             if (! in_array($state, ['product', 'product_platform'], true)) {
@@ -73,7 +76,7 @@ class ResponsibilityAssignmentForm
                     DateTimePicker::make('effective_at')->required()->default(now())->maxDate(now()),
                 ]),
             ]),
-            Section::make('Exact Scope')->description('Each selected Brand or Product creates one exact assignment. Category scopes remain dynamic as Products are added.')->schema([
+            Section::make('Exact Scope')->description('Each selected Brand/Product and Platform combination creates one exact assignment. Category scopes remain dynamic as Products are added.')->schema([
                 Grid::make(['default' => 1, 'lg' => 2])->schema([
                     Select::make('brand_ids')->label('Brands')->multiple()->searchable()->live()->nullable()
                         ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true))
@@ -83,9 +86,13 @@ class ResponsibilityAssignmentForm
                         ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['category', 'category_platform', 'category_brand', 'category_brand_platform'], true))
                         ->required(fn (Get $get): bool => in_array($get('scope_type'), ['category', 'category_platform', 'category_brand', 'category_brand_platform'], true))
                         ->options(fn (): array => ProductCategory::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
+                    Select::make('platform_ids')->label('Platforms')->multiple()->searchable()->live()->nullable()
+                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform'], true))
+                        ->required(fn (Get $get): bool => in_array($get('scope_type'), ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform'], true))
+                        ->options(fn (): array => MarketplacePlatform::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
                     Select::make('platform_id')->label('Platform')->searchable()->live()->nullable()
-                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'quantity_platform'], true))
-                        ->required(fn (Get $get): bool => in_array($get('scope_type'), ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'quantity_platform'], true))
+                        ->visible(fn (Get $get): bool => $get('scope_type') === 'quantity_platform')
+                        ->required(fn (Get $get): bool => $get('scope_type') === 'quantity_platform')
                         ->options(fn (): array => MarketplacePlatform::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
                     Select::make('product_ids')->label('Products')->multiple()->searchable()->live()->nullable()
                         ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['product', 'product_platform'], true))

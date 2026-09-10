@@ -176,6 +176,68 @@ class QuotationWorkflowTest extends TestCase
         $this->assertDatabaseCount('orders', 1);
     }
 
+    public function test_convert_to_order_action_receives_submitted_warehouse_id(): void
+    {
+        $owner = $this->owner();
+        $this->profile($owner);
+        $product = Product::factory()->create(['selling_price' => '105.00']);
+        $warehouse = Warehouse::factory()->create(['is_default' => true]);
+        ProductInventory::factory()->for($product)->for($warehouse)->create([
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+            'average_cost' => '50.0000',
+        ]);
+        $quote = $this->createQuote($owner, $this->items($product));
+        $service = app(QuotationService::class);
+        $service->transition($quote, QuotationStatus::Sent, $owner);
+        $service->transition($quote->refresh(), QuotationStatus::Accepted, $owner);
+
+        Livewire::actingAs($owner)->test(ViewQuotation::class, ['record' => $quote->id])
+            ->callAction('convertOrder', ['warehouse_id' => $warehouse->id])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame($warehouse->id, $quote->refresh()->order->warehouse_id);
+    }
+
+    public function test_reject_action_receives_submitted_reason(): void
+    {
+        $owner = $this->owner();
+        $this->profile($owner);
+        $product = Product::factory()->create(['selling_price' => '105.00']);
+        $quote = $this->createQuote($owner, $this->items($product));
+        app(QuotationService::class)->transition($quote, QuotationStatus::Sent, $owner);
+
+        Livewire::actingAs($owner)->test(ViewQuotation::class, ['record' => $quote->id])
+            ->callAction('reject', ['reason' => 'Customer selected another offer.'])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame(QuotationStatus::Rejected, $quote->refresh()->status);
+        $this->assertDatabaseHas('activity_logs', [
+            'event' => 'quotation.rejected',
+            'subject_id' => $quote->id,
+            'description' => 'Customer selected another offer.',
+        ]);
+    }
+
+    public function test_cancel_action_receives_submitted_reason(): void
+    {
+        $owner = $this->owner();
+        $this->profile($owner);
+        $product = Product::factory()->create(['selling_price' => '105.00']);
+        $quote = $this->createQuote($owner, $this->items($product));
+
+        Livewire::actingAs($owner)->test(ViewQuotation::class, ['record' => $quote->id])
+            ->callAction('cancel', ['reason' => 'Customer withdrew the request.'])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame(QuotationStatus::Cancelled, $quote->refresh()->status);
+        $this->assertDatabaseHas('activity_logs', [
+            'event' => 'quotation.cancelled',
+            'subject_id' => $quote->id,
+            'description' => 'Customer withdrew the request.',
+        ]);
+    }
+
     public function test_failed_order_conversion_leaves_quotation_unconverted_and_reuses_reserved_key(): void
     {
         $owner = $this->owner();

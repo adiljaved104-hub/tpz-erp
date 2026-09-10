@@ -171,8 +171,50 @@ class QuotationWorkflowTest extends TestCase
         $this->assertDatabaseCount('orders', 1);
         $this->assertDatabaseCount('inventory_reservations', 1);
         $this->assertGreaterThan(0, DB::table('stock_movements')->count());
+        $this->assertSame('Acme Customer', $order->customer_name);
+        $this->assertSame('+971500000000', $order->customer_phone);
+        $this->assertSame('other', $order->web_sales_channel->value);
+        $this->assertSame('shop_pickup', $order->delivery_type->value);
         $again = app(QuotationConversionService::class)->toOrder($quote->refresh(), $warehouse->id, $owner);
         $this->assertSame($order->id, $again->id);
+        $this->assertDatabaseCount('orders', 1);
+    }
+
+    public function test_convert_action_collects_missing_customer_phone_without_mutating_quotation_and_reuses_reserved_key(): void
+    {
+        $owner = $this->owner();
+        $this->profile($owner);
+        $product = Product::factory()->create(['selling_price' => '105.00']);
+        $warehouse = Warehouse::factory()->create(['is_default' => true]);
+        ProductInventory::factory()->for($product)->for($warehouse)->create([
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+            'average_cost' => '50.0000',
+        ]);
+        $data = $this->data($this->items($product));
+        $data['customer_phone'] = null;
+        $quote = app(QuotationService::class)->create($data, $owner);
+        $service = app(QuotationService::class);
+        $service->transition($quote, QuotationStatus::Sent, $owner);
+        $service->transition($quote->refresh(), QuotationStatus::Accepted, $owner);
+        $reservedKey = (string) Str::uuid();
+        $quote->forceFill(['order_conversion_idempotency_key' => $reservedKey])->save();
+
+        Livewire::actingAs($owner)->test(ViewQuotation::class, ['record' => $quote->id])
+            ->callAction('convertOrder', [
+                'warehouse_id' => $warehouse->id,
+                'customer_phone' => '+971501234567',
+            ])->assertHasNoActionErrors();
+        $order = $quote->refresh()->order;
+        $retry = app(QuotationConversionService::class)->toOrder($quote->refresh(), $warehouse->id, $owner);
+
+        $this->assertSame($reservedKey, $order->idempotency_key);
+        $this->assertSame($order->id, $retry->id);
+        $this->assertSame('Acme Customer', $order->customer_name);
+        $this->assertSame('+971501234567', $order->customer_phone);
+        $this->assertSame('other', $order->web_sales_channel->value);
+        $this->assertSame('shop_pickup', $order->delivery_type->value);
+        $this->assertNull($quote->refresh()->customer_phone);
         $this->assertDatabaseCount('orders', 1);
     }
 

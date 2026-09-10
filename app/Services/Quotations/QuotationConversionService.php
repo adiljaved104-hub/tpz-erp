@@ -33,7 +33,7 @@ class QuotationConversionService
         private readonly ReferenceSequenceService $references,
     ) {}
 
-    public function toOrder(Quotation $quotation, int $warehouseId, User $actor, ?string $idempotencyKey = null): Order
+    public function toOrder(Quotation $quotation, int $warehouseId, User $actor, ?string $idempotencyKey = null, ?string $customerPhone = null): Order
     {
         $this->authorization->authorize($actor, QuotationPermission::ConvertOrder, $quotation);
         $quotation = $quotation->fresh(['items', 'order']);
@@ -60,7 +60,7 @@ class QuotationConversionService
             }
         }
 
-        return DB::transaction(function () use ($quotation, $warehouseId, $actor, $key, $orderDate, $preparedReferences, $movementReferences, $manualProductSkus): Order {
+        return DB::transaction(function () use ($quotation, $warehouseId, $actor, $key, $orderDate, $preparedReferences, $movementReferences, $manualProductSkus, $customerPhone): Order {
             $locked = $this->lockQuotation($quotation);
             $this->authorization->authorize($actor, QuotationPermission::ConvertOrder, $locked);
             if ($locked->order_id) {
@@ -82,7 +82,7 @@ class QuotationConversionService
                     notes: "Converted from {$locked->reference}",
                 ))->all(),
                 idempotencyKey: $key, webSalesChannel: 'other',
-                customerName: $locked->customer_name, customerPhone: $locked->customer_phone,
+                customerName: $locked->customer_name, customerPhone: $customerPhone ?? $locked->customer_phone,
                 deliveryType: 'shop_pickup',
             );
             $prepared = $this->orders->preparePlainReservation($data, $actor, $preparedReferences);

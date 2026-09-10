@@ -7,11 +7,12 @@ use App\Enums\ResponsibilityCapacityStatus;
 use App\Exceptions\ResponsibilityCapacityExceededException;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
-use Illuminate\Support\Facades\DB;
 
 class ResponsibilityCapacityService
 {
-    /** @return array{inventory: ProductInventory, assigned: int, sellable: int, remaining: int, status: ResponsibilityCapacityStatus} */
+    public function __construct(private readonly ResponsibilityAllocationService $allocations) {}
+
+    /** @return array{inventory: ProductInventory, assigned: int, outstanding: int, sellable: int, remaining: int, status: ResponsibilityCapacityStatus} */
     public function lockAndAssert(int $inventoryId, int $proposedQuantity, ?int $excludeAssignmentId = null): array
     {
         $inventory = ProductInventory::query()
@@ -20,57 +21,60 @@ class ResponsibilityCapacityService
             ->findOrFail($inventoryId);
 
         $assignments = ResponsibilityAssignment::query()
-            ->select('responsibility_assignments.id')
+            ->select('responsibility_assignments.*')
             ->join('inventory_responsibility_quantities as irq', 'irq.assignment_id', '=', 'responsibility_assignments.id')
             ->where('irq.product_inventory_id', $inventoryId)
             ->where('responsibility_assignments.status', ResponsibilityAssignmentStatus::Active->value)
             ->when($excludeAssignmentId !== null, fn ($query) => $query->where('responsibility_assignments.id', '!=', $excludeAssignmentId))
             ->orderBy('responsibility_assignments.id')
             ->lockForUpdate()
-            ->get();
+            ->with('quantityScope')->get();
 
-        $assigned = (int) DB::table('inventory_responsibility_quantities')
-            ->whereIn('assignment_id', $assignments->pluck('id'))
-            ->sum('assigned_quantity');
+        $assigned = (int) $assignments->sum(fn (ResponsibilityAssignment $assignment): int => (int) $assignment->quantityScope->assigned_quantity);
+        $outstanding = (int) $assignments->sum(fn (ResponsibilityAssignment $assignment): int => $this->allocations->usage($assignment, lock: true)['remaining']);
         $sellable = $inventory->sellableQuantity();
 
-        if ($assigned + $proposedQuantity > $sellable) {
-            throw new ResponsibilityCapacityExceededException("Only {$sellable} sellable units exist; {$assigned} are already assigned.");
+        if ($outstanding + $proposedQuantity > $sellable) {
+            throw new ResponsibilityCapacityExceededException("Only {$sellable} sellable units exist; {$outstanding} remain allocated.");
         }
 
-        return $this->result($inventory, $assigned + $proposedQuantity);
+        return $this->result($inventory, $assigned + $proposedQuantity, $outstanding + $proposedQuantity);
     }
 
-    /** @return array{inventory: ProductInventory, assigned: int, sellable: int, remaining: int, status: ResponsibilityCapacityStatus} */
+    /** @return array{inventory: ProductInventory, assigned: int, outstanding: int, sellable: int, remaining: int, status: ResponsibilityCapacityStatus} */
     public function summary(int $inventoryId): array
     {
         $inventory = ProductInventory::query()
             ->select(['id', 'product_id', 'warehouse_id', 'available_quantity', 'reserved_quantity', 'damaged_quantity'])
             ->findOrFail($inventoryId);
-        $assigned = (int) DB::table('inventory_responsibility_quantities as irq')
-            ->join('responsibility_assignments as ra', 'ra.id', '=', 'irq.assignment_id')
+        $assignments = ResponsibilityAssignment::query()
+            ->select('responsibility_assignments.*')
+            ->join('inventory_responsibility_quantities as irq', 'irq.assignment_id', '=', 'responsibility_assignments.id')
             ->where('irq.product_inventory_id', $inventoryId)
-            ->where('ra.status', ResponsibilityAssignmentStatus::Active->value)
-            ->sum('irq.assigned_quantity');
+            ->where('responsibility_assignments.status', ResponsibilityAssignmentStatus::Active->value)
+            ->with('quantityScope')->get();
+        $assigned = (int) $assignments->sum(fn (ResponsibilityAssignment $assignment): int => (int) $assignment->quantityScope->assigned_quantity);
+        $outstanding = (int) $assignments->sum(fn (ResponsibilityAssignment $assignment): int => $this->allocations->usage($assignment)['remaining']);
 
-        return $this->result($inventory, $assigned);
+        return $this->result($inventory, $assigned, $outstanding);
     }
 
-    /** @return array{inventory: ProductInventory, assigned: int, sellable: int, remaining: int, status: ResponsibilityCapacityStatus} */
-    private function result(ProductInventory $inventory, int $assigned): array
+    /** @return array{inventory: ProductInventory, assigned: int, outstanding: int, sellable: int, remaining: int, status: ResponsibilityCapacityStatus} */
+    private function result(ProductInventory $inventory, int $assigned, int $outstanding): array
     {
         $sellable = $inventory->sellableQuantity();
         $status = match (true) {
-            $assigned > $sellable => ResponsibilityCapacityStatus::OverAssigned,
-            $assigned === $sellable => ResponsibilityCapacityStatus::AtCapacity,
+            $outstanding > $sellable => ResponsibilityCapacityStatus::OverAssigned,
+            $outstanding === $sellable => ResponsibilityCapacityStatus::AtCapacity,
             default => ResponsibilityCapacityStatus::Ok,
         };
 
         return [
             'inventory' => $inventory,
             'assigned' => $assigned,
+            'outstanding' => $outstanding,
             'sellable' => $sellable,
-            'remaining' => $sellable - $assigned,
+            'remaining' => $sellable - $outstanding,
             'status' => $status,
         ];
     }

@@ -21,7 +21,7 @@ class ResponsibilityReportsTest extends TestCase
         $f['inventory']->forceFill(['reserved_quantity' => 1])->save();
         $reports = app(ResponsibilityReportService::class)->summaries();
 
-        foreach (['by_employee', 'by_brand', 'by_platform', 'by_product', 'over_assigned', 'unassigned_products', 'history'] as $key) {
+        foreach (['by_employee', 'by_brand', 'by_category', 'by_platform', 'by_product', 'over_assigned', 'unassigned_products', 'history'] as $key) {
             $this->assertArrayHasKey($key, $reports);
         }
         $this->assertCount(1, $reports['over_assigned']);

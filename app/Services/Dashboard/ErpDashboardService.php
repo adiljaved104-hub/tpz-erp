@@ -59,6 +59,7 @@ use App\Services\Hr\AttendanceQueryService;
 use App\Services\Hr\HrScopeService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Responsibilities\ResponsibilityCapacityService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use App\Services\Tasks\TaskQueryService;
 use Carbon\CarbonImmutable;
@@ -86,6 +87,7 @@ class ErpDashboardService
         private readonly ChatQueryService $chatQueries,
         private readonly ResponsibilityAuthorization $responsibilities,
         private readonly ResponsibilityReadService $responsibilityReads,
+        private readonly ResponsibilityCapacityService $responsibilityCapacity,
         private readonly DashboardInventoryIntelligenceService $inventoryIntelligence,
         private readonly PurchaseAuthorization $purchases,
     ) {}
@@ -417,17 +419,20 @@ class ErpDashboardService
             return;
         }
 
-        $capacity = DB::table('product_inventories as dashboard_capacity_pi')
-            ->join('inventory_responsibility_quantities as dashboard_capacity_irq', 'dashboard_capacity_irq.product_inventory_id', '=', 'dashboard_capacity_pi.id')
+        $inventoryIds = DB::table('inventory_responsibility_quantities as dashboard_capacity_irq')
             ->join('responsibility_assignments as dashboard_capacity_ra', 'dashboard_capacity_ra.id', '=', 'dashboard_capacity_irq.assignment_id')
             ->where('dashboard_capacity_ra.status', ResponsibilityAssignmentStatus::Active->value)
             ->whereNull('dashboard_capacity_ra.ended_at')
-            ->groupBy('dashboard_capacity_pi.id', 'dashboard_capacity_pi.available_quantity', 'dashboard_capacity_pi.reserved_quantity')
-            ->selectRaw('SUM(dashboard_capacity_irq.assigned_quantity) AS assigned, (dashboard_capacity_pi.available_quantity - dashboard_capacity_pi.reserved_quantity) AS sellable');
-        $counts = DB::query()->fromSub($capacity, 'dashboard_capacity')
-            ->selectRaw('SUM(CASE WHEN assigned > sellable THEN 1 ELSE 0 END) AS over_assigned')
-            ->selectRaw('SUM(CASE WHEN assigned = sellable THEN 1 ELSE 0 END) AS at_capacity')
-            ->first();
+            ->distinct()->pluck('dashboard_capacity_irq.product_inventory_id');
+        $counts = (object) ['over_assigned' => 0, 'at_capacity' => 0];
+        foreach ($inventoryIds as $inventoryId) {
+            $status = $this->responsibilityCapacity->summary((int) $inventoryId)['status']->value;
+            if ($status === 'over_assigned') {
+                $counts->over_assigned++;
+            } elseif ($status === 'at_capacity') {
+                $counts->at_capacity++;
+            }
+        }
 
         $this->attentionWhen($attention, (int) ($counts->over_assigned ?? 0), 'Responsibility inventory is over-assigned', MyInventory::getUrl(), 92);
         $this->attentionWhen($attention, (int) ($counts->at_capacity ?? 0), 'Responsibility inventory is at capacity', MyInventory::getUrl(), 68);
@@ -448,6 +453,7 @@ class ErpDashboardService
             ->get()
             ->map(function ($assignment): string {
                 $parts = array_filter([
+                    $assignment->categoryScope?->category?->name ? 'Category: '.$assignment->categoryScope->category->name : null,
                     $assignment->brandScope?->brand?->name ? 'Brand: '.$assignment->brandScope->brand->name : null,
                     $assignment->platformScope?->platform?->name ? 'Platform: '.$assignment->platformScope->platform->name : null,
                     $assignment->productScope?->product?->sku ? 'Product: '.$assignment->productScope->product->sku : null,

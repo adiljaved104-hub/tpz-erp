@@ -69,7 +69,7 @@ class OrderResponsibilityAndPermissionTest extends TestCase
         app(SaveAndReserveOrder::class)->handle($this->data($foundation['product'], $warehouse->id, $staff, $otherPlatform), $staff);
     }
 
-    public function test_quantity_responsibility_is_scope_only_and_does_not_cap_sales_quantity(): void
+    public function test_quantity_responsibility_caps_sales_quantity(): void
     {
         $foundation = $this->responsibilityFoundation(10);
         $staff = $foundation['employee']->user;
@@ -78,10 +78,15 @@ class OrderResponsibilityAndPermissionTest extends TestCase
         ]), $foundation['owner']);
         $data = $this->data($foundation['product'], $foundation['inventory']->warehouse_id, $staff, null, 4);
 
-        $order = app(SaveAndReserveOrder::class)->handle($data, $staff);
+        try {
+            app(SaveAndReserveOrder::class)->handle($data, $staff);
+            $this->fail('An Employee assigned one unit must not reserve four.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('remaining allocation of 1', $exception->getMessage());
+        }
 
-        $this->assertSame(4, $order->items()->sole()->ordered_quantity);
-        $this->assertSame(4, $foundation['inventory']->refresh()->reserved_quantity);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertSame(0, $foundation['inventory']->refresh()->reserved_quantity);
     }
 
     public function test_overlapping_active_scopes_do_not_duplicate_order_rows(): void

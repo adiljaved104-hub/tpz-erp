@@ -3,6 +3,7 @@
         @foreach ([
             'by_employee' => 'Responsibility by Employee',
             'by_brand' => 'Responsibility by Brand',
+            'by_category' => 'Responsibility by Category',
             'by_platform' => 'Responsibility by Platform',
             'by_product' => 'Responsibility by Product',
             'over_assigned' => 'Over-assigned Products',

@@ -8,6 +8,7 @@ use App\Models\Employee;
 use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductBrand;
+use App\Models\ProductCategory;
 use App\Models\ResponsibilityAssignment;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
 use Filament\Forms\Components\DateTimePicker;
@@ -44,19 +45,24 @@ class ResponsibilityAssignmentForm
                     }),
                     Select::make('scope_type')->label('Responsibility Type')->options([
                         'brand' => 'Brand', 'platform' => 'Platform', 'brand_platform' => 'Brand + Platform',
+                        'category' => 'Category', 'category_platform' => 'Category + Platform',
+                        'category_brand' => 'Category + Brand', 'category_brand_platform' => 'Category + Brand + Platform',
                         'product' => 'Product', 'product_platform' => 'Product + Platform',
                         'quantity' => 'Product Inventory + Quantity', 'quantity_platform' => 'Product Inventory + Quantity + Platform',
                     ])->required()->default('brand')->live()
                         ->afterStateUpdated(function (mixed $state, Set $set): void {
                             $set('assignment_mode', str_starts_with((string) $state, 'quantity') ? ResponsibilityAssignmentMode::Quantity->value : ResponsibilityAssignmentMode::Scope->value);
-                            if (! in_array($state, ['brand', 'brand_platform'], true)) {
-                                $set('brand_id', null);
+                            if (! in_array($state, ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true)) {
+                                $set('brand_ids', []);
                             }
-                            if (! in_array($state, ['platform', 'brand_platform', 'product_platform', 'quantity_platform'], true)) {
+                            if (! in_array($state, ['category', 'category_platform', 'category_brand', 'category_brand_platform'], true)) {
+                                $set('category_id', null);
+                            }
+                            if (! in_array($state, ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'quantity_platform'], true)) {
                                 $set('platform_id', null);
                             }
                             if (! in_array($state, ['product', 'product_platform'], true)) {
-                                $set('product_id', null);
+                                $set('product_ids', []);
                             }
                             if (! in_array($state, ['quantity', 'quantity_platform'], true)) {
                                 $set('product_inventory_id', null);
@@ -67,24 +73,25 @@ class ResponsibilityAssignmentForm
                     DateTimePicker::make('effective_at')->required()->default(now())->maxDate(now()),
                 ]),
             ]),
-            Section::make('Exact Scope')->description('One assignment represents one exact Brand, Platform, Product, or Product Inventory quantity combination.')->schema([
+            Section::make('Exact Scope')->description('Each selected Brand or Product creates one exact assignment. Category scopes remain dynamic as Products are added.')->schema([
                 Grid::make(['default' => 1, 'lg' => 2])->schema([
-                    Select::make('brand_id')->label('Brand')->searchable()->live()->nullable()
-                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform'], true))
-                        ->required(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform'], true))
+                    Select::make('brand_ids')->label('Brands')->multiple()->searchable()->live()->nullable()
+                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true))
+                        ->required(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true))
                         ->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
+                    Select::make('category_id')->label('Category')->searchable()->live()->nullable()
+                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['category', 'category_platform', 'category_brand', 'category_brand_platform'], true))
+                        ->required(fn (Get $get): bool => in_array($get('scope_type'), ['category', 'category_platform', 'category_brand', 'category_brand_platform'], true))
+                        ->options(fn (): array => ProductCategory::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
                     Select::make('platform_id')->label('Platform')->searchable()->live()->nullable()
-                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['platform', 'brand_platform', 'product_platform', 'quantity_platform'], true))
-                        ->required(fn (Get $get): bool => in_array($get('scope_type'), ['platform', 'brand_platform', 'product_platform', 'quantity_platform'], true))
+                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'quantity_platform'], true))
+                        ->required(fn (Get $get): bool => in_array($get('scope_type'), ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'quantity_platform'], true))
                         ->options(fn (): array => MarketplacePlatform::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
-                    Select::make('product_id')->label('Product')->searchable()->live()->nullable()
+                    Select::make('product_ids')->label('Products')->multiple()->searchable()->live()->nullable()
                         ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['product', 'product_platform'], true))
                         ->required(fn (Get $get): bool => in_array($get('scope_type'), ['product', 'product_platform'], true))
-                        ->options(function (Get $get): array {
-                            return Product::query()->products()->where('status', ProductStatus::Active->value)
-                                ->when($get('brand_id'), fn ($query, $brandId) => $query->where('brand_id', $brandId))
-                                ->orderBy('name')->get(['id', 'sku', 'name'])->mapWithKeys(fn (Product $product): array => [$product->id => "{$product->sku} — {$product->name}"])->all();
-                        }),
+                        ->options(fn (): array => Product::query()->products()->where('status', ProductStatus::Active->value)
+                            ->orderBy('name')->get(['id', 'sku', 'name'])->mapWithKeys(fn (Product $product): array => [$product->id => "{$product->sku} — {$product->name}"])->all()),
                     Select::make('product_inventory_id')->label('Product / Warehouse')->searchable()->live()->nullable()
                         ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['quantity', 'quantity_platform'], true))
                         ->required(fn (Get $get): bool => in_array($get('scope_type'), ['quantity', 'quantity_platform'], true))
@@ -103,7 +110,7 @@ class ResponsibilityAssignmentForm
                             $inventory = $summary['inventory'];
                             $proposed = (int) ($get('assigned_quantity') ?? 0);
 
-                            return "Available {$inventory->available_quantity}; Reserved {$inventory->reserved_quantity}; Sellable {$summary['sellable']}; Already Assigned {$summary['assigned']}; Remaining {$summary['remaining']}; Proposed {$proposed}; State {$summary['status']->getLabel()}.";
+                            return "Available {$inventory->available_quantity}; Reserved {$inventory->reserved_quantity}; Sellable {$summary['sellable']}; Original Allocations {$summary['assigned']}; Outstanding Allocations {$summary['outstanding']}; Remaining Assignable {$summary['remaining']}; Proposed {$proposed}; State {$summary['status']->getLabel()}.";
                         }),
                 ]),
             ]),

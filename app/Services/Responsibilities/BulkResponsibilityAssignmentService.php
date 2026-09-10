@@ -31,45 +31,80 @@ class BulkResponsibilityAssignmentService
     public function create(CreateResponsibilityAssignmentBatchData $data, User $actor): Collection
     {
         $this->authorization->authorize($actor, ResponsibilityPermission::Assign);
-        if (! in_array($data->scopeType, ['brand', 'product'], true)) {
-            throw ValidationException::withMessages(['scope_type' => 'Bulk creation supports Brand or Product scopes only.']);
+        if (! in_array($data->scopeType, ['brand', 'category', 'platform', 'product'], true)) {
+            throw ValidationException::withMessages(['scope_type' => 'Bulk creation supports Platform, Brand, Category, or Product scopes only.']);
         }
+
         $ids = array_values(array_unique(array_map('intval', $data->scopeIds)));
-        if ($ids === [] || count($ids) > 100 || in_array(0, $ids, true)) {
+        if (in_array($data->scopeType, ['brand', 'product'], true) && ($ids === [] || count($ids) > 100 || in_array(0, $ids, true))) {
             throw ValidationException::withMessages(['scope_ids' => 'Select between 1 and 100 active records.']);
         }
-        if ($data->platformId !== null && ! MarketplacePlatform::query()->active()->whereKey($data->platformId)->exists()) {
-            throw ValidationException::withMessages(['platform_id' => 'Select an active Platform.']);
+
+        $platformIds = array_values(array_unique(array_map('intval', $data->platformIds)));
+        if ($platformIds === [] && $data->platformId !== null) {
+            $platformIds = [$data->platformId];
+        }
+        if (count($platformIds) > 100 || in_array(0, $platformIds, true)) {
+            throw ValidationException::withMessages(['platform_ids' => 'Select between 1 and 100 active Platforms.']);
+        }
+        if ($data->scopeType === 'platform' && $platformIds === []) {
+            throw ValidationException::withMessages(['platform_ids' => 'Select at least one active Platform.']);
+        }
+        if ($platformIds !== [] && MarketplacePlatform::query()->active()->whereKey($platformIds)->count() !== count($platformIds)) {
+            throw ValidationException::withMessages(['platform_ids' => 'Every selected Platform must be active.']);
         }
         if ($data->categoryId !== null && ! ProductCategory::query()->active()->whereKey($data->categoryId)->exists()) {
             throw ValidationException::withMessages(['category_id' => 'Select an active Category.']);
         }
-        if ($data->categoryId !== null && $data->scopeType !== 'brand') {
+        if ($data->categoryId !== null && ! in_array($data->scopeType, ['brand', 'category'], true)) {
             throw ValidationException::withMessages(['scope_type' => 'Category intersections support Brand scopes only.']);
         }
+        if ($data->scopeType === 'category' && $data->categoryId === null) {
+            throw ValidationException::withMessages(['category_id' => 'Select an active Category.']);
+        }
 
-        $records = $data->scopeType === 'brand'
-            ? ProductBrand::query()->active()->whereKey($ids)->get(['id', 'name'])->keyBy('id')
-            : Product::query()->products()->where('status', ProductStatus::Active->value)->whereKey($ids)->get(['id', 'sku', 'name'])->keyBy('id');
-        if ($records->count() !== count($ids)) {
+        $combinationCount = max(1, count($ids)) * max(1, count($platformIds));
+        if ($combinationCount > 100) {
+            throw ValidationException::withMessages(['scope_ids' => 'A bulk Responsibility submission may create at most 100 exact assignments.']);
+        }
+
+        $records = match ($data->scopeType) {
+            'brand' => ProductBrand::query()->active()->whereKey($ids)->get(['id', 'name'])->keyBy('id'),
+            'product' => Product::query()->products()->where('status', ProductStatus::Active->value)->whereKey($ids)->get(['id', 'sku', 'name'])->keyBy('id'),
+            default => collect(),
+        };
+        if (in_array($data->scopeType, ['brand', 'product'], true) && $records->count() !== count($ids)) {
             throw ValidationException::withMessages(['scope_ids' => 'Every selected Brand or Product must be active.']);
         }
 
-        $exact = collect($ids)->map(function (int $id) use ($data): CreateResponsibilityAssignmentData {
-            $key = Uuid::uuid5(Uuid::NAMESPACE_URL, "responsibility-batch:{$data->idempotencyKey}:{$data->scopeType}:{$id}")->toString();
+        $scopeIds = in_array($data->scopeType, ['brand', 'product'], true) ? $ids : [null];
+        $platforms = $platformIds === [] ? [null] : $platformIds;
+        $singlePlatform = count($platforms) === 1;
+        $exact = collect($scopeIds)->crossJoin($platforms)->map(function (array $combination) use ($data, $singlePlatform): CreateResponsibilityAssignmentData {
+            [$id, $platformId] = $combination;
+            $keyScope = $id ?? $data->scopeType;
+            if ($singlePlatform && in_array($data->scopeType, ['category', 'platform'], true)) {
+                $idempotencyKey = $data->idempotencyKey;
+            } else {
+                $keySeed = "responsibility-batch:{$data->idempotencyKey}:{$data->scopeType}:{$keyScope}";
+                if (! $singlePlatform) {
+                    $keySeed .= ':platform:'.($platformId ?? 'none');
+                }
+                $idempotencyKey = Uuid::uuid5(Uuid::NAMESPACE_URL, $keySeed)->toString();
+            }
 
             return new CreateResponsibilityAssignmentData(
                 employeeId: $data->employeeId,
                 mode: ResponsibilityAssignmentMode::Scope,
                 brandId: $data->scopeType === 'brand' ? $id : null,
-                platformId: $data->platformId,
+                platformId: $platformId,
                 productId: $data->scopeType === 'product' ? $id : null,
                 productInventoryId: null,
                 assignedQuantity: null,
                 effectiveAt: $data->effectiveAt,
                 reason: $data->reason,
                 notes: $data->notes,
-                idempotencyKey: $key,
+                idempotencyKey: $idempotencyKey,
                 categoryId: $data->categoryId,
             );
         });
@@ -79,7 +114,7 @@ class BulkResponsibilityAssignmentService
             return $existingByKey->load(['brandScope.brand', 'categoryScope.category', 'productScope.product', 'platformScope.platform']);
         }
         if ($existingByKey->isNotEmpty()) {
-            throw ValidationException::withMessages(['scope_ids' => 'This batch was only partially recorded and requires review before retrying.']);
+            throw ValidationException::withMessages(['scope_ids' => 'This multi-selection was only partially recorded and requires review before retrying.']);
         }
 
         $fingerprints = $exact->map(fn (CreateResponsibilityAssignmentData $item): string => $this->fingerprints->make(
@@ -87,8 +122,19 @@ class BulkResponsibilityAssignmentService
         ));
         $duplicates = ResponsibilityAssignment::query()->whereIn('active_fingerprint', $fingerprints)->get(['active_fingerprint']);
         if ($duplicates->isNotEmpty()) {
+            $platformNames = MarketplacePlatform::query()->whereKey($platformIds)->pluck('name', 'id');
             $labels = $exact->filter(fn ($item, $index) => $duplicates->contains('active_fingerprint', $fingerprints[$index]))
-                ->map(fn ($item) => $data->scopeType === 'brand' ? $records[$item->brandId]->name : $records[$item->productId]->sku)
+                ->map(function ($item) use ($data, $records, $platformNames): string {
+                    $scope = match ($data->scopeType) {
+                        'brand' => $records[$item->brandId]->name,
+                        'product' => $records[$item->productId]->sku,
+                        'category' => 'Category',
+                        default => 'Platform',
+                    };
+                    $platform = $item->platformId === null ? null : $platformNames[$item->platformId];
+
+                    return $platform === null ? $scope : "{$scope} + {$platform}";
+                })
                 ->implode(', ');
             throw ValidationException::withMessages(['scope_ids' => "Active assignments already exist for: {$labels}. No assignments were created."]);
         }

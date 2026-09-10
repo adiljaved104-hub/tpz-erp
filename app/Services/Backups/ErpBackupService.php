@@ -158,10 +158,7 @@ class ErpBackupService
                     throw new RuntimeException('Unable to add a configured storage root to the backup archive.');
                 }
 
-                $iterator = new \RecursiveIteratorIterator(
-                    new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
-                    \RecursiveIteratorIterator::LEAVES_ONLY,
-                );
+                $iterator = $this->storageIterator((string) $root);
 
                 foreach ($iterator as $file) {
                     if (! $file->isFile() || $file->isLink()) {
@@ -200,6 +197,26 @@ class ErpBackupService
 
         return in_array(basename($relative), (array) config('backup.storage.excluded_files', []), true)
             || array_intersect($segments, (array) config('backup.storage.excluded_segments', [])) !== [];
+    }
+
+    private function storageIterator(string $root): \RecursiveIteratorIterator
+    {
+        $root = rtrim($root, '/\\');
+        $directory = new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS);
+        $filtered = new \RecursiveCallbackFilterIterator(
+            $directory,
+            function (\SplFileInfo $entry) use ($root): bool {
+                if ($entry->isLink()) {
+                    return false;
+                }
+
+                $relative = str_replace('\\', '/', substr($entry->getPathname(), strlen($root) + 1));
+
+                return ! $this->storagePathExcluded($relative);
+            },
+        );
+
+        return new \RecursiveIteratorIterator($filtered, \RecursiveIteratorIterator::LEAVES_ONLY);
     }
 
     /** @param array<int, array<string, mixed>> $files */
@@ -274,9 +291,8 @@ class ErpBackupService
         }
 
         $bytes = 0;
-        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
-        foreach ($iterator as $file) {
-            if ($file->isFile() && ! $file->isLink()) {
+        foreach ($this->storageIterator($root) as $file) {
+            if ($file->isFile()) {
                 $bytes += $file->getSize();
             }
         }

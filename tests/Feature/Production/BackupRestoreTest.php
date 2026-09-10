@@ -160,6 +160,49 @@ class BackupRestoreTest extends TestCase
         $this->assertFileDoesNotExist($result['path'].'/database.sqlite');
     }
 
+    public function test_excluded_unreadable_directory_is_pruned_before_storage_traversal(): void
+    {
+        $excluded = $this->workspace.'/storage/private/livewire-tmp';
+        if (PHP_OS_FAMILY !== 'Windows') {
+            chmod($excluded, 0000);
+        }
+
+        try {
+            $result = app(ErpBackupService::class)->create(includeDatabase: false, includeStorage: true);
+        } finally {
+            if (PHP_OS_FAMILY !== 'Windows') {
+                chmod($excluded, 0770);
+            }
+        }
+
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($result['path'].'/storage.zip'));
+        $names = [];
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $names[] = $zip->getNameIndex($index);
+        }
+        $zip->close();
+
+        $this->assertContains('private/documents/recovery.txt', $names);
+        $this->assertNotContains('private/livewire-tmp/', $names);
+        $this->assertNotContains('private/livewire-tmp/temporary.txt', $names);
+    }
+
+    public function test_storage_size_preflight_ignores_excluded_segments_and_files(): void
+    {
+        $service = app(ErpBackupService::class);
+        $method = new \ReflectionMethod($service, 'directorySize');
+
+        $this->assertSame(
+            strlen('recoverable-content'),
+            $method->invoke($service, $this->workspace.'/storage/private'),
+        );
+        $this->assertSame(
+            strlen('logo-content'),
+            $method->invoke($service, $this->workspace.'/storage/public'),
+        );
+    }
+
     public function test_backup_artifacts_use_private_shared_group_permissions_on_posix(): void
     {
         if (PHP_OS_FAMILY === 'Windows') {

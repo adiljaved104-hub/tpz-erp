@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\Purchases\PurchaseFormLineService;
+use App\Services\Purchases\PurchaseHandlerResolver;
 use App\Services\Purchases\PurchasePriceVarianceService;
 use App\Services\Purchases\PurchaseProductContextService;
 use App\Services\Purchases\PurchaseTotalsCalculator;
@@ -54,9 +55,19 @@ class PurchaseForm
                         $user,
                         self::contextPurchase($record, $user),
                     ));
+                    self::syncHandler($get('items') ?? [], (int) $state, $get, $set, $record);
                 }),
             DatePicker::make('purchase_date')->default(now())->required(),
             Hidden::make('currency')->default('AED'),
+            Select::make('handled_by_employee_id')
+                ->label('Handled By')
+                ->options(fn (?Purchase $record): array => app(PurchaseHandlerResolver::class)->activeEmployeeOptions($record?->handled_by_employee_id))
+                ->searchable()
+                ->preload()
+                ->disabled(fn (): bool => ! self::mayChooseHandler())
+                ->dehydrated(fn (): bool => self::mayChooseHandler())
+                ->helperText(fn (Get $get): string => self::handlerHelper($get)),
+            Hidden::make('handler_resolution_employee_id')->dehydrated(false),
         ])->columns(2)->compact();
 
         $purchaseItemsSection = Section::make('Purchase Items')
@@ -73,7 +84,7 @@ class PurchaseForm
                             ->multiple()
                             ->searchable()
                             ->options([])
-                            ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
+                            ->getSearchResultsUsing(fn (string $search, $livewire): array => self::productOptions($search, (int) ($livewire->data['warehouse_id'] ?? 0)))
                             ->getOptionLabelsUsing(fn (array $values): array => self::productLabels($values))
                             ->searchPrompt('Type at least 2 characters to search Products.')
                             ->noSearchResultsMessage('No active Products match your search.')
@@ -94,6 +105,7 @@ class PurchaseForm
                             self::contextPurchase($record, $user),
                         );
                         $set('items', $lines);
+                        self::syncHandler($lines, (int) $get('warehouse_id'), $get, $set, $record);
                     }),
             ])
             ->schema([
@@ -186,7 +198,7 @@ class PurchaseForm
             ->placeholder('Search by SKU, product name, or component specification')
             ->searchable()
             ->options([])
-            ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
+            ->getSearchResultsUsing(fn (string $search, Get $get): array => self::productOptions($search, (int) $get('../../warehouse_id')))
             ->getOptionLabelUsing(fn ($value): ?string => self::productLabels([(int) $value])[(int) $value] ?? null)
             ->searchPrompt('Type at least 2 characters to search Products or Components.')
             ->noSearchResultsMessage('No active Products or Components match your search.')
@@ -202,6 +214,8 @@ class PurchaseForm
                 $set('latest_received_cost', null);
 
                 if (! $state) {
+                    self::syncHandler($get('../../items') ?? [], (int) $get('../../warehouse_id'), $get, $set, $record, '../../');
+
                     return;
                 }
 
@@ -228,20 +242,28 @@ class PurchaseForm
                     $set('unit_cost', $context->latestReceivedCost);
                     $set('unit_cost_suggested', true);
                 }
+
+                self::syncHandler($get('../../items') ?? [], $warehouseId, $get, $set, $record, '../../');
             });
     }
 
     /** @return array<int, string> */
-    private static function productOptions(string $search): array
+    private static function productOptions(string $search, int $warehouseId): array
     {
         if (mb_strlen(trim($search)) < 2) {
             return [];
         }
 
+        $platformId = $warehouseId > 0
+            ? Warehouse::query()->whereKey($warehouseId)->value('marketplace_platform_id')
+            : null;
+
         return app(ProductSearchOptions::class)->search(
             $search,
             ProductMatchContext::Purchase,
             auth()->user(),
+            $warehouseId > 0 ? $warehouseId : null,
+            $platformId === null ? null : (int) $platformId,
         );
     }
 
@@ -334,5 +356,53 @@ class PurchaseForm
     private static function contextPurchase(?Purchase $record, User $user): Purchase
     {
         return $record ?? (new Purchase)->forceFill(['status' => PurchaseStatus::Draft, 'created_by_user_id' => $user->id]);
+    }
+
+    /** @param array<int|string, array<string, mixed>> $items */
+    private static function syncHandler(array $items, int $warehouseId, Get $get, Set $set, ?Purchase $record, string $prefix = ''): void
+    {
+        if ($warehouseId < 1 || ($record?->handled_by_employee_id !== null && blank($get("{$prefix}handler_resolution_employee_id")))) {
+            return;
+        }
+
+        $productIds = collect($items)->pluck('product_id')->filter()->map(fn ($id): int => (int) $id)->all();
+        $resolution = app(PurchaseHandlerResolver::class)->resolve($productIds, $warehouseId);
+        $current = $get("{$prefix}handled_by_employee_id");
+        $previousAuto = $get("{$prefix}handler_resolution_employee_id");
+
+        if (blank($current) || ($previousAuto !== null && (int) $current === (int) $previousAuto)) {
+            $set("{$prefix}handled_by_employee_id", $resolution['employee_id']);
+        }
+
+        $set("{$prefix}handler_resolution_employee_id", $resolution['employee_id']);
+    }
+
+    private static function handlerHelper(Get $get): string
+    {
+        $warehouseId = (int) $get('warehouse_id');
+        $productIds = collect($get('items') ?? [])->pluck('product_id')->filter()->map(fn ($id): int => (int) $id)->all();
+
+        if ($warehouseId < 1 || $productIds === []) {
+            return 'Add Purchase products to resolve the operational handler from active Responsibilities.';
+        }
+
+        $resolution = app(PurchaseHandlerResolver::class)->resolve($productIds, $warehouseId);
+
+        return match ($resolution['status']) {
+            'matched' => 'Automatically matched from active Product/Brand/Category Responsibility.',
+            'ambiguous' => self::mayChooseHandler()
+                ? 'Multiple responsible employees match these lines. Select the active employee who will handle this Purchase.'
+                : 'Multiple responsible employees match these lines; no handler will be selected automatically.',
+            default => self::mayChooseHandler()
+                ? 'No matching Product/Brand/Category Responsibility. Select an active handler if needed.'
+                : 'No matching Product/Brand/Category Responsibility; no handler will be selected automatically.',
+        };
+    }
+
+    private static function mayChooseHandler(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User && app(PurchaseHandlerResolver::class)->mayChoose($user);
     }
 }

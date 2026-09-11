@@ -332,6 +332,23 @@ class MyInventoryTest extends TestCase
         $this->assertLessThanOrEqual(15, $queries, 'My Inventory must batch-load Product visibility and stock context.');
     }
 
+    public function test_employee_inventory_is_paginated_with_sensible_per_page_controls(): void
+    {
+        $f = $this->responsibilityFoundation();
+        Product::factory()->count(30)->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name])
+            ->each(fn (Product $product) => ProductInventory::factory()->create([
+                'product_id' => $product->id,
+                'warehouse_id' => $f['inventory']->warehouse_id,
+            ]));
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
+
+        Livewire::actingAs($f['employee']->user)->test(MyInventory::class)
+            ->assertViewHas('inventoryRows', fn ($rows): bool => $rows->total() === 31 && $rows->count() === 25 && $rows->perPage() === 25)
+            ->set('perPage', 10)
+            ->assertViewHas('inventoryRows', fn ($rows): bool => $rows->total() === 31 && $rows->count() === 10 && $rows->perPage() === 10)
+            ->assertSee('Per page');
+    }
+
     private function assignProduct(array $foundation, Product $product, ?int $platformId = null): void
     {
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($foundation, overrides: [

@@ -8,11 +8,15 @@ use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Livewire\WithPagination;
 
 class MyInventory extends Page
 {
+    use WithPagination;
+
     public string $search = '';
 
     public string $brand = '';
@@ -28,6 +32,8 @@ class MyInventory extends Page
     public string $allocation = '';
 
     public string $visibleBecause = '';
+
+    public int $perPage = 25;
 
     protected string $view = 'filament.pages.inventory.my-inventory';
 
@@ -55,7 +61,8 @@ class MyInventory extends Page
     {
         $service = app(ResponsibilityReadService::class);
         $allRows = $service->myInventory(auth()->user());
-        $inventoryRows = $this->filterRows($allRows);
+        $filteredRows = $this->filterRows($allRows);
+        $inventoryRows = $this->paginateRows($filteredRows);
 
         return [
             'inventoryRows' => $inventoryRows,
@@ -74,11 +81,20 @@ class MyInventory extends Page
     public function applyStockStatus(string $status): void
     {
         $this->stockStatus = $this->stockStatus === $status ? '' : $status;
+        $this->resetPage();
     }
 
     public function resetInventoryFilters(): void
     {
         $this->reset('search', 'brand', 'category', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause');
+        $this->resetPage();
+    }
+
+    public function updated(string $property): void
+    {
+        if (in_array($property, ['search', 'brand', 'category', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause', 'perPage'], true)) {
+            $this->resetPage();
+        }
     }
 
     /** @param Collection<int, object> $rows */
@@ -135,5 +151,20 @@ class MyInventory extends Page
             'reasons' => $values($rows->flatMap(fn (object $row): array => $row->visibility_reasons)),
             'hasNoBalance' => $rows->contains(fn (object $row): bool => $row->warehouse === null),
         ];
+    }
+
+    /** @param Collection<int, object> $rows */
+    private function paginateRows(Collection $rows): LengthAwarePaginator
+    {
+        $perPage = in_array($this->perPage, [10, 25, 50], true) ? $this->perPage : 25;
+        $page = $this->getPage();
+
+        return new LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            ['path' => request()->url(), 'pageName' => 'page'],
+        );
     }
 }

@@ -154,6 +154,7 @@ class EmailOtpAuthenticationController extends Controller
                 'remember_token' => Str::random(60),
             ])->save();
             DB::table('sessions')->where('user_id', $locked->id)->delete();
+            $locked->tokens()->delete();
             $activity->log('auth_security.password_reset_completed', $locked, $locked, ['actor_id' => $locked->id]);
         });
 

@@ -10,12 +10,17 @@ use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ResponsibilityAssignment;
+use App\Services\ActivityLogger;
+use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\BulkResponsibilityAssignmentService;
 use Filament\Forms\Components\Select;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
+use Mockery\MockInterface;
+use RuntimeException;
 use Tests\Support\ResponsibilityTestFoundation;
 use Tests\TestCase;
 
@@ -176,6 +181,95 @@ class ResponsibilityMultiplePlatformsTest extends TestCase
         $this->assertCount(1, $retry);
         $this->assertSame($first->first()->id, $retry->first()->id);
         $this->assertDatabaseCount('responsibility_assignments', 1);
+    }
+
+    public function test_bulk_references_are_all_reserved_before_the_business_transaction(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $platforms = MarketplacePlatform::factory()->count(3)->create();
+        $baselineTransactionLevel = DB::transactionLevel();
+        $references = new class extends ReferenceSequenceService
+        {
+            /** @var array<int, int> */
+            public array $transactionLevels = [];
+
+            public function nextResponsibilityAssignmentReference(): string
+            {
+                $this->transactionLevels[] = DB::transactionLevel();
+
+                return parent::nextResponsibilityAssignmentReference();
+            }
+        };
+        $this->app->instance(ReferenceSequenceService::class, $references);
+
+        $created = $this->createBatch($f, 'brand', [$f['brand']->id], $platforms->modelKeys());
+
+        $this->assertCount(3, $created);
+        $this->assertSame(array_fill(0, 3, $baselineTransactionLevel), $references->transactionLevels);
+        $this->assertSame(['RA-000001', 'RA-000002', 'RA-000003'], $created->pluck('reference')->all());
+    }
+
+    public function test_failed_bulk_transaction_does_not_reuse_its_reserved_references(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $platforms = MarketplacePlatform::factory()->count(2)->create();
+        $this->mock(ActivityLogger::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('log')->once()->andThrow(new RuntimeException('Disposable activity failure.'));
+        });
+
+        try {
+            $this->createBatch($f, 'brand', [$f['brand']->id], $platforms->modelKeys());
+            $this->fail('The disposable activity failure should roll back the business transaction.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Disposable activity failure.', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('responsibility_assignments', 0);
+        $this->assertSame(3, (int) DB::table('reference_sequences')->where('key', 'responsibility_assignment')->value('next_value'));
+        $this->assertSame('RA-000003', app(ReferenceSequenceService::class)->nextResponsibilityAssignmentReference());
+    }
+
+    public function test_all_combinations_are_validated_before_any_reference_is_reserved(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $data = new CreateResponsibilityAssignmentBatchData(
+            employeeId: $f['employee']->id,
+            scopeType: 'brand',
+            scopeIds: [$f['brand']->id],
+            categoryId: null,
+            platformId: null,
+            effectiveAt: now()->subMinute()->toDateTimeString(),
+            reason: '',
+            notes: null,
+            idempotencyKey: (string) Str::uuid(),
+        );
+
+        try {
+            app(BulkResponsibilityAssignmentService::class)->create($data, $f['owner']);
+            $this->fail('Invalid expanded data must fail before references are reserved.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('reason', $exception->errors());
+        }
+
+        $this->assertDatabaseCount('responsibility_assignments', 0);
+        $this->assertSame(1, (int) DB::table('reference_sequences')->where('key', 'responsibility_assignment')->value('next_value'));
+    }
+
+    public function test_one_hundred_combination_limit_remains_unchanged(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $brands = ProductBrand::factory()->count(11)->create()->modelKeys();
+        $platforms = MarketplacePlatform::factory()->count(10)->create()->modelKeys();
+
+        try {
+            $this->createBatch($f, 'brand', $brands, $platforms);
+            $this->fail('More than 100 exact assignments must remain rejected.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('scope_ids', $exception->errors());
+        }
+
+        $this->assertDatabaseCount('responsibility_assignments', 0);
+        $this->assertSame(1, (int) DB::table('reference_sequences')->where('key', 'responsibility_assignment')->value('next_value'));
     }
 
     public function test_form_normalization_accepts_multiple_platforms_and_keeps_quantity_single(): void

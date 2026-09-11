@@ -14,6 +14,7 @@ use App\Models\ProductCategory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\User;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -25,6 +26,7 @@ class BulkResponsibilityAssignmentService
         private readonly ResponsibilityAuthorization $authorization,
         private readonly ResponsibilityAssignmentService $assignments,
         private readonly ResponsibilityScopeFingerprint $fingerprints,
+        private readonly ReferenceSequenceService $references,
     ) {}
 
     /** @return Collection<int, ResponsibilityAssignment> */
@@ -139,8 +141,11 @@ class BulkResponsibilityAssignmentService
             throw ValidationException::withMessages(['scope_ids' => "Active assignments already exist for: {$labels}. No assignments were created."]);
         }
 
+        $exact->each(fn (CreateResponsibilityAssignmentData $item) => $this->assignments->validateForCreate($item));
+        $references = $exact->map(fn (): string => $this->references->nextResponsibilityAssignmentReference());
+
         return DB::transaction(fn (): Collection => $exact->map(
-            fn (CreateResponsibilityAssignmentData $item): ResponsibilityAssignment => $this->assignments->create($item, $actor),
+            fn (CreateResponsibilityAssignmentData $item, int $index): ResponsibilityAssignment => $this->assignments->createWithReservedReference($item, $actor, $references[$index]),
         ));
     }
 }

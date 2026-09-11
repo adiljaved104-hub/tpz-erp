@@ -46,31 +46,66 @@ class ResponsibilityAssignmentService
             return $existing;
         }
 
+        $prepared = $this->prepareCreate($data);
+        $reference = $this->references->nextResponsibilityAssignmentReference();
+
+        return $this->createPrepared($data, $actor, $reference, $prepared);
+    }
+
+    public function validateForCreate(CreateResponsibilityAssignmentData $data): void
+    {
+        if (! ResponsibilityAssignment::query()->where('idempotency_key', $data->idempotencyKey)->exists()) {
+            $this->prepareCreate($data);
+        }
+    }
+
+    /** @internal Reserved references must originate from ReferenceSequenceService. */
+    public function createWithReservedReference(CreateResponsibilityAssignmentData $data, User $actor, string $reference): ResponsibilityAssignment
+    {
+        if (preg_match('/^RA-\d{6,}$/', $reference) !== 1) {
+            throw new \LogicException('A valid internally reserved Responsibility reference is required.');
+        }
+
+        if ($existing = ResponsibilityAssignment::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
+            return $existing;
+        }
+
+        return $this->createPrepared($data, $actor, $reference, $this->prepareCreate($data));
+    }
+
+    /** @return array{scope: array{brand: ?ProductBrand, category: ?ProductCategory, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory}, employee: Employee, fingerprint: string} */
+    private function prepareCreate(CreateResponsibilityAssignmentData $data): array
+    {
         $scope = $this->validatedScope($data);
         $employee = $this->activeEmployee($data->employeeId);
         $fingerprint = $this->fingerprints->make($employee->id, $data->mode, $scope['brand']?->id, $scope['platform']?->id, $scope['product']?->id, $scope['inventory']?->id, $scope['category']?->id);
         $this->assertFingerprintAvailable($fingerprint);
-        $reference = $this->references->nextResponsibilityAssignmentReference();
 
-        return DB::transaction(function () use ($data, $actor, $scope, $employee, $fingerprint, $reference): ResponsibilityAssignment {
-            if ($scope['inventory'] !== null) {
-                $this->capacity->lockAndAssert($scope['inventory']->id, $data->assignedQuantity ?? 0);
+        return compact('scope', 'employee', 'fingerprint');
+    }
+
+    /** @param array{scope: array{brand: ?ProductBrand, category: ?ProductCategory, platform: ?MarketplacePlatform, product: ?Product, inventory: ?ProductInventory}, employee: Employee, fingerprint: string} $prepared */
+    private function createPrepared(CreateResponsibilityAssignmentData $data, User $actor, string $reference, array $prepared): ResponsibilityAssignment
+    {
+        return DB::transaction(function () use ($data, $actor, $reference, $prepared): ResponsibilityAssignment {
+            if ($prepared['scope']['inventory'] !== null) {
+                $this->capacity->lockAndAssert($prepared['scope']['inventory']->id, $data->assignedQuantity ?? 0);
             }
 
-            $this->assertFingerprintAvailable($fingerprint, lock: true);
+            $this->assertFingerprintAvailable($prepared['fingerprint'], lock: true);
             $assignment = $this->createHeader(
                 reference: $reference,
-                employee: $employee,
+                employee: $prepared['employee'],
                 mode: $data->mode,
-                fingerprint: $fingerprint,
+                fingerprint: $prepared['fingerprint'],
                 effectiveAt: $data->effectiveAt,
                 actor: $actor,
                 reason: $data->reason,
                 notes: $data->notes,
                 idempotencyKey: $data->idempotencyKey,
             );
-            $this->writeScopes($assignment, $scope, $data->assignedQuantity);
-            $this->activity->log('responsibility.created', $actor, $assignment, $this->safeProperties($assignment, $scope, $data->assignedQuantity, $data->reason));
+            $this->writeScopes($assignment, $prepared['scope'], $data->assignedQuantity);
+            $this->activity->log('responsibility.created', $actor, $assignment, $this->safeProperties($assignment, $prepared['scope'], $data->assignedQuantity, $data->reason));
 
             return $assignment->load($this->relations());
         });

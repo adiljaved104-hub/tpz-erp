@@ -26,6 +26,7 @@ class UnlinkUserFromEmployee
             $this->guardLastOwner($employee);
             $oldUserId = $employee->user_id;
             $employee->forceFill(['user_id' => null])->save();
+            User::query()->find($oldUserId)?->tokens()->delete();
             $this->activity->log('employee.user_unlinked', $actor, $employee, ['unlinked_user_id' => $oldUserId]);
 
             return $employee;

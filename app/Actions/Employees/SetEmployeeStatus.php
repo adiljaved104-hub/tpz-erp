@@ -33,6 +33,11 @@ class SetEmployeeStatus
 
             $oldStatus = $employee->status;
             $employee->forceFill(['status' => $active])->save();
+
+            if (! $active && $employee->user_id !== null) {
+                User::query()->find($employee->user_id)?->tokens()->delete();
+            }
+
             $this->activity->log('employee.status_changed', $actor, $employee, [
                 'from_active' => $oldStatus,
                 'to_active' => $active,

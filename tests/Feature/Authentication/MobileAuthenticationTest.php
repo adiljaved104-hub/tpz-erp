@@ -55,6 +55,20 @@ class MobileAuthenticationTest extends TestCase
         ])->assertUnauthorized()->assertExactJson(['message' => 'Invalid credentials.']);
     }
 
+    public function test_two_factor_enabled_user_cannot_log_in_with_password_alone(): void
+    {
+        [$user] = $this->eligibleAccount();
+        $user->forceFill(['email_two_factor_enabled_at' => now()])->save();
+
+        $this->postJson('/api/mobile/v1/auth/login', [
+            'email' => $user->email,
+            'password' => 'password',
+            'device_name' => 'Owner iPhone',
+        ])->assertUnauthorized()->assertExactJson(['message' => 'Invalid credentials.']);
+
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
     public function test_unlinked_user_cannot_log_in(): void
     {
         $user = User::factory()->create([

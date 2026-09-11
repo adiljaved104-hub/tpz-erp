@@ -78,6 +78,8 @@ class ResponsibilityReadService
 
         foreach ($active as $assignment) {
             $platform = $assignment->platformScope?->platform?->name;
+            $productIds = collect();
+            $reason = null;
 
             if ($assignment->brandScope !== null || $assignment->categoryScope !== null) {
                 $products = DB::table('products');
@@ -92,28 +94,31 @@ class ResponsibilityReadService
                 $reason = collect([
                     $assignment->categoryScope?->category?->name ? 'Category: '.$assignment->categoryScope->category->name : null,
                     $assignment->brandScope?->brand?->name ? 'Brand: '.$assignment->brandScope->brand->name : null,
+                    $platform ? 'Platform: '.$platform : null,
                 ])->filter()->implode(' + ');
-                foreach ($productIds as $productId) {
-                    $productReasons[$productId][] = $reason;
-                    if ($platform !== null) {
-                        $platforms[$productId][] = $platform;
-                    }
-                }
             }
 
             if ($assignment->productScope !== null) {
                 $productId = $assignment->productScope->product_id;
-                $productReasons[$productId][] = 'Direct Product';
-                if ($platform !== null) {
-                    $platforms[$productId][] = $platform;
-                }
+                $productIds = collect([$productId]);
+                $reason = 'Product Assignment'.($platform ? ' + Platform: '.$platform : '');
             }
 
             if ($assignment->quantityScope !== null) {
                 $productId = $assignment->quantityScope->inventory->product_id;
-                $productReasons[$productId][] = 'Quantity Assignment';
+                $productIds = collect([$productId]);
+                $reason = 'Quantity Allocation'.($platform ? ' + Platform: '.$platform : '');
                 $ownQuantities[$assignment->quantityScope->product_inventory_id] = ($ownQuantities[$assignment->quantityScope->product_inventory_id] ?? 0) + $assignment->quantityScope->assigned_quantity;
                 $ownRemaining[$assignment->quantityScope->product_inventory_id] = ($ownRemaining[$assignment->quantityScope->product_inventory_id] ?? 0) + $this->allocations->usage($assignment)['remaining'];
+            }
+
+            if ($assignment->platformScope !== null && $assignment->brandScope === null && $assignment->categoryScope === null && $assignment->productScope === null && $assignment->quantityScope === null) {
+                $productIds = DB::table('products')->pluck('id');
+                $reason = 'Platform: '.$platform;
+            }
+
+            foreach ($productIds as $productId) {
+                $productReasons[$productId][] = $reason;
                 if ($platform !== null) {
                     $platforms[$productId][] = $platform;
                 }
@@ -126,10 +131,11 @@ class ResponsibilityReadService
 
         $rowsQuery = DB::table('products as p')
             ->leftJoin('product_brands as b', 'b.id', '=', 'p.brand_id')
+            ->leftJoin('product_categories as c', 'c.id', '=', 'p.category_id')
             ->leftJoin('product_inventories as pi', 'pi.product_id', '=', 'p.id')
             ->leftJoin('warehouses as w', 'w.id', '=', 'pi.warehouse_id')
             ->whereIn('p.id', array_keys($productReasons))
-            ->select(['p.id as product_id', 'p.name', 'p.sku', 'b.name as brand', 'pi.id as inventory_id', 'w.name as warehouse', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity']);
+            ->select(['p.id as product_id', 'p.name', 'p.sku', 'p.model', 'b.name as brand', 'c.name as category', 'pi.id as inventory_id', 'w.id as warehouse_id', 'w.name as warehouse', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity']);
 
         if ($this->purchaseAuthorization->allows($user, PurchasePermission::ViewCostHistory)) {
             $latestCost = DB::table('purchase_receipt_items as latest_pri')
@@ -154,6 +160,13 @@ class ResponsibilityReadService
             $row->damaged = (int) ($row->damaged_quantity ?? 0);
             $row->assigned_quantity = (int) ($ownQuantities[$row->inventory_id] ?? 0);
             $row->remaining_allocation = (int) ($ownRemaining[$row->inventory_id] ?? 0);
+            $row->is_quantity_limited = $row->assigned_quantity > 0;
+            $row->employee_usable = max(0, $row->is_quantity_limited ? $row->remaining_allocation : $row->sellable);
+            $row->stock_status = match (true) {
+                $row->employee_usable === 0 => 'out_of_stock',
+                $row->employee_usable < 2 => 'low_stock',
+                default => 'in_stock',
+            };
             $summary = $capacity->get($row->inventory_id);
             $row->aggregate_assigned = (int) ($summary['assigned'] ?? 0);
             $row->aggregate_outstanding = (int) ($summary['outstanding'] ?? 0);
@@ -164,6 +177,36 @@ class ResponsibilityReadService
 
             return $row;
         });
+    }
+
+    public function myResponsibilities(User $user): Collection
+    {
+        if ($user->employee === null || ! $this->authorization->allows($user, ResponsibilityPermission::ViewOwn)) {
+            return collect();
+        }
+
+        return $this->assignmentsFor($user)
+            ->where('employee_id', $user->employee->id)
+            ->where('status', ResponsibilityAssignmentStatus::Active->value)
+            ->get()
+            ->map(function (ResponsibilityAssignment $assignment): array {
+                $product = $assignment->productScope?->product?->name ?? $assignment->quantityScope?->inventory?->product?->name;
+                $parts = collect([
+                    $assignment->categoryScope?->category?->name,
+                    $assignment->brandScope?->brand?->name,
+                    $product,
+                ])->filter()->values();
+                $isQuantity = $assignment->quantityScope !== null;
+
+                return [
+                    'reference' => $assignment->reference,
+                    'type' => $isQuantity ? 'Quantity Responsibility' : $this->scopeType($assignment),
+                    'scope' => $parts->isEmpty() ? 'All Products' : $parts->implode(' · '),
+                    'platform' => $assignment->platformScope?->platform?->name,
+                    'quantity' => $isQuantity ? (int) $assignment->quantityScope->assigned_quantity : null,
+                    'remaining' => $isQuantity ? $this->allocations->usage($assignment)['remaining'] : null,
+                ];
+            });
     }
 
     public function myPlatformResponsibilities(User $user): Collection
@@ -184,5 +227,15 @@ class ResponsibilityReadService
                 'category' => $assignment->categoryScope?->category?->name,
                 'product' => $assignment->productScope?->product?->name ?? $assignment->quantityScope?->inventory?->product?->name,
             ]);
+    }
+
+    private function scopeType(ResponsibilityAssignment $assignment): string
+    {
+        return collect([
+            $assignment->categoryScope !== null ? 'Category' : null,
+            $assignment->brandScope !== null ? 'Brand' : null,
+            $assignment->productScope !== null ? 'Product' : null,
+            $assignment->platformScope !== null ? 'Platform' : null,
+        ])->filter()->implode(' + ');
     }
 }

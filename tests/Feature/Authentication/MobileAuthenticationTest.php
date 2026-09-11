@@ -5,6 +5,7 @@ namespace Tests\Feature\Authentication;
 use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Laravel\Sanctum\PersonalAccessToken;
 use Tests\TestCase;
 
@@ -112,6 +113,9 @@ class MobileAuthenticationTest extends TestCase
 
         $this->assertSame(1, PersonalAccessToken::query()->where('tokenable_id', $user->id)->count());
         $this->assertDatabaseHas('personal_access_tokens', ['id' => $otherToken->accessToken->id]);
+
+        Auth::forgetGuards();
+
         $this->withToken($currentToken)->getJson('/api/mobile/v1/auth/me')->assertUnauthorized();
     }
 

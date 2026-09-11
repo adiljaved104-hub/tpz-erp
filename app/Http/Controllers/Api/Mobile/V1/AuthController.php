@@ -36,7 +36,7 @@ class AuthController extends Controller
             $user?->password ?? self::$dummyPasswordHash ??= Hash::make(Str::random(40)),
         );
 
-        if (! $user || ! $passwordIsValid || ! $this->emailPolicy->allowsAuthentication($user)) {
+        if (! $user || ! $passwordIsValid || filled($user->email_two_factor_enabled_at) || ! $this->emailPolicy->allowsAuthentication($user)) {
             return response()->json(
                 ['message' => 'Invalid credentials.'],
                 Response::HTTP_UNAUTHORIZED,

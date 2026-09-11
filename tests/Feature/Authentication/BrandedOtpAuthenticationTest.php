@@ -20,6 +20,7 @@ use App\Services\TwoFactorService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Notifications\Events\NotificationSending;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -308,6 +309,26 @@ class BrandedOtpAuthenticationTest extends TestCase
         $this->assertTrue(Hash::check('New-Secure-Password-2026!', $user->refresh()->password));
         $this->assertFalse(Hash::check('password', $user->password));
         $this->assertNotNull(AuthenticationOtpChallenge::query()->sole()->consumed_at);
+    }
+
+    public function test_password_reset_revokes_existing_mobile_tokens(): void
+    {
+        $user = $this->user();
+        $token = $user->createToken('Employee phone');
+
+        $this->withSession(['auth_otp.password_reset_user' => $user->id])
+            ->post(route('auth.password.update'), [
+                'password' => 'New-Secure-Password-2026!',
+                'password_confirmation' => 'New-Secure-Password-2026!',
+            ])->assertRedirect(route('filament.admin.auth.login'));
+
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $token->accessToken->id]);
+
+        Auth::forgetGuards();
+
+        $this->withToken($token->plainTextToken)
+            ->getJson('/api/mobile/v1/auth/me')
+            ->assertUnauthorized();
     }
 
     public function test_password_login_requires_email_otp_only_when_two_factor_is_enabled(): void

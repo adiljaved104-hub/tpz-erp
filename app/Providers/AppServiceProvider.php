@@ -214,8 +214,11 @@ use App\Services\Reports\Providers\WebSalesReportProvider;
 use App\Services\Reports\ReportRegistry;
 use App\Services\ServiceCases\ServiceCaseAssigneeService;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -258,6 +261,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('mobile-login', function (Request $request): array {
+            $email = mb_strtolower(trim((string) $request->input('email')));
+
+            return [
+                Limit::perMinute(5)->by('mobile-login:account:'.hash('sha256', $email)),
+                Limit::perMinute(60)->by('mobile-login:ip:'.$request->ip()),
+            ];
+        });
+
         Gate::policy(Employee::class, EmployeePolicy::class);
         Gate::policy(ActivityLog::class, ActivityLogPolicy::class);
         Gate::policy(Supplier::class, SupplierPolicy::class);

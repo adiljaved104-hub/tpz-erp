@@ -9,12 +9,11 @@ use App\Services\CompanyEmailPolicyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 class AuthController extends Controller
 {
-    private static ?string $dummyPasswordHash = null;
+    private const DUMMY_PASSWORD_HASH = '$2y$12$OrDLeLwy3qwA3N5kt9Z26ea5dXUm5KvNAiObTeL906B9JSYAgO9e6';
 
     public function __construct(
         private readonly CompanyEmailPolicyService $emailPolicy,
@@ -33,10 +32,12 @@ class AuthController extends Controller
         $user = User::query()->whereRaw('LOWER(email) = ?', [$email])->first();
         $passwordIsValid = Hash::check(
             $validated['password'],
-            $user?->password ?? self::$dummyPasswordHash ??= Hash::make(Str::random(40)),
+            $user?->password ?? self::DUMMY_PASSWORD_HASH,
         );
 
         if (! $user || ! $passwordIsValid || filled($user->email_two_factor_enabled_at) || ! $this->emailPolicy->allowsAuthentication($user)) {
+            $this->activity->log('mobile_auth.login_failed');
+
             return response()->json(
                 ['message' => 'Invalid credentials.'],
                 Response::HTTP_UNAUTHORIZED,

@@ -2,6 +2,10 @@
 
 namespace Tests\Feature\Authentication;
 
+use App\Actions\Employees\SetEmployeeStatus;
+use App\Actions\Employees\UnlinkUserFromEmployee;
+use App\Enums\EmployeeRole;
+use App\Models\ActivityLog;
 use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -83,6 +87,67 @@ class MobileAuthenticationTest extends TestCase
         ])->assertUnauthorized()->assertExactJson(['message' => 'Invalid credentials.']);
     }
 
+    public function test_login_is_limited_per_normalized_account(): void
+    {
+        [$user] = $this->eligibleAccount();
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->postJson('/api/mobile/v1/auth/login', [
+                'email' => mb_strtoupper($user->email),
+                'password' => 'wrong-password',
+                'device_name' => 'Owner iPhone',
+            ])->assertUnauthorized();
+        }
+
+        $this->postJson('/api/mobile/v1/auth/login', [
+            'email' => $user->email,
+            'password' => 'wrong-password',
+            'device_name' => 'Owner iPhone',
+        ])->assertTooManyRequests();
+    }
+
+    public function test_shared_ip_does_not_apply_the_account_quota_collectively(): void
+    {
+        for ($attempt = 0; $attempt < 6; $attempt++) {
+            $this->postJson('/api/mobile/v1/auth/login', [
+                'email' => "unknown-{$attempt}@techpointzone.com",
+                'password' => 'wrong-password',
+                'device_name' => 'Warehouse phone',
+            ])->assertUnauthorized()->assertExactJson(['message' => 'Invalid credentials.']);
+        }
+    }
+
+    public function test_rejected_logins_create_sanitized_generic_audit_events(): void
+    {
+        [$wrongPasswordUser] = $this->eligibleAccount();
+        [$inactiveUser, $inactiveEmployee] = $this->eligibleAccount();
+        $inactiveEmployee->update(['status' => false]);
+        [$twoFactorUser] = $this->eligibleAccount();
+        $twoFactorUser->forceFill(['email_two_factor_enabled_at' => now()])->save();
+
+        foreach ([
+            [$wrongPasswordUser->email, 'wrong-password'],
+            [$inactiveUser->email, 'password'],
+            [$twoFactorUser->email, 'password'],
+            ['unknown@techpointzone.com', 'password'],
+        ] as [$email, $password]) {
+            $this->postJson('/api/mobile/v1/auth/login', [
+                'email' => $email,
+                'password' => $password,
+                'device_name' => 'Warehouse phone',
+            ])->assertUnauthorized()->assertExactJson(['message' => 'Invalid credentials.']);
+        }
+
+        $failures = ActivityLog::query()->where('event', 'mobile_auth.login_failed')->get();
+        $this->assertCount(4, $failures);
+        foreach ($failures as $failure) {
+            $this->assertNull($failure->actor_user_id);
+            $this->assertNull($failure->subject_type);
+            $this->assertNull($failure->subject_id);
+            $this->assertNull($failure->properties);
+        }
+    }
+
     public function test_authenticated_user_can_view_minimal_profile(): void
     {
         [$user, $employee] = $this->eligibleAccount();
@@ -133,6 +198,44 @@ class MobileAuthenticationTest extends TestCase
         $this->withToken($currentToken)->getJson('/api/mobile/v1/auth/me')->assertUnauthorized();
     }
 
+    public function test_deactivating_employee_revokes_all_device_tokens(): void
+    {
+        [$owner] = $this->ownerAccount();
+        [$user, $employee] = $this->eligibleAccount();
+        $user->createToken('Employee phone');
+        $user->createToken('Employee tablet');
+
+        app(SetEmployeeStatus::class)->handle($employee, false, $owner);
+
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
+    public function test_unlinking_employee_revokes_all_device_tokens(): void
+    {
+        [$owner] = $this->ownerAccount();
+        [$user, $employee] = $this->eligibleAccount();
+        $user->createToken('Employee phone');
+        $user->createToken('Employee tablet');
+
+        app(UnlinkUserFromEmployee::class)->handle($employee, $owner);
+
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
+    public function test_request_time_ineligibility_revokes_all_device_tokens(): void
+    {
+        [$user, $employee] = $this->eligibleAccount();
+        $presentedToken = $user->createToken('Employee phone')->plainTextToken;
+        $user->createToken('Employee tablet');
+        $employee->update(['status' => false]);
+
+        $this->withToken($presentedToken)
+            ->getJson('/api/mobile/v1/auth/me')
+            ->assertUnauthorized();
+
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
     /** @return array{User, Employee} */
     private function eligibleAccount(): array
     {
@@ -146,5 +249,14 @@ class MobileAuthenticationTest extends TestCase
         ]);
 
         return [$user, $employee];
+    }
+
+    /** @return array{User, Employee} */
+    private function ownerAccount(): array
+    {
+        [$user, $employee] = $this->eligibleAccount();
+        $employee->update(['role' => EmployeeRole::Owner]);
+
+        return [$user->refresh(), $employee->refresh()];
     }
 }

@@ -20,8 +20,8 @@ class EnsureEligibleEmployee
         $accessToken = $user?->currentAccessToken();
 
         if (! $user instanceof User || ! $accessToken instanceof PersonalAccessToken || ! $this->emailPolicy->allowsAuthentication($user)) {
-            if ($accessToken instanceof PersonalAccessToken) {
-                $accessToken->delete();
+            if ($user instanceof User) {
+                $user->tokens()->delete();
             }
 
             return new JsonResponse(['message' => 'Unauthenticated.'], Response::HTTP_UNAUTHORIZED);

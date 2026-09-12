@@ -125,24 +125,22 @@ class PasswordResetController extends Controller
             return $this->invalidResetTokenResponse();
         }
 
-        $user = User::query()->with('employee')->find((int) $payload['user_id']);
-
-        if (
-            ! $user
-            || ! $this->challenges->isEligible($user)
-            || ! hash_equals(
-                (string) $payload['password_fingerprint'],
-                $this->passwordFingerprint($user->password),
-            )
-        ) {
-            return $this->invalidResetTokenResponse();
-        }
-
-        DB::transaction(function () use ($user, $validated): void {
+        $updated = DB::transaction(function () use ($payload, $validated): bool {
             $locked = User::query()
                 ->with('employee')
                 ->lockForUpdate()
-                ->findOrFail($user->id);
+                ->find((int) $payload['user_id']);
+
+            if (
+                ! $locked
+                || ! $this->challenges->isEligible($locked)
+                || ! hash_equals(
+                    (string) $payload['password_fingerprint'],
+                    $this->passwordFingerprint($locked->password),
+                )
+            ) {
+                return false;
+            }
 
             $locked->forceFill([
                 'password' => Hash::make($validated['password']),
@@ -158,7 +156,13 @@ class PasswordResetController extends Controller
                 $locked,
                 ['actor_id' => $locked->id],
             );
+
+            return true;
         });
+
+        if (! $updated) {
+            return $this->invalidResetTokenResponse();
+        }
 
         return response()->json([
             'message' => 'Password updated. You can now sign in.',
@@ -181,3 +185,4 @@ class PasswordResetController extends Controller
         ], 422);
     }
 }
+

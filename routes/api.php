@@ -21,12 +21,9 @@ Route::prefix('mobile/v1/auth')->group(function (): void {
 
     Route::middleware(['auth:sanctum', EnsureEligibleEmployee::class])->group(function (): void {
         Route::get('/me', [AuthController::class, 'me']);
-        Route::get('/dashboard', DashboardController::class);
         Route::post('/logout', [AuthController::class, 'logout']);
     });
 });
-
-
 
 Route::get('mobile/v1/dashboard', DashboardController::class)
     ->middleware(['auth:sanctum', EnsureEligibleEmployee::class]);

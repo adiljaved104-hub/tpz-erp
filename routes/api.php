@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Mobile\V1\AuthController;
 use App\Http\Controllers\Api\Mobile\V1\DashboardController;
 use App\Http\Controllers\Api\Mobile\V1\PasswordResetController;
+use App\Http\Controllers\Api\Mobile\V1\WorkspaceController;
 use App\Http\Middleware\EnsureEligibleEmployee;
 use Illuminate\Support\Facades\Route;
 
@@ -25,5 +26,19 @@ Route::prefix('mobile/v1/auth')->group(function (): void {
     });
 });
 
-Route::get('mobile/v1/dashboard', DashboardController::class)
-    ->middleware(['auth:sanctum', EnsureEligibleEmployee::class]);
+Route::prefix('mobile/v1')
+    ->middleware(['auth:sanctum', EnsureEligibleEmployee::class])
+    ->group(function (): void {
+        Route::get('/dashboard', DashboardController::class);
+
+        Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
+            Route::get('/inventory', 'inventory');
+            Route::get('/products', 'products');
+            Route::get('/orders', 'orders');
+            Route::get('/responsibilities', 'responsibilities');
+            Route::get('/notifications', 'notifications');
+            Route::get('/returns', 'returns');
+            Route::get('/warranty', 'warranty');
+            Route::get('/tasks', 'tasks');
+        });
+    });

@@ -51,10 +51,10 @@ class WorkspaceController extends Controller
                     $row->sku ? 'SKU: '.$row->sku : null,
                     $row->brand ?? null,
                     $row->warehouse ?? null,
-                ])->filter()->implode(' · '),
+                ])->filter()->implode(' Â· '),
                 'Usable: '.(int) $row->employee_usable
-                    .' · Sellable: '.(int) $row->sellable
-                    .' · Reserved: '.(int) $row->reserved,
+                    .' Â· Sellable: '.(int) $row->sellable
+                    .' Â· Reserved: '.(int) $row->reserved,
                 (string) $row->stock_status,
             ))
             ->values();
@@ -78,7 +78,7 @@ class WorkspaceController extends Controller
                         $row->sku ? 'SKU: '.$row->sku : null,
                         $row->brand ?? null,
                         $row->category ?? null,
-                    ])->filter()->implode(' · '),
+                    ])->filter()->implode(' Â· '),
                     $row->model ? 'Model: '.$row->model : null,
                     (string) $row->stock_status,
                 ))
@@ -100,7 +100,7 @@ class WorkspaceController extends Controller
                     $product->sku ? 'SKU: '.$product->sku : null,
                     $product->displayBrandName(),
                     $product->displayCategoryName(),
-                ])->filter()->implode(' · '),
+                ])->filter()->implode(' Â· '),
                 $product->model ? 'Model: '.$product->model : null,
                 $this->enumValue($product->status),
             ))
@@ -134,11 +134,11 @@ class WorkspaceController extends Controller
                     $order->platform?->name,
                     $this->enumValue($order->source),
                     $order->handledBy?->name,
-                ])->filter()->implode(' · '),
+                ])->filter()->implode(' Â· '),
                 collect([
                     $this->date($order->order_date),
                     'AED '.number_format((float) $order->grand_total, 2),
-                ])->filter()->implode(' · '),
+                ])->filter()->implode(' Â· '),
                 $this->enumValue($order->status),
             ))
             ->values();
@@ -159,9 +159,9 @@ class WorkspaceController extends Controller
                 collect([
                     $row['scope'],
                     $row['platform'] ?? null,
-                ])->filter()->implode(' · '),
+                ])->filter()->implode(' Â· '),
                 $row['quantity'] !== null
-                    ? 'Assigned: '.$row['quantity'].' · Remaining: '.$row['remaining']
+                    ? 'Assigned: '.$row['quantity'].' Â· Remaining: '.$row['remaining']
                     : null,
                 'active',
             ))
@@ -233,7 +233,7 @@ class WorkspaceController extends Controller
                     collect([
                         $return->platform?->name,
                         $names ?: null,
-                    ])->filter()->implode(' · '),
+                    ])->filter()->implode(' Â· '),
                     $this->date($return->reported_at),
                     $this->enumValue($return->status),
                 );
@@ -269,7 +269,7 @@ class WorkspaceController extends Controller
                     $repair->product?->sku ? 'SKU: '.$repair->product->sku : null,
                     $repair->platform?->name,
                     'Qty: '.(int) $repair->quantity,
-                ])->filter()->implode(' · '),
+                ])->filter()->implode(' Â· '),
                 $repair->expected_return_at
                     ? 'Expected: '.$this->date($repair->expected_return_at)
                     : $this->date($repair->received_at),
@@ -357,3 +357,4 @@ class WorkspaceController extends Controller
         return filled($value) ? (string) $value : null;
     }
 }
+

@@ -41,19 +41,35 @@ class MobileInventoryService
 
     public function page(Request $request): array
     {
-        $input = $request->validate(['q' => 'nullable|string|max:100', 'page' => 'nullable|integer|min:1', 'per_page' => 'nullable|integer|min:1|max:50', 'status' => 'nullable|in:out_of_stock,critical,low_stock,in_stock']);
+        $input = $request->validate(['q' => 'nullable|string|max:100', 'page' => 'nullable|integer|min:1', 'per_page' => 'nullable|integer|min:1|max:50', 'status' => 'nullable|in:out_of_stock,critical,low_stock,in_stock,reserved,damaged,qc_pending']);
         $user = $request->user();
-        $query = $this->query($user)->select(['p.id as product_id', 'p.name', 'p.sku', 'b.name as brand', 'pi.id as inventory_id', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity', 'w.name as warehouse']);
+        $query = $this->query($user)->select(['p.id as product_id', 'p.name', 'p.sku', 'b.name as brand', 'pi.id as inventory_id', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity', 'pi.qc_pending_quantity', 'w.name as warehouse']);
         if (filled($input['q'] ?? null)) {
             $q = '%'.$input['q'].'%';
             $query->where(fn (Builder $match) => $match->where('p.name', 'like', $q)->orWhere('p.sku', 'like', $q)->orWhere('b.name', 'like', $q));
         }
         $status = app(StockStatus::class);
         $quantity = 'COALESCE(pi.available_quantity, 0) - COALESCE(pi.reserved_quantity, 0)';
+        if (in_array($input['status'] ?? null, ['low_stock', 'out_of_stock'], true)) {
+            $stock = $this->query($user)->select('p.id')->selectRaw('COALESCE(SUM(pi.available_quantity - pi.reserved_quantity), 0) as sellable')->groupBy('p.id');
+            $ids = DB::query()->fromSub($stock, 'stock')->select('id');
+            if ($input['status'] === 'low_stock') {
+                $ids->where('sellable', '>', 0)->where('sellable', '<=', $status->low());
+            } else {
+                $ids->where('sellable', '<=', 0);
+            }
+            $query->whereIn('p.id', $ids);
+        }
+        if (($input['status'] ?? '') === 'damaged') {
+            abort_unless(app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View), 403);
+        }
         match ($input['status'] ?? '') {
-            'out_of_stock' => $query->whereRaw("($quantity) <= 0"),
+            'out_of_stock' => null,
             'critical' => $query->whereRaw("($quantity) > 0 AND ($quantity) <= ?", [$status->critical()]),
-            'low_stock' => $query->whereRaw("($quantity) > ? AND ($quantity) <= ?", [$status->critical(), $status->low()]),
+            'low_stock' => null,
+            'reserved' => $query->where('pi.reserved_quantity', '>', 0),
+            'damaged' => $query->where('pi.damaged_quantity', '>', 0),
+            'qc_pending' => $query->where('pi.qc_pending_quantity', '>', 0),
             'in_stock' => $query->whereRaw("($quantity) > ?", [$status->low()]),
             default => null,
         };
@@ -77,6 +93,7 @@ class MobileInventoryService
                 'assigned_quantity' => $allocation?->is_quantity_limited ? $allocation->assigned_quantity : null,
                 'status' => $status->forQuantity($sellable),
                 ...($damaged ? ['damaged_quantity' => (int) $row->damaged_quantity] : []),
+                'qc_pending_quantity' => (int) $row->qc_pending_quantity,
             ];
         });
 

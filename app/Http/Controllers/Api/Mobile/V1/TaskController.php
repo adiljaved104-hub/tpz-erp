@@ -16,7 +16,12 @@ class TaskController extends MobileController
     {
         app(TaskAuthorization::class)->authorize($request->user(), TaskPermission::View);
 
-        return $this->page($request, app(TaskQueryService::class)->visible($request->user())->orderByDesc('id'), ['title', 'description'], fn ($task) => $this->present($request, $task));
+        $query = app(TaskQueryService::class)->visible($request->user())->orderByDesc('id');
+        if ($request->input('filter') === 'open') {
+            $query->whereNotIn('status', ['completed', 'cancelled']);
+        }
+
+        return $this->page($request, $query, ['title', 'description'], fn ($task) => $this->present($request, $task));
     }
 
     public function show(Request $request, Task $task): JsonResponse

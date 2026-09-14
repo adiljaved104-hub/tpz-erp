@@ -31,6 +31,26 @@ class OrderController extends MobileController
             $query->whereHas('items');
         }
 
+        $filters = $request->validate(['sale_type' => 'nullable|in:standard,web', 'period' => 'nullable|in:today,week,month', 'from' => 'nullable|date_format:Y-m-d', 'to' => 'nullable|date_format:Y-m-d|after_or_equal:from']);
+        if (($filters['sale_type'] ?? null) === 'web') {
+            $query->whereNotNull('web_sales_channel');
+        }
+        if (($filters['sale_type'] ?? null) === 'standard') {
+            $query->whereNull('web_sales_channel');
+        }
+        if (isset($filters['period'])) {
+            $start = match ($filters['period']) {
+                'week' => now()->startOfWeek(), 'month' => now()->startOfMonth(), default => now()->startOfDay()
+            };
+            $query->whereDate('order_date', '>=', $start->toDateString())->whereDate('order_date', '<=', now()->toDateString());
+        }
+        if (isset($filters['from'])) {
+            $query->whereDate('order_date', '>=', $filters['from']);
+        }
+        if (isset($filters['to'])) {
+            $query->whereDate('order_date', '<=', $filters['to']);
+        }
+
         return $this->page($request, $query, ['reference', 'external_order_number', 'customer_name'], fn ($o) => $this->present($request, $o));
     }
 

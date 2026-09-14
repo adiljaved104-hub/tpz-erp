@@ -30,11 +30,13 @@ use App\Services\Authorization\OrderAuthorization;
 use App\Services\Inventory\InventoryService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class OrderService
@@ -53,6 +55,76 @@ class OrderService
         private readonly ResponsibilityAllocationService $allocations,
     ) {}
 
+    /** Save editable plain-product drafts without touching inventory. */
+    public function saveDraft(SaveAndReserveOrderData $data, User $actor, ?Order $existing = null): Order
+    {
+        $this->authorization->authorize($actor, $existing ? OrderPermission::UpdateDraft : OrderPermission::Create, $existing);
+        $this->authorization->authorize($actor, OrderPermission::EditSellingPrice, $existing);
+        $reference = $existing?->reference ?? $this->references->nextSalesOrderReference((int) substr($data->orderDate, 0, 4));
+
+        return DB::transaction(function () use ($data, $actor, $existing, $reference): Order {
+            User::query()->whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            if ($existing === null && ($retry = Order::query()->where('idempotency_key', $data->idempotencyKey)->first())) {
+                $this->authorization->authorize($actor, OrderPermission::View, $retry);
+                if ($retry->created_by_user_id !== $actor->id) {
+                    throw new AuthorizationException;
+                }
+
+                return $retry;
+            }
+            $order = $existing === null ? new Order : Order::query()->lockForUpdate()->findOrFail($existing->id);
+            if ($existing !== null) {
+                $this->authorization->authorize($actor, OrderPermission::UpdateDraft, $order);
+                if ($order->status !== OrderStatus::Draft || $order->items()->whereHas('reservations')->exists()
+                    || $order->items()->whereHas('upgradeSelection')->exists()) {
+                    throw new InvalidOrderTransitionException('Only plain-product drafts without reservations can be edited here.');
+                }
+            }
+            $validated = $this->validate($data, $actor, $existing);
+            $calculated = $this->totals->calculate($data->items);
+            $products = Product::query()->products()->whereKey(collect($data->items)->pluck('productId'))->lockForUpdate()->get()->keyBy('id');
+            foreach ($data->items as $item) {
+                if ($products->get($item->productId)?->status !== ProductStatus::Active
+                    || $item->salesConfigurationId !== null || $item->upgradeRecipeId !== null) {
+                    throw ValidationException::withMessages(['items' => 'Drafts require active plain Products.']);
+                }
+            }
+            $order->warehouse_id = $validated['warehouse_id'];
+            $order->marketplace_platform_id = $validated['marketplace_platform_id'];
+            $order->external_order_number = $validated['external_order_number'];
+            $order->external_identity_hash = $validated['external_identity_hash'];
+            $order->order_date = $validated['order_date'];
+            $order->handled_by_employee_id = $validated['handled_by_employee_id'];
+            $order->notes = $validated['notes'];
+            foreach (['web_sales_channel', 'customer_name', 'customer_phone', 'delivery_type', 'courier_name', 'tracking_number'] as $field) {
+                $order->{$field} = $validated[$field];
+            }
+            foreach (['subtotal', 'discount_total', 'vat_total', 'grand_total'] as $field) {
+                $order->{$field} = $calculated[$field];
+            }
+            if ($existing === null) {
+                $order->reference = $reference;
+                $order->source = OrderSource::Manual;
+                $order->status = OrderStatus::Draft;
+                $order->created_by_user_id = $actor->id;
+                $order->idempotency_key = $data->idempotencyKey;
+            }
+            $order->save();
+            foreach ($order->items()->get() as $old) {
+                $old->delete();
+            }
+            foreach ($calculated['lines'] as $index => $line) {
+                $product = $products->get($line['product_id']);
+                $order->items()->create([...$line, 'line_number' => $index + 1, 'line_key' => (string) Str::uuid(),
+                    'product_name' => $product->name, 'sku' => $product->sku, 'brand_name' => $product->displayBrandName()]);
+            }
+            $this->timeline($order, $existing ? OrderStatus::Draft : null, OrderStatus::Draft, $actor, 'Draft saved');
+            $this->activity->log($existing ? 'order.draft_updated' : 'order.created', $actor, $order, ['order_reference' => $order->reference]);
+
+            return $order->refresh();
+        }, 5);
+    }
+
     public function saveAndReserve(SaveAndReserveOrderData $data, User $actor): Order
     {
         $this->authorization->authorize($actor, OrderPermission::Create);
@@ -60,6 +132,8 @@ class OrderService
         $this->authorization->authorize($actor, OrderPermission::EditSellingPrice);
 
         if ($existing = Order::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
+            abort_unless($existing->created_by_user_id === $actor->id, 403);
+
             return $existing->load(['items.reservations', 'items.upgradeSelection', 'statusEvents']);
         }
         $prepared = $this->prepareReservation($data, $actor);
@@ -67,6 +141,8 @@ class OrderService
             return DB::transaction(fn () => $this->postPreparedReservation($prepared, $actor), 5);
         } catch (UniqueConstraintViolationException $exception) {
             if ($existing = Order::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
+                abort_unless($existing->created_by_user_id === $actor->id, 403);
+
                 return $existing->load(['items.reservations', 'items.upgradeSelection', 'statusEvents']);
             }
             if ($data->platformId !== null && filled($data->externalOrderNumber)) {
@@ -339,6 +415,8 @@ class OrderService
         $this->authorization->authorize($actor, OrderPermission::EditSellingPrice);
 
         if ($existing = Order::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
+            abort_unless($existing->created_by_user_id === $actor->id, 403);
+
             if ($existing->status === OrderStatus::Fulfilled) {
                 return $existing->load(['items.fulfillmentItem', 'fulfillment.items', 'statusEvents']);
             }
@@ -524,6 +602,8 @@ class OrderService
             }, 5);
         } catch (UniqueConstraintViolationException $exception) {
             if ($existing = Order::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
+                abort_unless($existing->created_by_user_id === $actor->id, 403);
+
                 return $existing->load(['items.fulfillmentItem', 'fulfillment.items', 'statusEvents']);
             }
 
@@ -842,7 +922,7 @@ class OrderService
     }
 
     /** @return array<string, mixed> */
-    private function validate(SaveAndReserveOrderData $data, User $actor): array
+    private function validate(SaveAndReserveOrderData $data, User $actor, ?Order $existing = null): array
     {
         $items = array_map(fn (OrderItemData $item): array => [
             'product_id' => $item->productId,
@@ -878,7 +958,7 @@ class OrderService
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'marketplace_platform_id' => ['nullable', 'integer', 'exists:marketplace_platforms,id'],
             'external_order_number' => ['nullable', 'string', 'max:255'],
-            'external_identity_hash' => ['nullable', 'string', 'size:64', 'unique:orders,external_identity_hash'],
+            'external_identity_hash' => ['nullable', 'string', 'size:64', Rule::unique('orders', 'external_identity_hash')->ignore($existing?->id)],
             'web_sales_channel' => ['nullable', 'in:website,whatsapp,walk_in,other'],
             'customer_name' => ['nullable', 'required_with:web_sales_channel', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'required_with:web_sales_channel', 'string', 'max:40', 'regex:/^\+?[0-9][0-9\s().-]{5,39}$/'],

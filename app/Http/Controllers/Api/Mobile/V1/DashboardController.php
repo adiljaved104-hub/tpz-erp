@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
+use App\Enums\EmployeeRole;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Mobile\MobileDashboardSummary;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -41,12 +43,13 @@ class DashboardController extends Controller
             period: $period,
             customFrom: $validated['from'] ?? null,
             customTo: $validated['to'] ?? null,
-            inventoryScope: 'employee',
+            inventoryScope: $user->employee->role === EmployeeRole::Owner ? 'company' : 'employee',
             inventoryEmployeeId: $user->employee->id,
             widgetKeys: [
                 'attention',
                 'sales',
                 'inventory',
+                'inventory_intelligence',
                 'service',
                 'work',
                 'responsibilities',
@@ -54,7 +57,7 @@ class DashboardController extends Controller
         );
 
         return response()->json([
-            'data' => $data,
+            'data' => app(MobileDashboardSummary::class)->enrich($data, $user),
         ]);
     }
 }

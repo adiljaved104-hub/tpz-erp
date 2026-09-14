@@ -68,7 +68,9 @@ class ConversationMessageService
 
         $participant = $this->ensureParticipant($actor, $conversation);
         if ($participant->last_read_message_id === null || $message->id > $participant->last_read_message_id) {
-            $participant->update(['last_read_message_id' => $message->id]);
+            ConversationParticipant::query()->whereKey($participant->id)
+                ->where(fn ($query) => $query->whereNull('last_read_message_id')->orWhere('last_read_message_id', '<', $message->id))
+                ->update(['last_read_message_id' => $message->id]);
         }
 
         return $participant->refresh();

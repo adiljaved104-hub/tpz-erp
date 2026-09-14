@@ -16,6 +16,11 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (DomainException $exception, Request $request) {
+            if ($request->is('api/mobile/*')) {
+                return response()->json(['message' => $exception->getMessage()], 422);
+            }
+        });
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );

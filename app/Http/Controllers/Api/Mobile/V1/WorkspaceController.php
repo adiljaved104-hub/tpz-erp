@@ -14,6 +14,7 @@ use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Mobile\MobileInventoryService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use App\Services\Returns\CustomerReturnReadService;
@@ -39,27 +40,7 @@ class WorkspaceController extends Controller
 
     public function inventory(Request $request): JsonResponse
     {
-        $user = $this->user($request);
-
-        $items = $this->responsibilities
-            ->myInventory($user)
-            ->take(100)
-            ->map(fn (object $row): array => $this->item(
-                $row->inventory_id ?? 'product-'.$row->product_id,
-                (string) $row->name,
-                collect([
-                    $row->sku ? 'SKU: '.$row->sku : null,
-                    $row->brand ?? null,
-                    $row->warehouse ?? null,
-                ])->filter()->implode(' Â· '),
-                'Usable: '.(int) $row->employee_usable
-                    .' Â· Sellable: '.(int) $row->sellable
-                    .' Â· Reserved: '.(int) $row->reserved,
-                (string) $row->stock_status,
-            ))
-            ->values();
-
-        return $this->respond($items);
+        return response()->json(app(MobileInventoryService::class)->page($request));
     }
 
     public function products(Request $request): JsonResponse
@@ -357,4 +338,3 @@ class WorkspaceController extends Controller
         return filled($value) ? (string) $value : null;
     }
 }
-

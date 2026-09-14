@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\Mobile\StockStatus;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use Carbon\CarbonImmutable;
@@ -69,7 +70,7 @@ class DashboardInventoryIntelligenceService
         $rows = $inventoryRows->map(function (object $row) use ($salesByProduct, $viewer): array {
             $sellable = (int) $row->sellable;
             $sold = (int) ($salesByProduct->get($row->product_id)['sold_quantity'] ?? 0);
-            $state = $sellable <= 0 ? 'Out of Stock' : ($sellable <= self::LOW_STOCK_THRESHOLD ? 'Low Stock' : 'In Stock');
+            $state = $sellable <= 0 ? 'Out of Stock' : ($sellable <= app(StockStatus::class)->low() ? 'Low Stock' : 'In Stock');
 
             return [
                 'product_id' => (int) $row->product_id,
@@ -80,14 +81,14 @@ class DashboardInventoryIntelligenceService
                 'reserved' => (int) $row->reserved,
                 'sold_quantity' => $sold,
                 'state' => $state,
-                'priority' => ($sold > 0 && $sellable <= 0) ? 50 : (($sold > 0 && $sellable <= self::LOW_STOCK_THRESHOLD) ? 40 : ($sellable <= 0 ? 30 : ($sellable <= self::LOW_STOCK_THRESHOLD ? 20 : 0))),
+                'priority' => ($sold > 0 && $sellable <= 0) ? 50 : (($sold > 0 && $sellable <= app(StockStatus::class)->low()) ? 40 : ($sellable <= 0 ? 30 : ($sellable <= app(StockStatus::class)->low() ? 20 : 0))),
                 'url' => $this->inventoryAuthorization->allows($viewer, InventoryPermission::View)
                     ? ProductInventoryResource::getUrl()
                     : MyInventory::getUrl(),
             ];
         });
 
-        $low = $rows->where('sellable', '>', 0)->where('sellable', '<=', self::LOW_STOCK_THRESHOLD);
+        $low = $rows->where('sellable', '>', 0)->where('sellable', '<=', app(StockStatus::class)->low());
         $out = $rows->where('sellable', '<=', 0);
 
         return [
@@ -103,8 +104,8 @@ class DashboardInventoryIntelligenceService
             'out_of_stock_count' => $out->count(),
             'attention' => $rows->where('priority', '>', 0)->sortByDesc('priority')->take(8)->values(),
             'top_sellers' => $sales->take(5)->values(),
-            'fast_selling_low_stock' => $rows->where('sold_quantity', '>', 0)->where('sellable', '<=', self::LOW_STOCK_THRESHOLD)->sortByDesc('sold_quantity')->take(5)->values(),
-            'threshold' => self::LOW_STOCK_THRESHOLD,
+            'fast_selling_low_stock' => $rows->where('sold_quantity', '>', 0)->where('sellable', '<=', app(StockStatus::class)->low())->sortByDesc('sold_quantity')->take(5)->values(),
+            'threshold' => app(StockStatus::class)->low(),
             'period_from' => $from->toDateString(),
             'period_to' => $to->toDateString(),
         ];

@@ -19,8 +19,27 @@ class WarrantyController extends MobileController
         $auth = app(WarrantyRepairAuthorization::class);
         $auth->authorize($request->user(), WarrantyRepairPermission::View);
 
-        return $this->page($request, $auth->scopeQuery(WarrantyRepair::query(), $request->user())->with('product')->orderByDesc('id'),
-            ['reference', 'issue_description', 'notes'], fn ($r) => $this->present($request, $r));
+        $query = $auth->scopeQuery(WarrantyRepair::query(), $request->user())->with('product')->orderByDesc('id');
+        if ($request->input('type') === 'external') {
+            $query->externalService();
+        }
+        if ($request->input('filter') === 'open') {
+            $query->whereNotIn('status', ['completed', 'cancelled']);
+        }
+
+        return $this->page($request, $query, ['reference', 'issue_description', 'notes'], fn ($r) => $this->present($request, $r));
+    }
+
+    public function internalRepairs(Request $request): JsonResponse
+    {
+        $auth = app(WarrantyRepairAuthorization::class);
+        $auth->authorize($request->user(), WarrantyRepairPermission::View);
+        $query = $auth->scopeQuery(WarrantyRepair::query(), $request->user())->internalCompanyOwned()->with('product')->orderByDesc('id');
+        if ($request->input('filter') === 'open') {
+            $query->whereNotIn('status', ['completed', 'cancelled']);
+        }
+
+        return $this->page($request, $query, ['reference', 'issue_description', 'notes'], fn ($r) => $this->present($request, $r));
     }
 
     public function show(Request $request, WarrantyRepair $warranty): JsonResponse

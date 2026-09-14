@@ -57,7 +57,7 @@ class DashboardController extends Controller
         );
 
         return response()->json([
-            'data' => app(MobileDashboardSummary::class)->enrich($data, $user),
+            'data' => app(MobileDashboardSummary::class)->enrich($data, $user, $validated),
         ]);
     }
 }

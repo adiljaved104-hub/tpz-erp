@@ -141,6 +141,36 @@ class MobileOperationsAuthorizationTest extends TestCase
         $this->as($token)->getJson('/api/mobile/v1/workspace/orders/'.$order->json('data.id'))->assertForbidden();
     }
 
+    public function test_product_mobile_edit_uses_full_erp_fields_without_changing_sku_or_stock(): void
+    {
+        $f = $this->assigned();
+        $product = $f['product'];
+        $sku = $product->sku;
+        $available = $f['inventory']->available_quantity;
+        $ownerToken = $this->token($f['owner']);
+        $detail = $this->as($ownerToken)->getJson('/api/mobile/v1/workspace/products/'.$product->id)->assertOk();
+        $fields = collect($detail->json('data.actions.0.fields'))->pluck('name');
+        foreach (['name', 'brand_id', 'category_id', 'condition', 'model', 'processor', 'ram', 'storage',
+            'screen_size', 'graphics', 'color', 'warranty', 'description', 'selling_price', 'cost_price'] as $field) {
+            $this->assertContains($field, $fields);
+        }
+        $this->assertNotContains('sku', $fields);
+        $this->assertNotContains('available_quantity', $fields);
+        $data = ['name' => 'Updated Laptop', 'brand_id' => $product->brand_id, 'category_id' => $product->category_id,
+            'condition' => 'used', 'model' => 'M-2026', 'processor' => 'Core i7', 'ram' => '16 GB',
+            'storage' => '512 GB', 'screen_size' => '14 inch', 'graphics' => 'Integrated', 'color' => 'Black',
+            'warranty' => 18, 'description' => 'Updated on mobile', 'selling_price' => '250.00',
+            'cost_price' => '150.0000', 'sku' => 'MUST-NOT-CHANGE', 'available_quantity' => 999];
+        $this->as($ownerToken)->postJson('/api/mobile/v1/workspace/products/'.$product->id.'/update', $data)->assertOk();
+        $product->refresh();
+        $this->assertSame('Updated Laptop', $product->name);
+        $this->assertSame('used', $product->condition->value);
+        $this->assertSame('Core i7', $product->processor);
+        $this->assertSame($sku, $product->sku);
+        $this->assertSame($available, $f['inventory']->refresh()->available_quantity);
+        $this->as($this->token($f['employee']->user))->postJson('/api/mobile/v1/workspace/products/'.$product->id.'/update', $data)->assertForbidden();
+    }
+
     public function test_restricted_order_and_product_prices_are_not_serialized(): void
     {
         $f = $this->assigned();

@@ -61,6 +61,8 @@ class CustomerReturnService
             'items.*.reason_notes' => ['nullable', 'string', 'max:2000'], 'idempotencyKey' => ['required', 'uuid'], 'notes' => ['nullable', 'string', 'max:5000'],
         ])->validate();
         if ($existing = CustomerReturn::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
+            abort_unless($existing->created_by_user_id === $actor->id, 403);
+
             return $existing;
         }
         $reference = $this->references->nextCustomerReturnReference();

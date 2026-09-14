@@ -1,8 +1,17 @@
 <?php
 
 use App\Http\Controllers\Api\Mobile\V1\AuthController;
+use App\Http\Controllers\Api\Mobile\V1\ChatController;
 use App\Http\Controllers\Api\Mobile\V1\DashboardController;
+use App\Http\Controllers\Api\Mobile\V1\DeviceController;
+use App\Http\Controllers\Api\Mobile\V1\NotificationController;
+use App\Http\Controllers\Api\Mobile\V1\OrderController;
 use App\Http\Controllers\Api\Mobile\V1\PasswordResetController;
+use App\Http\Controllers\Api\Mobile\V1\ProductController;
+use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
+use App\Http\Controllers\Api\Mobile\V1\ReturnController;
+use App\Http\Controllers\Api\Mobile\V1\TaskController;
+use App\Http\Controllers\Api\Mobile\V1\WarrantyController;
 use App\Http\Controllers\Api\Mobile\V1\WorkspaceController;
 use App\Http\Middleware\EnsureEligibleEmployee;
 use Illuminate\Support\Facades\Route;
@@ -30,15 +39,45 @@ Route::prefix('mobile/v1')
     ->middleware(['auth:sanctum', EnsureEligibleEmployee::class])
     ->group(function (): void {
         Route::get('/dashboard', DashboardController::class);
+        Route::post('/devices', [DeviceController::class, 'register'])->middleware('throttle:30,1');
+        Route::delete('/devices', [DeviceController::class, 'unregister']);
 
+        Route::prefix('chat')->controller(ChatController::class)->group(function (): void {
+            Route::get('/', 'index');
+            Route::get('/options', 'options');
+            Route::post('/', 'store')->middleware('throttle:30,1');
+            Route::get('/{conversation}', 'show')->whereNumber('conversation');
+            Route::get('/{conversation}/messages', 'messages')->whereNumber('conversation');
+            Route::post('/{conversation}/messages', 'send')->whereNumber('conversation')->middleware('throttle:60,1');
+            Route::post('/{conversation}/read', 'read')->whereNumber('conversation');
+        });
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
             Route::get('/inventory', 'inventory');
-            Route::get('/products', 'products');
-            Route::get('/orders', 'orders');
-            Route::get('/responsibilities', 'responsibilities');
-            Route::get('/notifications', 'notifications');
-            Route::get('/returns', 'returns');
-            Route::get('/warranty', 'warranty');
-            Route::get('/tasks', 'tasks');
+            Route::get('/products', [ProductController::class, 'index']);
+            Route::get('/products/{product}', [ProductController::class, 'show'])->whereNumber('product');
+            Route::post('/products/{product}/update', [ProductController::class, 'update'])->whereNumber('product');
+            Route::get('/orders', [OrderController::class, 'index']);
+            Route::get('/orders/options', [OrderController::class, 'options']);
+            Route::post('/orders', [OrderController::class, 'store']);
+            Route::get('/orders/{order}', [OrderController::class, 'show'])->whereNumber('order');
+            Route::put('/orders/{order}', [OrderController::class, 'update'])->whereNumber('order');
+            Route::post('/orders/{order}/{action}', [OrderController::class, 'act'])->whereNumber('order');
+            Route::get('/responsibilities', [ResponsibilityController::class, 'index']);
+            Route::get('/responsibilities/{responsibility}', [ResponsibilityController::class, 'show'])->whereNumber('responsibility');
+            Route::post('/responsibilities/{responsibility}/{action}', [ResponsibilityController::class, 'act'])->whereNumber('responsibility');
+            Route::get('/notifications', [NotificationController::class, 'index']);
+            Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
+            Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
+            Route::get('/returns', [ReturnController::class, 'index']);
+            Route::get('/returns/options', [ReturnController::class, 'options']);
+            Route::post('/returns', [ReturnController::class, 'store']);
+            Route::get('/returns/{return}', [ReturnController::class, 'show'])->whereNumber('return');
+            Route::post('/returns/{return}/{action}', [ReturnController::class, 'act'])->whereNumber('return');
+            Route::get('/warranty', [WarrantyController::class, 'index']);
+            Route::get('/warranty/{warranty}', [WarrantyController::class, 'show'])->whereNumber('warranty');
+            Route::post('/warranty/{warranty}/{action}', [WarrantyController::class, 'act'])->whereNumber('warranty');
+            Route::get('/tasks', [TaskController::class, 'index']);
+            Route::get('/tasks/{task}', [TaskController::class, 'show'])->whereNumber('task');
+            Route::post('/tasks/{task}/{action}', [TaskController::class, 'act'])->whereNumber('task');
         });
     });

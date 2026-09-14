@@ -61,7 +61,7 @@ class ResponsibilityReadService
     }
 
     /** @return Collection<int, object> */
-    public function myInventory(User $user): Collection
+    public function myInventory(User $user, ?array $productIdsFilter = null): Collection
     {
         $employeeId = $user->employee?->id;
 
@@ -143,6 +143,9 @@ class ResponsibilityReadService
             $rowsQuery->addSelect(['latest_purchase_cost' => $latestCost]);
         }
 
+        if ($productIdsFilter !== null) {
+            $rowsQuery->whereIn('p.id', $productIdsFilter);
+        }
         $rows = $rowsQuery->get();
         $capacity = collect(array_keys($ownQuantities))
             ->mapWithKeys(fn (int $inventoryId): array => [$inventoryId => $this->capacity->summary($inventoryId)]);

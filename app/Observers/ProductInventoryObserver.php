@@ -5,7 +5,7 @@ namespace App\Observers;
 use App\Exceptions\ImmutableInventoryRecordException;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Models\ProductInventory;
-use App\Services\Dashboard\DashboardInventoryIntelligenceService;
+use App\Services\Mobile\StockStatus;
 use App\Services\Notifications\CriticalAlertDispatcher;
 use App\Services\Notifications\CriticalAlertRecipientResolver;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
@@ -28,7 +28,7 @@ class ProductInventoryObserver implements ShouldHandleEventsAfterCommit
         if ($before > 0 && $after <= 0) {
             $type = 'inventory.out_of_stock';
             $title = 'Product Out of Stock';
-        } elseif ($before > DashboardInventoryIntelligenceService::LOW_STOCK_THRESHOLD && $after <= DashboardInventoryIntelligenceService::LOW_STOCK_THRESHOLD) {
+        } elseif ($before > app(StockStatus::class)->low() && $after <= app(StockStatus::class)->low()) {
             $type = 'inventory.low_stock';
             $title = 'Product Reached Low Stock';
         }

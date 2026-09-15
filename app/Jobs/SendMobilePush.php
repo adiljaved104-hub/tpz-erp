@@ -52,7 +52,7 @@ class SendMobilePush implements ShouldQueue
                 }
                 $response = $http->post('https://exp.host/--/api/v2/push/send', [
                     'to' => $device->expo_token, 'title' => 'Tech Point Zone ERP', 'body' => 'You have a new ERP notification.',
-                    'sound' => 'default', 'channelId' => 'erp', 'data' => ['notification_id' => $this->notificationId],
+                    'sound' => 'default', 'channelId' => 'erp-alerts', 'data' => ['notification_id' => $this->notificationId],
                 ])->throw();
                 $ticket = $response->json('data');
                 if (($ticket['details']['error'] ?? null) === 'DeviceNotRegistered') {

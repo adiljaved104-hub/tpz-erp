@@ -168,7 +168,7 @@ class TaxInvoiceUiCorrectionTest extends TestCase
             ->assertSee('Invoice number will be assigned when saved.')
             ->assertSee('Save Invoice')
             ->assertSee('Saving...')
-            ->assertSee('Save &amp; Print', false)
+            ->assertSee('Save, Download &amp; New', false)
             ->assertSee('Creating Invoice...')
             ->assertSee('Cancel');
     }
@@ -192,22 +192,23 @@ class TaxInvoiceUiCorrectionTest extends TestCase
         $this->assertNull($invoice->customer_trn);
     }
 
-    public function test_save_and_print_creates_once_and_reaches_pdf_output(): void
+    public function test_save_download_and_new_creates_once_downloads_pdf_and_resets_form(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
         app(CompanyProfileService::class)->save($this->profileData(), $owner);
 
         $component = Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
             ->fillForm($this->invoiceFormData())
-            ->call('saveAndPrint')
+            ->call('saveDownloadAndNew')
             ->assertHasNoFormErrors()
-            ->assertNotified('Invoice created');
+            ->assertNotified('Invoice created')
+            ->assertFileDownloaded('TP-INV-9153.pdf');
 
         $invoice = TaxInvoice::query()->sole();
 
-        $component->assertRedirect(TaxInvoiceResource::getUrl('index'));
-        $component->assertSet('data', []);
-        $this->assertStringContainsString('window.open(', data_get($component->effects, 'xjs.0.expression', ''));
+        $component->assertSet('data.customer_name', null)
+            ->assertSet('data.customer_address', null)
+            ->assertSet('data.order_reference', null);
         $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice]))
             ->assertOk()
             ->assertHeader('content-type', 'application/pdf');
@@ -252,7 +253,7 @@ class TaxInvoiceUiCorrectionTest extends TestCase
         $this->assertDatabaseCount('tax_invoice_items', 1);
     }
 
-    public function test_save_then_print_cannot_issue_a_second_invoice(): void
+    public function test_save_then_download_action_cannot_issue_a_second_invoice_after_redirecting_save(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
         app(CompanyProfileService::class)->save($this->profileData(), $owner);
@@ -261,7 +262,7 @@ class TaxInvoiceUiCorrectionTest extends TestCase
             ->fillForm($this->invoiceFormData())
             ->call('create');
 
-        $component->call('saveAndPrint');
+        $component->call('saveDownloadAndNew');
 
         $this->assertDatabaseCount('tax_invoices', 1);
         $this->assertDatabaseCount('tax_invoice_items', 1);

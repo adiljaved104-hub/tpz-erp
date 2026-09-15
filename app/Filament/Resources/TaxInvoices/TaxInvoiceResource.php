@@ -10,9 +10,11 @@ use App\Models\TaxInvoice;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Invoices\TaxInvoiceService;
+use App\Services\Invoices\TaxInvoiceZipService;
 use App\Support\AedMoney;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
@@ -22,6 +24,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
@@ -32,8 +35,12 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
+use Livewire\Component;
 
 class TaxInvoiceResource extends Resource
 {
@@ -143,14 +150,97 @@ class TaxInvoiceResource extends Resource
     public static function table(Table $table): Table
     {
         return $table->columns([
-            TextColumn::make('invoice_number')->label('Invoice #')->searchable()->sortable(), TextColumn::make('order_reference')->label('Order ID')->searchable(), TextColumn::make('invoice_date')->date('d M Y')->sortable(), TextColumn::make('customer_name')->label('Customer')->searchable(), TextColumn::make('customer_trn')->label('Customer TRN')->searchable()->toggleable(isToggledHiddenByDefault: true), TextColumn::make('createdBy.name')->label('Created By'), TextColumn::make('grand_total')->label('Total AED')->money('AED'), TextColumn::make('status')->badge(),
+            TextColumn::make('invoice_number')->label('Invoice #')->searchable()->sortable(),
+            TextColumn::make('order_reference')->label('Order ID')->searchable(),
+            TextColumn::make('invoice_date')->label('Invoice Date')->date('d M Y')->sortable(),
+            TextColumn::make('created_at')->label('Created At')->dateTime('d M Y, h:i A', config('app.timezone'))->sortable(),
+            TextColumn::make('customer_name')->label('Customer')->searchable(),
+            TextColumn::make('customer_trn')->label('Customer TRN')->searchable()->toggleable(isToggledHiddenByDefault: true),
+            TextColumn::make('createdBy.name')->label('Created By'),
+            TextColumn::make('grand_total')->label('Total AED')->money('AED'),
+            TextColumn::make('status')->badge(),
         ])->filters([
             SelectFilter::make('status')->options(['issued' => 'Issued', 'void' => 'Void']),
             SelectFilter::make('created_by_user_id')->label('Created By')->relationship('createdBy', 'name')->searchable(),
-            Filter::make('invoice_date')->schema([DatePicker::make('from'), DatePicker::make('to')])->query(fn (Builder $query, array $data): Builder => $query->when($data['from'] ?? null, fn (Builder $q, $date) => $q->whereDate('invoice_date', '>=', $date))->when($data['to'] ?? null, fn (Builder $q, $date) => $q->whereDate('invoice_date', '<=', $date))),
+            Filter::make('invoice_date')
+                ->schema([
+                    DatePicker::make('from')->label('Invoice Date From'),
+                    DatePicker::make('to')->label('Invoice Date To'),
+                ])
+                ->query(fn (Builder $query, array $data): Builder => $query
+                    ->when($data['from'] ?? null, fn (Builder $q, $date) => $q->whereDate('invoice_date', '>=', $date))
+                    ->when($data['to'] ?? null, fn (Builder $q, $date) => $q->whereDate('invoice_date', '<=', $date))),
+            Filter::make('created_at')
+                ->label('Created Date')
+                ->schema([
+                    DatePicker::make('created_from')->label('Created From'),
+                    DatePicker::make('created_to')->label('Created To'),
+                ])
+                ->query(fn (Builder $query, array $data): Builder => $query
+                    ->when($data['created_from'] ?? null, fn (Builder $q, $date) => $q->where('created_at', '>=', Carbon::parse($date, config('app.timezone'))->startOfDay()->utc()))
+                    ->when($data['created_to'] ?? null, fn (Builder $q, $date) => $q->where('created_at', '<=', Carbon::parse($date, config('app.timezone'))->endOfDay()->utc()))),
         ])->recordActions([
             ViewAction::make(),
-            Action::make('pdf')->label('PDF')->icon('heroicon-o-arrow-down-tray')->url(fn (TaxInvoice $record): string => route('tax-invoices.pdf', ['invoice' => $record]))->openUrlInNewTab()->visible(fn (): bool => auth()->user()?->can(InvoicePermission::DownloadPdf->value) === true),
+            Action::make('pdf')
+                ->label('PDF')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->url(fn (TaxInvoice $record): string => route('tax-invoices.pdf', ['invoice' => $record]))
+                ->openUrlInNewTab()
+                ->visible(fn (TaxInvoice $record): bool => self::allows($record, InvoicePermission::DownloadPdf)),
+            Action::make('void')
+                ->label('Void')
+                ->icon('heroicon-o-x-circle')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalHeading(fn (TaxInvoice $record): string => "Void Invoice {$record->invoice_number}")
+                ->modalDescription('The Invoice will remain in financial history and its number will not be reused.')
+                ->schema([
+                    Textarea::make('reason')
+                        ->label('Void Reason')
+                        ->required()
+                        ->maxLength(2000),
+                ])
+                ->visible(fn (TaxInvoice $record): bool => $record->status !== 'void' && self::allows($record, InvoicePermission::Void))
+                ->action(function (TaxInvoice $record, array $data): void {
+                    $user = auth()->user();
+                    abort_unless($user instanceof User, 403);
+
+                    app(TaxInvoiceService::class)->void($record, $data['reason'], $user);
+
+                    Notification::make()
+                        ->success()
+                        ->title('Invoice voided')
+                        ->body("{$record->invoice_number} remains available in Invoice history.")
+                        ->send();
+                }),
+        ])->toolbarActions([
+            BulkAction::make('downloadSelectedPdfs')
+                ->label('Download Selected PDFs (.zip)')
+                ->icon('heroicon-o-archive-box-arrow-down')
+                ->color('primary')
+                ->deselectRecordsAfterCompletion()
+                ->visible(fn (): bool => ($user = auth()->user()) instanceof User
+                    && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::DownloadPdf))
+                ->action(function (Collection $records, Component $livewire) {
+                    $user = auth()->user();
+                    abort_unless($user instanceof User, 403);
+
+                    $requestedKeys = $livewire->isTrackingDeselectedTableRecords
+                        ? null
+                        : $livewire->selectedTableRecords;
+
+                    try {
+                        return app(TaxInvoiceZipService::class)->download($records, $user, $requestedKeys);
+                    } catch (ValidationException $exception) {
+                        Notification::make()
+                            ->danger()
+                            ->title('Invoice ZIP could not be downloaded')
+                            ->body(collect($exception->errors())->flatten()->unique()->implode(' '))
+                            ->send();
+
+                        throw $exception;
+                    }
+                }),
         ]);
     }
 
@@ -183,6 +273,13 @@ class TaxInvoiceResource extends Resource
     public static function getPages(): array
     {
         return ['index' => ListTaxInvoices::route('/'), 'create' => CreateTaxInvoice::route('/create'), 'view' => ViewTaxInvoice::route('/{record}')];
+    }
+
+    private static function allows(TaxInvoice $invoice, InvoicePermission $permission): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User && app(InvoiceAuthorization::class)->allows($user, $permission, $invoice);
     }
 
     private static function totalsPreview(Get $get): HtmlString

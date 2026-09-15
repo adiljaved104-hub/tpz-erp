@@ -6,6 +6,7 @@ use App\Models\Employee;
 use App\Models\Product;
 use App\Models\ReferenceSequence;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class ReferenceSequenceService
@@ -159,6 +160,70 @@ class ReferenceSequenceService
     public function nextTaxInvoiceNumber(string $prefix, int $startingNumber = 1): string
     {
         return trim($prefix).' '.$this->next('tax_invoice', $startingNumber);
+    }
+
+    public function currentTaxInvoiceNextNumber(int $startingNumber = 1): int
+    {
+        return (int) (ReferenceSequence::query()
+            ->whereKey('tax_invoice')
+            ->value('next_value') ?? $startingNumber);
+    }
+
+    /**
+     * @return array{previous: int, next: int, changed: bool}
+     */
+    public function updateTaxInvoiceNextNumber(string $prefix, int $requested, int $expected, int $startingNumber = 1): array
+    {
+        if ($requested < 1 || $expected < 1 || $startingNumber < 1) {
+            throw ValidationException::withMessages([
+                'next_invoice_number' => 'The next invoice number must be at least 1.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($prefix, $requested, $expected, $startingNumber): array {
+            ReferenceSequence::query()->insertOrIgnore([
+                'key' => 'tax_invoice',
+                'next_value' => $startingNumber,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $sequence = ReferenceSequence::query()->lockForUpdate()->findOrFail('tax_invoice');
+            $current = (int) $sequence->next_value;
+            $isRequestedChange = $requested !== $expected;
+
+            if ($current !== $expected) {
+                throw ValidationException::withMessages([
+                    'next_invoice_number' => 'The current next invoice number has changed. Reload Invoice Settings and try again.',
+                ]);
+            }
+
+            $next = $isRequestedChange ? $requested : $current;
+
+            if ($next < $current) {
+                throw ValidationException::withMessages([
+                    'next_invoice_number' => "The next invoice number cannot be lower than the current next invoice number ({$current}).",
+                ]);
+            }
+
+            $formattedNumber = trim($prefix).' '.$next;
+
+            if (DB::table('tax_invoices')->where('invoice_number', $formattedNumber)->exists()) {
+                throw ValidationException::withMessages([
+                    'next_invoice_number' => "Invoice number {$formattedNumber} has already been used and cannot be reused.",
+                ]);
+            }
+
+            if ($next > $current) {
+                $sequence->forceFill(['next_value' => $next])->save();
+            }
+
+            return [
+                'previous' => $current,
+                'next' => $next,
+                'changed' => $next !== $current,
+            ];
+        }, 5);
     }
 
     public function nextOfficeFinanceReference(?int $year = null): string

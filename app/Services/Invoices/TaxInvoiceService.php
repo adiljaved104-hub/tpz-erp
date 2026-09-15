@@ -65,10 +65,18 @@ class TaxInvoiceService
         return DB::transaction(function () use ($invoice, $reason, $actor): TaxInvoice {
             $locked = TaxInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
             if ($locked->status === 'void') {
-                return $locked;
+                throw ValidationException::withMessages(['reason' => 'This Invoice has already been voided.']);
             }
+            $previousStatus = $locked->status;
             $locked->forceFill(['status' => 'void', 'void_reason' => trim($reason), 'voided_at' => now(), 'voided_by_user_id' => $actor->id])->save();
-            $this->activity->log('tax_invoice.voided', $actor, $locked, ['invoice_id' => $locked->id, 'actor_id' => $actor->id]);
+            $this->activity->log('tax_invoice.voided', $actor, $locked, [
+                'invoice_id' => $locked->id,
+                'invoice_reference' => $locked->invoice_number,
+                'previous_status' => $previousStatus,
+                'new_status' => $locked->status,
+                'reason' => trim($reason),
+                'actor_id' => $actor->id,
+            ]);
 
             return $locked->refresh();
         });

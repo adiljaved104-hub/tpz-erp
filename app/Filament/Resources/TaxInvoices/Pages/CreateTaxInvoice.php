@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\TaxInvoices\Pages;
 
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
+use App\Services\Invoices\TaxInvoiceDocumentService;
 use App\Services\Invoices\TaxInvoiceService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -12,8 +13,8 @@ use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
-use Illuminate\Support\Js;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 class CreateTaxInvoice extends CreateRecord
@@ -24,7 +25,15 @@ class CreateTaxInvoice extends CreateRecord
 
     protected Width|string|null $maxContentWidth = Width::Full;
 
-    public bool $printAfterCreate = false;
+    protected bool $downloadAfterCreate = false;
+
+    protected bool $pdfDownloadFailed = false;
+
+    protected ?string $pendingPdfContent = null;
+
+    protected ?string $pendingPdfFilename = null;
+
+    protected ?string $createdInvoiceReference = null;
 
     public function getTitle(): string|Htmlable
     {
@@ -41,7 +50,7 @@ class CreateTaxInvoice extends CreateRecord
 
     public function create(bool $another = false): void
     {
-        $this->printAfterCreate = false;
+        $this->resetDownloadState();
 
         parent::create($another);
     }
@@ -81,15 +90,15 @@ class CreateTaxInvoice extends CreateRecord
     protected function getFormActions(): array
     {
         return [
-            Action::make('saveAndPrint')
+            Action::make('saveDownloadAndNew')
                 ->label(new HtmlString(
-                    '<span wire:loading.remove wire:target="saveAndPrint">Save &amp; Print</span>'
-                    .'<span wire:loading wire:target="saveAndPrint">Creating Invoice...</span>',
+                    '<span wire:loading.remove wire:target="saveDownloadAndNew">Save, Download &amp; New</span>'
+                    .'<span wire:loading wire:target="saveDownloadAndNew">Creating Invoice...</span>',
                 ))
-                ->icon('heroicon-o-printer')
+                ->icon('heroicon-o-arrow-down-tray')
                 ->color('primary')
-                ->livewireTarget('saveAndPrint')
-                ->action('saveAndPrint'),
+                ->livewireTarget('saveDownloadAndNew')
+                ->action('saveDownloadAndNew'),
             $this->getCreateFormAction(),
             $this->getCancelFormAction(),
         ];
@@ -97,40 +106,76 @@ class CreateTaxInvoice extends CreateRecord
 
     protected function getCreatedNotification(): ?Notification
     {
+        if ($this->pdfDownloadFailed) {
+            return Notification::make()
+                ->danger()
+                ->title('Invoice saved, but PDF download failed')
+                ->body("Invoice {$this->createdInvoiceReference} was saved successfully, but the PDF could not be downloaded. Open the Invoice from the list and use its PDF action to try again.");
+        }
+
         return Notification::make()
             ->success()
             ->title('Invoice created')
-            ->body($this->printAfterCreate
-                ? "{$this->record->invoice_number} was created successfully. The PDF is opening in a new tab; if your browser blocks it, download it from the Invoice list."
-                : "{$this->record->invoice_number} was created successfully.");
+            ->body("{$this->createdInvoiceReference} was created successfully.");
     }
 
     protected function afterCreate(): void
     {
-        if (! $this->printAfterCreate) {
+        $this->createdInvoiceReference = $this->record->invoice_number;
+
+        if (! $this->downloadAfterCreate) {
             return;
         }
 
-        $pdfUrl = route('tax-invoices.pdf', ['invoice' => $this->record]);
-
-        $this->js('window.open('.Js::from($pdfUrl).', "_blank", "noopener,noreferrer");');
-        $this->data = [];
+        try {
+            $documents = app(TaxInvoiceDocumentService::class);
+            $this->pendingPdfContent = $documents->pdf($this->record)->output();
+            $this->pendingPdfFilename = $documents->filename($this->record);
+        } catch (Throwable $exception) {
+            report($exception);
+            $this->pdfDownloadFailed = true;
+        }
     }
 
     protected function getRedirectUrl(): string
     {
-        if ($this->printAfterCreate) {
-            return TaxInvoiceResource::getUrl('index');
-        }
-
         return TaxInvoiceResource::getUrl('view', ['record' => $this->record]);
     }
 
-    public function saveAndPrint(): void
+    public function saveDownloadAndNew(): ?StreamedResponse
     {
-        $this->printAfterCreate = true;
+        $this->resetDownloadState();
+        $this->downloadAfterCreate = true;
 
-        parent::create();
+        parent::create(another: true);
+
+        $this->downloadAfterCreate = false;
+
+        if ($this->pendingPdfContent === null || $this->pendingPdfFilename === null) {
+            return null;
+        }
+
+        $content = $this->pendingPdfContent;
+        $filename = $this->pendingPdfFilename;
+        $this->pendingPdfContent = null;
+        $this->pendingPdfFilename = null;
+
+        return response()->streamDownload(
+            static function () use ($content): void {
+                echo $content;
+            },
+            $filename,
+            ['Content-Type' => 'application/pdf'],
+        );
+    }
+
+    private function resetDownloadState(): void
+    {
+        $this->downloadAfterCreate = false;
+        $this->pdfDownloadFailed = false;
+        $this->pendingPdfContent = null;
+        $this->pendingPdfFilename = null;
+        $this->createdInvoiceReference = null;
     }
 
     private function surfaceValidationErrors(ValidationException $exception): void

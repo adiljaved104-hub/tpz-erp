@@ -35,6 +35,7 @@ use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
+use App\Services\Responsibilities\ResponsibilityReadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -164,6 +165,38 @@ class ResponsibilityAllocationEnforcementTest extends TestCase
 
         $this->assertSame(10, $f['inventory']->refresh()->reserved_quantity);
         $this->assertSame(2, ResponsibilityAssignment::query()->active()->whereHas('quantityScope')->count());
+    }
+
+    public function test_unrestricted_sale_reduces_shared_physical_stock_without_consuming_another_employee_allocation(): void
+    {
+        $f = $this->responsibilityFoundation(10);
+        $assignment = $this->quantity($f, 10);
+        $ownerOrder = app(SaveAndReserveOrder::class)->handle(new SaveAndReserveOrderData(
+            warehouseId: $f['inventory']->warehouse_id,
+            platformId: null,
+            externalOrderNumber: null,
+            orderDate: today()->toDateString(),
+            handledByEmployeeId: $f['owner']->employee->id,
+            notes: null,
+            items: [new OrderItemData($f['product']->id, 5, '250.00')],
+            idempotencyKey: (string) Str::uuid(),
+        ), $f['owner']);
+
+        app(FulfillOrder::class)->handle($ownerOrder, (string) Str::uuid(), $f['owner']);
+
+        $this->assertSame(5, $f['inventory']->refresh()->available_quantity);
+        $this->assertSame(10, app(ResponsibilityAllocationService::class)->usage($assignment)['remaining']);
+        $this->assertSame(5, app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole()->employee_usable);
+        $this->assertSame($f['owner']->employee->id, $ownerOrder->refresh()->handled_by_employee_id);
+        $this->assertDatabaseCount('responsibility_inventory_consumptions', 0);
+
+        $assignedOrder = $this->reserve($f, 2);
+        app(FulfillOrder::class)->handle($assignedOrder, (string) Str::uuid(), $f['owner']);
+
+        $this->assertSame(3, $f['inventory']->refresh()->available_quantity);
+        $this->assertSame(8, app(ResponsibilityAllocationService::class)->usage($assignment)['remaining']);
+        $this->assertSame(3, app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole()->employee_usable);
+        $this->assertSame($f['employee']->id, $assignedOrder->refresh()->handled_by_employee_id);
     }
 
     public function test_idempotent_order_retry_does_not_consume_allocation_twice(): void

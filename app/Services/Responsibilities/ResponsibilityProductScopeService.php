@@ -45,6 +45,15 @@ class ResponsibilityProductScopeService
                     ->where('quantity_ra.status', ResponsibilityAssignmentStatus::Active->value)
                     ->whereNull('quantity_ra.ended_at')
                     ->whereColumn('quantity_pi.product_id', $qualifiedProductColumn);
+            })->orWhereExists(function (Builder $warehouse) use ($employeeId, $qualifiedProductColumn): void {
+                $warehouse->selectRaw('1')
+                    ->from('responsibility_assignments as warehouse_ra')
+                    ->join('responsibility_assignment_warehouses as warehouse_scope', 'warehouse_scope.assignment_id', '=', 'warehouse_ra.id')
+                    ->join('product_inventories as warehouse_pi', 'warehouse_pi.warehouse_id', '=', 'warehouse_scope.warehouse_id')
+                    ->where('warehouse_ra.employee_id', $employeeId)
+                    ->where('warehouse_ra.status', ResponsibilityAssignmentStatus::Active->value)
+                    ->whereNull('warehouse_ra.ended_at')
+                    ->whereColumn('warehouse_pi.product_id', $qualifiedProductColumn);
             })->orWhereExists(function (Builder $dimensions) use ($employeeId, $qualifiedProductColumn): void {
                 $dimensions->selectRaw('1')
                     ->from('responsibility_assignments as dimension_ra')
@@ -96,6 +105,9 @@ class ResponsibilityProductScopeService
                         ->from('responsibility_assignment_platforms as inventory_platform_none')
                         ->whereColumn('inventory_platform_none.assignment_id', 'inventory_ra.id'))
                         ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                            ->from('responsibility_assignment_warehouses as inventory_platform_warehouse_scope')
+                            ->whereColumn('inventory_platform_warehouse_scope.assignment_id', 'inventory_ra.id'))
+                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
                             ->from('responsibility_assignment_platforms as inventory_platform_scope')
                             ->join('warehouses as inventory_platform_warehouse', 'inventory_platform_warehouse.marketplace_platform_id', '=', 'inventory_platform_scope.marketplace_platform_id')
                             ->whereColumn('inventory_platform_scope.assignment_id', 'inventory_ra.id')
@@ -113,12 +125,17 @@ class ResponsibilityProductScopeService
                             ->from('inventory_responsibility_quantities as inventory_quantity_scope')
                             ->whereColumn('inventory_quantity_scope.assignment_id', 'inventory_ra.id')
                             ->whereColumn('inventory_quantity_scope.product_inventory_id', "{$inventoryAlias}.id"))
+                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                            ->from('responsibility_assignment_warehouses as inventory_warehouse_scope')
+                            ->whereColumn('inventory_warehouse_scope.assignment_id', 'inventory_ra.id')
+                            ->whereColumn('inventory_warehouse_scope.warehouse_id', "{$inventoryAlias}.warehouse_id"))
                         ->orWhere(function (Builder $platformOnly): void {
                             $platformOnly->whereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_platforms as inventory_platform_only')->whereColumn('inventory_platform_only.assignment_id', 'inventory_ra.id'))
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_products as inventory_no_product')->whereColumn('inventory_no_product.assignment_id', 'inventory_ra.id'))
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as inventory_no_brand')->whereColumn('inventory_no_brand.assignment_id', 'inventory_ra.id'))
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as inventory_no_category')->whereColumn('inventory_no_category.assignment_id', 'inventory_ra.id'))
-                                ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as inventory_no_quantity')->whereColumn('inventory_no_quantity.assignment_id', 'inventory_ra.id'));
+                                ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as inventory_no_quantity')->whereColumn('inventory_no_quantity.assignment_id', 'inventory_ra.id'))
+                                ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_warehouses as inventory_no_warehouse')->whereColumn('inventory_no_warehouse.assignment_id', 'inventory_ra.id'));
                         });
                 });
         });

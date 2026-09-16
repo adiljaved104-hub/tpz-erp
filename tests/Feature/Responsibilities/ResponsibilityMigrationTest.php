@@ -15,7 +15,7 @@ class ResponsibilityMigrationTest extends TestCase
 
     public function test_sqlite_schema_has_all_tables_indexes_and_foreign_keys_without_triggers(): void
     {
-        foreach (['marketplace_platforms', 'responsibility_assignments', 'responsibility_assignment_brands', 'responsibility_assignment_categories', 'responsibility_assignment_platforms', 'responsibility_assignment_products', 'inventory_responsibility_quantities', 'responsibility_inventory_consumptions'] as $table) {
+        foreach (['marketplace_platforms', 'responsibility_assignments', 'responsibility_assignment_brands', 'responsibility_assignment_categories', 'responsibility_assignment_platforms', 'responsibility_assignment_products', 'responsibility_assignment_warehouses', 'inventory_responsibility_quantities', 'responsibility_inventory_consumptions'] as $table) {
             $this->assertTrue(Schema::hasTable($table));
         }
         $this->assertTrue(Schema::hasColumns('responsibility_assignments', ['reference', 'employee_id', 'team_id_at_assignment', 'team_name_at_assignment', 'assignment_mode', 'status', 'active_fingerprint', 'effective_at', 'ended_at', 'assigned_by_user_id', 'ended_by_user_id', 'predecessor_assignment_id', 'idempotency_key', 'reason', 'notes']));
@@ -51,5 +51,20 @@ class ResponsibilityMigrationTest extends TestCase
 
         $this->assertFalse(Schema::hasTable('responsibility_assignment_categories'));
         $this->assertFalse(Schema::hasTable('responsibility_inventory_consumptions'));
+    }
+
+    public function test_warehouse_scope_has_restrictive_schema_index_and_clean_empty_rollback(): void
+    {
+        $warehouseSql = (string) DB::table('sqlite_master')->where('type', 'table')->where('name', 'responsibility_assignment_warehouses')->value('sql');
+        $warehouseIndexes = collect(DB::select("PRAGMA index_list('responsibility_assignment_warehouses')"))->pluck('name');
+
+        $this->assertStringContainsString('ON DELETE RESTRICT', strtoupper($warehouseSql));
+        $this->assertTrue($warehouseIndexes->contains('ra_warehouses_warehouse_idx'));
+        $this->assertDatabaseCount('responsibility_assignment_warehouses', 0);
+
+        $migration = require database_path('migrations/2026_09_16_090000_create_responsibility_assignment_warehouses.php');
+        $migration->down();
+
+        $this->assertFalse(Schema::hasTable('responsibility_assignment_warehouses'));
     }
 }

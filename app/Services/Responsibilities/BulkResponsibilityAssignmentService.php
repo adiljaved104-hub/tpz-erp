@@ -13,7 +13,9 @@ use App\Models\ProductBrand;
 use App\Models\ProductCategory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -25,19 +27,28 @@ class BulkResponsibilityAssignmentService
         private readonly ResponsibilityAuthorization $authorization,
         private readonly ResponsibilityAssignmentService $assignments,
         private readonly ResponsibilityScopeFingerprint $fingerprints,
+        private readonly ReferenceSequenceService $references,
     ) {}
 
     /** @return Collection<int, ResponsibilityAssignment> */
     public function create(CreateResponsibilityAssignmentBatchData $data, User $actor): Collection
     {
         $this->authorization->authorize($actor, ResponsibilityPermission::Assign);
-        if (! in_array($data->scopeType, ['brand', 'category', 'platform', 'product'], true)) {
-            throw ValidationException::withMessages(['scope_type' => 'Bulk creation supports Platform, Brand, Category, or Product scopes only.']);
+        $scopeField = match ($data->scopeType) {
+            'brand' => 'brand_ids',
+            'product' => 'product_ids',
+            'category' => 'category_id',
+            'platform' => 'platform_ids',
+            'warehouse' => 'warehouse_id',
+            default => 'scope_type',
+        };
+        if (! in_array($data->scopeType, ['brand', 'category', 'platform', 'product', 'warehouse'], true)) {
+            throw ValidationException::withMessages(['scope_type' => 'Bulk creation supports Platform, Brand, Category, Product, or Warehouse scopes only.']);
         }
 
         $ids = array_values(array_unique(array_map('intval', $data->scopeIds)));
         if (in_array($data->scopeType, ['brand', 'product'], true) && ($ids === [] || count($ids) > 100 || in_array(0, $ids, true))) {
-            throw ValidationException::withMessages(['scope_ids' => 'Select between 1 and 100 active records.']);
+            throw ValidationException::withMessages([$scopeField => 'Select between 1 and 100 active records.']);
         }
 
         $platformIds = array_values(array_unique(array_map('intval', $data->platformIds)));
@@ -62,10 +73,20 @@ class BulkResponsibilityAssignmentService
         if ($data->scopeType === 'category' && $data->categoryId === null) {
             throw ValidationException::withMessages(['category_id' => 'Select an active Category.']);
         }
+        $warehouse = $data->warehouseId === null ? null : Warehouse::query()->where('status', true)->find($data->warehouseId);
+        if ($data->scopeType === 'warehouse' && $warehouse === null) {
+            throw ValidationException::withMessages(['warehouse_id' => 'Select an active Warehouse.']);
+        }
+        if ($data->scopeType !== 'warehouse' && $data->warehouseId !== null) {
+            throw ValidationException::withMessages(['scope_type' => 'Warehouse may only be used by a Warehouse Responsibility type.']);
+        }
 
         $combinationCount = max(1, count($ids)) * max(1, count($platformIds));
         if ($combinationCount > 100) {
-            throw ValidationException::withMessages(['scope_ids' => 'A bulk Responsibility submission may create at most 100 exact assignments.']);
+            throw ValidationException::withMessages([
+                $scopeField => 'A bulk Responsibility submission may create at most 100 exact assignments.',
+                'platform_ids' => 'Reduce the selected scopes or Platforms to at most 100 exact assignments.',
+            ]);
         }
 
         $records = match ($data->scopeType) {
@@ -74,7 +95,7 @@ class BulkResponsibilityAssignmentService
             default => collect(),
         };
         if (in_array($data->scopeType, ['brand', 'product'], true) && $records->count() !== count($ids)) {
-            throw ValidationException::withMessages(['scope_ids' => 'Every selected Brand or Product must be active.']);
+            throw ValidationException::withMessages([$scopeField => 'Every selected Brand or Product must be active.']);
         }
 
         $scopeIds = in_array($data->scopeType, ['brand', 'product'], true) ? $ids : [null];
@@ -106,29 +127,31 @@ class BulkResponsibilityAssignmentService
                 notes: $data->notes,
                 idempotencyKey: $idempotencyKey,
                 categoryId: $data->categoryId,
+                warehouseId: $data->scopeType === 'warehouse' ? $data->warehouseId : null,
             );
         });
 
         $existingByKey = ResponsibilityAssignment::query()->whereIn('idempotency_key', $exact->pluck('idempotencyKey'))->get();
         if ($existingByKey->count() === $exact->count()) {
-            return $existingByKey->load(['brandScope.brand', 'categoryScope.category', 'productScope.product', 'platformScope.platform']);
+            return $existingByKey->load(['brandScope.brand', 'categoryScope.category', 'productScope.product', 'platformScope.platform', 'warehouseScope.warehouse']);
         }
         if ($existingByKey->isNotEmpty()) {
-            throw ValidationException::withMessages(['scope_ids' => 'This multi-selection was only partially recorded and requires review before retrying.']);
+            throw ValidationException::withMessages([$scopeField => 'This multi-selection was only partially recorded and requires review before retrying.']);
         }
 
         $fingerprints = $exact->map(fn (CreateResponsibilityAssignmentData $item): string => $this->fingerprints->make(
-            $item->employeeId, $item->mode, $item->brandId, $item->platformId, $item->productId, null, $item->categoryId,
+            $item->employeeId, $item->mode, $item->brandId, $item->platformId, $item->productId, null, $item->categoryId, $item->warehouseId,
         ));
         $duplicates = ResponsibilityAssignment::query()->whereIn('active_fingerprint', $fingerprints)->get(['active_fingerprint']);
         if ($duplicates->isNotEmpty()) {
             $platformNames = MarketplacePlatform::query()->whereKey($platformIds)->pluck('name', 'id');
             $labels = $exact->filter(fn ($item, $index) => $duplicates->contains('active_fingerprint', $fingerprints[$index]))
-                ->map(function ($item) use ($data, $records, $platformNames): string {
+                ->map(function ($item) use ($data, $records, $platformNames, $warehouse): string {
                     $scope = match ($data->scopeType) {
                         'brand' => $records[$item->brandId]->name,
                         'product' => $records[$item->productId]->sku,
                         'category' => 'Category',
+                        'warehouse' => $warehouse?->name ?? 'Warehouse',
                         default => 'Platform',
                     };
                     $platform = $item->platformId === null ? null : $platformNames[$item->platformId];
@@ -136,11 +159,14 @@ class BulkResponsibilityAssignmentService
                     return $platform === null ? $scope : "{$scope} + {$platform}";
                 })
                 ->implode(', ');
-            throw ValidationException::withMessages(['scope_ids' => "Active assignments already exist for: {$labels}. No assignments were created."]);
+            throw ValidationException::withMessages([$scopeField => "Active assignments already exist for: {$labels}. No assignments were created."]);
         }
 
+        $exact->each(fn (CreateResponsibilityAssignmentData $item) => $this->assignments->validateForCreate($item));
+        $references = $exact->map(fn (): string => $this->references->nextResponsibilityAssignmentReference());
+
         return DB::transaction(fn (): Collection => $exact->map(
-            fn (CreateResponsibilityAssignmentData $item): ResponsibilityAssignment => $this->assignments->create($item, $actor),
+            fn (CreateResponsibilityAssignmentData $item, int $index): ResponsibilityAssignment => $this->assignments->createWithReservedReference($item, $actor, $references[$index]),
         ));
     }
 }

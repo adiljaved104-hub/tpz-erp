@@ -25,6 +25,7 @@ class ResponsibilityReportService
             'by_brand' => $this->brandCounts(),
             'by_category' => $this->scopeCounts('responsibility_assignment_categories', 'product_category_id'),
             'by_platform' => $this->scopeCounts('responsibility_assignment_platforms', 'marketplace_platform_id'),
+            'by_warehouse' => $this->scopeCounts('responsibility_assignment_warehouses', 'warehouse_id'),
             'by_product' => $this->productCounts(),
             'over_assigned' => $this->overAssigned(),
             'unassigned_products' => $this->unassignedProducts(),
@@ -91,6 +92,7 @@ class ResponsibilityReportService
         $relatedTable = match ($column) {
             'marketplace_platform_id' => 'marketplace_platforms',
             'product_category_id' => 'product_categories',
+            'warehouse_id' => 'warehouses',
             default => null,
         };
 
@@ -100,7 +102,11 @@ class ResponsibilityReportService
 
         if ($relatedTable !== null) {
             return $query->join("{$relatedTable} as related", 'related.id', '=', "scope.{$column}")
-                ->select('related.name as '.($column === 'product_category_id' ? 'category' : 'platform'), DB::raw('COUNT(*) as assignments'))
+                ->select('related.name as '.match ($column) {
+                    'product_category_id' => 'category',
+                    'warehouse_id' => 'warehouse',
+                    default => 'platform',
+                }, DB::raw('COUNT(*) as assignments'))
                 ->groupBy('related.id', 'related.name')->get();
         }
 
@@ -140,6 +146,7 @@ class ResponsibilityReportService
     {
         $direct = DB::table('responsibility_assignment_products as rap')->join('responsibility_assignments as ra', 'ra.id', '=', 'rap.assignment_id')->where('ra.status', 'active')->select('rap.product_id');
         $quantity = DB::table('inventory_responsibility_quantities as irq')->join('responsibility_assignments as ra', 'ra.id', '=', 'irq.assignment_id')->join('product_inventories as pi', 'pi.id', '=', 'irq.product_inventory_id')->where('ra.status', 'active')->select('pi.product_id');
+        $warehouse = DB::table('responsibility_assignment_warehouses as raw')->join('responsibility_assignments as ra', 'ra.id', '=', 'raw.assignment_id')->join('product_inventories as pi', 'pi.warehouse_id', '=', 'raw.warehouse_id')->where('ra.status', 'active')->select('pi.product_id');
         $dimensionProductIds = DB::table('products as dimension_product')
             ->whereExists(function ($assignment): void {
                 $assignment->selectRaw('1')->from('responsibility_assignments as dimension_ra')
@@ -155,7 +162,7 @@ class ResponsibilityReportService
                             ->orWhereExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as dimension_category_match')->whereColumn('dimension_category_match.assignment_id', 'dimension_ra.id')->whereColumn('dimension_category_match.product_category_id', 'dimension_product.category_id'));
                     });
             })->pluck('dimension_product.id');
-        $assignedIds = $direct->union($quantity)->pluck('product_id')->merge($dimensionProductIds)->unique();
+        $assignedIds = $direct->union($quantity)->union($warehouse)->pluck('product_id')->merge($dimensionProductIds)->unique();
 
         return DB::table('products as p')->leftJoin('product_brands as b', 'b.id', '=', 'p.brand_id')
             ->whereNotIn('p.id', $assignedIds)->get(['p.sku', 'p.name as product', 'b.name as brand']);

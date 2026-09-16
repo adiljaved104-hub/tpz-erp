@@ -27,6 +27,7 @@ class ResponsibilityReadService
         $query = ResponsibilityAssignment::query()->with([
             'employee.team', 'assignedBy', 'endedBy', 'brandScope.brand', 'platformScope.platform',
             'categoryScope.category', 'productScope.product.brandRelation', 'quantityScope.inventory.product.brandRelation', 'quantityScope.inventory.warehouse',
+            'warehouseScope.warehouse',
         ]);
 
         $query->addSelect([
@@ -75,6 +76,8 @@ class ResponsibilityReadService
         $platforms = [];
         $ownQuantities = [];
         $ownRemaining = [];
+        $inventoryReasons = [];
+        $inventoryPlatforms = [];
 
         foreach ($active as $assignment) {
             $platform = $assignment->platformScope?->platform?->name;
@@ -112,7 +115,22 @@ class ResponsibilityReadService
                 $ownRemaining[$assignment->quantityScope->product_inventory_id] = ($ownRemaining[$assignment->quantityScope->product_inventory_id] ?? 0) + $this->allocations->usage($assignment)['remaining'];
             }
 
-            if ($assignment->platformScope !== null && $assignment->brandScope === null && $assignment->categoryScope === null && $assignment->productScope === null && $assignment->quantityScope === null) {
+            if ($assignment->warehouseScope !== null) {
+                $warehouse = $assignment->warehouseScope->warehouse;
+                $inventoryIds = DB::table('product_inventories')
+                    ->where('warehouse_id', $warehouse->id)
+                    ->pluck('id');
+                $warehouseReason = 'Warehouse: '.$warehouse->name.($platform ? ' + Platform: '.$platform : '');
+
+                foreach ($inventoryIds as $inventoryId) {
+                    $inventoryReasons[$inventoryId][] = $warehouseReason;
+                    if ($platform !== null) {
+                        $inventoryPlatforms[$inventoryId][] = $platform;
+                    }
+                }
+            }
+
+            if ($assignment->platformScope !== null && $assignment->brandScope === null && $assignment->categoryScope === null && $assignment->productScope === null && $assignment->quantityScope === null && $assignment->warehouseScope === null) {
                 $productIds = DB::table('products')->pluck('id');
                 $reason = 'Platform: '.$platform;
             }
@@ -125,7 +143,7 @@ class ResponsibilityReadService
             }
         }
 
-        if ($productReasons === []) {
+        if ($productReasons === [] && $inventoryReasons === []) {
             return collect();
         }
 
@@ -134,7 +152,15 @@ class ResponsibilityReadService
             ->leftJoin('product_categories as c', 'c.id', '=', 'p.category_id')
             ->leftJoin('product_inventories as pi', 'pi.product_id', '=', 'p.id')
             ->leftJoin('warehouses as w', 'w.id', '=', 'pi.warehouse_id')
-            ->whereIn('p.id', array_keys($productReasons))
+            ->where(function ($visible) use ($productReasons, $inventoryReasons): void {
+                if ($productReasons !== []) {
+                    $visible->whereIn('p.id', array_keys($productReasons));
+                }
+                if ($inventoryReasons !== []) {
+                    $method = $productReasons === [] ? 'whereIn' : 'orWhereIn';
+                    $visible->{$method}('pi.id', array_keys($inventoryReasons));
+                }
+            })
             ->select(['p.id as product_id', 'p.name', 'p.sku', 'p.model', 'b.name as brand', 'c.name as category', 'pi.id as inventory_id', 'w.id as warehouse_id', 'w.name as warehouse', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity']);
 
         if ($this->purchaseAuthorization->allows($user, PurchasePermission::ViewCostHistory)) {
@@ -156,7 +182,7 @@ class ResponsibilityReadService
         $capacity = collect(array_keys($ownQuantities))
             ->mapWithKeys(fn (int $inventoryId): array => [$inventoryId => $this->capacity->summary($inventoryId)]);
 
-        return $rows->map(function (object $row) use ($productReasons, $platforms, $ownQuantities, $ownRemaining, $capacity): object {
+        return $rows->map(function (object $row) use ($productReasons, $platforms, $inventoryReasons, $inventoryPlatforms, $ownQuantities, $ownRemaining, $capacity): object {
             $row->available = (int) ($row->available_quantity ?? 0);
             $row->reserved = (int) ($row->reserved_quantity ?? 0);
             $row->sellable = $row->available - $row->reserved;
@@ -164,7 +190,9 @@ class ResponsibilityReadService
             $row->assigned_quantity = (int) ($ownQuantities[$row->inventory_id] ?? 0);
             $row->remaining_allocation = (int) ($ownRemaining[$row->inventory_id] ?? 0);
             $row->is_quantity_limited = $row->assigned_quantity > 0;
-            $row->employee_usable = max(0, $row->is_quantity_limited ? $row->remaining_allocation : $row->sellable);
+            $row->employee_usable = max(0, $row->is_quantity_limited
+                ? min($row->sellable, $row->remaining_allocation)
+                : $row->sellable);
             $row->stock_status = match (true) {
                 $row->employee_usable === 0 => 'out_of_stock',
                 $row->employee_usable < 2 => 'low_stock',
@@ -175,8 +203,14 @@ class ResponsibilityReadService
             $row->aggregate_outstanding = (int) ($summary['outstanding'] ?? 0);
             $row->remaining_assignable = (int) ($summary['remaining'] ?? $row->sellable);
             $row->capacity_status = $summary === null ? 'OK' : $summary['status']->getLabel();
-            $row->visibility_reasons = array_values(array_unique($productReasons[$row->product_id]));
-            $row->platforms = array_values(array_unique($platforms[$row->product_id] ?? []));
+            $row->visibility_reasons = array_values(array_unique([
+                ...($productReasons[$row->product_id] ?? []),
+                ...($inventoryReasons[$row->inventory_id] ?? []),
+            ]));
+            $row->platforms = array_values(array_unique([
+                ...($platforms[$row->product_id] ?? []),
+                ...($inventoryPlatforms[$row->inventory_id] ?? []),
+            ]));
 
             return $row;
         });
@@ -195,6 +229,7 @@ class ResponsibilityReadService
             ->map(function (ResponsibilityAssignment $assignment): array {
                 $product = $assignment->productScope?->product?->name ?? $assignment->quantityScope?->inventory?->product?->name;
                 $parts = collect([
+                    $assignment->warehouseScope?->warehouse?->name,
                     $assignment->categoryScope?->category?->name,
                     $assignment->brandScope?->brand?->name,
                     $product,
@@ -229,6 +264,7 @@ class ResponsibilityReadService
                 'brand' => $assignment->brandScope?->brand?->name,
                 'category' => $assignment->categoryScope?->category?->name,
                 'product' => $assignment->productScope?->product?->name ?? $assignment->quantityScope?->inventory?->product?->name,
+                'warehouse' => $assignment->warehouseScope?->warehouse?->name,
             ]);
     }
 
@@ -238,6 +274,7 @@ class ResponsibilityReadService
             $assignment->categoryScope !== null ? 'Category' : null,
             $assignment->brandScope !== null ? 'Brand' : null,
             $assignment->productScope !== null ? 'Product' : null,
+            $assignment->warehouseScope !== null ? 'Warehouse' : null,
             $assignment->platformScope !== null ? 'Platform' : null,
         ])->filter()->implode(' + ');
     }

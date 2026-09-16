@@ -14,6 +14,7 @@ class ResponsibilityScopeFingerprint
         ?int $productId,
         ?int $productInventoryId,
         ?int $categoryId = null,
+        ?int $warehouseId = null,
     ): string {
         $scope = [
             'employee_id' => $employeeId,
@@ -25,6 +26,9 @@ class ResponsibilityScopeFingerprint
         ];
         if ($categoryId !== null) {
             $scope['category_id'] = $categoryId;
+        }
+        if ($warehouseId !== null) {
+            $scope['warehouse_id'] = $warehouseId;
         }
 
         return hash('sha256', json_encode($scope, JSON_THROW_ON_ERROR));

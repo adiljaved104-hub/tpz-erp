@@ -20,21 +20,25 @@ class ListResponsibilityAssignments extends ListRecords
 
     public function getTabs(): array
     {
-        $counts = ResponsibilityAssignmentResource::getEloquentQuery()
+        $baseQuery = ResponsibilityAssignmentResource::getEloquentQuery()
             ->withoutEagerLoads()
-            ->reorder()
-            ->selectRaw("COUNT(*) AS total_count, SUM(CASE WHEN status = 'active' AND ended_at IS NULL THEN 1 ELSE 0 END) AS active_count, SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) AS inactive_count")
-            ->first();
+            ->reorder();
+
+        $totalCount = (clone $baseQuery)->count();
+        $activeCount = (clone $baseQuery)->active()->count();
+        $inactiveCount = (clone $baseQuery)
+            ->where('status', ResponsibilityAssignmentStatus::Inactive->value)
+            ->count();
 
         return [
             'active' => Tab::make('Active')
-                ->badge((int) ($counts?->active_count ?? 0))
+                ->badge($activeCount)
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query->active()),
             'inactive' => Tab::make('Inactive')
-                ->badge((int) ($counts?->inactive_count ?? 0))
+                ->badge($inactiveCount)
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('status', ResponsibilityAssignmentStatus::Inactive->value)),
             'all' => Tab::make('All History')
-                ->badge((int) ($counts?->total_count ?? 0)),
+                ->badge($totalCount),
         ];
     }
 }

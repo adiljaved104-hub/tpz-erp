@@ -11,6 +11,17 @@
                 <x-filament::section compact><div class="text-2xl font-semibold leading-none">{{ number_format($summary[$key]) }}</div><div class="mt-1 text-xs text-gray-500">{{ $label }}</div></x-filament::section>
             @endforeach
         </div>
+
+        <x-filament::section heading="Find Inventory" description="Filter the company inventory visible in your authorized scope.">
+            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <label class="min-w-0 md:col-span-2 xl:col-span-4"><span class="mb-1.5 block text-sm font-medium">Search</span><x-filament::input.wrapper prefix-icon="heroicon-m-magnifying-glass"><x-filament::input wire:model.live.debounce.250ms="search" type="search" placeholder="Search by SKU or product name" /></x-filament::input.wrapper></label>
+                <label class="min-w-0"><span class="mb-1.5 block text-sm font-medium">Warehouse / Location</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="warehouse"><option value="">All Locations</option>@foreach ($filterOptions['warehouses'] as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                <label class="min-w-0"><span class="mb-1.5 block text-sm font-medium">Platform</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="platform"><option value="">All Platforms</option>@foreach ($filterOptions['platforms'] as $option)<option value="{{ $option }}">{{ $option }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                <label class="min-w-0"><span class="mb-1.5 block text-sm font-medium">Stock Status</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="stockStatus"><option value="">All Stock</option><option value="in_stock">In Stock</option><option value="low_stock">Low Stock</option><option value="out_of_stock">Out of Stock</option></x-filament::input.select></x-filament::input.wrapper></label>
+                <div class="flex items-end"><x-filament::button color="gray" icon="heroicon-m-x-mark" wire:click="resetInventoryFilters" class="w-full justify-center">Clear filters</x-filament::button></div>
+            </div>
+        </x-filament::section>
+
         @forelse ($products as $row)
             <x-filament::section>
                 <x-slot name="heading"><span class="line-clamp-2" title="{{ $row['product']->name }}">{{ $row['product']->sku }} · {{ \Illuminate\Support\Str::limit($row['product']->name, 72) }}</span></x-slot>
@@ -57,10 +68,17 @@
             </x-filament::section>
         @empty
             <x-filament::section>
-                {{ $hasCompanyInventory
-                    ? 'No inventory is available in your authorized Responsibility scope.'
-                    : 'No inventory balances exist yet.' }}
+                {{ $hasAuthorizedInventory
+                    ? 'No inventory matches the current search and filters.'
+                    : ($hasCompanyInventory ? 'No inventory is available in your authorized Responsibility scope.' : 'No inventory balances exist yet.') }}
             </x-filament::section>
         @endforelse
+
+        @if ($products->hasPages())
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <label class="flex items-center gap-2 text-sm text-gray-500"><span>Per page</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="perPage"><option value="10">10</option><option value="25">25</option><option value="50">50</option></x-filament::input.select></x-filament::input.wrapper></label>
+                <div class="min-w-0">{{ $products->onEachSide(1)->links() }}</div>
+            </div>
+        @endif
     </div>
 </x-filament-panels::page>

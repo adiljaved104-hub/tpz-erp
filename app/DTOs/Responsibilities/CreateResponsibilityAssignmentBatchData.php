@@ -19,5 +19,6 @@ readonly class CreateResponsibilityAssignmentBatchData
         public ?string $notes,
         public string $idempotencyKey,
         public array $platformIds = [],
+        public ?int $warehouseId = null,
     ) {}
 }

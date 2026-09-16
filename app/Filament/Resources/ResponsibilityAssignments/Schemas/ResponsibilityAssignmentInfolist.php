@@ -22,7 +22,7 @@ class ResponsibilityAssignmentInfolist
                 TextEntry::make('categoryScope.category.name')->label('Category')->placeholder('—'),
                 TextEntry::make('platformScope.platform.name')->label('Platform')->placeholder('—'),
                 TextEntry::make('product_name')->label('Product')->state(fn (ResponsibilityAssignment $record): ?string => $record->productScope?->product?->name ?? $record->quantityScope?->inventory?->product?->name)->placeholder('—'),
-                TextEntry::make('warehouse_name')->label('Warehouse')->state(fn (ResponsibilityAssignment $record): ?string => $record->quantityScope?->inventory?->warehouse?->name)->placeholder('—'),
+                TextEntry::make('warehouse_name')->label('Warehouse')->state(fn (ResponsibilityAssignment $record): ?string => $record->warehouseScope?->warehouse?->name ?? $record->quantityScope?->inventory?->warehouse?->name)->placeholder('—'),
                 TextEntry::make('quantityScope.assigned_quantity')->label('Assigned Qty')->placeholder('—'),
                 TextEntry::make('effective_at')->dateTime('d M Y, h:i A'),
                 TextEntry::make('ended_at')->dateTime('d M Y, h:i A')->placeholder('Active'),

@@ -165,6 +165,53 @@ class InventoryLocationPhaseATest extends TestCase
             ->assertDontSee('No inventory balances exist yet.');
     }
 
+    public function test_overview_filters_and_paginates_authorized_company_inventory(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $main = Warehouse::query()->where('code', 'MAIN')->firstOrFail();
+        $platform = MarketplacePlatform::factory()->create(['name' => 'Amazon UAE']);
+        $marketplace = Warehouse::factory()->create([
+            'name' => 'Amazon FBA UAE',
+            'code' => 'AMZ_FBA',
+            'location_type' => InventoryLocationType::MarketplaceFulfilment,
+            'marketplace_platform_id' => $platform->id,
+        ]);
+        $matching = Product::factory()->create(['name' => 'EliteBook Search Target']);
+        ProductInventory::factory()->create([
+            'product_id' => $matching->id,
+            'warehouse_id' => $marketplace->id,
+            'available_quantity' => 1,
+            'reserved_quantity' => 0,
+        ]);
+        Product::factory()->count(11)->create()->each(fn (Product $product) => ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $main->id,
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+        ]));
+
+        $component = Livewire::actingAs($owner)->test(InventoryOverview::class)
+            ->assertViewHas('products', fn ($products): bool => $products->total() === 12 && $products->count() === 10)
+            ->assertSee('Find Inventory')
+            ->assertSee('Per page')
+            ->set('search', 'Search Target')
+            ->assertViewHas('products', fn ($products): bool => $products->total() === 1 && $products->first()['product']->is($matching))
+            ->set('search', '')
+            ->set('warehouse', 'AMZ_FBA')
+            ->assertViewHas('products', fn ($products): bool => $products->total() === 1 && $products->first()['product']->is($matching))
+            ->set('warehouse', '')
+            ->set('platform', 'Amazon UAE')
+            ->assertViewHas('products', fn ($products): bool => $products->total() === 1)
+            ->set('platform', '')
+            ->set('stockStatus', 'low_stock')
+            ->assertViewHas('products', fn ($products): bool => $products->total() === 1)
+            ->set('stockStatus', '')
+            ->set('perPage', 25)
+            ->assertViewHas('products', fn ($products): bool => $products->total() === 12 && $products->count() === 12);
+
+        $component->assertSee('Find Inventory');
+    }
+
     private function user(EmployeeRole $role): User
     {
         $user = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);

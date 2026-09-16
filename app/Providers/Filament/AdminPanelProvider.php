@@ -34,6 +34,7 @@ class AdminPanelProvider extends PanelProvider
             ->assets([
                 Css::make('access-control', resource_path('css/filament/access-control.css')),
             ])
+            ->viteTheme('resources/css/filament/admin/theme.css')
             ->login(Login::class)
             ->brandName(fn (): string => app(ApplicationBranding::class)->fullName())
             ->multiFactorAuthentication([

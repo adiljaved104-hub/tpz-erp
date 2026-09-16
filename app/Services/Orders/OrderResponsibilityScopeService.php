@@ -253,6 +253,10 @@ class OrderResponsibilityScopeService
                         ->whereColumn('order_quantity_scope.assignment_id', 'order_ra.id')
                         ->whereColumn('order_quantity_inventory.product_id', $productColumn)
                         ->whereColumn('order_quantity_inventory.warehouse_id', $warehouseColumn);
+                })->orWhereExists(function (QueryBuilder $scope) use ($warehouseColumn): void {
+                    $scope->selectRaw('1')->from('responsibility_assignment_warehouses as order_warehouse_scope')
+                        ->whereColumn('order_warehouse_scope.assignment_id', 'order_ra.id')
+                        ->whereColumn('order_warehouse_scope.warehouse_id', $warehouseColumn);
                 })->orWhere(function (QueryBuilder $platformOnly): void {
                     $platformOnly->whereExists(function (QueryBuilder $scope): void {
                         $scope->selectRaw('1')->from('responsibility_assignment_platforms as order_platform_only')
@@ -269,6 +273,9 @@ class OrderResponsibilityScopeService
                     })->whereNotExists(function (QueryBuilder $scope): void {
                         $scope->selectRaw('1')->from('inventory_responsibility_quantities as order_no_quantity')
                             ->whereColumn('order_no_quantity.assignment_id', 'order_ra.id');
+                    })->whereNotExists(function (QueryBuilder $scope): void {
+                        $scope->selectRaw('1')->from('responsibility_assignment_warehouses as order_no_warehouse')
+                            ->whereColumn('order_no_warehouse.assignment_id', 'order_ra.id');
                     });
                 });
             });
@@ -310,6 +317,10 @@ class OrderResponsibilityScopeService
                         ->whereColumn('order_quantity_scope.assignment_id', 'order_ra.id')
                         ->whereColumn('order_quantity_inventory.product_id', $productColumn)
                         ->where('order_quantity_inventory.warehouse_id', $warehouseId);
+                })->orWhereExists(function (QueryBuilder $scope) use ($warehouseId): void {
+                    $scope->selectRaw('1')->from('responsibility_assignment_warehouses as order_warehouse_scope')
+                        ->whereColumn('order_warehouse_scope.assignment_id', 'order_ra.id')
+                        ->where('order_warehouse_scope.warehouse_id', $warehouseId);
                 })->orWhere(function (QueryBuilder $platformOnly): void {
                     $platformOnly->whereExists(function (QueryBuilder $scope): void {
                         $scope->selectRaw('1')->from('responsibility_assignment_platforms as order_platform_only')
@@ -326,6 +337,9 @@ class OrderResponsibilityScopeService
                     })->whereNotExists(function (QueryBuilder $scope): void {
                         $scope->selectRaw('1')->from('inventory_responsibility_quantities as order_no_quantity')
                             ->whereColumn('order_no_quantity.assignment_id', 'order_ra.id');
+                    })->whereNotExists(function (QueryBuilder $scope): void {
+                        $scope->selectRaw('1')->from('responsibility_assignment_warehouses as order_no_warehouse')
+                            ->whereColumn('order_no_warehouse.assignment_id', 'order_ra.id');
                     });
                 });
             });

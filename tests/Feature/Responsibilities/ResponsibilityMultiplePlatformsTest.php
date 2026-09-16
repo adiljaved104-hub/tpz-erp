@@ -6,6 +6,7 @@ use App\Actions\Responsibilities\CreateResponsibilityAssignment;
 use App\DTOs\Responsibilities\CreateResponsibilityAssignmentBatchData;
 use App\Enums\ResponsibilityAssignmentMode;
 use App\Filament\Resources\ResponsibilityAssignments\Pages\CreateResponsibilityAssignment as CreateResponsibilityAssignmentPage;
+use App\Filament\Resources\ResponsibilityAssignments\Pages\ViewResponsibilityAssignment;
 use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductBrand;
@@ -67,6 +68,36 @@ class ResponsibilityMultiplePlatformsTest extends TestCase
         $this->assertSame(6, $created->map(fn ($assignment): string => $assignment->brandScope->product_brand_id.':'.$assignment->platformScope->marketplace_platform_id)->unique()->count());
     }
 
+    public function test_fourteen_brand_category_platform_submission_creates_all_assignments_and_destination_renders(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $brands = ProductBrand::factory()->count(13)->create()->push($f['brand']);
+
+        $component = Livewire::actingAs($f['owner'])
+            ->test(CreateResponsibilityAssignmentPage::class)
+            ->fillForm([
+                'employee_id' => $f['employee']->id,
+                'scope_type' => 'category_brand_platform',
+                'brand_ids' => $brands->modelKeys(),
+                'category_id' => $f['product']->category_id,
+                'platform_ids' => [$f['platform']->id],
+                'effective_at' => now()->subMinute(),
+                'reason' => 'Will handle platform category brands',
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors()
+            ->assertNotified('14 Responsibility Assignments created successfully.');
+
+        $this->assertDatabaseCount('responsibility_assignments', 14);
+        $first = ResponsibilityAssignment::query()->orderBy('id')->firstOrFail();
+        Livewire::actingAs($f['owner'])
+            ->test(ViewResponsibilityAssignment::class, ['record' => $first->getRouteKey()])
+            ->assertOk()
+            ->assertSee($first->reference);
+
+        $this->assertNotNull($component->instance());
+    }
+
     public function test_category_and_two_platforms_create_two_dynamic_assignments(): void
     {
         $f = $this->responsibilityFoundation();
@@ -122,7 +153,7 @@ class ResponsibilityMultiplePlatformsTest extends TestCase
             $this->createBatch($f, 'brand', [$f['brand']->id], $platforms->modelKeys());
             $this->fail('An active exact combination must reject the whole expanded batch.');
         } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('scope_ids', $exception->errors());
+            $this->assertArrayHasKey('brand_ids', $exception->errors());
         }
 
         $this->assertSame(1, ResponsibilityAssignment::query()->count());
@@ -265,7 +296,7 @@ class ResponsibilityMultiplePlatformsTest extends TestCase
             $this->createBatch($f, 'brand', $brands, $platforms);
             $this->fail('More than 100 exact assignments must remain rejected.');
         } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('scope_ids', $exception->errors());
+            $this->assertArrayHasKey('brand_ids', $exception->errors());
         }
 
         $this->assertDatabaseCount('responsibility_assignments', 0);

@@ -16,6 +16,7 @@ use App\Services\Responsibilities\ResponsibilityReadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\ResponsibilityTestFoundation;
 use Tests\TestCase;
 
@@ -111,6 +112,43 @@ class MyInventoryTest extends TestCase
         $exhausted = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
         $this->assertSame(0, $exhausted->employee_usable);
         $this->assertSame('out_of_stock', $exhausted->stock_status);
+    }
+
+    #[DataProvider('quantityUsableStockCases')]
+    public function test_quantity_usable_stock_is_capped_by_both_physical_sellable_and_remaining_allocation(int $physical, int $allocation, int $expected): void
+    {
+        $f = $this->responsibilityFoundation(max($physical, $allocation), 0);
+        app(CreateResponsibilityAssignment::class)->handle(
+            $this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => $allocation]),
+            $f['owner'],
+        );
+        $f['inventory']->forceFill(['available_quantity' => $physical])->save();
+
+        $row = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
+        $this->assertSame($physical, $row->sellable);
+        $this->assertSame($allocation, $row->remaining_allocation);
+        $this->assertSame($expected, $row->employee_usable);
+    }
+
+    public static function quantityUsableStockCases(): array
+    {
+        return [
+            'allocation below physical' => [10, 5, 5],
+            'physical below allocation' => [3, 5, 3],
+            'larger physical stock' => [15, 10, 10],
+        ];
+    }
+
+    public function test_shared_responsibility_uses_physical_sellable_stock(): void
+    {
+        $f = $this->responsibilityFoundation(10, 3);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
+
+        $row = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
+
+        $this->assertFalse($row->is_quantity_limited);
+        $this->assertSame(7, $row->sellable);
+        $this->assertSame(7, $row->employee_usable);
     }
 
     public function test_exact_quantity_assignment_caps_a_matching_broader_brand_scope(): void

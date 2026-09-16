@@ -51,12 +51,14 @@ class CustomerReturnReadService
                         $this->matchingBrandCategoryDimensions($dimensions);
                     })
                     ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as return_quantity_scope')->join('product_inventories as return_quantity_inventory', 'return_quantity_inventory.id', '=', 'return_quantity_scope.product_inventory_id')->whereColumn('return_quantity_scope.assignment_id', 'return_ra.id')->whereColumn('return_quantity_inventory.product_id', 'uncovered_return_item.product_id')->whereColumn('return_quantity_inventory.warehouse_id', 'customer_returns.fulfillment_warehouse_id'))
+                    ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_warehouses as return_warehouse_scope')->whereColumn('return_warehouse_scope.assignment_id', 'return_ra.id')->whereColumn('return_warehouse_scope.warehouse_id', 'customer_returns.fulfillment_warehouse_id'))
                     ->orWhere(function (QueryBuilder $platformOnly): void {
                         $platformOnly->whereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_platforms as return_platform_only')->whereColumn('return_platform_only.assignment_id', 'return_ra.id'))
                             ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_products as return_no_product')->whereColumn('return_no_product.assignment_id', 'return_ra.id'))
                             ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as return_no_brand')->whereColumn('return_no_brand.assignment_id', 'return_ra.id'))
                             ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as return_no_category')->whereColumn('return_no_category.assignment_id', 'return_ra.id'))
-                            ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as return_no_quantity')->whereColumn('return_no_quantity.assignment_id', 'return_ra.id'));
+                            ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as return_no_quantity')->whereColumn('return_no_quantity.assignment_id', 'return_ra.id'))
+                            ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_warehouses as return_no_warehouse')->whereColumn('return_no_warehouse.assignment_id', 'return_ra.id'));
                     });
             });
     }

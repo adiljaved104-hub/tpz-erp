@@ -14,6 +14,7 @@ use App\Models\EmployeePermissionOverride;
 use App\Models\TaxInvoice;
 use App\Models\User;
 use App\Services\CompanyProfileService;
+use App\Services\Invoices\TaxInvoiceDocumentService;
 use App\Services\Invoices\TaxInvoiceService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -221,6 +222,81 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
         Livewire::actingAs($staff)
             ->test(ViewTaxInvoice::class, ['record' => $invoice->getRouteKey()])
             ->assertActionHidden('editCustomerDetails');
+    }
+
+    public function test_internal_record_information_and_amendment_history_are_visible_only_inside_the_erp(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $staff = $this->user(EmployeeRole::Staff);
+        $owner->forceFill(['name' => 'Invoice Owner'])->save();
+        $staff->forceFill(['name' => 'Amendment Employee'])->save();
+        $this->profile($owner);
+        $this->allow($staff, InvoicePermission::EditCustomerDetails, $owner);
+        $invoice = $this->invoice($staff, 'ORDER-HISTORY');
+
+        Livewire::actingAs($staff)
+            ->test(ViewTaxInvoice::class, ['record' => $invoice->getRouteKey()])
+            ->assertSee('Record Information')
+            ->assertSee('Invoice Date')
+            ->assertSee('Created At')
+            ->assertSee('Created By')
+            ->assertSee('Amendment Employee')
+            ->assertSee('Last Customer Amendment At')
+            ->assertSee('Last Amended By')
+            ->assertSee('Amendment Count')
+            ->assertActionHidden('viewAmendmentHistory');
+
+        app(TaxInvoiceService::class)->updateCustomerDetails($invoice, [
+            'customer_name' => 'History Customer LLC',
+            'customer_trn' => 'TRN-HISTORY',
+            'customer_address' => 'History Address',
+            'amendment_reason' => 'Customer requested legal-name correction.',
+        ], $staff);
+        $invoice->refresh()->load('customerDetailAmendments.actor');
+
+        Livewire::actingAs($staff)
+            ->test(ViewTaxInvoice::class, ['record' => $invoice->getRouteKey()])
+            ->assertSee('Record Information')
+            ->assertSee('Amendment Employee')
+            ->assertSee($invoice->customerDetailAmendments->first()->created_at->timezone(config('app.timezone'))->format('d M Y, h:i A'))
+            ->assertActionVisible('viewAmendmentHistory');
+
+        $historyTemplate = file_get_contents(dirname(__DIR__, 3).'/resources/views/filament/resources/tax-invoices/partials/customer-amendment-history.blade.php');
+        $this->blade($historyTemplate, ['amendments' => $invoice->customerDetailAmendments])
+            ->assertSee('Customer requested legal-name correction.')
+            ->assertSee('Original Customer')
+            ->assertSee('History Customer LLC')
+            ->assertSee('TRN-HISTORY')
+            ->assertSee('Original Address')
+            ->assertSee('History Address')
+            ->assertSee('Amendment Employee');
+
+        $documentData = app(TaxInvoiceDocumentService::class)->printViewData($invoice);
+        $documentHtml = view('invoices.tax-invoice', $documentData)->render();
+        $this->assertStringNotContainsString('Record Information', $documentHtml);
+        $this->assertStringNotContainsString('Last Customer Amendment At', $documentHtml);
+        $this->assertStringNotContainsString('View Amendment History', $documentHtml);
+        $this->assertStringNotContainsString('Customer requested legal-name correction.', $documentHtml);
+        $this->assertStringNotContainsString('Amendment Employee', $documentHtml);
+
+        $this->actingAs($staff)
+            ->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertDontSee('Record Information')
+            ->assertDontSee('Customer requested legal-name correction.');
+    }
+
+    public function test_internal_record_information_keeps_existing_invoice_view_scope(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $staff = $this->user(EmployeeRole::Staff);
+        $other = $this->user(EmployeeRole::Staff);
+        $this->profile($owner);
+        $invoice = $this->invoice($other, 'ORDER-HISTORY-SCOPED');
+
+        $this->actingAs($staff)
+            ->get("/admin/tax-invoices/{$invoice->id}")
+            ->assertForbidden();
     }
 
     private function invoice(User $actor, string $orderReference = 'ORDER-AMEND'): TaxInvoice

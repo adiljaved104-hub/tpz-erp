@@ -8,10 +8,18 @@ use App\Services\Invoices\TaxInvoiceService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
 use Filament\Resources\Pages\ViewRecord;
+use Illuminate\Contracts\View\View;
 
 class ViewTaxInvoice extends ViewRecord
 {
     protected static string $resource = TaxInvoiceResource::class;
+
+    public function mount(int|string $record): void
+    {
+        parent::mount($record);
+
+        $this->record->loadMissing('customerDetailAmendments.actor');
+    }
 
     protected function getHeaderActions(): array
     {
@@ -22,6 +30,19 @@ class ViewTaxInvoice extends ViewRecord
                 ->color('gray')
                 ->url(TaxInvoiceResource::getUrl('index')),
             TaxInvoiceResource::editCustomerDetailsAction(),
+            Action::make('viewAmendmentHistory')
+                ->label('View Amendment History')
+                ->icon('heroicon-o-clock')
+                ->color('gray')
+                ->slideOver()
+                ->modalHeading('Customer Amendment History')
+                ->modalDescription('Internal audit history for customer identity and contact corrections.')
+                ->modalSubmitAction(false)
+                ->modalCancelActionLabel('Close')
+                ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.customer-amendment-history', [
+                    'amendments' => $this->record->customerDetailAmendments,
+                ]))
+                ->visible(fn (): bool => $this->record->customerDetailAmendments->isNotEmpty()),
             Action::make('pdf')->label('Download PDF')->url(fn () => route('tax-invoices.pdf', ['invoice' => $this->record]))->openUrlInNewTab()->visible(fn () => auth()->user()->can(InvoicePermission::DownloadPdf->value)),
             Action::make('print')->label('Print')->icon('heroicon-o-printer')->url(fn () => route('tax-invoices.pdf', ['invoice' => $this->record, 'print' => 1]))->openUrlInNewTab()->visible(fn () => auth()->user()->can(InvoicePermission::DownloadPdf->value)),
             Action::make('void')->color('danger')->requiresConfirmation()->schema([Textarea::make('reason')->required()])->visible(fn () => $this->record->status === 'issued' && auth()->user()->can(InvoicePermission::Void->value))->action(fn (array $data) => app(TaxInvoiceService::class)->void($this->record, $data['reason'], auth()->user())),

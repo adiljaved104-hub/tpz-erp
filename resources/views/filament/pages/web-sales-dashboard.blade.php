@@ -17,9 +17,6 @@
         .web-sales-detail-grid > * { min-width: 0; }
         .web-sales-metric-card { height: 100%; }
         .web-sales-metric-card > * { height: 100%; }
-        .web-sales-metric-value { overflow-wrap: anywhere; font-size: 1.5rem; line-height: 1.15; font-weight: 700; letter-spacing: -.025em; }
-        .web-sales-status-value { font-size: 1.25rem; line-height: 1.2; font-weight: 700; }
-        .web-sales-metric-label { margin-top: .25rem; font-size: .75rem; line-height: 1rem; font-weight: 500; opacity: .65; }
         .web-sales-table-wrap { min-width: 0; max-width: 100%; overflow-x: auto; }
         .web-sales-table { width: 100%; min-width: 36rem; border-collapse: collapse; font-size: .8125rem; }
         .web-sales-detail-grid .web-sales-table { min-width: 32rem; }
@@ -93,25 +90,19 @@
         </x-filament::section>
 
         <div class="web-sales-kpi-grid" data-web-sales-summary>
-            @foreach (['total_orders' => 'Total Orders', 'units_sold' => 'Units Sold', 'revenue' => 'Revenue', 'cogs' => 'COGS', 'gross_profit' => 'Gross Profit', 'operating_expenses' => 'Operating Expenses', 'net_profit' => 'Net Profit'] as $key => $label)
+            @foreach (['total_orders' => ['Total Orders', 'heroicon-o-shopping-bag', 'amber'], 'units_sold' => ['Units Sold', 'heroicon-o-cube', 'blue'], 'revenue' => ['Revenue', 'heroicon-o-banknotes', 'emerald'], 'cogs' => ['COGS', 'heroicon-o-calculator', 'slate'], 'gross_profit' => ['Gross Profit', 'heroicon-o-arrow-trending-up', 'emerald'], 'operating_expenses' => ['Operating Expenses', 'heroicon-o-receipt-percent', 'rose'], 'net_profit' => ['Net Profit', 'heroicon-o-chart-bar-square', 'violet']] as $key => [$label, $icon, $accent])
                 @if ($metrics['summary'][$key] !== null)
                     <div class="web-sales-metric-card" data-web-sales-metric="{{ $key }}">
-                        <x-filament::section compact>
-                            <div class="web-sales-metric-value">{{ in_array($key, ['revenue', 'cogs', 'gross_profit', 'operating_expenses', 'net_profit'], true) ? 'AED '.number_format((float) $metrics['summary'][$key], 2) : number_format((int) $metrics['summary'][$key]) }}</div>
-                            <div class="web-sales-metric-label">{{ $label }}</div>
-                        </x-filament::section>
+                        @include('filament.widgets.dashboard.metric-card', ['metricTitle' => $label, 'metricValue' => in_array($key, ['revenue', 'cogs', 'gross_profit', 'operating_expenses', 'net_profit'], true) ? 'AED '.number_format((float) $metrics['summary'][$key], 2) : number_format((int) $metrics['summary'][$key]), 'metricIcon' => $icon, 'metricAccent' => $accent, 'metricShowOpen' => false])
                     </div>
                 @endif
             @endforeach
         </div>
 
         <div class="web-sales-status-grid" data-web-sales-statuses>
-            @foreach (['new' => 'New', 'confirmed' => 'Confirmed', 'shipped' => 'Shipped', 'delivered' => 'Delivered', 'cancelled' => 'Cancelled'] as $key => $label)
+            @foreach (['new' => ['New', 'heroicon-o-sparkles', 'blue'], 'confirmed' => ['Confirmed', 'heroicon-o-check-badge', 'cyan'], 'shipped' => ['Shipped', 'heroicon-o-truck', 'indigo'], 'delivered' => ['Delivered', 'heroicon-o-check-circle', 'emerald'], 'cancelled' => ['Cancelled', 'heroicon-o-x-circle', 'red']] as $key => [$label, $icon, $accent])
                 <div class="web-sales-metric-card" data-web-sales-status="{{ $key }}">
-                    <x-filament::section compact>
-                        <div class="web-sales-status-value">{{ number_format((int) $metrics['statuses'][$key]) }}</div>
-                        <div class="web-sales-metric-label">{{ $label }}</div>
-                    </x-filament::section>
+                    @include('filament.widgets.dashboard.metric-card', ['metricTitle' => $label, 'metricValue' => (int) $metrics['statuses'][$key], 'metricIcon' => $icon, 'metricAccent' => $accent, 'metricShowOpen' => false])
                 </div>
             @endforeach
         </div>

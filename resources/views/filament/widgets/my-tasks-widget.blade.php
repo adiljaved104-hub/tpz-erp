@@ -6,10 +6,9 @@
         </x-slot>
 
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            @foreach (['pending' => 'Pending / Assigned', 'in_progress' => 'In Progress', 'waiting' => 'Waiting', 'awaiting_confirmation' => 'Awaiting Confirmation', 'overdue' => 'Overdue'] as $key => $label)
-                <div class="rounded-lg border border-gray-200 px-3 py-2 dark:border-white/10" data-summary-key="{{ $key }}" data-summary-count="{{ $summary[$key] }}">
-                    <div class="text-xl font-semibold leading-none">{{ number_format($summary[$key]) }}</div>
-                    <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $label }}</div>
+            @foreach (['pending' => ['Pending / Assigned', 'heroicon-o-clock', 'amber'], 'in_progress' => ['In Progress', 'heroicon-o-arrow-path', 'blue'], 'waiting' => ['Waiting', 'heroicon-o-pause-circle', 'slate'], 'awaiting_confirmation' => ['Awaiting Confirmation', 'heroicon-o-question-mark-circle', 'indigo'], 'overdue' => ['Overdue', 'heroicon-o-exclamation-circle', 'red']] as $key => [$label, $icon, $accent])
+                <div class="min-w-0" data-summary-key="{{ $key }}" data-summary-count="{{ $summary[$key] }}">
+                    @include('filament.widgets.dashboard.metric-card', ['metricTitle' => $label, 'metricValue' => $summary[$key], 'metricIcon' => $icon, 'metricAccent' => $accent, 'metricShowOpen' => false])
                 </div>
             @endforeach
         </div>

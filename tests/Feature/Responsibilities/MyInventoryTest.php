@@ -169,7 +169,10 @@ class MyInventoryTest extends TestCase
         Livewire::actingAs($f['employee']->user)->test(MyInventory::class)
             ->assertViewHas('summary', fn (array $summary): bool => $summary['usable'] === 1 && $summary['low'] === 1 && $summary['out'] === 0)
             ->assertSee('1 of 1')
-            ->assertSee('Low Stock');
+            ->assertSee('Low Stock')
+            ->assertSeeHtml('hover:border-amber-400')
+            ->assertSeeHtml('hover:border-red-400')
+            ->assertSeeHtml('class="flex size-8 shrink-0 items-center justify-center rounded-lg transition duration-150');
     }
 
     public function test_exhausted_exact_quantity_assignment_caps_a_matching_broader_brand_scope_at_zero(): void

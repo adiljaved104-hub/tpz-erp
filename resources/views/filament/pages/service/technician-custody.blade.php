@@ -1,16 +1,13 @@
 <x-filament-panels::page>
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         @foreach([
-            'Total Units With Technicians' => $summary['total'],
-            'In Repair' => $summary['in_repair'],
-            'Waiting for Parts' => $summary['waiting_for_parts'],
-            'Overdue' => $summary['overdue'],
-            'Ready / Repair Completed' => $summary['repair_completed'],
-        ] as $label => $value)
-            <x-filament::section compact>
-                <div class="text-sm text-gray-500">{{ $label }}</div>
-                <div class="text-2xl font-semibold">{{ number_format($value) }}</div>
-            </x-filament::section>
+            ['Total Units With Technicians', $summary['total'], 'heroicon-o-user-group', 'blue'],
+            ['In Repair', $summary['in_repair'], 'heroicon-o-wrench-screwdriver', 'cyan'],
+            ['Waiting for Parts', $summary['waiting_for_parts'], 'heroicon-o-clock', 'amber'],
+            ['Overdue', $summary['overdue'], 'heroicon-o-exclamation-circle', 'red'],
+            ['Ready / Repair Completed', $summary['repair_completed'], 'heroicon-o-check-circle', 'emerald'],
+        ] as [$label, $value, $icon, $accent])
+            @include('filament.widgets.dashboard.metric-card', ['metricTitle' => $label, 'metricValue' => $value, 'metricIcon' => $icon, 'metricAccent' => $accent, 'metricShowOpen' => false])
         @endforeach
     </div>
 

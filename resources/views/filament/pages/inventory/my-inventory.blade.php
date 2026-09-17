@@ -1,34 +1,10 @@
 <x-filament-panels::page>
     <div class="space-y-6">
         <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <div class="rounded-xl bg-white p-5 shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
-                <div class="flex items-start justify-between gap-3">
-                    <div><p class="text-sm font-medium text-gray-500 dark:text-gray-400">My Products</p><p class="mt-2 text-3xl font-bold tracking-tight text-gray-950 dark:text-white">{{ number_format($summary['products']) }}</p></div>
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-400"><x-filament::icon icon="heroicon-o-cube" class="size-5" /></span>
-                </div>
-                <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">Products visible through my responsibilities</p>
-            </div>
-            <div class="rounded-xl bg-white p-5 shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
-                <div class="flex items-start justify-between gap-3">
-                    <div><p class="text-sm font-medium text-gray-500 dark:text-gray-400">Usable Stock</p><p class="mt-2 text-3xl font-bold tracking-tight text-gray-950 dark:text-white">{{ number_format($summary['usable']) }}</p></div>
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-success-50 text-success-600 dark:bg-success-950/40 dark:text-success-400"><x-filament::icon icon="heroicon-o-circle-stack" class="size-5" /></span>
-                </div>
-                <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">Within my current access and allocations</p>
-            </div>
-            <button type="button" wire:click="applyStockStatus('low_stock')" @class(['rounded-xl p-5 text-left shadow-sm ring-1 transition focus:outline-none focus:ring-2 focus:ring-warning-500', 'bg-warning-50 ring-warning-400 dark:bg-warning-950/30' => $stockStatus === 'low_stock', 'bg-white ring-gray-950/5 hover:ring-warning-300 dark:bg-gray-900 dark:ring-white/10' => $stockStatus !== 'low_stock'])>
-                <div class="flex items-start justify-between gap-3">
-                    <div><p class="text-sm font-medium text-gray-500 dark:text-gray-400">Low Stock</p><p class="mt-2 text-3xl font-bold tracking-tight text-warning-600 dark:text-warning-400">{{ number_format($summary['low']) }}</p></div>
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-warning-100 text-warning-600 dark:bg-warning-950/60 dark:text-warning-400"><x-filament::icon icon="heroicon-o-exclamation-triangle" class="size-5" /></span>
-                </div>
-                <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">1 employee-usable unit · Click to filter</p>
-            </button>
-            <button type="button" wire:click="applyStockStatus('out_of_stock')" @class(['rounded-xl p-5 text-left shadow-sm ring-1 transition focus:outline-none focus:ring-2 focus:ring-danger-500', 'bg-danger-50 ring-danger-400 dark:bg-danger-950/30' => $stockStatus === 'out_of_stock', 'bg-white ring-gray-950/5 hover:ring-danger-300 dark:bg-gray-900 dark:ring-white/10' => $stockStatus !== 'out_of_stock'])>
-                <div class="flex items-start justify-between gap-3">
-                    <div><p class="text-sm font-medium text-gray-500 dark:text-gray-400">Out of Stock</p><p class="mt-2 text-3xl font-bold tracking-tight text-danger-600 dark:text-danger-400">{{ number_format($summary['out']) }}</p></div>
-                    <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-danger-100 text-danger-600 dark:bg-danger-950/60 dark:text-danger-400"><x-filament::icon icon="heroicon-o-x-circle" class="size-5" /></span>
-                </div>
-                <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">No employee-usable stock · Click to filter</p>
-            </button>
+            @include('filament.widgets.dashboard.metric-card', ['metricTitle' => 'My Products', 'metricValue' => $summary['products'], 'metricDescription' => 'Products visible through my responsibilities', 'metricIcon' => 'heroicon-o-cube', 'metricAccent' => 'blue', 'metricShowOpen' => false])
+            @include('filament.widgets.dashboard.metric-card', ['metricTitle' => 'Usable Stock', 'metricValue' => $summary['usable'], 'metricDescription' => 'Within my current access and allocations', 'metricIcon' => 'heroicon-o-circle-stack', 'metricAccent' => 'emerald', 'metricShowOpen' => false])
+            @include('filament.widgets.dashboard.metric-card', ['metricTitle' => 'Low Stock', 'metricValue' => $summary['low'], 'metricDescription' => '1 employee-usable unit · Click to filter', 'metricIcon' => 'heroicon-o-exclamation-triangle', 'metricAccent' => 'amber', 'metricWireClick' => "applyStockStatus('low_stock')", 'metricActive' => $stockStatus === 'low_stock', 'metricShowOpen' => false])
+            @include('filament.widgets.dashboard.metric-card', ['metricTitle' => 'Out of Stock', 'metricValue' => $summary['out'], 'metricDescription' => 'No employee-usable stock · Click to filter', 'metricIcon' => 'heroicon-o-x-circle', 'metricAccent' => 'red', 'metricWireClick' => "applyStockStatus('out_of_stock')", 'metricActive' => $stockStatus === 'out_of_stock', 'metricShowOpen' => false])
         </div>
 
         @if ($responsibilities->isNotEmpty())

@@ -8,8 +8,8 @@
     @endif
 
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        @foreach (['pending' => 'Pending', 'in_progress' => 'In Progress', 'waiting' => 'Waiting', 'awaiting_confirmation' => 'Awaiting Confirmation', 'overdue' => 'Overdue'] as $key => $label)
-            <x-filament::section compact><div class="text-2xl font-semibold leading-none">{{ number_format($summary[$key]) }}</div><div class="mt-1 text-xs text-gray-500">{{ $label }}</div></x-filament::section>
+        @foreach (['pending' => ['Pending', 'heroicon-o-clock', 'amber'], 'in_progress' => ['In Progress', 'heroicon-o-arrow-path', 'blue'], 'waiting' => ['Waiting', 'heroicon-o-pause-circle', 'slate'], 'awaiting_confirmation' => ['Awaiting Confirmation', 'heroicon-o-question-mark-circle', 'indigo'], 'overdue' => ['Overdue', 'heroicon-o-exclamation-circle', 'red']] as $key => [$label, $icon, $accent])
+            @include('filament.widgets.dashboard.metric-card', ['metricTitle' => $label, 'metricValue' => $summary[$key], 'metricIcon' => $icon, 'metricAccent' => $accent, 'metricShowOpen' => false])
         @endforeach
     </div>
 

@@ -161,7 +161,19 @@ class DamagedItemsPhaseATest extends TestCase
         }
 
         $this->actingAs($f['owner']);
-        Livewire::test(DamagedItems::class)->assertSee('Damaged Items')->assertSee('DMG-OLD')->assertSee('Old Damaged Stock');
+        Livewire::test(DamagedItems::class)
+            ->assertSee('Damaged Items')
+            ->assertSee('DMG-OLD')
+            ->assertSee('Old Damaged Stock')
+            ->assertSeeHtml('sm:grid-cols-2 lg:grid-cols-3')
+            ->assertSeeHtml('min-w-[1320px] table-fixed')
+            ->assertSeeHtml('line-clamp-2 break-words')
+            ->assertDontSeeHtml('<details>')
+            ->assertActionExists('viewDetails', arguments: ['item' => $rows[0]]);
+
+        $this->view('filament.pages.inventory.partials.damaged-item-details', ['item' => $rows[0]])
+            ->assertSee('Remaining Quantity')
+            ->assertSee('Handled by');
     }
 
     public function test_staff_requires_permission_and_only_sees_responsibility_scoped_products(): void

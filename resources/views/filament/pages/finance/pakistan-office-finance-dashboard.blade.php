@@ -17,12 +17,12 @@
 
         <div class="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             @foreach([
-                ['funding_pkr','Funding Received','PKR',$metrics['can_funding']], ['funding_aed','Original Funding','AED',$metrics['can_funding']],
-                ['effective_rate','Effective Rate','PKR/AED',$metrics['can_funding']], ['expenses','Total Expenses','PKR',$metrics['can_balances']],
-                ['loans_given','Loans Given','PKR',$metrics['can_loans']], ['loan_repayments','Loan Repayments','PKR',$metrics['can_loans']],
-                ['outstanding_loans','Outstanding Loans','PKR',$metrics['can_loans']], ['available_balance','Available Office Balance','PKR',$metrics['can_balances']]
-            ] as [$key,$label,$currency,$visible])
-                @if($visible)<x-filament::section compact><div class="text-xl font-bold">{{ $currency }} {{ number_format((float)($metrics['summary'][$key] ?? 0), $key === 'effective_rate' ? 6 : 2) }}</div><div class="mt-1 text-xs text-gray-500">{{ $label }}</div></x-filament::section>@endif
+                ['funding_pkr','Funding Received','PKR',$metrics['can_funding'],'heroicon-o-banknotes','emerald'], ['funding_aed','Original Funding','AED',$metrics['can_funding'],'heroicon-o-currency-dollar','blue'],
+                ['effective_rate','Effective Rate','PKR/AED',$metrics['can_funding'],'heroicon-o-arrows-right-left','cyan'], ['expenses','Total Expenses','PKR',$metrics['can_balances'],'heroicon-o-receipt-percent','rose'],
+                ['loans_given','Loans Given','PKR',$metrics['can_loans'],'heroicon-o-arrow-up-right','amber'], ['loan_repayments','Loan Repayments','PKR',$metrics['can_loans'],'heroicon-o-arrow-down-left','emerald'],
+                ['outstanding_loans','Outstanding Loans','PKR',$metrics['can_loans'],'heroicon-o-clock','orange'], ['available_balance','Available Office Balance','PKR',$metrics['can_balances'],'heroicon-o-wallet','violet']
+            ] as [$key,$label,$currency,$visible,$icon,$accent])
+                @if($visible)@include('filament.widgets.dashboard.metric-card', ['metricTitle' => $label, 'metricValue' => $currency.' '.number_format((float)($metrics['summary'][$key] ?? 0), $key === 'effective_rate' ? 6 : 2), 'metricIcon' => $icon, 'metricAccent' => $accent, 'metricShowOpen' => false])@endif
             @endforeach
         </div>
 

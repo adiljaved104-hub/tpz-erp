@@ -28,6 +28,7 @@ use Filament\Pages\Page;
 use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
@@ -94,6 +95,21 @@ class DamagedItems extends Page
         return $user instanceof User
             && app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View)
             && app(WarrantyRepairAuthorization::class)->allows($user, WarrantyRepairPermission::Create);
+    }
+
+    public function viewDetailsAction(): Action
+    {
+        return Action::make('viewDetails')
+            ->label('View')
+            ->icon(Heroicon::OutlinedEye)
+            ->color('gray')
+            ->slideOver()
+            ->modalHeading(fn (array $arguments): string => 'Damaged Item · '.($arguments['item']['sku'] ?? 'Details'))
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close')
+            ->modalContent(fn (array $arguments): View => view('filament.pages.inventory.partials.damaged-item-details', [
+                'item' => $arguments['item'] ?? [],
+            ]));
     }
 
     public function sendToRepairAction(): Action

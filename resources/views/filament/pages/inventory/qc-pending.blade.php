@@ -1,17 +1,8 @@
 <x-filament-panels::page>
     <div class="grid gap-3 sm:grid-cols-3">
-        <x-filament::section compact>
-            <div class="text-sm text-gray-500">Pending QC Returns</div>
-            <div class="text-2xl font-semibold">{{ number_format($summary['returns']) }}</div>
-        </x-filament::section>
-        <x-filament::section compact>
-            <div class="text-sm text-gray-500">Pending QC Units</div>
-            <div class="text-2xl font-semibold">{{ number_format($summary['units']) }}</div>
-        </x-filament::section>
-        <x-filament::section compact>
-            <div class="text-sm text-gray-500">Oldest Pending</div>
-            <div class="text-2xl font-semibold">{{ $summary['oldest'] ?? '—' }}</div>
-        </x-filament::section>
+        @include('filament.widgets.dashboard.metric-card', ['metricTitle' => 'Pending QC Returns', 'metricValue' => $summary['returns'], 'metricIcon' => 'heroicon-o-arrow-uturn-left', 'metricAccent' => 'orange', 'metricShowOpen' => false])
+        @include('filament.widgets.dashboard.metric-card', ['metricTitle' => 'Pending QC Units', 'metricValue' => $summary['units'], 'metricIcon' => 'heroicon-o-cube', 'metricAccent' => 'orange', 'metricShowOpen' => false])
+        @include('filament.widgets.dashboard.metric-card', ['metricTitle' => 'Oldest Pending', 'metricValue' => $summary['oldest'] ?? '—', 'metricIcon' => 'heroicon-o-clock', 'metricAccent' => 'amber', 'metricShowOpen' => false])
     </div>
 
     <x-filament::section>

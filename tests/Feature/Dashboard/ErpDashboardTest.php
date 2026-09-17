@@ -40,8 +40,9 @@ class ErpDashboardTest extends TestCase
             ->assertSee('HR')
             ->assertSee('Orders Today')
             ->assertSee('Inventory Units')
-            ->assertSeeHtml('class="erp-dashboard-card-grid"')
-            ->assertSeeHtml('grid-template-columns: repeat(4, minmax(0, 1fr))')
+            ->assertSeeHtml('class="erp-dashboard-card-grid grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4"')
+            ->assertSeeHtml('class="group block h-full min-w-0 rounded-xl border border-gray-200 bg-white p-4 text-left shadow-sm transition')
+            ->assertSeeHtml('class="mt-1 break-words text-3xl font-semibold tracking-tight')
             ->assertSeeHtml('class="erp-dashboard-inventory-grid"')
             ->assertSeeHtml('data-inventory-intelligence-grid')
             ->assertSeeHtml('-webkit-line-clamp: 2')
@@ -195,6 +196,30 @@ class ErpDashboardTest extends TestCase
         $this->assertNotContains('gross_profit', $keys);
         $this->assertContains('notifications', $keys);
         $this->assertSame('Staff', $data['role_label']);
+
+        Livewire::actingAs($staff)->test(ErpDashboardOverview::class)
+            ->assertSee('Operational Overview')
+            ->assertSeeHtml('sm:grid-cols-2 xl:grid-cols-4')
+            ->assertDontSee('Inventory Value');
+
+        $this->actingAs($staff)->get('/admin')
+            ->assertOk()
+            ->assertSee('Operational Overview');
+    }
+
+    public function test_manager_dashboard_renders_authorized_cards_without_owner_financials(): void
+    {
+        $manager = $this->user(EmployeeRole::Manager, 'Manager');
+
+        Livewire::actingAs($manager)->test(ErpDashboardOverview::class)
+            ->assertSee('Operational Overview')
+            ->assertSeeHtml('data-dashboard-card=')
+            ->assertSeeHtml('sm:grid-cols-2 xl:grid-cols-4')
+            ->assertDontSee('Inventory Value');
+
+        $this->actingAs($manager)->get('/admin')
+            ->assertOk()
+            ->assertSee('Operational Overview');
     }
 
     public function test_manager_attendance_cards_are_team_scoped_and_staff_cards_are_personal(): void
@@ -275,7 +300,10 @@ class ErpDashboardTest extends TestCase
 
     private function user(EmployeeRole $role, string $name, ?Team $team = null): User
     {
-        $user = User::factory()->create(['name' => $name]);
+        $user = User::factory()->create([
+            'name' => $name,
+            'email' => fake()->unique()->userName().'@techpointzone.com',
+        ]);
         Employee::factory()->for($user)->role($role)->create([
             'name' => $name,
             'email' => $user->email,

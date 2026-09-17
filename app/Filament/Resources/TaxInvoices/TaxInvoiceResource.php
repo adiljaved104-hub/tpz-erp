@@ -143,7 +143,29 @@ class TaxInvoiceResource extends Resource
                 TextEntry::make('invoice_number')->label('Invoice #'), TextEntry::make('order_reference')->label('Order ID')->placeholder('—'), TextEntry::make('invoice_date')->date('d M Y'), TextEntry::make('status')->badge(),
                 TextEntry::make('customer_name'), TextEntry::make('customer_trn')->label('Customer TRN')->placeholder('—'), TextEntry::make('customer_address')->columnSpan(2)->placeholder('—'),
                 TextEntry::make('subtotal_excluding_vat')->money('AED'), TextEntry::make('vat_amount')->label('VAT')->money('AED'), TextEntry::make('grand_total')->money('AED')->weight('bold'), TextEntry::make('createdBy.name')->label('Created By'),
-            ]), RepeatableEntry::make('items')->schema([TextEntry::make('description'), TextEntry::make('quantity'), TextEntry::make('unit_price_including_vat')->money('AED'), TextEntry::make('total_including_vat')->money('AED')])->columns(4),
+            ]),
+            Section::make('Record Information')
+                ->description('Internal ERP metadata. This information is not printed on the customer Invoice.')
+                ->compact()
+                ->columns(['default' => 1, 'md' => 3])
+                ->schema([
+                    TextEntry::make('invoice_date')->label('Invoice Date')->date('d M Y'),
+                    TextEntry::make('created_at')->label('Created At')->dateTime('d M Y, h:i A', config('app.timezone')),
+                    TextEntry::make('createdBy.name')->label('Created By')->placeholder('Not recorded'),
+                    TextEntry::make('last_customer_amendment_at')
+                        ->label('Last Customer Amendment At')
+                        ->state(fn (TaxInvoice $record) => self::amendments($record)->first()?->created_at)
+                        ->dateTime('d M Y, h:i A', config('app.timezone'))
+                        ->placeholder('No amendments'),
+                    TextEntry::make('last_customer_amendment_actor')
+                        ->label('Last Amended By')
+                        ->state(fn (TaxInvoice $record): ?string => self::amendments($record)->first()?->actor?->name)
+                        ->placeholder('No amendments'),
+                    TextEntry::make('customer_amendment_count')
+                        ->label('Amendment Count')
+                        ->state(fn (TaxInvoice $record): int => self::amendments($record)->count()),
+                ]),
+            RepeatableEntry::make('items')->schema([TextEntry::make('description'), TextEntry::make('quantity'), TextEntry::make('unit_price_including_vat')->money('AED'), TextEntry::make('total_including_vat')->money('AED')])->columns(4),
         ]);
     }
 
@@ -332,6 +354,13 @@ class TaxInvoiceResource extends Resource
                     ->body("{$record->invoice_number} keeps the same items, totals and Invoice number.")
                     ->send();
             });
+    }
+
+    private static function amendments(TaxInvoice $invoice): Collection
+    {
+        $invoice->loadMissing('customerDetailAmendments.actor');
+
+        return $invoice->customerDetailAmendments;
     }
 
     private static function totalsPreview(Get $get): HtmlString

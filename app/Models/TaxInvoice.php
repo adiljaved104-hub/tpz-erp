@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use LogicException;
 
 class TaxInvoice extends Model
@@ -44,5 +45,13 @@ class TaxInvoice extends Model
     public function voidedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'voided_by_user_id');
+    }
+
+    public function customerDetailAmendments(): MorphMany
+    {
+        return $this->morphMany(ActivityLog::class, 'subject')
+            ->where('event', 'tax_invoice.customer_details_updated')
+            ->latest('created_at')
+            ->latest('id');
     }
 }

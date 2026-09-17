@@ -181,6 +181,7 @@ class TaxInvoiceResource extends Resource
                     ->when($data['created_to'] ?? null, fn (Builder $q, $date) => $q->where('created_at', '<=', Carbon::parse($date, config('app.timezone'))->endOfDay()->utc()))),
         ])->recordActions([
             ViewAction::make(),
+            self::editCustomerDetailsAction(),
             Action::make('pdf')
                 ->label('PDF')
                 ->icon('heroicon-o-arrow-down-tray')
@@ -280,6 +281,57 @@ class TaxInvoiceResource extends Resource
         $user = auth()->user();
 
         return $user instanceof User && app(InvoiceAuthorization::class)->allows($user, $permission, $invoice);
+    }
+
+    public static function editCustomerDetailsAction(): Action
+    {
+        return Action::make('editCustomerDetails')
+            ->label('Edit Customer Details')
+            ->icon('heroicon-o-pencil-square')
+            ->color('gray')
+            ->slideOver()
+            ->modalHeading(fn (TaxInvoice $record): string => "Edit Customer Details · {$record->invoice_number}")
+            ->modalDescription('Only customer identity and contact details will change. Invoice items, dates, totals, VAT and financial values will remain unchanged.')
+            ->modalSubmitActionLabel('Save Customer Details')
+            ->fillForm(fn (TaxInvoice $record): array => [
+                'customer_name' => $record->customer_name,
+                'customer_trn' => $record->customer_trn,
+                'customer_address' => $record->customer_address,
+            ])
+            ->schema([
+                TextInput::make('customer_name')
+                    ->label('Customer Name')
+                    ->required()
+                    ->maxLength(255),
+                TextInput::make('customer_trn')
+                    ->label('Customer TRN')
+                    ->maxLength(50),
+                Textarea::make('customer_address')
+                    ->label('Customer Address')
+                    ->required()
+                    ->rows(4)
+                    ->maxLength(2000),
+                Textarea::make('amendment_reason')
+                    ->label('Reason for Change')
+                    ->required()
+                    ->rows(3)
+                    ->maxLength(2000),
+            ])
+            ->visible(fn (TaxInvoice $record): bool => $record->status !== 'void'
+                && self::allows($record, InvoicePermission::EditCustomerDetails))
+            ->action(function (TaxInvoice $record, array $data): void {
+                $user = auth()->user();
+                abort_unless($user instanceof User, 403);
+
+                app(TaxInvoiceService::class)->updateCustomerDetails($record, $data, $user);
+                $record->refresh();
+
+                Notification::make()
+                    ->success()
+                    ->title('Customer details updated')
+                    ->body("{$record->invoice_number} keeps the same items, totals and Invoice number.")
+                    ->send();
+            });
     }
 
     private static function totalsPreview(Get $get): HtmlString

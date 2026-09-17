@@ -82,6 +82,59 @@ class TaxInvoiceService
         });
     }
 
+    public function updateCustomerDetails(TaxInvoice $invoice, array $data, User $actor): TaxInvoice
+    {
+        $validated = validator($data, [
+            'customer_name' => ['required', 'string', 'max:255'],
+            'customer_trn' => ['nullable', 'string', 'max:50'],
+            'customer_address' => ['required', 'string', 'max:2000'],
+            'amendment_reason' => ['required', 'string', 'max:2000'],
+        ])->validate();
+
+        $this->authorization->authorize($actor, InvoicePermission::EditCustomerDetails, $invoice);
+
+        return DB::transaction(function () use ($invoice, $validated, $actor): TaxInvoice {
+            $locked = TaxInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
+            $this->authorization->authorize($actor, InvoicePermission::EditCustomerDetails, $locked);
+
+            if ($locked->status === 'void') {
+                throw ValidationException::withMessages([
+                    'amendment_reason' => 'Void Invoices cannot be amended.',
+                ]);
+            }
+
+            $previous = [
+                'customer_name' => $locked->customer_name,
+                'customer_trn' => $locked->customer_trn,
+                'customer_address' => $locked->customer_address,
+            ];
+            $updated = [
+                'customer_name' => trim($validated['customer_name']),
+                'customer_trn' => filled($validated['customer_trn'] ?? null) ? trim($validated['customer_trn']) : null,
+                'customer_address' => trim($validated['customer_address']),
+                'updated_at' => now(),
+            ];
+
+            DB::table('tax_invoices')->where('id', $locked->id)->update($updated);
+            $locked->refresh();
+
+            $this->activity->log('tax_invoice.customer_details_updated', $actor, $locked, [
+                'invoice_id' => $locked->id,
+                'invoice_reference' => $locked->invoice_number,
+                'previous_customer_name' => $previous['customer_name'],
+                'new_customer_name' => $locked->customer_name,
+                'previous_customer_trn' => $previous['customer_trn'],
+                'new_customer_trn' => $locked->customer_trn,
+                'previous_customer_address' => $previous['customer_address'],
+                'new_customer_address' => $locked->customer_address,
+                'reason' => trim($validated['amendment_reason']),
+                'actor_id' => $actor->id,
+            ]);
+
+            return $locked;
+        });
+    }
+
     /** @param array<int|string, array<string, mixed>> $items @return array{subtotal: string, vat: string, grand_total: string, vat_rate: string} */
     public function previewTotals(array $items): array
     {

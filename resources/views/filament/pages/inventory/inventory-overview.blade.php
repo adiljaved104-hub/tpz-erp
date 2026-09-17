@@ -5,10 +5,21 @@
         @media (min-width: 768px) { .inventory-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
         @media (min-width: 1024px) { .inventory-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .inventory-product-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
     </style>
+    @php
+        $inventorySummaryCards = [
+            'total_company_stock' => ['label' => 'Total Company Stock', 'icon' => 'heroicon-o-cube', 'accent' => 'blue'],
+            'on_location' => ['label' => 'On Location', 'icon' => 'heroicon-o-building-storefront', 'accent' => 'emerald'],
+            'in_transit' => ['label' => 'Normal In Transit', 'icon' => 'heroicon-o-truck', 'accent' => 'cyan'],
+            'return_in_transit' => ['label' => 'Return-to-Company In Transit', 'icon' => 'heroicon-o-arrow-uturn-left', 'accent' => 'indigo'],
+            'damaged' => ['label' => 'Damaged', 'icon' => 'heroicon-o-exclamation-triangle', 'accent' => 'rose'],
+            'marketplace_non_sellable' => ['label' => 'Marketplace Non-Sellable', 'icon' => 'heroicon-o-no-symbol', 'accent' => 'slate'],
+            'qc_pending' => ['label' => 'QC Pending', 'icon' => 'heroicon-o-magnifying-glass-circle', 'accent' => 'orange'],
+        ];
+    @endphp
     <div class="space-y-4">
         <div class="inventory-summary-grid" data-testid="inventory-summary-grid">
-            @foreach (['total_company_stock' => 'Total Company Stock', 'on_location' => 'On Location', 'in_transit' => 'Normal In Transit', 'return_in_transit' => 'Return-to-Company In Transit', 'damaged' => 'Damaged', 'marketplace_non_sellable' => 'Marketplace Non-Sellable', 'qc_pending' => 'QC Pending'] as $key => $label)
-                <x-filament::section compact><div class="text-2xl font-semibold leading-none">{{ number_format($summary[$key]) }}</div><div class="mt-1 text-xs text-gray-500">{{ $label }}</div></x-filament::section>
+            @foreach ($inventorySummaryCards as $key => $metric)
+                @include('filament.widgets.dashboard.metric-card', ['metricTitle' => $metric['label'], 'metricValue' => $summary[$key], 'metricIcon' => $metric['icon'], 'metricAccent' => $metric['accent'], 'metricShowOpen' => false])
             @endforeach
         </div>
 

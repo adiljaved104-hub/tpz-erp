@@ -26,19 +26,7 @@
     <style>
         .erp-dashboard-stack { display: grid; min-width: 0; max-width: 100%; gap: 1rem; }
         .erp-dashboard-stack > * { min-width: 0; max-width: 100%; }
-        .erp-dashboard-header-actions, .erp-dashboard-period, .erp-dashboard-card-footer, .erp-dashboard-attention-action { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
-        .erp-dashboard-card-grid { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: .75rem; }
-        .erp-dashboard-card-grid > * { min-width: 0; }
-        .erp-dashboard-card-link { display: block; min-width: 0; height: 100%; text-decoration: none; }
-        .erp-dashboard-card-link > * { height: 100%; }
-        .erp-dashboard-card-content { display: grid; min-height: 6.5rem; align-content: space-between; gap: .65rem; }
-        .erp-dashboard-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
-        .erp-dashboard-card-icon { width: 1.35rem; height: 1.35rem; flex: none; opacity: .7; }
-        .erp-dashboard-card-value { font-size: 1.65rem; line-height: 1.1; font-weight: 700; letter-spacing: -.025em; }
-        .erp-dashboard-card-label { margin-top: .25rem; font-size: .875rem; line-height: 1.25rem; font-weight: 600; }
-        .erp-dashboard-card-help { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; line-height: 1rem; opacity: .65; }
-        .erp-dashboard-card-open { font-size: .75rem; line-height: 1rem; font-weight: 600; opacity: .75; }
-        .erp-dashboard-card-footer { justify-content: space-between; }
+        .erp-dashboard-header-actions, .erp-dashboard-period, .erp-dashboard-attention-action { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
         .erp-dashboard-attention-grid { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: .75rem; }
         .erp-dashboard-attention-grid > * { min-width: 0; }
         .erp-dashboard-attention-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: .75rem; }
@@ -77,15 +65,12 @@
         .erp-dashboard-empty-state { padding: 2rem 1rem; text-align: center; }
 
         @media (min-width: 40rem) {
-            .erp-dashboard-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .erp-dashboard-attention-grid, .erp-dashboard-customizer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         @media (min-width: 64rem) {
-            .erp-dashboard-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
             .erp-dashboard-inventory-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
             .erp-dashboard-attention-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         }
-        @media (min-width: 96rem) { .erp-dashboard-card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
         @media (max-width: 47.999rem) {
             .erp-dashboard-drag-handle { display: none; }
             .erp-dashboard-control-label { width: 100%; }
@@ -213,7 +198,7 @@
                                 <x-filament::section compact :data-dashboard-section="$widgetKey">
                                     <x-slot name="heading">{{ $sections[$widgetKey]['heading'] }}</x-slot>
                                     <x-slot name="description">{{ $sections[$widgetKey]['description'] }}</x-slot>
-                                    <div class="erp-dashboard-card-grid">
+                                    <div class="erp-dashboard-card-grid grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                                         @foreach ($sectionCards as $card)
                                             @include('filament.widgets.dashboard.metric-card', ['card' => $card, 'icons' => $icons])
                                         @endforeach

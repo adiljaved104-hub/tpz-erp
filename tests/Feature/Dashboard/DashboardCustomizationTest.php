@@ -169,7 +169,7 @@ class DashboardCustomizationTest extends TestCase
             ->assertSeeHtml('.erp-dashboard-drag-handle { display: none; }')
             ->assertSeeHtml('grid-template-columns: repeat(2, minmax(0, 1fr))')
             ->assertSeeHtml('grid-template-columns: repeat(3, minmax(0, 1fr))')
-            ->assertSeeHtml('grid-template-columns: repeat(4, minmax(0, 1fr))')
+            ->assertSeeHtml('sm:grid-cols-2 xl:grid-cols-4')
             ->assertSee('Move Sales &amp; Orders earlier', false)
             ->assertSee('Move Sales &amp; Orders later', false);
     }

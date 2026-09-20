@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Navigation;
 
+use App\Enums\EmployeeRole;
 use App\Models\User;
 use App\Models\UserUiPreference;
 use App\Services\Navigation\NavigationPreferenceService;
@@ -9,11 +10,14 @@ use App\Services\Preferences\UserUiPreferenceService;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
+use Tests\Support\ResponsibilityTestFoundation;
 use Tests\TestCase;
 
 class NavigationPreferenceTest extends TestCase
 {
     use RefreshDatabase;
+    use ResponsibilityTestFoundation;
 
     public function test_authorized_items_can_be_hidden_per_user_without_exposing_missing_items(): void
     {
@@ -74,6 +78,36 @@ class NavigationPreferenceTest extends TestCase
         $this->assertSame('Customize Navigation', collect($result[0]->getItems())->sole()->getLabel());
     }
 
+    public function test_authorized_navigation_preserves_native_leaf_and_parent_icon_metadata(): void
+    {
+        $owner = $this->responsibilityUser(EmployeeRole::Owner);
+        $this->actingAs($owner);
+        $service = app(NavigationPreferenceService::class);
+
+        $authorized = $service->authorizedNavigation();
+        $personalized = $service->apply($owner, $authorized);
+        $items = $this->flattenItems($personalized);
+        $damagedReceipts = $items->first(fn (NavigationItem $item): bool => $item->getLabel() === 'Damaged / Rejected Receipts');
+
+        $this->assertInstanceOf(NavigationItem::class, $damagedReceipts);
+        $this->assertSame([], $damagedReceipts->getChildItems());
+        $this->assertNull($damagedReceipts->getIcon());
+
+        $items->each(function (NavigationItem $item): void {
+            if (filled($item->getChildItems())) {
+                $this->assertNotNull($item->getIcon(), "Navigation parent [{$item->getLabel()}] must retain its native icon.");
+            }
+        });
+    }
+
+    public function test_empty_structural_navigation_items_are_removed_without_becoming_parents(): void
+    {
+        $user = User::factory()->create();
+        $groups = [NavigationGroup::make('Empty')->items([NavigationItem::make('No destination')])];
+
+        $this->assertSame([], app(NavigationPreferenceService::class)->apply($user, $groups));
+    }
+
     /** @return array{NavigationGroup, NavigationGroup} */
     private function navigationGroups(): array
     {
@@ -96,5 +130,16 @@ class NavigationPreferenceTest extends TestCase
     private function itemKey(string $group, string $label, string $path): string
     {
         return 'item:'.hash('sha256', implode('|', [$group, '', $label, $path]));
+    }
+
+    private function flattenItems(array $groups): Collection
+    {
+        $flatten = function (NavigationItem $item) use (&$flatten): array {
+            return [$item, ...collect($item->getChildItems())->flatMap($flatten)->all()];
+        };
+
+        return collect($groups)
+            ->flatMap(fn (NavigationGroup $group): array => collect($group->getItems())->flatMap($flatten)->all())
+            ->values();
     }
 }

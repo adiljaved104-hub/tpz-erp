@@ -131,10 +131,10 @@ class NavigationPreferenceService
 
         $children = collect($item->getChildItems())
             ->map(fn (NavigationItem $child): ?NavigationItem => $this->filteredItem($child, $group, $key, $hidden))
-            ->filter()->values();
+            ->filter()->values()->all();
         $item->childItems($children);
 
-        if (blank($item->getUrl()) && $children->isEmpty()) {
+        if (blank($item->getUrl()) && $children === []) {
             return null;
         }
 

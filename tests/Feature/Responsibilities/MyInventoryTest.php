@@ -49,6 +49,23 @@ class MyInventoryTest extends TestCase
             ->assertDontSee('No active Product responsibilities.');
     }
 
+    public function test_desktop_inventory_details_render_in_a_full_width_responsive_row(): void
+    {
+        $foundation = $this->responsibilityFoundation();
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($foundation), $foundation['owner']);
+
+        Livewire::actingAs($foundation['employee']->user)->test(MyInventory::class)
+            ->assertOk()
+            ->assertSeeHtml('data-inventory-details-toggle')
+            ->assertSeeHtml('data-inventory-details-row')
+            ->assertSeeHtml('colspan="11"')
+            ->assertSeeHtml('sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6')
+            ->assertSee('Original Allocation')
+            ->assertSee('Outstanding Allocation')
+            ->assertSee('Remaining Assignable')
+            ->assertSee('Capacity');
+    }
+
     public function test_widgets_are_employee_scoped_and_ignore_unauthorized_inventory(): void
     {
         $f = $this->responsibilityFoundation(2, 0);

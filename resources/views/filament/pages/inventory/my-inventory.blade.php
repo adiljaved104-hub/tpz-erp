@@ -88,11 +88,19 @@
                                 @if (in_array('visible_because', $visibleColumns, true))<th class="min-w-64 px-4 py-3">Visible Because</th>@endif
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-100 dark:divide-white/5">
-                            @foreach ($inventoryRows as $row)
-                                <tr class="align-top">
+                        @foreach ($inventoryRows as $row)
+                            <tbody class="border-t border-gray-100 first:border-t-0 dark:border-white/5" x-data="{ detailsOpen: false }">
+                                <tr class="align-top" data-inventory-row>
                                     @if (in_array('product', $visibleColumns, true))
-                                        <td class="min-w-96 max-w-xl px-4 py-3"><p class="whitespace-normal break-words font-medium leading-5 text-gray-950 dark:text-white">{{ $row->name }}</p><p class="mt-1 whitespace-normal break-words text-xs font-medium text-gray-500">{{ $row->sku }}@if ($row->model) · {{ $row->model }}@endif</p><details class="mt-2 text-xs text-gray-500"><summary class="cursor-pointer font-medium text-primary-600 dark:text-primary-400">Inventory details</summary><dl class="mt-2 grid min-w-72 grid-cols-2 gap-x-4 gap-y-1"><dt>Available</dt><dd>{{ $row->available }}</dd><dt>Damaged</dt><dd>{{ $row->damaged }}</dd><dt>Original allocated</dt><dd>{{ $row->aggregate_assigned }}</dd><dt>Outstanding allocated</dt><dd>{{ $row->aggregate_outstanding }}</dd><dt>Remaining assignable</dt><dd>{{ $row->remaining_assignable }}</dd><dt>Capacity</dt><dd>{{ $row->capacity_status }}</dd>@if (property_exists($row, 'latest_purchase_cost'))<dt>Latest purchase cost</dt><dd>{{ $row->latest_purchase_cost !== null ? 'AED '.number_format((float) $row->latest_purchase_cost, 2) : '—' }}</dd>@endif</dl></details></td>
+                                        <td class="min-w-96 max-w-xl px-4 py-3">
+                                            <p class="whitespace-normal break-words font-medium leading-5 text-gray-950 dark:text-white">{{ $row->name }}</p>
+                                            <p class="mt-1 whitespace-normal break-words text-xs font-medium text-gray-500">{{ $row->sku }}@if ($row->model) · {{ $row->model }}@endif</p>
+                                            <button type="button" class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary-600 dark:text-primary-400" x-on:click="detailsOpen = ! detailsOpen" x-bind:aria-expanded="detailsOpen" data-inventory-details-toggle>
+                                                <span x-show="! detailsOpen">Inventory details</span>
+                                                <span x-show="detailsOpen" x-cloak>Hide inventory details</span>
+                                                <x-heroicon-m-chevron-down class="h-4 w-4 transition-transform" x-bind:class="detailsOpen && 'rotate-180'" />
+                                            </button>
+                                        </td>
                                     @endif
                                     @if (in_array('brand', $visibleColumns, true))<td class="px-4 py-3">{{ $row->brand ?: '—' }}</td>@endif
                                     @if (in_array('condition', $visibleColumns, true))<td class="px-4 py-3"><x-filament::badge color="gray">{{ $row->condition_label }}</x-filament::badge></td>@endif
@@ -102,11 +110,26 @@
                                     @if (in_array('reserved', $visibleColumns, true))<td class="whitespace-nowrap px-4 py-3 text-center">{{ $row->reserved }}</td>@endif
                                     @if (in_array('allocation_remaining', $visibleColumns, true))<td class="whitespace-nowrap px-4 py-3 text-center">@if ($row->is_quantity_limited)<span class="font-semibold">{{ $row->remaining_allocation }}</span><span class="block text-xs text-gray-500">of {{ $row->assigned_quantity }}</span>@else<span class="text-gray-500">Shared</span>@endif</td>@endif
                                     @if (in_array('usable_now', $visibleColumns, true))<td class="whitespace-nowrap px-4 py-3 text-center text-base font-semibold">{{ $row->employee_usable }}</td>@endif
-                                    @if (in_array('status', $visibleColumns, true))<td class="px-4 py-3">@if ($row->is_quantity_limited && $row->remaining_allocation === 0)<x-filament::badge color="gray">Allocation Exhausted</x-filament::badge>@elseif ($row->stock_status === 'out_of_stock')<x-filament::badge color="danger">Out of Stock</x-filament::badge>@elseif ($row->stock_status === 'low_stock')<x-filament::badge color="warning">Low Stock</x-filament::badge>@else<x-filament::badge color="success">In Stock</x-filament::badge>@endif</td>@endif
-                                    @if (in_array('visible_because', $visibleColumns, true))<td class="min-w-64 px-4 py-3"><div class="flex flex-wrap gap-1">@foreach ($row->visibility_reasons as $reason)<x-filament::badge color="gray" size="sm"><span class="whitespace-normal break-words">{{ $reason }}</span></x-filament::badge>@endforeach</div></td>@endif
+                                    @if (in_array('status', $visibleColumns, true))<td class="min-w-36 px-4 py-3">@if ($row->is_quantity_limited && $row->remaining_allocation === 0)<x-filament::badge color="gray" class="whitespace-nowrap">Allocation Exhausted</x-filament::badge>@elseif ($row->stock_status === 'out_of_stock')<x-filament::badge color="danger" class="whitespace-nowrap">Out of Stock</x-filament::badge>@elseif ($row->stock_status === 'low_stock')<x-filament::badge color="warning" class="whitespace-nowrap">Low Stock</x-filament::badge>@else<x-filament::badge color="success" class="whitespace-nowrap">In Stock</x-filament::badge>@endif</td>@endif
+                                    @if (in_array('visible_because', $visibleColumns, true))<td class="min-w-72 px-4 py-3"><div class="flex flex-wrap gap-1">@foreach ($row->visibility_reasons as $reason)<x-filament::badge color="gray" size="sm" class="max-w-none"><span class="whitespace-normal break-words">{{ $reason }}</span></x-filament::badge>@endforeach</div></td>@endif
                                 </tr>
-                            @endforeach
-                        </tbody>
+                                @if (in_array('product', $visibleColumns, true))
+                                    <tr x-show="detailsOpen" x-cloak data-inventory-details-row>
+                                        <td colspan="{{ max(1, count($visibleColumns)) }}" class="bg-gray-50/80 px-4 py-4 dark:bg-white/[0.03]">
+                                            <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                                                <div class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-900"><dt class="text-xs font-medium text-gray-500">Available</dt><dd class="mt-1 text-sm font-semibold text-gray-950 dark:text-white">{{ $row->available }}</dd></div>
+                                                <div class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-900"><dt class="text-xs font-medium text-gray-500">Damaged</dt><dd class="mt-1 text-sm font-semibold text-gray-950 dark:text-white">{{ $row->damaged }}</dd></div>
+                                                <div class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-900"><dt class="text-xs font-medium text-gray-500">Original Allocation</dt><dd class="mt-1 text-sm font-semibold text-gray-950 dark:text-white">{{ $row->aggregate_assigned }}</dd></div>
+                                                <div class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-900"><dt class="text-xs font-medium text-gray-500">Outstanding Allocation</dt><dd class="mt-1 text-sm font-semibold text-gray-950 dark:text-white">{{ $row->aggregate_outstanding }}</dd></div>
+                                                <div class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-900"><dt class="text-xs font-medium text-gray-500">Remaining Assignable</dt><dd class="mt-1 text-sm font-semibold text-gray-950 dark:text-white">{{ $row->remaining_assignable }}</dd></div>
+                                                <div class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-900"><dt class="text-xs font-medium text-gray-500">Capacity</dt><dd class="mt-1 whitespace-normal break-words text-sm font-semibold text-gray-950 dark:text-white">{{ $row->capacity_status }}</dd></div>
+                                                @if (property_exists($row, 'latest_purchase_cost'))<div class="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-900"><dt class="text-xs font-medium text-gray-500">Latest Purchase Cost</dt><dd class="mt-1 whitespace-nowrap text-sm font-semibold text-gray-950 dark:text-white">{{ $row->latest_purchase_cost !== null ? 'AED '.number_format((float) $row->latest_purchase_cost, 2) : '—' }}</dd></div>@endif
+                                            </dl>
+                                        </td>
+                                    </tr>
+                                @endif
+                            </tbody>
+                        @endforeach
                     </table>
                 </div>
 
@@ -117,7 +140,18 @@
                             @if (in_array('platform', $visibleColumns, true) || in_array('condition', $visibleColumns, true))<div class="mt-3 flex flex-wrap gap-1">@if (in_array('condition', $visibleColumns, true))<x-filament::badge color="gray" size="sm">{{ $row->condition_label }}</x-filament::badge>@endif @if (in_array('platform', $visibleColumns, true))@foreach ($row->platforms as $item)<x-filament::badge color="info" size="sm"><span class="whitespace-normal">{{ $item }}</span></x-filament::badge>@endforeach @endif</div>@endif
                             <dl class="mt-3 grid grid-cols-2 gap-3 text-sm">@if (in_array('brand', $visibleColumns, true))<div><dt class="text-xs text-gray-500">Brand</dt><dd>{{ $row->brand ?: '—' }}</dd></div>@endif @if (in_array('location', $visibleColumns, true))<div><dt class="text-xs text-gray-500">Location</dt><dd class="break-words">{{ $row->warehouse ?: 'No balance' }}</dd></div>@endif @if (in_array('physical_sellable', $visibleColumns, true))<div><dt class="text-xs text-gray-500">Physical Sellable</dt><dd>{{ $row->sellable }}</dd></div>@endif @if (in_array('allocation_remaining', $visibleColumns, true))<div><dt class="text-xs text-gray-500">Allocation Remaining</dt><dd>{{ $row->is_quantity_limited ? $row->remaining_allocation.' of '.$row->assigned_quantity : 'Shared' }}</dd></div>@endif @if (in_array('usable_now', $visibleColumns, true))<div><dt class="text-xs text-gray-500">Usable Now</dt><dd class="font-semibold">{{ $row->employee_usable }}</dd></div>@endif @if (in_array('reserved', $visibleColumns, true))<div><dt class="text-xs text-gray-500">Reserved</dt><dd>{{ $row->reserved }}</dd></div>@endif</dl>
                             @if (in_array('visible_because', $visibleColumns, true))<div class="mt-3 flex flex-wrap gap-1">@foreach ($row->visibility_reasons as $reason)<x-filament::badge color="gray" size="sm"><span class="whitespace-normal break-words">{{ $reason }}</span></x-filament::badge>@endforeach</div>@endif
-                            <details class="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500 dark:border-white/5"><summary class="cursor-pointer font-medium text-primary-600 dark:text-primary-400">More inventory details</summary><p class="mt-2">Available {{ $row->available }} · Damaged {{ $row->damaged }} · Capacity {{ $row->capacity_status }}</p>@if (property_exists($row, 'latest_purchase_cost'))<p class="mt-1">Latest purchase cost: {{ $row->latest_purchase_cost !== null ? 'AED '.number_format((float) $row->latest_purchase_cost, 2) : '—' }}</p>@endif</details>
+                            <details class="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-500 dark:border-white/5">
+                                <summary class="cursor-pointer font-medium text-primary-600 dark:text-primary-400">More inventory details</summary>
+                                <dl class="mt-3 grid grid-cols-2 gap-3">
+                                    <div class="min-w-0"><dt>Available</dt><dd class="mt-0.5 font-semibold text-gray-950 dark:text-white">{{ $row->available }}</dd></div>
+                                    <div class="min-w-0"><dt>Damaged</dt><dd class="mt-0.5 font-semibold text-gray-950 dark:text-white">{{ $row->damaged }}</dd></div>
+                                    <div class="min-w-0"><dt>Original Allocation</dt><dd class="mt-0.5 font-semibold text-gray-950 dark:text-white">{{ $row->aggregate_assigned }}</dd></div>
+                                    <div class="min-w-0"><dt>Outstanding Allocation</dt><dd class="mt-0.5 font-semibold text-gray-950 dark:text-white">{{ $row->aggregate_outstanding }}</dd></div>
+                                    <div class="min-w-0"><dt>Remaining Assignable</dt><dd class="mt-0.5 font-semibold text-gray-950 dark:text-white">{{ $row->remaining_assignable }}</dd></div>
+                                    <div class="min-w-0"><dt>Capacity</dt><dd class="mt-0.5 break-words font-semibold text-gray-950 dark:text-white">{{ $row->capacity_status }}</dd></div>
+                                    @if (property_exists($row, 'latest_purchase_cost'))<div class="col-span-2 min-w-0"><dt>Latest Purchase Cost</dt><dd class="mt-0.5 font-semibold text-gray-950 dark:text-white">{{ $row->latest_purchase_cost !== null ? 'AED '.number_format((float) $row->latest_purchase_cost, 2) : '—' }}</dd></div>@endif
+                                </dl>
+                            </details>
                         </article>
                     @endforeach
                 </div>

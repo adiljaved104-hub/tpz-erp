@@ -108,6 +108,34 @@ class NavigationPreferenceTest extends TestCase
         $this->assertSame([], app(NavigationPreferenceService::class)->apply($user, $groups));
     }
 
+    public function test_customizer_normalizes_string_group_keys_and_preserves_default_and_saved_order(): void
+    {
+        [$inventory, $sales] = $this->navigationGroups();
+        $user = User::factory()->create();
+        $preferences = app(UserUiPreferenceService::class);
+        $service = new class($preferences, ['inventory' => $inventory, 'sales' => $sales]) extends NavigationPreferenceService
+        {
+            public function __construct(UserUiPreferenceService $preferences, private readonly array $groups)
+            {
+                parent::__construct($preferences);
+            }
+
+            public function authorizedNavigation(): array
+            {
+                return $this->groups;
+            }
+        };
+
+        $this->assertSame(['Inventory', 'Sales'], collect($service->customizerGroups($user))->pluck('label')->all());
+
+        $preferences->put($user, UserUiPreferenceService::NAVIGATION_GROUP_ORDER, [
+            $this->groupKey('Sales'),
+            $this->groupKey('Inventory'),
+        ]);
+
+        $this->assertSame(['Sales', 'Inventory'], collect($service->customizerGroups($user))->pluck('label')->all());
+    }
+
     /** @return array{NavigationGroup, NavigationGroup} */
     private function navigationGroups(): array
     {

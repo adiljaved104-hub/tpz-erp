@@ -81,7 +81,8 @@ class NavigationPreferenceService
                 'label' => $label,
                 'items' => $this->itemDefinitions(collect($group->getItems()), $label, '', $hidden),
             ];
-        })->sortBy(fn (array $group, int $index): array => [$positions[$group['key']] ?? PHP_INT_MAX, $index])
+        })->values()
+            ->sortBy(fn (array $group, int $index): array => [$positions[$group['key']] ?? PHP_INT_MAX, $index])
             ->values()->all();
     }
 

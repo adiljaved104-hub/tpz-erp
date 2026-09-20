@@ -26,6 +26,11 @@ class ResponsibilityReportService
             'by_category' => $this->scopeCounts('responsibility_assignment_categories', 'product_category_id'),
             'by_platform' => $this->scopeCounts('responsibility_assignment_platforms', 'marketplace_platform_id'),
             'by_warehouse' => $this->scopeCounts('responsibility_assignment_warehouses', 'warehouse_id'),
+            'by_condition' => DB::table('responsibility_assignment_conditions as scope')
+                ->join('responsibility_assignments as ra', 'ra.id', '=', 'scope.assignment_id')
+                ->where('ra.status', ResponsibilityAssignmentStatus::Active->value)
+                ->select('scope.product_condition as condition', DB::raw('COUNT(*) as assignments'))
+                ->groupBy('scope.product_condition')->get(),
             'by_product' => $this->productCounts(),
             'over_assigned' => $this->overAssigned(),
             'unassigned_products' => $this->unassignedProducts(),
@@ -146,20 +151,27 @@ class ResponsibilityReportService
     {
         $direct = DB::table('responsibility_assignment_products as rap')->join('responsibility_assignments as ra', 'ra.id', '=', 'rap.assignment_id')->where('ra.status', 'active')->select('rap.product_id');
         $quantity = DB::table('inventory_responsibility_quantities as irq')->join('responsibility_assignments as ra', 'ra.id', '=', 'irq.assignment_id')->join('product_inventories as pi', 'pi.id', '=', 'irq.product_inventory_id')->where('ra.status', 'active')->select('pi.product_id');
-        $warehouse = DB::table('responsibility_assignment_warehouses as raw')->join('responsibility_assignments as ra', 'ra.id', '=', 'raw.assignment_id')->join('product_inventories as pi', 'pi.warehouse_id', '=', 'raw.warehouse_id')->where('ra.status', 'active')->select('pi.product_id');
+        $warehouse = DB::table('responsibility_assignment_warehouses as raw')->join('responsibility_assignments as ra', 'ra.id', '=', 'raw.assignment_id')->join('product_inventories as pi', 'pi.warehouse_id', '=', 'raw.warehouse_id')->join('products as warehouse_product', 'warehouse_product.id', '=', 'pi.product_id')->where('ra.status', 'active')
+            ->where(fn ($condition) => $condition->whereNotExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as warehouse_condition_none')->whereColumn('warehouse_condition_none.assignment_id', 'ra.id'))
+                ->orWhereExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as warehouse_condition_match')->whereColumn('warehouse_condition_match.assignment_id', 'ra.id')->whereColumn('warehouse_condition_match.product_condition', 'warehouse_product.condition')))
+            ->select('pi.product_id');
         $dimensionProductIds = DB::table('products as dimension_product')
             ->whereExists(function ($assignment): void {
                 $assignment->selectRaw('1')->from('responsibility_assignments as dimension_ra')
                     ->where('dimension_ra.status', ResponsibilityAssignmentStatus::Active->value)
                     ->where(function ($present): void {
                         $present->whereExists(fn ($brand) => $brand->selectRaw('1')->from('responsibility_assignment_brands as dimension_brand_present')->whereColumn('dimension_brand_present.assignment_id', 'dimension_ra.id'))
-                            ->orWhereExists(fn ($category) => $category->selectRaw('1')->from('responsibility_assignment_categories as dimension_category_present')->whereColumn('dimension_category_present.assignment_id', 'dimension_ra.id'));
+                            ->orWhereExists(fn ($category) => $category->selectRaw('1')->from('responsibility_assignment_categories as dimension_category_present')->whereColumn('dimension_category_present.assignment_id', 'dimension_ra.id'))
+                            ->orWhereExists(fn ($condition) => $condition->selectRaw('1')->from('responsibility_assignment_conditions as dimension_condition_present')->whereColumn('dimension_condition_present.assignment_id', 'dimension_ra.id'));
                     })->where(function ($brand): void {
                         $brand->whereNotExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as dimension_brand_none')->whereColumn('dimension_brand_none.assignment_id', 'dimension_ra.id'))
                             ->orWhereExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as dimension_brand_match')->whereColumn('dimension_brand_match.assignment_id', 'dimension_ra.id')->whereColumn('dimension_brand_match.product_brand_id', 'dimension_product.brand_id'));
                     })->where(function ($category): void {
                         $category->whereNotExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as dimension_category_none')->whereColumn('dimension_category_none.assignment_id', 'dimension_ra.id'))
                             ->orWhereExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as dimension_category_match')->whereColumn('dimension_category_match.assignment_id', 'dimension_ra.id')->whereColumn('dimension_category_match.product_category_id', 'dimension_product.category_id'));
+                    })->where(function ($condition): void {
+                        $condition->whereNotExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as dimension_condition_none')->whereColumn('dimension_condition_none.assignment_id', 'dimension_ra.id'))
+                            ->orWhereExists(fn ($scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as dimension_condition_match')->whereColumn('dimension_condition_match.assignment_id', 'dimension_ra.id')->whereColumn('dimension_condition_match.product_condition', 'dimension_product.condition'));
                     });
             })->pluck('dimension_product.id');
         $assignedIds = $direct->union($quantity)->union($warehouse)->pluck('product_id')->merge($dimensionProductIds)->unique();

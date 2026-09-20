@@ -43,6 +43,7 @@ use App\Enums\TaskPermission;
 use App\Enums\UpgradePermission;
 use App\Enums\WarrantyRepairPermission;
 use App\Enums\WebSalesPermission;
+use App\Filament\Navigation\PersonalizedNavigationManager;
 use App\Http\Responses\Auth\LoginResponse;
 use App\Models\ActivityLog;
 use App\Models\AttendancePolicy;
@@ -205,6 +206,7 @@ use App\Services\Authorization\UpgradeAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Hikvision\HikvisionAttendanceImporter;
+use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\ProductIntelligence\LocalProductQueryInterpreter;
 use App\Services\Reports\Providers\CoreReportProvider;
 use App\Services\Reports\Providers\ExpenseReportProvider;
@@ -214,6 +216,7 @@ use App\Services\Reports\Providers\WebSalesReportProvider;
 use App\Services\Reports\ReportRegistry;
 use App\Services\ServiceCases\ServiceCaseAssigneeService;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
+use Filament\Navigation\NavigationManager;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
@@ -254,6 +257,8 @@ class AppServiceProvider extends ServiceProvider
             fn ($app): ReportRegistry => new ReportRegistry($app->tagged('reports.providers')),
         );
         $this->app->scoped(ServiceCaseAssigneeService::class);
+        $this->app->scoped(NavigationPreferenceService::class);
+        $this->app->scoped(NavigationManager::class, fn (): NavigationManager => new PersonalizedNavigationManager);
     }
 
     /**

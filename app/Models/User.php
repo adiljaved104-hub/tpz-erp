@@ -85,6 +85,11 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasMany(UserDashboardPreference::class);
     }
 
+    public function uiPreferences(): HasMany
+    {
+        return $this->hasMany(UserUiPreference::class);
+    }
+
     public function createdConversations(): HasMany
     {
         return $this->hasMany(Conversation::class, 'created_by_user_id');

@@ -53,7 +53,11 @@ class ResponsibilityProductScopeService
                     ->where('warehouse_ra.employee_id', $employeeId)
                     ->where('warehouse_ra.status', ResponsibilityAssignmentStatus::Active->value)
                     ->whereNull('warehouse_ra.ended_at')
-                    ->whereColumn('warehouse_pi.product_id', $qualifiedProductColumn);
+                    ->whereColumn('warehouse_pi.product_id', $qualifiedProductColumn)
+                    ->where(function (Builder $condition) use ($qualifiedProductColumn): void {
+                        $condition->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as warehouse_condition_none')->whereColumn('warehouse_condition_none.assignment_id', 'warehouse_ra.id'))
+                            ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as warehouse_condition_match')->join('products as warehouse_condition_product', 'warehouse_condition_product.condition', '=', 'warehouse_condition_match.product_condition')->whereColumn('warehouse_condition_match.assignment_id', 'warehouse_ra.id')->whereColumn('warehouse_condition_product.id', $qualifiedProductColumn));
+                    });
             })->orWhereExists(function (Builder $dimensions) use ($employeeId, $qualifiedProductColumn): void {
                 $dimensions->selectRaw('1')
                     ->from('responsibility_assignments as dimension_ra')
@@ -113,6 +117,16 @@ class ResponsibilityProductScopeService
                             ->whereColumn('inventory_platform_scope.assignment_id', 'inventory_ra.id')
                             ->whereColumn('inventory_platform_warehouse.id', "{$inventoryAlias}.warehouse_id"));
                 })
+                ->where(function (Builder $condition) use ($inventoryAlias): void {
+                    $condition->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
+                        ->from('responsibility_assignment_conditions as inventory_condition_none')
+                        ->whereColumn('inventory_condition_none.assignment_id', 'inventory_ra.id'))
+                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                            ->from('responsibility_assignment_conditions as inventory_condition_match')
+                            ->join('products as inventory_condition_product', 'inventory_condition_product.condition', '=', 'inventory_condition_match.product_condition')
+                            ->whereColumn('inventory_condition_match.assignment_id', 'inventory_ra.id')
+                            ->whereColumn('inventory_condition_product.id', "{$inventoryAlias}.product_id"));
+                })
                 ->where(function (Builder $product) use ($inventoryAlias): void {
                     $product->whereExists(fn (Builder $scope) => $scope->selectRaw('1')
                         ->from('responsibility_assignment_products as inventory_product_scope')
@@ -134,6 +148,7 @@ class ResponsibilityProductScopeService
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_products as inventory_no_product')->whereColumn('inventory_no_product.assignment_id', 'inventory_ra.id'))
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as inventory_no_brand')->whereColumn('inventory_no_brand.assignment_id', 'inventory_ra.id'))
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as inventory_no_category')->whereColumn('inventory_no_category.assignment_id', 'inventory_ra.id'))
+                                ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as inventory_no_condition')->whereColumn('inventory_no_condition.assignment_id', 'inventory_ra.id'))
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as inventory_no_quantity')->whereColumn('inventory_no_quantity.assignment_id', 'inventory_ra.id'))
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_warehouses as inventory_no_warehouse')->whereColumn('inventory_no_warehouse.assignment_id', 'inventory_ra.id'));
                         });
@@ -158,31 +173,46 @@ class ResponsibilityProductScopeService
 
     private function matchingProductDimensions(Builder $query, string $productColumn, string $assignmentAlias): void
     {
-        $query->where(function (Builder $present) use ($assignmentAlias): void {
-            $present->whereExists(fn (Builder $scope) => $scope->selectRaw('1')
-                ->from('responsibility_assignment_brands as dimension_brand_present')
-                ->whereColumn('dimension_brand_present.assignment_id', "{$assignmentAlias}.id"))
-                ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
-                    ->from('responsibility_assignment_categories as dimension_category_present')
-                    ->whereColumn('dimension_category_present.assignment_id', "{$assignmentAlias}.id"));
-        })->where(function (Builder $brand) use ($productColumn, $assignmentAlias): void {
-            $brand->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
-                ->from('responsibility_assignment_brands as dimension_brand_none')
-                ->whereColumn('dimension_brand_none.assignment_id', "{$assignmentAlias}.id"))
-                ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
-                    ->from('responsibility_assignment_brands as dimension_brand_match')
-                    ->join('products as dimension_brand_product', 'dimension_brand_product.brand_id', '=', 'dimension_brand_match.product_brand_id')
-                    ->whereColumn('dimension_brand_match.assignment_id', "{$assignmentAlias}.id")
-                    ->whereColumn('dimension_brand_product.id', $productColumn));
-        })->where(function (Builder $category) use ($productColumn, $assignmentAlias): void {
-            $category->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
-                ->from('responsibility_assignment_categories as dimension_category_none')
-                ->whereColumn('dimension_category_none.assignment_id', "{$assignmentAlias}.id"))
-                ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
-                    ->from('responsibility_assignment_categories as dimension_category_match')
-                    ->join('products as dimension_category_product', 'dimension_category_product.category_id', '=', 'dimension_category_match.product_category_id')
-                    ->whereColumn('dimension_category_match.assignment_id', "{$assignmentAlias}.id")
-                    ->whereColumn('dimension_category_product.id', $productColumn));
-        });
+        $query->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
+            ->from('responsibility_assignment_warehouses as dimension_warehouse')
+            ->whereColumn('dimension_warehouse.assignment_id', "{$assignmentAlias}.id"))
+            ->where(function (Builder $present) use ($assignmentAlias): void {
+                $present->whereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                    ->from('responsibility_assignment_brands as dimension_brand_present')
+                    ->whereColumn('dimension_brand_present.assignment_id', "{$assignmentAlias}.id"))
+                    ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                        ->from('responsibility_assignment_categories as dimension_category_present')
+                        ->whereColumn('dimension_category_present.assignment_id', "{$assignmentAlias}.id"))
+                    ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                        ->from('responsibility_assignment_conditions as dimension_condition_present')
+                        ->whereColumn('dimension_condition_present.assignment_id', "{$assignmentAlias}.id"));
+            })->where(function (Builder $brand) use ($productColumn, $assignmentAlias): void {
+                $brand->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
+                    ->from('responsibility_assignment_brands as dimension_brand_none')
+                    ->whereColumn('dimension_brand_none.assignment_id', "{$assignmentAlias}.id"))
+                    ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                        ->from('responsibility_assignment_brands as dimension_brand_match')
+                        ->join('products as dimension_brand_product', 'dimension_brand_product.brand_id', '=', 'dimension_brand_match.product_brand_id')
+                        ->whereColumn('dimension_brand_match.assignment_id', "{$assignmentAlias}.id")
+                        ->whereColumn('dimension_brand_product.id', $productColumn));
+            })->where(function (Builder $category) use ($productColumn, $assignmentAlias): void {
+                $category->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
+                    ->from('responsibility_assignment_categories as dimension_category_none')
+                    ->whereColumn('dimension_category_none.assignment_id', "{$assignmentAlias}.id"))
+                    ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                        ->from('responsibility_assignment_categories as dimension_category_match')
+                        ->join('products as dimension_category_product', 'dimension_category_product.category_id', '=', 'dimension_category_match.product_category_id')
+                        ->whereColumn('dimension_category_match.assignment_id', "{$assignmentAlias}.id")
+                        ->whereColumn('dimension_category_product.id', $productColumn));
+            })->where(function (Builder $condition) use ($productColumn, $assignmentAlias): void {
+                $condition->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
+                    ->from('responsibility_assignment_conditions as dimension_condition_none')
+                    ->whereColumn('dimension_condition_none.assignment_id', "{$assignmentAlias}.id"))
+                    ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                        ->from('responsibility_assignment_conditions as dimension_condition_match')
+                        ->join('products as dimension_condition_product', 'dimension_condition_product.condition', '=', 'dimension_condition_match.product_condition')
+                        ->whereColumn('dimension_condition_match.assignment_id', "{$assignmentAlias}.id")
+                        ->whereColumn('dimension_condition_product.id', $productColumn));
+            });
     }
 }

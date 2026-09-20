@@ -40,6 +40,7 @@ class ResponsibilityAssignmentsTable
             TextColumn::make('team_name_at_assignment')->label('Team')->placeholder('—'),
             TextColumn::make('brandScope.brand.name')->label('Brand')->placeholder('—'),
             TextColumn::make('categoryScope.category.name')->label('Category')->placeholder('—'),
+            TextColumn::make('conditionScope.product_condition')->label('Condition')->formatStateUsing(fn ($state): string => $state?->label() ?? '—')->placeholder('—'),
             TextColumn::make('platformScope.platform.name')->label('Platform')->placeholder('—'),
             TextColumn::make('product_display')->label('Product')->state(fn (ResponsibilityAssignment $record): ?string => $record->productScope?->product?->name ?? $record->quantityScope?->inventory?->product?->name)->placeholder('—')->wrap(),
             TextColumn::make('warehouse_display')->label('Warehouse')->state(fn (ResponsibilityAssignment $record): ?string => $record->warehouseScope?->warehouse?->name ?? $record->quantityScope?->inventory?->warehouse?->name)->placeholder('—'),

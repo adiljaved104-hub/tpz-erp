@@ -4,6 +4,8 @@ namespace Tests\Feature\Responsibilities;
 
 use App\Actions\Responsibilities\CreateResponsibilityAssignment;
 use App\Enums\EmployeePermissionEffect;
+use App\Enums\EmployeeRole;
+use App\Enums\ProductCondition;
 use App\Enums\ResponsibilityAssignmentMode;
 use App\Filament\Pages\Inventory\MyInventory;
 use App\Models\EmployeePermissionOverride;
@@ -370,7 +372,7 @@ class MyInventoryTest extends TestCase
         DB::disableQueryLog();
 
         $this->assertCount(13, $rows);
-        $this->assertLessThanOrEqual(15, $queries, 'My Inventory must batch-load Product visibility and stock context.');
+        $this->assertLessThanOrEqual(16, $queries, 'My Inventory must batch-load Product visibility, Condition scope, and stock context.');
     }
 
     public function test_employee_inventory_is_paginated_with_sensible_per_page_controls(): void
@@ -388,6 +390,43 @@ class MyInventoryTest extends TestCase
             ->set('perPage', 10)
             ->assertViewHas('inventoryRows', fn ($rows): bool => $rows->total() === 31 && $rows->count() === 10 && $rows->perPage() === 10)
             ->assertSee('Per page');
+    }
+
+    public function test_condition_is_visible_filterable_and_long_product_titles_are_not_clamped(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $longTitle = 'HP EliteBook Renewed Business Laptop with a deliberately complete descriptive product title';
+        $f['product']->forceFill(['condition' => ProductCondition::Renewed, 'name' => $longTitle])->save();
+        $other = Product::factory()->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name, 'condition' => ProductCondition::New]);
+        ProductInventory::factory()->create(['product_id' => $other->id, 'warehouse_id' => $f['inventory']->warehouse_id]);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
+
+        Livewire::actingAs($f['employee']->user)->test(MyInventory::class)
+            ->assertSee($longTitle)
+            ->assertSee('Renewed')
+            ->assertSee('Condition')
+            ->set('condition', ProductCondition::Renewed->value)
+            ->assertViewHas('inventoryRows', fn ($rows): bool => $rows->pluck('product_id')->all() === [$f['product']->id])
+            ->assertDontSeeHtml('line-clamp-2 font-medium leading-5');
+    }
+
+    public function test_column_preferences_are_isolated_per_user_and_reset_to_defaults(): void
+    {
+        $first = $this->responsibilityFoundation();
+        $second = $this->responsibilityUser(EmployeeRole::Staff);
+
+        Livewire::actingAs($first['employee']->user)->test(MyInventory::class)
+            ->assertSet('visibleColumns', fn (array $columns): bool => in_array('condition', $columns, true))
+            ->call('toggleInventoryColumn', 'condition')
+            ->assertSet('visibleColumns', fn (array $columns): bool => ! in_array('condition', $columns, true));
+
+        Livewire::actingAs($second)->test(MyInventory::class)
+            ->assertSet('visibleColumns', fn (array $columns): bool => in_array('condition', $columns, true));
+
+        Livewire::actingAs($first['employee']->user)->test(MyInventory::class)
+            ->call('resetInventoryColumns')
+            ->assertSet('visibleColumns', fn (array $columns): bool => in_array('condition', $columns, true));
+        $this->assertDatabaseMissing('user_ui_preferences', ['user_id' => $first['employee']->user_id, 'preference_key' => 'my_inventory.columns']);
     }
 
     private function assignProduct(array $foundation, Product $product, ?int $platformId = null): void

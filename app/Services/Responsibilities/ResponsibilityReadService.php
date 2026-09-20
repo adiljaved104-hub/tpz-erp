@@ -2,6 +2,7 @@
 
 namespace App\Services\Responsibilities;
 
+use App\Enums\ProductCondition;
 use App\Enums\PurchasePermission;
 use App\Enums\ResponsibilityAssignmentStatus;
 use App\Enums\ResponsibilityPermission;
@@ -28,6 +29,7 @@ class ResponsibilityReadService
             'employee.team', 'assignedBy', 'endedBy', 'brandScope.brand', 'platformScope.platform',
             'categoryScope.category', 'productScope.product.brandRelation', 'quantityScope.inventory.product.brandRelation', 'quantityScope.inventory.warehouse',
             'warehouseScope.warehouse',
+            'conditionScope',
         ]);
 
         $query->addSelect([
@@ -84,7 +86,7 @@ class ResponsibilityReadService
             $productIds = collect();
             $reason = null;
 
-            if ($assignment->brandScope !== null || $assignment->categoryScope !== null) {
+            if ($assignment->warehouseScope === null && ($assignment->brandScope !== null || $assignment->categoryScope !== null || $assignment->conditionScope !== null)) {
                 $products = DB::table('products');
                 if ($assignment->brandScope !== null) {
                     $products->where('brand_id', $assignment->brandScope->product_brand_id);
@@ -92,13 +94,17 @@ class ResponsibilityReadService
                 if ($assignment->categoryScope !== null) {
                     $products->where('category_id', $assignment->categoryScope->product_category_id);
                 }
+                if ($assignment->conditionScope !== null) {
+                    $products->where('condition', $assignment->conditionScope->product_condition->value);
+                }
 
                 $productIds = $products->pluck('id');
                 $reason = collect([
+                    $assignment->conditionScope?->product_condition?->label(),
                     $assignment->categoryScope?->category?->name ? 'Category: '.$assignment->categoryScope->category->name : null,
                     $assignment->brandScope?->brand?->name ? 'Brand: '.$assignment->brandScope->brand->name : null,
                     $platform ? 'Platform: '.$platform : null,
-                ])->filter()->implode(' + ');
+                ])->filter()->implode(' · ');
             }
 
             if ($assignment->productScope !== null) {
@@ -117,10 +123,16 @@ class ResponsibilityReadService
 
             if ($assignment->warehouseScope !== null) {
                 $warehouse = $assignment->warehouseScope->warehouse;
-                $inventoryIds = DB::table('product_inventories')
-                    ->where('warehouse_id', $warehouse->id)
-                    ->pluck('id');
-                $warehouseReason = 'Warehouse: '.$warehouse->name.($platform ? ' + Platform: '.$platform : '');
+                $inventoryIds = DB::table('product_inventories as scoped_inventory')
+                    ->join('products as scoped_product', 'scoped_product.id', '=', 'scoped_inventory.product_id')
+                    ->where('scoped_inventory.warehouse_id', $warehouse->id)
+                    ->when($assignment->conditionScope !== null, fn ($query) => $query->where('scoped_product.condition', $assignment->conditionScope->product_condition->value))
+                    ->pluck('scoped_inventory.id');
+                $warehouseReason = collect([
+                    $assignment->conditionScope?->product_condition?->label(),
+                    'Warehouse: '.$warehouse->name,
+                    $platform ? 'Platform: '.$platform : null,
+                ])->filter()->implode(' · ');
 
                 foreach ($inventoryIds as $inventoryId) {
                     $inventoryReasons[$inventoryId][] = $warehouseReason;
@@ -130,7 +142,7 @@ class ResponsibilityReadService
                 }
             }
 
-            if ($assignment->platformScope !== null && $assignment->brandScope === null && $assignment->categoryScope === null && $assignment->productScope === null && $assignment->quantityScope === null && $assignment->warehouseScope === null) {
+            if ($assignment->platformScope !== null && $assignment->brandScope === null && $assignment->categoryScope === null && $assignment->conditionScope === null && $assignment->productScope === null && $assignment->quantityScope === null && $assignment->warehouseScope === null) {
                 $productIds = DB::table('products')->pluck('id');
                 $reason = 'Platform: '.$platform;
             }
@@ -161,7 +173,7 @@ class ResponsibilityReadService
                     $visible->{$method}('pi.id', array_keys($inventoryReasons));
                 }
             })
-            ->select(['p.id as product_id', 'p.name', 'p.sku', 'p.model', 'b.name as brand', 'c.name as category', 'pi.id as inventory_id', 'w.id as warehouse_id', 'w.name as warehouse', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity']);
+            ->select(['p.id as product_id', 'p.name', 'p.sku', 'p.model', 'p.condition', 'b.name as brand', 'c.name as category', 'pi.id as inventory_id', 'w.id as warehouse_id', 'w.name as warehouse', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity']);
 
         if ($this->purchaseAuthorization->allows($user, PurchasePermission::ViewCostHistory)) {
             $latestCost = DB::table('purchase_receipt_items as latest_pri')
@@ -184,6 +196,7 @@ class ResponsibilityReadService
 
         return $rows->map(function (object $row) use ($productReasons, $platforms, $inventoryReasons, $inventoryPlatforms, $ownQuantities, $ownRemaining, $capacity): object {
             $row->available = (int) ($row->available_quantity ?? 0);
+            $row->condition_label = ProductCondition::tryFrom((string) $row->condition)?->label() ?? '—';
             $row->reserved = (int) ($row->reserved_quantity ?? 0);
             $row->sellable = $row->available - $row->reserved;
             $row->damaged = (int) ($row->damaged_quantity ?? 0);
@@ -230,6 +243,7 @@ class ResponsibilityReadService
                 $product = $assignment->productScope?->product?->name ?? $assignment->quantityScope?->inventory?->product?->name;
                 $parts = collect([
                     $assignment->warehouseScope?->warehouse?->name,
+                    $assignment->conditionScope?->product_condition?->label(),
                     $assignment->categoryScope?->category?->name,
                     $assignment->brandScope?->brand?->name,
                     $product,
@@ -265,6 +279,7 @@ class ResponsibilityReadService
                 'category' => $assignment->categoryScope?->category?->name,
                 'product' => $assignment->productScope?->product?->name ?? $assignment->quantityScope?->inventory?->product?->name,
                 'warehouse' => $assignment->warehouseScope?->warehouse?->name,
+                'condition' => $assignment->conditionScope?->product_condition?->label(),
             ]);
     }
 
@@ -275,6 +290,7 @@ class ResponsibilityReadService
             $assignment->brandScope !== null ? 'Brand' : null,
             $assignment->productScope !== null ? 'Product' : null,
             $assignment->warehouseScope !== null ? 'Warehouse' : null,
+            $assignment->conditionScope !== null ? 'Condition' : null,
             $assignment->platformScope !== null ? 'Platform' : null,
         ])->filter()->implode(' + ');
     }

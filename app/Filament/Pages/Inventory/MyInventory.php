@@ -5,6 +5,7 @@ namespace App\Filament\Pages\Inventory;
 use App\Enums\ResponsibilityPermission;
 use App\Models\User;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\Inventory\MyInventoryColumnRegistry;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -23,6 +24,8 @@ class MyInventory extends Page
 
     public string $category = '';
 
+    public string $condition = '';
+
     public string $platform = '';
 
     public string $warehouse = '';
@@ -34,6 +37,9 @@ class MyInventory extends Page
     public string $visibleBecause = '';
 
     public int $perPage = 25;
+
+    /** @var array<int, string> */
+    public array $visibleColumns = [];
 
     protected string $view = 'filament.pages.inventory.my-inventory';
 
@@ -55,6 +61,7 @@ class MyInventory extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+        $this->visibleColumns = app(MyInventoryColumnRegistry::class)->resolve(auth()->user());
     }
 
     public function getViewData(): array
@@ -75,6 +82,7 @@ class MyInventory extends Page
                 'out' => $allRows->where('stock_status', 'out_of_stock')->count(),
             ],
             'filterOptions' => $this->filterOptions($allRows),
+            'columnDefinitions' => app(MyInventoryColumnRegistry::class)->columns(),
         ];
     }
 
@@ -86,13 +94,13 @@ class MyInventory extends Page
 
     public function resetInventoryFilters(): void
     {
-        $this->reset('search', 'brand', 'category', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause');
+        $this->reset('search', 'brand', 'category', 'condition', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause');
         $this->resetPage();
     }
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['search', 'brand', 'category', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause', 'perPage'], true)) {
+        if (in_array($property, ['search', 'brand', 'category', 'condition', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause', 'perPage'], true)) {
             $this->resetPage();
         }
     }
@@ -110,6 +118,9 @@ class MyInventory extends Page
                 return false;
             }
             if ($this->category !== '' && $row->category !== $this->category) {
+                return false;
+            }
+            if ($this->condition !== '' && $row->condition !== $this->condition) {
                 return false;
             }
             if ($this->platform !== '' && ! in_array($this->platform, $row->platforms, true)) {
@@ -146,11 +157,31 @@ class MyInventory extends Page
         return [
             'brands' => $values($rows->pluck('brand')),
             'categories' => $values($rows->pluck('category')),
+            'conditions' => $rows->pluck('condition_label', 'condition')->filter()->sort()->all(),
             'platforms' => $values($rows->flatMap(fn (object $row): array => $row->platforms)),
             'warehouses' => $values($rows->pluck('warehouse')),
             'reasons' => $values($rows->flatMap(fn (object $row): array => $row->visibility_reasons)),
             'hasNoBalance' => $rows->contains(fn (object $row): bool => $row->warehouse === null),
         ];
+    }
+
+    public function toggleInventoryColumn(string $column): void
+    {
+        $registry = app(MyInventoryColumnRegistry::class);
+        abort_unless(array_key_exists($column, $registry->columns()), 422);
+
+        $this->visibleColumns = in_array($column, $this->visibleColumns, true)
+            ? array_values(array_diff($this->visibleColumns, [$column]))
+            : [...$this->visibleColumns, $column];
+        $registry->save(auth()->user(), $this->visibleColumns);
+        $this->visibleColumns = $registry->resolve(auth()->user());
+    }
+
+    public function resetInventoryColumns(): void
+    {
+        $registry = app(MyInventoryColumnRegistry::class);
+        $registry->reset(auth()->user());
+        $this->visibleColumns = $registry->defaults();
     }
 
     /** @param Collection<int, object> $rows */

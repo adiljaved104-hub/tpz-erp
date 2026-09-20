@@ -95,6 +95,11 @@ class ResponsibilityAssignment extends Model
         return $this->hasOne(ResponsibilityAssignmentWarehouse::class, 'assignment_id');
     }
 
+    public function conditionScope(): HasOne
+    {
+        return $this->hasOne(ResponsibilityAssignmentCondition::class, 'assignment_id');
+    }
+
     public function quantityScope(): HasOne
     {
         return $this->hasOne(InventoryResponsibilityQuantity::class, 'assignment_id');

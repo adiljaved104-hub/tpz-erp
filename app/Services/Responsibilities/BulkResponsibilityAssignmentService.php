@@ -40,10 +40,11 @@ class BulkResponsibilityAssignmentService
             'category' => 'category_id',
             'platform' => 'platform_ids',
             'warehouse' => 'warehouse_id',
+            'condition' => 'condition',
             default => 'scope_type',
         };
-        if (! in_array($data->scopeType, ['brand', 'category', 'platform', 'product', 'warehouse'], true)) {
-            throw ValidationException::withMessages(['scope_type' => 'Bulk creation supports Platform, Brand, Category, Product, or Warehouse scopes only.']);
+        if (! in_array($data->scopeType, ['brand', 'category', 'platform', 'product', 'warehouse', 'condition'], true)) {
+            throw ValidationException::withMessages(['scope_type' => 'Bulk creation supports Platform, Brand, Category, Product, Warehouse, or Condition scopes only.']);
         }
 
         $ids = array_values(array_unique(array_map('intval', $data->scopeIds)));
@@ -80,6 +81,9 @@ class BulkResponsibilityAssignmentService
         if ($data->scopeType !== 'warehouse' && $data->warehouseId !== null) {
             throw ValidationException::withMessages(['scope_type' => 'Warehouse may only be used by a Warehouse Responsibility type.']);
         }
+        if ($data->scopeType === 'condition' && $data->condition === null) {
+            throw ValidationException::withMessages(['condition' => 'Select a Product Condition.']);
+        }
 
         $combinationCount = max(1, count($ids)) * max(1, count($platformIds));
         if ($combinationCount > 100) {
@@ -104,6 +108,9 @@ class BulkResponsibilityAssignmentService
         $exact = collect($scopeIds)->crossJoin($platforms)->map(function (array $combination) use ($data, $singlePlatform): CreateResponsibilityAssignmentData {
             [$id, $platformId] = $combination;
             $keyScope = $id ?? $data->scopeType;
+            if ($data->condition !== null) {
+                $keyScope .= ':condition:'.$data->condition->value;
+            }
             if ($singlePlatform && in_array($data->scopeType, ['category', 'platform'], true)) {
                 $idempotencyKey = $data->idempotencyKey;
             } else {
@@ -128,19 +135,20 @@ class BulkResponsibilityAssignmentService
                 idempotencyKey: $idempotencyKey,
                 categoryId: $data->categoryId,
                 warehouseId: $data->scopeType === 'warehouse' ? $data->warehouseId : null,
+                condition: $data->condition,
             );
         });
 
         $existingByKey = ResponsibilityAssignment::query()->whereIn('idempotency_key', $exact->pluck('idempotencyKey'))->get();
         if ($existingByKey->count() === $exact->count()) {
-            return $existingByKey->load(['brandScope.brand', 'categoryScope.category', 'productScope.product', 'platformScope.platform', 'warehouseScope.warehouse']);
+            return $existingByKey->load(['brandScope.brand', 'categoryScope.category', 'productScope.product', 'platformScope.platform', 'warehouseScope.warehouse', 'conditionScope']);
         }
         if ($existingByKey->isNotEmpty()) {
             throw ValidationException::withMessages([$scopeField => 'This multi-selection was only partially recorded and requires review before retrying.']);
         }
 
         $fingerprints = $exact->map(fn (CreateResponsibilityAssignmentData $item): string => $this->fingerprints->make(
-            $item->employeeId, $item->mode, $item->brandId, $item->platformId, $item->productId, null, $item->categoryId, $item->warehouseId,
+            $item->employeeId, $item->mode, $item->brandId, $item->platformId, $item->productId, null, $item->categoryId, $item->warehouseId, $item->condition,
         ));
         $duplicates = ResponsibilityAssignment::query()->whereIn('active_fingerprint', $fingerprints)->get(['active_fingerprint']);
         if ($duplicates->isNotEmpty()) {
@@ -152,6 +160,7 @@ class BulkResponsibilityAssignmentService
                         'product' => $records[$item->productId]->sku,
                         'category' => 'Category',
                         'warehouse' => $warehouse?->name ?? 'Warehouse',
+                        'condition' => $item->condition?->label() ?? 'Condition',
                         default => 'Platform',
                     };
                     $platform = $item->platformId === null ? null : $platformNames[$item->platformId];

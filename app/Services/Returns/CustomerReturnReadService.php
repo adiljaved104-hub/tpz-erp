@@ -45,6 +45,10 @@ class CustomerReturnReadService
                 $platform->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_platforms as return_platform_none')->whereColumn('return_platform_none.assignment_id', 'return_ra.id'))
                     ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_platforms as return_platform_match')->whereColumn('return_platform_match.assignment_id', 'return_ra.id')->whereColumn('return_platform_match.marketplace_platform_id', 'customer_returns.marketplace_platform_id'));
             })
+            ->where(function (QueryBuilder $condition): void {
+                $condition->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as return_condition_none')->whereColumn('return_condition_none.assignment_id', 'return_ra.id'))
+                    ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as return_condition_match')->whereColumn('return_condition_match.assignment_id', 'return_ra.id')->whereColumn('return_condition_match.product_condition', 'uncovered_product.condition'));
+            })
             ->where(function (QueryBuilder $product): void {
                 $product->whereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_products as return_product_scope')->whereColumn('return_product_scope.assignment_id', 'return_ra.id')->whereColumn('return_product_scope.product_id', 'uncovered_return_item.product_id'))
                     ->orWhere(function (QueryBuilder $dimensions): void {
@@ -57,6 +61,7 @@ class CustomerReturnReadService
                             ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_products as return_no_product')->whereColumn('return_no_product.assignment_id', 'return_ra.id'))
                             ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as return_no_brand')->whereColumn('return_no_brand.assignment_id', 'return_ra.id'))
                             ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as return_no_category')->whereColumn('return_no_category.assignment_id', 'return_ra.id'))
+                            ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as return_no_condition')->whereColumn('return_no_condition.assignment_id', 'return_ra.id'))
                             ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as return_no_quantity')->whereColumn('return_no_quantity.assignment_id', 'return_ra.id'))
                             ->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_warehouses as return_no_warehouse')->whereColumn('return_no_warehouse.assignment_id', 'return_ra.id'));
                     });
@@ -65,15 +70,22 @@ class CustomerReturnReadService
 
     private function matchingBrandCategoryDimensions(QueryBuilder $query): void
     {
-        $query->where(function (QueryBuilder $present): void {
-            $present->whereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as return_brand_present')->whereColumn('return_brand_present.assignment_id', 'return_ra.id'))
-                ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as return_category_present')->whereColumn('return_category_present.assignment_id', 'return_ra.id'));
-        })->where(function (QueryBuilder $brand): void {
-            $brand->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as return_brand_none')->whereColumn('return_brand_none.assignment_id', 'return_ra.id'))
-                ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as return_brand_match')->whereColumn('return_brand_match.assignment_id', 'return_ra.id')->whereColumn('return_brand_match.product_brand_id', 'uncovered_product.brand_id'));
-        })->where(function (QueryBuilder $category): void {
-            $category->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as return_category_none')->whereColumn('return_category_none.assignment_id', 'return_ra.id'))
-                ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as return_category_match')->whereColumn('return_category_match.assignment_id', 'return_ra.id')->whereColumn('return_category_match.product_category_id', 'uncovered_product.category_id'));
-        });
+        $query->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')
+            ->from('responsibility_assignment_warehouses as return_dimension_warehouse')
+            ->whereColumn('return_dimension_warehouse.assignment_id', 'return_ra.id'))
+            ->where(function (QueryBuilder $present): void {
+                $present->whereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as return_brand_present')->whereColumn('return_brand_present.assignment_id', 'return_ra.id'))
+                    ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as return_category_present')->whereColumn('return_category_present.assignment_id', 'return_ra.id'))
+                    ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as return_condition_present')->whereColumn('return_condition_present.assignment_id', 'return_ra.id'));
+            })->where(function (QueryBuilder $brand): void {
+                $brand->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as return_brand_none')->whereColumn('return_brand_none.assignment_id', 'return_ra.id'))
+                    ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as return_brand_match')->whereColumn('return_brand_match.assignment_id', 'return_ra.id')->whereColumn('return_brand_match.product_brand_id', 'uncovered_product.brand_id'));
+            })->where(function (QueryBuilder $category): void {
+                $category->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as return_category_none')->whereColumn('return_category_none.assignment_id', 'return_ra.id'))
+                    ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as return_category_match')->whereColumn('return_category_match.assignment_id', 'return_ra.id')->whereColumn('return_category_match.product_category_id', 'uncovered_product.category_id'));
+            })->where(function (QueryBuilder $condition): void {
+                $condition->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as return_dimension_condition_none')->whereColumn('return_dimension_condition_none.assignment_id', 'return_ra.id'))
+                    ->orWhereExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as return_dimension_condition_match')->whereColumn('return_dimension_condition_match.assignment_id', 'return_ra.id')->whereColumn('return_dimension_condition_match.product_condition', 'uncovered_product.condition'));
+            });
     }
 }

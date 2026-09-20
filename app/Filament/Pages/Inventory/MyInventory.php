@@ -5,19 +5,26 @@ namespace App\Filament\Pages\Inventory;
 use App\Enums\ResponsibilityPermission;
 use App\Models\User;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\Inventory\MyInventoryColumnRegistry;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Livewire\WithPagination;
 
 class MyInventory extends Page
 {
+    use WithPagination;
+
     public string $search = '';
 
     public string $brand = '';
 
     public string $category = '';
+
+    public string $condition = '';
 
     public string $platform = '';
 
@@ -28,6 +35,11 @@ class MyInventory extends Page
     public string $allocation = '';
 
     public string $visibleBecause = '';
+
+    public int $perPage = 25;
+
+    /** @var array<int, string> */
+    public array $visibleColumns = [];
 
     protected string $view = 'filament.pages.inventory.my-inventory';
 
@@ -49,13 +61,15 @@ class MyInventory extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+        $this->visibleColumns = app(MyInventoryColumnRegistry::class)->resolve(auth()->user());
     }
 
     public function getViewData(): array
     {
         $service = app(ResponsibilityReadService::class);
         $allRows = $service->myInventory(auth()->user());
-        $inventoryRows = $this->filterRows($allRows);
+        $filteredRows = $this->filterRows($allRows);
+        $inventoryRows = $this->paginateRows($filteredRows);
 
         return [
             'inventoryRows' => $inventoryRows,
@@ -68,17 +82,27 @@ class MyInventory extends Page
                 'out' => $allRows->where('stock_status', 'out_of_stock')->count(),
             ],
             'filterOptions' => $this->filterOptions($allRows),
+            'columnDefinitions' => app(MyInventoryColumnRegistry::class)->columns(),
         ];
     }
 
     public function applyStockStatus(string $status): void
     {
         $this->stockStatus = $this->stockStatus === $status ? '' : $status;
+        $this->resetPage();
     }
 
     public function resetInventoryFilters(): void
     {
-        $this->reset('search', 'brand', 'category', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause');
+        $this->reset('search', 'brand', 'category', 'condition', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause');
+        $this->resetPage();
+    }
+
+    public function updated(string $property): void
+    {
+        if (in_array($property, ['search', 'brand', 'category', 'condition', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause', 'perPage'], true)) {
+            $this->resetPage();
+        }
     }
 
     /** @param Collection<int, object> $rows */
@@ -94,6 +118,9 @@ class MyInventory extends Page
                 return false;
             }
             if ($this->category !== '' && $row->category !== $this->category) {
+                return false;
+            }
+            if ($this->condition !== '' && $row->condition !== $this->condition) {
                 return false;
             }
             if ($this->platform !== '' && ! in_array($this->platform, $row->platforms, true)) {
@@ -130,10 +157,45 @@ class MyInventory extends Page
         return [
             'brands' => $values($rows->pluck('brand')),
             'categories' => $values($rows->pluck('category')),
+            'conditions' => $rows->pluck('condition_label', 'condition')->filter()->sort()->all(),
             'platforms' => $values($rows->flatMap(fn (object $row): array => $row->platforms)),
             'warehouses' => $values($rows->pluck('warehouse')),
             'reasons' => $values($rows->flatMap(fn (object $row): array => $row->visibility_reasons)),
             'hasNoBalance' => $rows->contains(fn (object $row): bool => $row->warehouse === null),
         ];
+    }
+
+    public function toggleInventoryColumn(string $column): void
+    {
+        $registry = app(MyInventoryColumnRegistry::class);
+        abort_unless(array_key_exists($column, $registry->columns()), 422);
+
+        $this->visibleColumns = in_array($column, $this->visibleColumns, true)
+            ? array_values(array_diff($this->visibleColumns, [$column]))
+            : [...$this->visibleColumns, $column];
+        $registry->save(auth()->user(), $this->visibleColumns);
+        $this->visibleColumns = $registry->resolve(auth()->user());
+    }
+
+    public function resetInventoryColumns(): void
+    {
+        $registry = app(MyInventoryColumnRegistry::class);
+        $registry->reset(auth()->user());
+        $this->visibleColumns = $registry->defaults();
+    }
+
+    /** @param Collection<int, object> $rows */
+    private function paginateRows(Collection $rows): LengthAwarePaginator
+    {
+        $perPage = in_array($this->perPage, [10, 25, 50], true) ? $this->perPage : 25;
+        $page = $this->getPage();
+
+        return new LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            ['path' => request()->url(), 'pageName' => 'page'],
+        );
     }
 }

@@ -2,6 +2,8 @@
 
 namespace App\DTOs\Responsibilities;
 
+use App\Enums\ProductCondition;
+
 readonly class CreateResponsibilityAssignmentBatchData
 {
     /**
@@ -20,5 +22,6 @@ readonly class CreateResponsibilityAssignmentBatchData
         public string $idempotencyKey,
         public array $platformIds = [],
         public ?int $warehouseId = null,
+        public ?ProductCondition $condition = null,
     ) {}
 }

@@ -2,6 +2,7 @@
 
 namespace App\DTOs\Responsibilities;
 
+use App\Enums\ProductCondition;
 use App\Enums\ResponsibilityAssignmentMode;
 
 readonly class CreateResponsibilityAssignmentData
@@ -20,5 +21,6 @@ readonly class CreateResponsibilityAssignmentData
         public string $idempotencyKey,
         public ?int $categoryId = null,
         public ?int $warehouseId = null,
+        public ?ProductCondition $condition = null,
     ) {}
 }

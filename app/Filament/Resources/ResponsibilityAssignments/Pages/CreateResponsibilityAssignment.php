@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ResponsibilityAssignments\Pages;
 use App\Actions\Responsibilities\CreateResponsibilityAssignment as CreateResponsibilityAssignmentAction;
 use App\DTOs\Responsibilities\CreateResponsibilityAssignmentBatchData;
 use App\DTOs\Responsibilities\CreateResponsibilityAssignmentData;
+use App\Enums\ProductCondition;
 use App\Enums\ResponsibilityAssignmentMode;
 use App\Filament\Resources\ResponsibilityAssignments\ResponsibilityAssignmentResource;
 use App\Services\Responsibilities\BulkResponsibilityAssignmentService;
@@ -23,12 +24,13 @@ class CreateResponsibilityAssignment extends CreateRecord
         $scope = self::normalizedScope($data);
         $mode = $scope['mode'];
 
-        if ($mode === ResponsibilityAssignmentMode::Scope && $scope['type'] !== 'category') {
+        if ($mode === ResponsibilityAssignmentMode::Scope) {
             $kind = match (true) {
-                in_array($scope['type'], ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true) => 'brand',
+                in_array($scope['type'], ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true) => 'brand',
                 in_array($scope['type'], ['product', 'product_platform'], true) => 'product',
-                in_array($scope['type'], ['warehouse', 'warehouse_platform'], true) => 'warehouse',
-                in_array($scope['type'], ['category', 'category_platform'], true) => 'category',
+                in_array($scope['type'], ['warehouse', 'warehouse_platform', 'warehouse_condition', 'warehouse_condition_platform'], true) => 'warehouse',
+                in_array($scope['type'], ['category', 'category_platform', 'condition_category', 'condition_category_platform'], true) => 'category',
+                in_array($scope['type'], ['condition', 'condition_platform'], true) => 'condition',
                 default => 'platform',
             };
 
@@ -44,6 +46,7 @@ class CreateResponsibilityAssignment extends CreateRecord
                 idempotencyKey: $data['idempotency_key'],
                 platformIds: $scope['platform_ids'],
                 warehouseId: $scope['warehouse_id'],
+                condition: $scope['condition'],
             ), auth()->user());
 
             $this->createdAssignmentCount = $created->count();
@@ -65,6 +68,7 @@ class CreateResponsibilityAssignment extends CreateRecord
             idempotencyKey: $data['idempotency_key'],
             categoryId: $scope['category_id'],
             warehouseId: $scope['warehouse_id'],
+            condition: $scope['condition'],
         ), auth()->user());
     }
 
@@ -77,14 +81,14 @@ class CreateResponsibilityAssignment extends CreateRecord
                 : "{$this->createdAssignmentCount} Responsibility Assignments created successfully.");
     }
 
-    /** @return array{type:string,mode:ResponsibilityAssignmentMode,brand_ids:array<int,int>,category_id:?int,platform_id:?int,platform_ids:array<int,int>,product_ids:array<int,int>,product_inventory_id:?int,assigned_quantity:?int,warehouse_id:?int} */
+    /** @return array{type:string,mode:ResponsibilityAssignmentMode,brand_ids:array<int,int>,category_id:?int,platform_id:?int,platform_ids:array<int,int>,product_ids:array<int,int>,product_inventory_id:?int,assigned_quantity:?int,warehouse_id:?int,condition:?ProductCondition} */
     public static function normalizedScope(array $data): array
     {
         $type = (string) ($data['scope_type'] ?? '');
-        abort_unless(in_array($type, ['brand', 'platform', 'brand_platform', 'category', 'category_platform', 'category_brand', 'category_brand_platform', 'product', 'product_platform', 'warehouse', 'warehouse_platform', 'quantity', 'quantity_platform'], true), 422);
+        abort_unless(in_array($type, ['brand', 'platform', 'brand_platform', 'category', 'category_platform', 'category_brand', 'category_brand_platform', 'product', 'product_platform', 'warehouse', 'warehouse_platform', 'condition', 'condition_platform', 'condition_brand', 'condition_brand_platform', 'condition_category', 'condition_category_platform', 'warehouse_condition', 'warehouse_condition_platform', 'quantity', 'quantity_platform'], true), 422);
         $mode = str_starts_with($type, 'quantity') ? ResponsibilityAssignmentMode::Quantity : ResponsibilityAssignmentMode::Scope;
 
-        $usesMultiplePlatforms = in_array($type, ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'warehouse_platform'], true);
+        $usesMultiplePlatforms = in_array($type, ['platform', 'brand_platform', 'category_platform', 'category_brand_platform', 'product_platform', 'warehouse_platform', 'condition_platform', 'condition_brand_platform', 'condition_category_platform', 'warehouse_condition_platform'], true);
         $platformIds = $usesMultiplePlatforms
             ? array_values(array_unique(array_map('intval', $data['platform_ids'] ?? (filled($data['platform_id'] ?? null) ? [$data['platform_id']] : []))))
             : [];
@@ -92,14 +96,15 @@ class CreateResponsibilityAssignment extends CreateRecord
         return [
             'type' => $type,
             'mode' => $mode,
-            'brand_ids' => in_array($type, ['brand', 'brand_platform', 'category_brand', 'category_brand_platform'], true) ? array_values(array_unique(array_map('intval', $data['brand_ids'] ?? []))) : [],
-            'category_id' => in_array($type, ['category', 'category_platform', 'category_brand', 'category_brand_platform'], true) && filled($data['category_id'] ?? null) ? (int) $data['category_id'] : null,
+            'brand_ids' => in_array($type, ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true) ? array_values(array_unique(array_map('intval', $data['brand_ids'] ?? []))) : [],
+            'category_id' => in_array($type, ['category', 'category_platform', 'category_brand', 'category_brand_platform', 'condition_category', 'condition_category_platform'], true) && filled($data['category_id'] ?? null) ? (int) $data['category_id'] : null,
             'platform_id' => $type === 'quantity_platform' && filled($data['platform_id'] ?? null) ? (int) $data['platform_id'] : ($platformIds[0] ?? null),
             'platform_ids' => $platformIds,
             'product_ids' => in_array($type, ['product', 'product_platform'], true) ? array_values(array_unique(array_map('intval', $data['product_ids'] ?? []))) : [],
             'product_inventory_id' => in_array($type, ['quantity', 'quantity_platform'], true) && filled($data['product_inventory_id'] ?? null) ? (int) $data['product_inventory_id'] : null,
             'assigned_quantity' => in_array($type, ['quantity', 'quantity_platform'], true) && filled($data['assigned_quantity'] ?? null) ? (int) $data['assigned_quantity'] : null,
-            'warehouse_id' => in_array($type, ['warehouse', 'warehouse_platform'], true) && filled($data['warehouse_id'] ?? null) ? (int) $data['warehouse_id'] : null,
+            'warehouse_id' => in_array($type, ['warehouse', 'warehouse_platform', 'warehouse_condition', 'warehouse_condition_platform'], true) && filled($data['warehouse_id'] ?? null) ? (int) $data['warehouse_id'] : null,
+            'condition' => str_contains($type, 'condition') && filled($data['condition'] ?? null) ? ProductCondition::from((string) $data['condition']) : null,
         ];
     }
 }

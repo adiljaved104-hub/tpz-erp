@@ -2,6 +2,7 @@
 
 namespace App\Services\Responsibilities;
 
+use App\Enums\ProductCondition;
 use App\Enums\ResponsibilityAssignmentMode;
 
 class ResponsibilityScopeFingerprint
@@ -15,6 +16,7 @@ class ResponsibilityScopeFingerprint
         ?int $productInventoryId,
         ?int $categoryId = null,
         ?int $warehouseId = null,
+        ?ProductCondition $condition = null,
     ): string {
         $scope = [
             'employee_id' => $employeeId,
@@ -29,6 +31,9 @@ class ResponsibilityScopeFingerprint
         }
         if ($warehouseId !== null) {
             $scope['warehouse_id'] = $warehouseId;
+        }
+        if ($condition !== null) {
+            $scope['condition'] = $condition->value;
         }
 
         return hash('sha256', json_encode($scope, JSON_THROW_ON_ERROR));

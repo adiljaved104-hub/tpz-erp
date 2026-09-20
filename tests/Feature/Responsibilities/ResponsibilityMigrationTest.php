@@ -67,4 +67,19 @@ class ResponsibilityMigrationTest extends TestCase
 
         $this->assertFalse(Schema::hasTable('responsibility_assignment_warehouses'));
     }
+
+    public function test_condition_scope_and_ui_preferences_have_restrictive_additive_schema(): void
+    {
+        $conditionSql = (string) DB::table('sqlite_master')->where('type', 'table')->where('name', 'responsibility_assignment_conditions')->value('sql');
+        $preferenceSql = (string) DB::table('sqlite_master')->where('type', 'table')->where('name', 'user_ui_preferences')->value('sql');
+
+        $this->assertTrue(Schema::hasColumns('responsibility_assignment_conditions', ['assignment_id', 'product_condition']));
+        $this->assertTrue(Schema::hasColumns('user_ui_preferences', ['user_id', 'preference_key', 'preference_value']));
+        $this->assertStringContainsString('ON DELETE RESTRICT', strtoupper($conditionSql));
+        $this->assertStringContainsString("'new','renewed','used','open_box','refurbished'", str_replace(' ', '', $conditionSql));
+        $this->assertStringContainsString('ON DELETE RESTRICT', strtoupper($preferenceSql));
+        $this->assertStringContainsString('JSON_VALID', strtoupper($preferenceSql));
+        $this->assertDatabaseCount('responsibility_assignment_conditions', 0);
+        $this->assertDatabaseCount('user_ui_preferences', 0);
+    }
 }

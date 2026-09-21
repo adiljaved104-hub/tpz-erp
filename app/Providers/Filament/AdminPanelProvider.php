@@ -31,6 +31,7 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
+            ->sidebarFullyCollapsibleOnDesktop()
             ->assets([
                 Css::make('access-control', resource_path('css/filament/access-control.css')),
             ])

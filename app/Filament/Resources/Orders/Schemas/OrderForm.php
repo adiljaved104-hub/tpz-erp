@@ -29,7 +29,6 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
-use Illuminate\Support\Str;
 
 class OrderForm
 {
@@ -69,12 +68,14 @@ class OrderForm
                             ->label('Product')
                             ->placeholder('Search by SKU or product name')
                             ->searchable()
+                            ->wrapOptionLabels()
                             ->searchPrompt('Type at least 2 characters to search available products.')
                             ->noSearchResultsMessage('No sellable products found for the selected warehouse/platform.')
                             ->required()->live()
                             ->getSearchResultsUsing(fn (string $search, Get $get): array => self::productOptions($search, $get))
                             ->getOptionLabelUsing(fn ($value, Get $get): ?string => self::productLabel((int) $value, $get))
                             ->afterStateUpdated(fn ($state, Get $get, Set $set): mixed => self::productChanged($state, $get, $set))
+                            ->columnSpanFull()
                             ->helperText(function (Get $get): string {
                                 $stockContext = $get->string('stock_context', isNullable: true);
 
@@ -86,47 +87,67 @@ class OrderForm
                             ->disabled(fn (): bool => ! self::allowed(OrderPermission::EditSellingPrice)),
                         Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get)),
                         Toggle::make('upgraded_configuration')->label('Upgraded Configuration')->live()
-                            ->afterStateUpdated(function ($state, Set $set): void {
+                            ->afterStateUpdated(function ($state, Get $get, Set $set): void {
                                 if (! $state) {
                                     $set('target_ram_mb', null);
                                     $set('target_storage_total_gb', null);
                                     $set('sales_configuration_id', null);
                                     $set('upgrade_recipe_id', null);
+
+                                    return;
                                 }
+
+                                self::refreshConfigurationSelection($get, $set);
                             }),
                         Select::make('target_ram_mb')->label('Target RAM')->placeholder('Any RAM target')
                             ->options(fn (Get $get): array => self::targetRamOptions((int) $get('product_id')))
                             ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration'))->live()->dehydrated(false)
-                            ->afterStateUpdated(fn (Set $set) => $set('sales_configuration_id', null)),
+                            ->afterStateUpdated(fn (Get $get, Set $set): mixed => self::configurationTargetChanged($get, $set))
+                            ->columnSpan(['default' => 1, 'xl' => 2]),
                         Select::make('target_storage_total_gb')->label('Target Storage')->placeholder('Any storage target')
                             ->options(fn (Get $get): array => self::targetStorageOptions((int) $get('product_id')))
                             ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration'))->live()->dehydrated(false)
-                            ->afterStateUpdated(fn (Set $set) => $set('sales_configuration_id', null)),
+                            ->afterStateUpdated(fn (Get $get, Set $set): mixed => self::configurationTargetChanged($get, $set))
+                            ->columnSpan(['default' => 1, 'xl' => 2]),
                         Select::make('sales_configuration_id')->label('Valid Configuration')
-                            ->placeholder('Search a valid configuration')->searchable()->live()
+                            ->placeholder('Select a valid configuration')->searchable()->live()->wrapOptionLabels()
+                            ->options(fn (Get $get): array => self::matchingConfigurationOptions($get))
                             ->getSearchResultsUsing(fn (string $search, Get $get): array => self::configurationOptions($search, $get))
                             ->getOptionLabelUsing(fn ($value): ?string => SalesConfiguration::query()->whereKey((int) $value)->value('display_name'))
                             ->required(fn (Get $get): bool => (bool) $get('upgraded_configuration'))
-                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration'))
-                            ->afterStateUpdated(fn ($state, Get $get, Set $set) => self::configurationChanged($state, $get, $set)),
-                        Select::make('upgrade_recipe_id')->label('Build Method')->placeholder('Preferred Build')
-                            ->options(fn (Get $get): array => self::recipeOptions((int) $get('sales_configuration_id')))
-                            ->required(fn (Get $get): bool => (bool) $get('upgraded_configuration'))
-                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration')),
-                        Placeholder::make('build_summary')->label('Preferred Build')
-                            ->content(fn (Get $get): string => self::recipeSummary((int) $get('upgrade_recipe_id')))
-                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration')),
+                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration') && count(self::matchingConfigurationOptions($get)) !== 1)
+                            ->afterStateUpdated(fn ($state, Get $get, Set $set): mixed => self::configurationChanged($state, $get, $set))
+                            ->columnSpanFull(),
+                        Placeholder::make('selected_configuration_summary')->label('Selected Configuration')
+                            ->content(fn (Get $get): string => self::configurationSummary((int) $get('sales_configuration_id')))
+                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration') && filled($get('sales_configuration_id')))
+                            ->columnSpanFull(),
                         Placeholder::make('suggested_selling_price')->label('Suggested Selling Price')
                             ->content(fn (Get $get): string => self::suggestedPrice((int) $get('product_id'), (int) $get('sales_configuration_id')))
-                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration') && self::allowed(OrderPermission::EditSellingPrice)),
+                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration') && self::allowed(OrderPermission::EditSellingPrice))
+                            ->columnSpanFull(),
                         Placeholder::make('upgrade_setup_warning')->label('Configuration Status')
-                            ->content(fn (Get $get): string => self::configurationWarning((int) $get('product_id')))
-                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration')),
+                            ->content(fn (Get $get): string => self::configurationWarning($get))
+                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration'))
+                            ->columnSpanFull(),
+                        Section::make('Advanced Configuration')
+                            ->description('Build method and technical recipe details.')
+                            ->schema([
+                                Select::make('upgrade_recipe_id')->label('Build Method')->placeholder('Preferred Build')
+                                    ->options(fn (Get $get): array => self::recipeOptions((int) $get('sales_configuration_id')))
+                                    ->required(fn (Get $get): bool => (bool) $get('upgraded_configuration')),
+                                Placeholder::make('build_summary')->label('Build Details')
+                                    ->content(fn (Get $get): string => self::recipeSummary((int) $get('upgrade_recipe_id'))),
+                            ])
+                            ->columns(['default' => 1, 'lg' => 2])
+                            ->collapsible()->collapsed()
+                            ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration'))
+                            ->columnSpanFull(),
                         Hidden::make('discount_total')->default('0.00'),
                         Hidden::make('vat_rate')->default('0.0000'),
                         Hidden::make('stock_context')->dehydrated(false),
                     ])
-                    ->columns(4)
+                    ->columns(['default' => 1, 'md' => 2, 'xl' => 4])
                     ->compact()->reorderable(false)->minItems(1)->defaultItems(1)->addActionLabel('Add Product / Configuration')->columnSpanFull(),
             ]),
             Section::make('Notes')->schema([
@@ -146,13 +167,24 @@ class OrderForm
             return [];
         }
 
-        return app(ProductSearchOptions::class)->search(
+        $options = app(ProductSearchOptions::class)->search(
             $search,
             ProductMatchContext::Order,
             $user,
             $warehouseId,
             $platformId,
         );
+        $products = Product::query()->whereKey(array_keys($options))->get(['id', 'sku', 'name'])->keyBy('id');
+
+        return collect($options)->map(function (string $label, int $productId) use ($products): string {
+            $product = $products->get($productId);
+            $firstSeparator = mb_strpos($label, ' · ');
+            $secondSeparator = $firstSeparator === false ? false : mb_strpos($label, ' · ', $firstSeparator + 3);
+
+            return $product instanceof Product && $secondSeparator !== false
+                ? "{$product->sku} · ".trim($product->name).mb_substr($label, $secondSeparator)
+                : $label;
+        })->all();
     }
 
     private static function productLabel(int $id, Get $get): ?string
@@ -183,7 +215,7 @@ class OrderForm
 
     private static function label(Product $product, int $sellable): string
     {
-        return "{$product->sku} · ".Str::limit(trim($product->name), 52).' · Sellable: '.$sellable;
+        return "{$product->sku} · ".trim($product->name).' · Sellable: '.$sellable;
     }
 
     private static function loadStockContext(mixed $state, Get $get, Set $set): void
@@ -204,6 +236,10 @@ class OrderForm
         $set('target_storage_total_gb', null);
         $set('sales_configuration_id', null);
         $set('upgrade_recipe_id', null);
+
+        if ((bool) $get('upgraded_configuration')) {
+            self::refreshConfigurationSelection($get, $set);
+        }
     }
 
     private static function targetRamOptions(int $productId): array
@@ -221,8 +257,18 @@ class OrderForm
 
     private static function configurationOptions(string $search, Get $get): array
     {
-        $query = SalesConfiguration::query()->current()->where('product_id', (int) $get('product_id'))->where('active', true)
-            ->where('display_name', 'like', '%'.trim($search).'%');
+        $search = mb_strtolower(trim($search));
+
+        return collect(self::matchingConfigurationOptions($get))
+            ->filter(fn (string $label): bool => $search === '' || str_contains(mb_strtolower($label), $search))
+            ->all();
+    }
+
+    private static function matchingConfigurationOptions(Get $get): array
+    {
+        $query = SalesConfiguration::query()->current()
+            ->where('product_id', (int) $get('product_id'))
+            ->where('active', true);
         if (filled($get('target_ram_mb'))) {
             $query->where('target_ram_mb', (int) $get('target_ram_mb'));
         }
@@ -230,7 +276,38 @@ class OrderForm
             $query->where('target_storage_total_gb', $get('target_storage_total_gb'));
         }
 
-        return $query->orderBy('display_name')->limit(30)->pluck('display_name', 'id')->all();
+        return $query->orderBy('display_name')->get(['id', 'display_name'])
+            ->filter(fn (SalesConfiguration $configuration): bool => self::recipeOptions($configuration->id) !== [])
+            ->mapWithKeys(fn (SalesConfiguration $configuration): array => [$configuration->id => $configuration->display_name])
+            ->all();
+    }
+
+    private static function configurationTargetChanged(Get $get, Set $set): void
+    {
+        $set('sales_configuration_id', null);
+        $set('upgrade_recipe_id', null);
+        self::refreshConfigurationSelection($get, $set);
+    }
+
+    private static function refreshConfigurationSelection(Get $get, Set $set): void
+    {
+        $options = self::matchingConfigurationOptions($get);
+        $current = filled($get('sales_configuration_id')) ? (int) $get('sales_configuration_id') : null;
+
+        if (count($options) === 1) {
+            $configurationId = (int) array_key_first($options);
+            if ($current !== $configurationId) {
+                $set('sales_configuration_id', $configurationId);
+                self::configurationChanged($configurationId, $get, $set);
+            }
+
+            return;
+        }
+
+        if ($current !== null && ! array_key_exists($current, $options)) {
+            $set('sales_configuration_id', null);
+            $set('upgrade_recipe_id', null);
+        }
     }
 
     private static function recipeOptions(int $configurationId): array
@@ -272,6 +349,23 @@ class OrderForm
         })->join('; ');
     }
 
+    private static function configurationSummary(int $configurationId): string
+    {
+        $configuration = SalesConfiguration::query()->current()->whereKey($configurationId)->first([
+            'id', 'display_name', 'target_ram_mb', 'target_storage_total_gb',
+        ]);
+        if ($configuration === null) {
+            return 'Select a valid configuration.';
+        }
+
+        $targets = collect([
+            $configuration->target_ram_mb === null ? null : 'RAM: '.self::capacityLabel($configuration->target_ram_mb, 'MB'),
+            $configuration->target_storage_total_gb === null ? null : 'Storage: '.self::capacityLabel((float) $configuration->target_storage_total_gb, 'GB'),
+        ])->filter()->implode(' · ');
+
+        return $configuration->display_name.($targets === '' ? '' : " — {$targets}");
+    }
+
     private static function suggestedPrice(int $productId, int $configurationId): string
     {
         $value = self::suggestedPriceValue($productId, $configurationId);
@@ -296,19 +390,21 @@ class OrderForm
         return bcadd((string) $product->selling_price, (string) $configuration->suggested_selling_addon, 2);
     }
 
-    private static function configurationWarning(int $productId): string
+    private static function configurationWarning(Get $get): string
     {
+        $productId = (int) $get('product_id');
         $product = Product::query()->products()
             ->with('hardwareProfile:id,product_id')
             ->find($productId, ['id']);
         if ($product?->hardwareProfile === null) {
             return 'Hardware profile incomplete.';
         }
-        if (! SalesConfiguration::query()->current()->where('product_id', $productId)->where('active', true)->exists()) {
-            return 'No active Sales Configuration is available.';
+        $count = count(self::matchingConfigurationOptions($get));
+        if ($count === 0) {
+            return 'No valid current configuration and build recipe match the selected targets.';
         }
 
-        return 'Current configurations only. Component availability is validated when the Order is reserved.';
+        return "{$count} valid current configuration(s) match the selected targets. Component availability is validated when the Order is reserved.";
     }
 
     private static function capacityLabel(float|int $value, string $unit): string

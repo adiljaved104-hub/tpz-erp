@@ -13,7 +13,10 @@ use App\Models\Employee;
 use App\Models\MarketplacePlatform;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\ProductHardwareProfile;
 use App\Models\ProductInventory;
+use App\Models\SalesConfiguration;
+use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
@@ -52,8 +55,60 @@ class OrderFilamentTest extends TestCase
         $results = $productField->getSearchResults('deliberately');
         $this->assertArrayHasKey($product->id, $results);
         $this->assertStringStartsWith("{$product->sku} · A deliberately long laptop product title", $results[$product->id]);
+        $this->assertStringContainsString($product->name, $results[$product->id]);
         $this->assertStringEndsWith('· Sellable: 7', $results[$product->id]);
         $component->assertSee('Only products with available sellable stock are shown.');
+    }
+
+    public function test_upgrade_fields_are_progressive_and_a_sole_valid_configuration_is_selected_automatically(): void
+    {
+        [$owner, $product] = $this->foundation();
+        [$configuration, $recipe] = $this->validConfiguration($owner, $product, '16GB / 512GB');
+        $this->actingAs($owner);
+
+        $component = Livewire::test(CreateOrder::class)
+            ->assertDontSee('Target RAM')
+            ->assertDontSee('Advanced Configuration')
+            ->set('data.items.0.product_id', $product->id)
+            ->set('data.items.0.upgraded_configuration', true)
+            ->assertSee('Target RAM')
+            ->assertSee('Target Storage')
+            ->assertSee('Selected Configuration')
+            ->assertSee('16GB / 512GB')
+            ->assertSee('Advanced Configuration');
+
+        $state = $component->instance()->form->getRawState()['items'][0];
+        $this->assertSame($configuration->id, (int) $state['sales_configuration_id']);
+        $this->assertSame($recipe->id, (int) $state['upgrade_recipe_id']);
+        $component->assertDontSee('Select a valid configuration');
+    }
+
+    public function test_multiple_valid_configurations_remain_selectable_and_upgrade_fields_hide_when_disabled(): void
+    {
+        [$owner, $product] = $this->foundation();
+        [$first] = $this->validConfiguration($owner, $product, '16GB / 512GB');
+        [$second] = $this->validConfiguration($owner, $product, '32GB / 1TB');
+        $this->actingAs($owner);
+
+        $component = Livewire::test(CreateOrder::class)
+            ->set('data.items.0.product_id', $product->id)
+            ->set('data.items.0.upgraded_configuration', true)
+            ->assertSee('Valid Configuration')
+            ->assertSee('2 valid current configuration(s) match the selected targets.');
+
+        $state = $component->instance()->form->getRawState()['items'][0];
+        $this->assertNull($state['sales_configuration_id']);
+
+        $component->set('data.items.0.sales_configuration_id', $second->id);
+        $this->assertSame($second->id, (int) $component->instance()->form->getRawState()['items'][0]['sales_configuration_id']);
+
+        $component->set('data.items.0.upgraded_configuration', false)
+            ->assertDontSee('Target RAM')
+            ->assertDontSee('Advanced Configuration');
+        $state = $component->instance()->form->getRawState()['items'][0];
+        $this->assertNull($state['sales_configuration_id']);
+        $this->assertNull($state['upgrade_recipe_id']);
+        $this->assertDatabaseHas('sales_configurations', ['id' => $first->id]);
     }
 
     public function test_create_page_uses_the_simple_save_and_reserve_workflow(): void
@@ -323,5 +378,56 @@ class OrderFilamentTest extends TestCase
                 $owner,
             );
         }
+    }
+
+    /** @return array{SalesConfiguration, UpgradeRecipe} */
+    private function validConfiguration(User $owner, Product $product, string $name): array
+    {
+        $profile = ProductHardwareProfile::query()->firstOrCreate(
+            ['product_id' => $product->id],
+            [
+                'profile_version' => 1,
+                'ram_upgradeable' => true,
+                'max_supported_ram_mb' => 65536,
+                'storage_upgradeable' => true,
+                'created_by_user_id' => $owner->id,
+                'updated_by_user_id' => $owner->id,
+            ],
+        );
+        $profile->slots()->firstOrCreate(
+            ['slot_key' => 'RAM-1'],
+            [
+                'subsystem' => 'ram',
+                'interface_type' => 'DDR4',
+                'is_soldered' => false,
+                'is_occupied' => true,
+                'base_capacity_value' => 8,
+                'base_capacity_unit' => 'gb',
+                'position' => 1,
+            ],
+        );
+        $configuration = SalesConfiguration::query()->create([
+            'product_id' => $product->id,
+            'hardware_profile_version' => 1,
+            'display_name' => $name,
+            'target_ram_mb' => 8192,
+            'suggested_selling_addon' => '100.00',
+            'active' => true,
+            'created_by_user_id' => $owner->id,
+            'updated_by_user_id' => $owner->id,
+        ]);
+        $recipe = UpgradeRecipe::query()->create([
+            'sales_configuration_id' => $configuration->id,
+            'hardware_profile_version' => 1,
+            'name' => "{$name} preferred build",
+            'preferred' => true,
+            'priority' => 1,
+            'labour_unit_cost' => '0.0000',
+            'active' => true,
+            'created_by_user_id' => $owner->id,
+            'updated_by_user_id' => $owner->id,
+        ]);
+
+        return [$configuration, $recipe];
     }
 }

@@ -7,7 +7,6 @@ use App\DTOs\GlobalSearchResult;
 use App\Enums\ComplaintPermission;
 use App\Enums\CustomerReturnPermission;
 use App\Enums\InvoicePermission;
-use App\Enums\OrderPermission;
 use App\Enums\SafetClaimPermission;
 use App\Enums\WarrantyRepairPermission;
 use App\Filament\Resources\Complaints\ComplaintResource;
@@ -18,7 +17,6 @@ use App\Filament\Resources\SafetClaims\SafetClaimResource;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Filament\Resources\WarrantyRepairs\WarrantyRepairResource;
 use App\Models\Complaint;
-use App\Models\Order;
 use App\Models\SafetClaim;
 use App\Models\TaxInvoice;
 use App\Models\User;
@@ -26,11 +24,11 @@ use App\Models\WarrantyRepair;
 use App\Services\Authorization\ComplaintAuthorization;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\InvoiceAuthorization;
-use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
-use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Orders\OrderReferenceSearchService;
 use App\Services\Returns\CustomerReturnReadService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -59,18 +57,20 @@ class SalesServiceSearchProvider implements GlobalSearchProvider
 
     private function orders(User $user, string $term, int $limit): Collection
     {
-        if (! app(OrderAuthorization::class)->allows($user, OrderPermission::View)) {
+        $references = app(OrderReferenceSearchService::class);
+
+        try {
+            return $references->search($user, $term, limit: $limit)
+                ->map(fn ($order) => new GlobalSearchResult(
+                    'Orders',
+                    $references->label($order),
+                    $order->status->getLabel(),
+                    OrderResource::getUrl('view', ['record' => $order->id]),
+                    'heroicon-o-shopping-bag',
+                ));
+        } catch (AuthorizationException) {
             return collect();
         }
-        $ids = app(OrderResponsibilityScopeService::class)->applyOrders(Order::query()->select('orders.id'), $user);
-        $query = DB::table('orders')->leftJoin('marketplace_platforms', 'marketplace_platforms.id', '=', 'orders.marketplace_platform_id')
-            ->whereIn('orders.id', $ids)->select(['orders.id', 'orders.reference', 'orders.external_order_number', 'orders.status', 'marketplace_platforms.name as platform']);
-        SearchQuery::match($query, ['orders.reference', 'orders.external_order_number'], $term);
-        SearchQuery::rank($query, 'orders.reference', $term);
-        SearchQuery::rank($query, 'orders.external_order_number', $term);
-
-        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Orders', $row->reference.($row->platform ? ' · '.$row->platform : ''),
-            ($row->external_order_number ? 'External: '.$row->external_order_number.' · ' : '').ucfirst($row->status), OrderResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-shopping-bag'));
     }
 
     private function returns(User $user, string $term, int $limit): Collection

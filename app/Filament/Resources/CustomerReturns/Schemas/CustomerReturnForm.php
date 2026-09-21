@@ -9,7 +9,7 @@ use App\Models\Order;
 use App\Models\OrderFulfillmentItem;
 use App\Models\User;
 use App\Models\Warehouse;
-use App\Services\Orders\OrderReadService;
+use App\Services\Orders\OrderReferenceSearchService;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -27,8 +27,13 @@ class CustomerReturnForm
     {
         return $schema->components([
             Section::make('Return')->columns(2)->schema([
-                Select::make('order_id')->label('Fulfilled Order')->options(fn () => self::fulfilledOrderOptions())
-                    ->default(fn (): ?int => request()->integer('order_id') ?: null)->searchable()->required()->live()
+                Select::make('order_id')->label('Fulfilled Order')
+                    ->default(fn (): ?int => request()->integer('order_id') ?: null)
+                    ->getSearchResultsUsing(fn (string $search): array => self::fulfilledOrderSearch($search))
+                    ->getOptionLabelUsing(fn ($value): ?string => self::fulfilledOrderLabel($value))
+                    ->searchPrompt('Search by ERP Order Number or External Order ID.')
+                    ->noSearchResultsMessage('No eligible fulfilled Orders found.')
+                    ->searchable()->required()->live()
                     ->afterStateUpdated(function ($state, Set $set): void {
                         $marketplace = self::isMarketplaceOrder($state);
                         $set('receiving_warehouse_id', $marketplace ? null : Warehouse::query()->where('is_default', true)->value('id'));
@@ -76,12 +81,26 @@ class CustomerReturnForm
     }
 
     /** @return array<int, string> */
-    private static function fulfilledOrderOptions(): array
+    private static function fulfilledOrderSearch(string $search): array
     {
-        return self::authorizedOrderQuery()
-            ->where('status', OrderStatus::Fulfilled)
-            ->with('platform:id,name')->orderByDesc('id')->limit(100)->get(['id', 'reference', 'marketplace_platform_id'])
-            ->mapWithKeys(fn (Order $order): array => [$order->id => $order->reference.' · '.($order->platform?->name ?? 'Manual')])->all();
+        $user = auth()->user();
+
+        return $user instanceof User
+            ? app(OrderReferenceSearchService::class)->options($user, $search, [OrderStatus::Fulfilled])
+            : [];
+    }
+
+    private static function fulfilledOrderLabel(mixed $orderId): ?string
+    {
+        $user = auth()->user();
+        if (! $user instanceof User || ! filled($orderId)) {
+            return null;
+        }
+
+        $order = app(OrderReferenceSearchService::class)
+            ->findAuthorized($user, (int) $orderId, [OrderStatus::Fulfilled]);
+
+        return $order ? app(OrderReferenceSearchService::class)->label($order) : null;
     }
 
     private static function singleFulfillmentItemId(mixed $orderId): ?int
@@ -99,7 +118,7 @@ class CustomerReturnForm
         $user = auth()->user();
 
         return $user instanceof User
-            ? app(OrderReadService::class)->orders($user)
+            ? app(OrderReferenceSearchService::class)->query($user)
             : Order::query()->whereRaw('1 = 0');
     }
 }

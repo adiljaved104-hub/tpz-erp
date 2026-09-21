@@ -9,6 +9,7 @@ use App\Filament\Resources\TaxInvoices\Pages\ViewTaxInvoice;
 use App\Models\TaxInvoice;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
+use App\Services\Invoices\TaxInvoiceOrderImportService;
 use App\Services\Invoices\TaxInvoiceService;
 use App\Services\Invoices\TaxInvoiceZipService;
 use App\Support\AedMoney;
@@ -20,6 +21,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -28,6 +30,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -64,6 +67,50 @@ class TaxInvoiceResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
+            Section::make('Import from Order')
+                ->description('Optional. Search by ERP Order Number or External / Marketplace Order ID, then review and adjust the Invoice before saving. Manual entry remains available.')
+                ->schema([
+                    Select::make('source_order_id')
+                        ->label('Import from Order')
+                        ->placeholder('Search an Order to prefill this Invoice')
+                        ->searchable()
+                        ->searchPrompt('Type an ERP or External Order ID')
+                        ->getSearchResultsUsing(fn (string $search): array => ($user = auth()->user()) instanceof User
+                            ? app(TaxInvoiceOrderImportService::class)->options($user, $search)
+                            : [])
+                        ->getOptionLabelUsing(fn ($value): ?string => ($user = auth()->user()) instanceof User
+                            ? app(TaxInvoiceOrderImportService::class)->label($user, (int) $value)
+                            : null)
+                        ->live()
+                        ->afterStateUpdated(function ($state, Get $get, Set $set): void {
+                            $user = auth()->user();
+                            $prefill = $user instanceof User && filled($state)
+                                ? app(TaxInvoiceOrderImportService::class)->prefill($user, (int) $state)
+                                : null;
+                            if ($prefill === null) {
+                                $set('source_order_id', null);
+                                $items = (array) ($get('items') ?? []);
+                                foreach ($items as &$item) {
+                                    unset($item['source_order_item_id']);
+                                }
+                                unset($item);
+                                $set('items', $items);
+
+                                return;
+                            }
+
+                            $set('order_reference', $prefill['order_reference']);
+                            if (filled($prefill['customer_name'])) {
+                                $set('customer_name', $prefill['customer_name']);
+                            }
+                            $set('items', $prefill['items']);
+                        }),
+                    Placeholder::make('source_order_context')
+                        ->label('Source Order')
+                        ->content(fn (Get $get): string => filled($get('source_order_id'))
+                            ? 'Imported Order lines may be edited or partially invoiced. The source may be used again for another Invoice.'
+                            : 'Enter Invoice details manually, or import an Order above.'),
+                ]),
             Section::make('Customer & Invoice')
                 ->description('Customer details and the related sales reference for this issued Invoice.')
                 ->columns(['default' => 1, 'md' => 2])
@@ -95,10 +142,12 @@ class TaxInvoiceResource extends Resource
                     Repeater::make('items')
                         ->hiddenLabel()
                         ->schema([
-                            TextInput::make('description')
+                            Hidden::make('source_order_item_id'),
+                            Textarea::make('description')
                                 ->label('Product Name / Description')
                                 ->required()
-                                ->maxLength(255)
+                                ->rows(2)
+                                ->maxLength(2000)
                                 ->columnSpan(['default' => 1, 'md' => 5]),
                             TextInput::make('quantity')
                                 ->label('Qty')

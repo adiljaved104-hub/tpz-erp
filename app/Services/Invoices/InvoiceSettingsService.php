@@ -24,7 +24,12 @@ class InvoiceSettingsService
 
     public function settings(): InvoiceSetting
     {
-        return InvoiceSetting::query()->find(1) ?? (new InvoiceSetting)->forceFill(['id' => 1, 'invoice_prefix' => 'TP-INV', 'starting_number' => 9153, 'vat_rate' => '5.00', 'terms_en' => self::TERMS_EN, 'terms_ar' => self::TERMS_AR]);
+        return InvoiceSetting::query()->find(1) ?? (new InvoiceSetting)->forceFill([
+            'id' => 1, 'invoice_prefix' => 'TP-INV', 'starting_number' => 9153, 'vat_rate' => '5.00',
+            'terms_en' => self::TERMS_EN, 'terms_ar' => self::TERMS_AR,
+            'quotation_terms_en' => self::TERMS_EN, 'quotation_terms_ar' => self::TERMS_AR,
+            'proforma_terms_en' => self::TERMS_EN, 'proforma_terms_ar' => self::TERMS_AR,
+        ]);
     }
 
     public function nextInvoiceNumber(?InvoiceSetting $settings = null): int
@@ -47,6 +52,14 @@ class InvoiceSettingsService
             $sequence = $this->references->updateTaxInvoiceNextNumber($prefix, $requested, $expected, $startingNumber);
 
             unset($data['next_invoice_number'], $data['expected_next_invoice_number'], $data['starting_number']);
+            foreach (['quotation', 'proforma'] as $document) {
+                foreach (['en', 'ar'] as $language) {
+                    $key = "{$document}_terms_{$language}";
+                    if (! array_key_exists($key, $data)) {
+                        $data[$key] = $settings->{$key} ?? $data["terms_{$language}"] ?? $settings->{"terms_{$language}"} ?? null;
+                    }
+                }
+            }
             $settings->fill(array_merge($data, [
                 'invoice_prefix' => $prefix,
                 'starting_number' => $sequence['next'],

@@ -63,8 +63,12 @@ class QuotationService
                 'vat_amount' => $priced['vat'],
                 'grand_total' => $priced['grand'],
                 'seller_snapshot' => $profile,
-                'terms_en_snapshot' => $settings->terms_en,
-                'terms_ar_snapshot' => $settings->terms_ar,
+                'terms_en_snapshot' => $validated['document_type'] === QuotationDocumentType::ProformaInvoice->value
+                    ? ($settings->proforma_terms_en ?? $settings->terms_en)
+                    : ($settings->quotation_terms_en ?? $settings->terms_en),
+                'terms_ar_snapshot' => $validated['document_type'] === QuotationDocumentType::ProformaInvoice->value
+                    ? ($settings->proforma_terms_ar ?? $settings->terms_ar)
+                    : ($settings->quotation_terms_ar ?? $settings->terms_ar),
                 'salesperson_employee_id' => $actor->employee->id,
                 'created_by_user_id' => $actor->id,
             ]);

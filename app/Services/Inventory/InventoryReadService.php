@@ -47,6 +47,6 @@ class InventoryReadService
 
         return StockMovement::query()->select($fields)
             ->whereIn('product_inventory_id', $this->responsibilities->inventoryIds($user))
-            ->with(['product:id,sku,name', 'warehouse:id,name,code', 'actor:id,name,email']);
+            ->with(['product:id,sku,name,model', 'warehouse:id,name,code', 'actor:id,name,email']);
     }
 }

@@ -8,6 +8,7 @@ use App\Enums\EmployeeRole;
 use App\Filament\Resources\InventoryReservations\InventoryReservationResource;
 use App\Filament\Resources\OpeningStockEntries\OpeningStockEntryResource;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
+use App\Filament\Resources\StockMovements\Pages\ListStockMovements;
 use App\Filament\Resources\StockMovements\StockMovementResource;
 use App\Models\Employee;
 use App\Models\Product;
@@ -15,6 +16,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class InventoryFilamentTest extends TestCase
@@ -45,6 +47,29 @@ class InventoryFilamentTest extends TestCase
         $this->get(StockMovementResource::getUrl())->assertForbidden();
         $this->get(OpeningStockEntryResource::getUrl())->assertForbidden();
         $this->get(InventoryReservationResource::getUrl())->assertForbidden();
+    }
+
+    public function test_stock_movement_table_renders_full_product_context_and_preserves_cost_authorization(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $product = Product::factory()->create([
+            'name' => 'A deliberately long stock movement product title that must remain fully readable',
+            'model' => 'TPZ-LONG-MODEL',
+        ]);
+        $warehouse = Warehouse::factory()->create();
+        app(PostOpeningStock::class)->handle(new PostOpeningStockData($product->id, $warehouse->id, 2, 0, '25.0000', 'Readable ledger row', (string) Str::uuid()), $owner);
+        $this->actingAs($owner);
+
+        $component = Livewire::test(ListStockMovements::class)
+            ->assertOk()
+            ->assertSee($product->name)
+            ->assertSee($product->sku)
+            ->assertSee('TPZ-LONG-MODEL');
+        $this->assertNotNull($component->instance()->getTable()->getColumn('unit_cost'));
+
+        $staff = $this->user(EmployeeRole::Staff);
+        $this->actingAs($staff);
+        Livewire::test(ListStockMovements::class)->assertForbidden();
     }
 
     private function user(EmployeeRole $role): User

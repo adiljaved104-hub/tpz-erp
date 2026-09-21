@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\UserUiPreference;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Preferences\UserUiPreferenceService;
+use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -18,6 +19,13 @@ class NavigationPreferenceTest extends TestCase
 {
     use RefreshDatabase;
     use ResponsibilityTestFoundation;
+
+    public function test_admin_panel_uses_native_fully_collapsible_desktop_sidebar(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+
+        $this->assertTrue(Filament::getCurrentPanel()->isSidebarFullyCollapsibleOnDesktop());
+    }
 
     public function test_authorized_items_can_be_hidden_per_user_without_exposing_missing_items(): void
     {

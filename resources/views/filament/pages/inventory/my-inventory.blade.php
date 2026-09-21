@@ -71,7 +71,7 @@
                     @if ($hasAuthorizedInventory)<p class="mt-1 text-xs text-gray-500">Try clearing one or more filters.</p>@endif
                 </div>
             @else
-                <div class="hidden max-w-full overflow-x-auto rounded-xl border border-gray-200 lg:block dark:border-white/10">
+                <div class="tpz-my-inventory-desktop max-w-full overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10">
                     <table class="w-full min-w-max divide-y divide-gray-200 text-sm dark:divide-white/10">
                         <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-white/5 dark:text-gray-300">
                             <tr>
@@ -133,7 +133,7 @@
                     </table>
                 </div>
 
-                <div class="space-y-3 lg:hidden">
+                <div class="tpz-my-inventory-mobile space-y-3">
                     @foreach ($inventoryRows as $row)
                         <article class="min-w-0 rounded-lg border border-gray-200 p-4 dark:border-white/10">
                             <div class="flex items-start justify-between gap-3">@if (in_array('product', $visibleColumns, true))<div class="min-w-0 flex-1"><p class="whitespace-normal break-words font-semibold text-gray-950 dark:text-white">{{ $row->name }}</p><p class="mt-1 whitespace-normal break-words text-xs text-gray-500">{{ $row->sku }}@if ($row->model) · {{ $row->model }}@endif</p></div>@endif @if (in_array('status', $visibleColumns, true))<div class="shrink-0">@if ($row->is_quantity_limited && $row->remaining_allocation === 0)<x-filament::badge color="gray">Allocation Exhausted</x-filament::badge>@elseif ($row->stock_status === 'out_of_stock')<x-filament::badge color="danger">Out of Stock</x-filament::badge>@elseif ($row->stock_status === 'low_stock')<x-filament::badge color="warning">Low Stock</x-filament::badge>@else<x-filament::badge color="success">In Stock</x-filament::badge>@endif</div>@endif</div>

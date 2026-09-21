@@ -6,6 +6,7 @@ use App\Enums\SafetClaimPermission;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Services\Authorization\SafetClaimAuthorization;
+use App\Services\Orders\OrderReferenceSearchService;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -21,7 +22,18 @@ class SafetClaimInfolist
             Section::make('Claim')->columns(3)->schema([
                 TextEntry::make('reference')->label('Claim Reference'), TextEntry::make('status')->badge(),
                 TextEntry::make('platform.name')->label('Platform'), TextEntry::make('claim_program_name')->label('Claim Program')->placeholder('Not configured'),
-                TextEntry::make('order.reference')->label('Order')->url(fn ($record) => OrderResource::getUrl('view', ['record' => $record->order_id])),
+                TextEntry::make('order.reference')->label('Order')
+                    ->formatStateUsing(function ($record, $state): string {
+                        $user = auth()->user();
+                        $order = $user
+                            ? app(OrderReferenceSearchService::class)->findAuthorized($user, $record->order_id)
+                            : null;
+
+                        return $order
+                            ? app(OrderReferenceSearchService::class)->label($order)
+                            : $state;
+                    })
+                    ->url(fn ($record) => OrderResource::getUrl('view', ['record' => $record->order_id])),
                 TextEntry::make('customerReturn.reference')->label('Return')->url(fn ($record) => CustomerReturnResource::getUrl('view', ['record' => $record->customer_return_id])),
                 TextEntry::make('customerReturn.refund.warrantyRepair.reference')->label('Warranty Ref')->placeholder('—'),
                 TextEntry::make('product.sku')->label('SKU'), TextEntry::make('product.name')->label('Product'),

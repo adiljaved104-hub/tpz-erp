@@ -36,7 +36,6 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class OrderService
@@ -47,6 +46,7 @@ class OrderService
         private readonly OrderFulfillmentLocationService $locations,
         private readonly OrderTotalsCalculator $totals,
         private readonly ExternalOrderIdentityService $externalIdentity,
+        private readonly OrderReferenceSearchService $orderReferences,
         private readonly ReferenceSequenceService $references,
         private readonly InventoryService $inventory,
         private readonly OrderUpgradePlanningService $upgradePlanning,
@@ -146,7 +146,11 @@ class OrderService
                 return $existing->load(['items.reservations', 'items.upgradeSelection', 'statusEvents']);
             }
             if ($data->platformId !== null && filled($data->externalOrderNumber)) {
-                throw ValidationException::withMessages(['external_order_number' => 'This Platform Order Number already exists.']);
+                $identityHash = $this->externalIdentity->hash($data->platformId, $data->externalOrderNumber);
+
+                throw ValidationException::withMessages([
+                    'external_order_number' => $this->orderReferences->duplicateValidationMessage($actor, $identityHash),
+                ]);
             }
             throw $exception;
         }
@@ -608,7 +612,9 @@ class OrderService
             }
 
             if ($validated['external_identity_hash'] !== null) {
-                throw ValidationException::withMessages(['external_order_number' => 'This Platform Order Number already exists.']);
+                throw ValidationException::withMessages([
+                    'external_order_number' => $this->orderReferences->duplicateValidationMessage($actor, $validated['external_identity_hash']),
+                ]);
             }
 
             throw $exception;
@@ -937,7 +943,6 @@ class OrderService
         $externalNumber = $data->externalOrderNumber === null ? null : trim($data->externalOrderNumber);
         $externalHash = $this->externalIdentity->hash($data->platformId, $externalNumber);
         $handledBy = $data->handledByEmployeeId ?? $actor->employee?->id;
-
         $validated = Validator::make([
             'warehouse_id' => $data->warehouseId,
             'marketplace_platform_id' => $data->platformId,
@@ -958,7 +963,7 @@ class OrderService
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'marketplace_platform_id' => ['nullable', 'integer', 'exists:marketplace_platforms,id'],
             'external_order_number' => ['nullable', 'string', 'max:255'],
-            'external_identity_hash' => ['nullable', 'string', 'size:64', Rule::unique('orders', 'external_identity_hash')->ignore($existing?->id)],
+            'external_identity_hash' => ['nullable', 'string', 'size:64'],
             'web_sales_channel' => ['nullable', 'in:website,whatsapp,walk_in,other'],
             'customer_name' => ['nullable', 'required_with:web_sales_channel', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'required_with:web_sales_channel', 'string', 'max:40', 'regex:/^\+?[0-9][0-9\s().-]{5,39}$/'],
@@ -978,10 +983,20 @@ class OrderService
             'items.*.notes' => ['nullable', 'string', 'max:2000'],
             'items.*.sales_configuration_id' => ['nullable', 'integer', 'required_with:items.*.upgrade_recipe_id', 'exists:sales_configurations,id'],
             'items.*.upgrade_recipe_id' => ['nullable', 'integer', 'required_with:items.*.sales_configuration_id', 'exists:upgrade_recipes,id'],
-        ])->after(function ($validator) use ($data, $actor, $handledBy): void {
+        ])->after(function ($validator) use ($data, $actor, $handledBy, $externalHash, $existing): void {
             $warehouse = Warehouse::query()->find($data->warehouseId);
             $platform = $data->platformId === null ? null : MarketplacePlatform::query()->find($data->platformId);
             $employee = Employee::query()->find($handledBy);
+
+            if ($externalHash !== null && Order::query()
+                ->where('external_identity_hash', $externalHash)
+                ->when($existing !== null, fn ($query) => $query->whereKeyNot($existing->id))
+                ->exists()) {
+                $validator->errors()->add(
+                    'external_order_number',
+                    $this->orderReferences->duplicateValidationMessage($actor, $externalHash, $existing?->id),
+                );
+            }
 
             if ($warehouse === null || ! $this->locations->isSelectable($warehouse, $platform)) {
                 $validator->errors()->add('warehouse_id', 'Select an active Fulfilled From location available for this Platform.');

@@ -8,7 +8,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
 use App\Models\WarrantyRepair;
-use App\Services\Orders\OrderReadService;
+use App\Services\Orders\OrderReferenceSearchService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -18,32 +18,27 @@ class ServiceCaseOrderContextService
 {
     /** @return array<int, string> */
     public function __construct(
-        private readonly OrderReadService $orderRead,
+        private readonly OrderReferenceSearchService $orderReferences,
         private readonly OrderResponsibilityScopeService $responsibilities,
     ) {}
 
     public function searchOrders(string $search, ?User $user = null): array
     {
-        return $this->ordersFor($user)
-            ->where(function (Builder $query) use ($search): void {
-                $query->where('reference', 'like', "%{$search}%")
-                    ->orWhere('external_order_number', 'like', "%{$search}%");
-            })
-            ->latest('id')
-            ->limit(50)
-            ->get(['id', 'reference', 'external_order_number'])
-            ->mapWithKeys(fn (Order $order): array => [$order->id => $this->orderLabel($order)])
-            ->all();
+        $actor = $user ?? auth()->user();
+
+        return $actor instanceof User ? $this->orderReferences->options($actor, $search) : [];
     }
 
     public function orderLabel(Order $order): string
     {
-        return $order->reference.(filled($order->external_order_number) ? " — {$order->external_order_number}" : '');
+        return $this->orderReferences->label($order);
     }
 
     public function findOrder(int $orderId, ?User $user = null): ?Order
     {
-        return $this->ordersFor($user)->whereKey($orderId)->first();
+        $actor = $user ?? auth()->user();
+
+        return $actor instanceof User ? $this->orderReferences->findAuthorized($actor, $orderId) : null;
     }
 
     /** @return array<int, string> */
@@ -199,7 +194,7 @@ class ServiceCaseOrderContextService
         $actor = $user ?? auth()->user();
 
         return $actor instanceof User
-            ? $this->orderRead->orders($actor)
+            ? $this->orderReferences->query($actor)
             : Order::query()->whereRaw('1 = 0');
     }
 }

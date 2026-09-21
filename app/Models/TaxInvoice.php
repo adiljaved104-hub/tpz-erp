@@ -37,6 +37,11 @@ class TaxInvoice extends Model
         return $this->hasMany(TaxInvoiceItem::class)->orderBy('line_number');
     }
 
+    public function sourceOrder(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'source_order_id');
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');

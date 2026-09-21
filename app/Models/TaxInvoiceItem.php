@@ -25,4 +25,9 @@ class TaxInvoiceItem extends Model
     {
         return $this->belongsTo(TaxInvoice::class, 'tax_invoice_id');
     }
+
+    public function sourceOrderItem(): BelongsTo
+    {
+        return $this->belongsTo(OrderItem::class, 'source_order_item_id');
+    }
 }

@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 class TaxInvoiceService
 {
-    public function __construct(private readonly InvoiceAuthorization $authorization, private readonly ReferenceSequenceService $references, private readonly CompanyProfileService $company, private readonly InvoiceSettingsService $settings, private readonly ActivityLogger $activity) {}
+    public function __construct(private readonly InvoiceAuthorization $authorization, private readonly ReferenceSequenceService $references, private readonly CompanyProfileService $company, private readonly InvoiceSettingsService $settings, private readonly ActivityLogger $activity, private readonly TaxInvoiceOrderImportService $orderImport) {}
 
     public function create(array $data, User $actor): TaxInvoice
     {
@@ -22,12 +22,28 @@ class TaxInvoiceService
         $validated = validator($data, [
             'customer_name' => ['required', 'string', 'max:255'], 'customer_address' => ['required', 'string', 'max:2000'],
             'customer_trn' => ['nullable', 'string', 'max:50'], 'order_reference' => ['required', 'string', 'max:100'],
+            'source_order_id' => ['nullable', 'integer'],
             'invoice_date' => ['required', 'date'], 'idempotency_key' => ['required', 'uuid'], 'items' => ['required', 'array', 'min:1', 'max:100'],
-            'items.*.description' => ['required', 'string', 'max:255'], 'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'items.*.description' => ['required', 'string', 'max:2000'], 'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.unit_price_including_vat' => ['required', 'decimal:0,2', 'gt:0'],
+            'items.*.source_order_item_id' => ['nullable', 'integer'],
         ])->validate();
         if ($existing = TaxInvoice::query()->where('idempotency_key', $validated['idempotency_key'])->first()) {
             return $existing;
+        }
+        if (filled($validated['source_order_id'] ?? null)) {
+            $source = $this->orderImport->authorizedOrder($actor, (int) $validated['source_order_id']);
+            if ($source === null) {
+                throw ValidationException::withMessages(['source_order_id' => 'The selected Order is not available for import.']);
+            }
+            $allowedItemIds = $source->items->pluck('id')->all();
+            foreach ($validated['items'] as $index => $item) {
+                if (filled($item['source_order_item_id'] ?? null) && ! in_array((int) $item['source_order_item_id'], $allowedItemIds, true)) {
+                    throw ValidationException::withMessages(["items.{$index}.source_order_item_id" => 'The selected Order item is not available for import.']);
+                }
+            }
+        } elseif (collect($validated['items'])->contains(fn (array $item): bool => filled($item['source_order_item_id'] ?? null))) {
+            throw ValidationException::withMessages(['source_order_id' => 'Select an Order before linking its items.']);
         }
         $settings = $this->settings->settings();
         $profile = $this->company->snapshot();
@@ -37,7 +53,7 @@ class TaxInvoiceService
 
         return DB::transaction(function () use ($validated, $actor, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor): TaxInvoice {
             $invoice = TaxInvoice::query()->create([
-                'invoice_number' => $number, 'order_reference' => $validated['order_reference'] ?? null, 'invoice_date' => $validated['invoice_date'],
+                'invoice_number' => $number, 'order_reference' => $validated['order_reference'] ?? null, 'source_order_id' => $validated['source_order_id'] ?? null, 'invoice_date' => $validated['invoice_date'],
                 'customer_name' => trim($validated['customer_name']), 'customer_address' => $validated['customer_address'] ?? null, 'customer_trn' => $validated['customer_trn'] ?? null,
                 'vat_rate' => $vatRate, 'subtotal_excluding_vat' => $net, 'vat_amount' => $vat, 'grand_total' => $gross,
                 'seller_snapshot' => $profile, 'terms_en_snapshot' => $settings->terms_en, 'terms_ar_snapshot' => $settings->terms_ar,
@@ -47,7 +63,7 @@ class TaxInvoiceService
             foreach (array_values($validated['items']) as $index => $item) {
                 $lineGross = bcmul((string) $item['quantity'], (string) $item['unit_price_including_vat'], 2);
                 $lineNet = bcadd(bcdiv($lineGross, $divisor, 4), '0.005', 2);
-                $invoice->items()->create(['description' => trim($item['description']), 'quantity' => $item['quantity'], 'unit_price_including_vat' => $item['unit_price_including_vat'], 'subtotal_excluding_vat' => $lineNet, 'vat_amount' => bcsub($lineGross, $lineNet, 2), 'total_including_vat' => $lineGross, 'line_number' => $index + 1]);
+                $invoice->items()->create(['description' => trim($item['description']), 'quantity' => $item['quantity'], 'unit_price_including_vat' => $item['unit_price_including_vat'], 'source_order_item_id' => $item['source_order_item_id'] ?? null, 'subtotal_excluding_vat' => $lineNet, 'vat_amount' => bcsub($lineGross, $lineNet, 2), 'total_including_vat' => $lineGross, 'line_number' => $index + 1]);
             }
             $this->activity->log('tax_invoice.issued', $actor, $invoice, ['invoice_id' => $invoice->id, 'item_count' => count($validated['items']), 'actor_id' => $actor->id]);
 

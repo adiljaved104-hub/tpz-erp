@@ -2,3 +2,21 @@
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+
+.tpz-my-inventory-desktop {
+    display: none;
+}
+
+.tpz-my-inventory-mobile {
+    display: block;
+}
+
+@media (min-width: 1024px) {
+    .tpz-my-inventory-desktop {
+        display: block;
+    }
+
+    .tpz-my-inventory-mobile {
+        display: none;
+    }
+}

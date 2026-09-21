@@ -66,6 +66,27 @@ class MyInventoryTest extends TestCase
             ->assertSee('Capacity');
     }
 
+    public function test_inventory_table_and_mobile_cards_use_dedicated_complementary_visibility_rules(): void
+    {
+        $foundation = $this->responsibilityFoundation();
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($foundation), $foundation['owner']);
+
+        Livewire::actingAs($foundation['employee']->user)->test(MyInventory::class)
+            ->assertOk()
+            ->assertSeeHtml('tpz-my-inventory-desktop')
+            ->assertSeeHtml('tpz-my-inventory-mobile')
+            ->assertSee($foundation['product']->sku);
+
+        $view = file_get_contents(resource_path('views/filament/pages/inventory/my-inventory.blade.php'));
+        $css = file_get_contents(resource_path('css/filament/admin/theme.css'));
+
+        $this->assertStringNotContainsString('lg:block', $view);
+        $this->assertStringNotContainsString('lg:hidden', $view);
+        $this->assertMatchesRegularExpression('/\.tpz-my-inventory-desktop\s*\{\s*display:\s*none;\s*\}/', $css);
+        $this->assertMatchesRegularExpression('/\.tpz-my-inventory-mobile\s*\{\s*display:\s*block;\s*\}/', $css);
+        $this->assertMatchesRegularExpression('/@media\s*\(min-width:\s*1024px\)\s*\{\s*\.tpz-my-inventory-desktop\s*\{\s*display:\s*block;\s*\}\s*\.tpz-my-inventory-mobile\s*\{\s*display:\s*none;\s*\}/', $css);
+    }
+
     public function test_widgets_are_employee_scoped_and_ignore_unauthorized_inventory(): void
     {
         $f = $this->responsibilityFoundation(2, 0);

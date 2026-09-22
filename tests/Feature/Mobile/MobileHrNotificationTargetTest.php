@@ -145,7 +145,8 @@ class MobileHrNotificationTargetTest extends TestCase
 
     public function test_mobile_push_listener_is_registered_once(): void
     {
-        $this->artisan('event:list')->assertSuccessful();
+        $exitCode = \Illuminate\Support\Facades\Artisan::call('event:list');
+        $this->assertSame(0, $exitCode);
 
         $output = \Illuminate\Support\Facades\Artisan::output();
 
@@ -153,4 +154,5 @@ class MobileHrNotificationTargetTest extends TestCase
             1,
             substr_count($output, 'App\\Listeners\\QueueMobilePush'),
         );
-    }}
+    }
+}

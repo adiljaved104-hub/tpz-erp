@@ -37,6 +37,7 @@ use App\Models\StockMovement;
 use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Orders\OrderAmendmentService;
 use App\Services\Orders\OrderUpgradeReadService;
 use App\Services\Orders\WebSalesReadService;
 use App\Services\Orders\WebSalesService;
@@ -49,6 +50,36 @@ use Tests\TestCase;
 class OrderUpgradeExecutionTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_reserved_upgrade_quantity_amendment_adjusts_component_reservation_and_fulfillment_snapshot(): void
+    {
+        [$owner, $warehouse, $product, $baseInventory] = $this->baseFoundation();
+        $ram8 = $this->fixtureComponent($warehouse, ComponentType::Ram, '8GB DDR4', 8, 'gb', 'DDR4', 10, '45.0000');
+        $ram16 = $this->fixtureComponent($warehouse, ComponentType::Ram, '16GB DDR4', 16, 'gb', 'DDR4', 10, '80.0000');
+        $profile = $this->profile($product, $owner, [
+            $this->slot(HardwareSubsystem::Ram, 'RAM-1', true, $ram8),
+            $this->slot(HardwareSubsystem::Ram, 'RAM-2', false),
+        ]);
+        [$configuration, $recipe] = $this->ramConfiguration($profile, $owner, 16384, $ram8, '16GB RAM', '20.0000');
+        $order = app(SaveAndReserveOrder::class)->handle($this->orderData($warehouse, $owner, [
+            new OrderItemData($product->id, 1, '1450.00', salesConfigurationId: $configuration->id, upgradeRecipeId: $recipe->id),
+        ]), $owner);
+        $item = $order->items()->sole();
+        app(OrderAmendmentService::class)->amend($order, [
+            'reason' => 'Customer needs two upgraded laptops', 'idempotency_key' => (string) Str::uuid(),
+            'items' => [['id' => $item->id, 'quantity' => 2]],
+        ], $owner);
+        $this->assertSame(2, $item->fresh()->reservation->quantity);
+        $this->assertSame(2, $item->fresh()->componentReservations()->sole()->quantity);
+        $this->assertSame(2, $item->fresh()->upgradeSelection->recipe_snapshot['lines'][0]['quantity']);
+        $this->assertSame(2, $baseInventory->refresh()->reserved_quantity);
+        $this->assertSame(2, $ram8->inventories()->where('warehouse_id', $warehouse->id)->firstOrFail()->reserved_quantity);
+
+        app(FulfillOrder::class)->handle($order->refresh(), (string) Str::uuid(), $owner);
+        $this->assertSame(2, $item->fresh()->ordered_quantity);
+        $this->assertDatabaseCount('order_upgrade_executions', 1);
+        $this->assertSame(0, $baseInventory->refresh()->reserved_quantity);
+    }
 
     public function test_same_product_can_have_base_and_multiple_configured_lines_with_independent_reservations_and_cogs(): void
     {

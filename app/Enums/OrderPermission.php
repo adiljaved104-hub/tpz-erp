@@ -7,6 +7,9 @@ enum OrderPermission: string
     case View = 'order.view';
     case Create = 'order.create';
     case UpdateDraft = 'order.update_draft';
+    case Amend = 'order.amend';
+    case AmendAfterWindow = 'order.amend_after_window';
+    case ManageAmendmentSettings = 'order.manage_amendment_settings';
     case Confirm = 'order.confirm';
     case Reserve = 'order.reserve';
     case Process = 'order.process';

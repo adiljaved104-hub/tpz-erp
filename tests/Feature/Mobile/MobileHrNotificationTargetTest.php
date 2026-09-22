@@ -142,4 +142,15 @@ class MobileHrNotificationTargetTest extends TestCase
                 && ($payload['data']['notification_id'] ?? null) === (string) $notification->id;
         });
     }
-}
+
+    public function test_mobile_push_listener_is_registered_once(): void
+    {
+        $this->artisan('event:list')->assertSuccessful();
+
+        $output = \Illuminate\Support\Facades\Artisan::output();
+
+        $this->assertSame(
+            1,
+            substr_count($output, 'App\\Listeners\\QueueMobilePush'),
+        );
+    }}

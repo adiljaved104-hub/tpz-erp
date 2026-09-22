@@ -21,6 +21,7 @@ use App\Services\CompanyProfileService;
 use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\ReferenceSequenceService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -90,8 +91,11 @@ class QuotationService
 
         return DB::transaction(function () use ($quotation, $validated, $products, $catalog, $priced, $actor, $instructions): Quotation {
             $locked = Quotation::query()->lockForUpdate()->findOrFail($quotation->id);
-            if ($locked->status !== QuotationStatus::Draft || $locked->effectiveStatus() === QuotationStatus::Expired) {
-                throw ValidationException::withMessages(['status' => 'Only an unexpired Draft quotation can be edited.']);
+            if ($locked->status !== QuotationStatus::Draft) {
+                throw ValidationException::withMessages(['status' => 'Only a Draft quotation can be edited.']);
+            }
+            if ($locked->effectiveStatus() === QuotationStatus::Expired && Carbon::parse($validated['valid_until'])->startOfDay()->isBefore(today())) {
+                throw ValidationException::withMessages(['valid_until' => 'This quotation has expired. Set Valid Until to today or a future date to renew it.']);
             }
             $existingInstructions = QuotationItemSourcingInstruction::query()->whereIn('quotation_item_id', $locked->items()->select('id'));
             if ((clone $existingInstructions)->exists()) {

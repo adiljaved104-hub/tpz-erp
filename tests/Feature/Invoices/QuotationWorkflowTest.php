@@ -91,6 +91,72 @@ class QuotationWorkflowTest extends TestCase
         $this->assertSame(QuotationStatus::Draft, $quote->status);
     }
 
+    public function test_expired_stored_draft_remains_editable_but_requires_renewal_on_save(): void
+    {
+        $owner = $this->owner();
+        $this->profile($owner);
+        $product = Product::factory()->create(['selling_price' => '105.00']);
+        $data = $this->data($this->items($product));
+        $data['valid_until'] = today()->toDateString();
+        $quote = app(QuotationService::class)->create($data, $owner);
+        $reference = $quote->reference;
+
+        $this->travelTo(today()->addDay()->startOfDay());
+        $quote->refresh();
+        $this->assertSame(QuotationStatus::Expired, $quote->effectiveStatus());
+        $this->actingAs($owner);
+        $this->assertTrue(QuotationResource::canEdit($quote));
+        Livewire::actingAs($owner)->test(ViewQuotation::class, ['record' => $quote->getRouteKey()])
+            ->assertActionVisible('edit');
+
+        $data['customer_name'] = 'Renewed Customer';
+        try {
+            app(QuotationService::class)->updateDraft($quote, $data, $owner);
+            $this->fail('An expired Draft must be renewed on save.');
+        } catch (ValidationException $exception) {
+            $this->assertSame('This quotation has expired. Set Valid Until to today or a future date to renew it.', $exception->errors()['valid_until'][0]);
+        }
+        $this->assertSame('Acme Customer', $quote->refresh()->customer_name);
+        $this->assertSame(QuotationStatus::Expired, $quote->effectiveStatus());
+
+        $data['valid_until'] = today()->toDateString();
+        app(QuotationService::class)->updateDraft($quote, $data, $owner);
+        $this->assertSame('Renewed Customer', $quote->refresh()->customer_name);
+        $this->assertSame($reference, $quote->reference);
+        $this->assertSame(QuotationStatus::Draft, $quote->status);
+        $this->assertSame(QuotationStatus::Draft, $quote->effectiveStatus());
+    }
+
+    public function test_non_draft_quotation_commercial_content_remains_immutable(): void
+    {
+        $owner = $this->owner();
+        $this->profile($owner);
+        $product = Product::factory()->create(['selling_price' => '105.00']);
+        $data = $this->data($this->items($product));
+        $data['customer_name'] = 'Changed Customer';
+
+        foreach ([QuotationStatus::Sent, QuotationStatus::Accepted, QuotationStatus::Rejected, QuotationStatus::Converted, QuotationStatus::Cancelled] as $status) {
+            $quote = $this->createQuote($owner, $this->items($product));
+            if ($status === QuotationStatus::Converted) {
+                $service = app(QuotationService::class);
+                $service->transition($quote, QuotationStatus::Sent, $owner);
+                $service->transition($quote->refresh(), QuotationStatus::Accepted, $owner);
+                app(QuotationConversionService::class)->toInvoice($quote->refresh(), $owner, (string) Str::uuid());
+            } else {
+                $quote->forceFill(['status' => $status])->save();
+            }
+            $quote->refresh();
+            $this->assertFalse(QuotationResource::canEdit($quote));
+            try {
+                app(QuotationService::class)->updateDraft($quote, $data, $owner);
+                $this->fail("{$status->value} quotation must remain immutable.");
+            } catch (ValidationException) {
+                $this->assertSame('Acme Customer', $quote->refresh()->customer_name);
+                $this->assertSame($status, $quote->status);
+            }
+        }
+    }
+
     public function test_invoice_conversion_allocates_new_invoice_once_and_preserves_quotation_reference(): void
     {
         $owner = $this->owner();

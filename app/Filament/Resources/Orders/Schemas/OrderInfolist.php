@@ -9,6 +9,7 @@ use App\Models\OrderItem;
 use App\Models\User;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Orders\OrderAmendmentService;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -46,7 +47,10 @@ class OrderInfolist
                 TextEntry::make('platform.name')->label('Platform')->placeholder('Manual / No Platform'),
                 TextEntry::make('external_order_number')->label('External Order Number')->placeholder('Not provided'),
                 TextEntry::make('order_date')->date('d M Y'),
-                TextEntry::make('warehouse.name')->label('Fulfilled From'),
+                TextEntry::make('warehouse.name')->label(fn (?Order $record): string => $record !== null && app(OrderAmendmentService::class)->correctedWarehouseId($record) !== null ? 'Shipped From (historical)' : 'Fulfilled From'),
+                TextEntry::make('corrected_warehouse')->label('Corrected Warehouse (documentary only)')
+                    ->state(fn (Order $record): ?string => app(OrderAmendmentService::class)->correctedWarehouseName($record))
+                    ->visible(fn (?Order $record): bool => $record !== null && app(OrderAmendmentService::class)->correctedWarehouseId($record) !== null),
                 TextEntry::make('handledBy.name')->label('Handled By'),
                 TextEntry::make('fulfillment.reference')->label('Shipment Reference')->visible(fn (?Order $record): bool => $record?->status?->value === 'fulfilled'),
                 TextEntry::make('fulfillment.fulfilled_at')->label('Shipped At')->dateTime('d M Y, h:i A')->visible(fn (?Order $record): bool => $record?->status?->value === 'fulfilled'),

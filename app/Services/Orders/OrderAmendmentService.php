@@ -6,6 +6,7 @@ use App\DTOs\Orders\OrderItemData;
 use App\Enums\InventoryReservationStatus;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
+use App\Models\MarketplacePlatform;
 use App\Models\Order;
 use App\Models\OrderAmendment;
 use App\Models\OrderItem;
@@ -14,6 +15,7 @@ use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\TaxInvoice;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Inventory\InventoryService;
@@ -41,6 +43,7 @@ class OrderAmendmentService
         private readonly ExternalOrderIdentityService $externalIdentity,
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
+        private readonly OrderFulfillmentLocationService $locations,
     ) {}
 
     public function windowHours(): int
@@ -77,6 +80,181 @@ class OrderAmendmentService
 
         return $expires !== null && (now()->lessThanOrEqualTo($expires)
             || $this->authorization->allows($actor, OrderPermission::AmendAfterWindow, $order));
+    }
+
+    public function canCorrectShipped(Order $order, User $actor): bool
+    {
+        if ($order->status !== OrderStatus::Fulfilled || $order->marketplace_platform_id === null
+            || ! $order->fulfillment()->exists()
+            || ! $this->authorization->allows($actor, OrderPermission::Amend, $order)) {
+            return false;
+        }
+
+        $expires = $this->expiresAt($order);
+
+        return $expires !== null && (now()->lessThanOrEqualTo($expires)
+            || $this->authorization->allows($actor, OrderPermission::AmendAfterWindow, $order));
+    }
+
+    /** The original Order warehouse remains the historical stock/fulfilment source. */
+    public function correctedWarehouseId(Order $order): ?int
+    {
+        $value = DB::table('order_amendment_lines as line')
+            ->join('order_amendments as amendment', 'amendment.id', '=', 'line.order_amendment_id')
+            ->where('amendment.order_id', $order->id)->where('line.field', 'warehouse_correction')
+            ->orderByDesc('line.id')->value('line.new_value');
+        $snapshot = $value === null ? null : json_decode($value, true);
+
+        return is_array($snapshot) && isset($snapshot['warehouse_id']) ? (int) $snapshot['warehouse_id'] : null;
+    }
+
+    public function correctedWarehouseName(Order $order): ?string
+    {
+        $warehouseId = $this->correctedWarehouseId($order);
+
+        return $warehouseId === null ? null : Warehouse::query()->whereKey($warehouseId)->value('name');
+    }
+
+    /**
+     * The shipment, fulfilment items, reservations and stock movements remain untouched.
+     * Corrected warehouse is an explicit documentary overlay, never a physical stock transfer.
+     *
+     * @param  array{order_date?:string,warehouse_id?:int,external_order_number?:?string,items?:array<int,array{id:int,selling_price:string}>,reason:string,idempotency_key:string}  $input
+     */
+    public function correctShipped(Order $order, array $input, User $actor): OrderAmendment
+    {
+        $this->authorization->authorize($actor, OrderPermission::Amend, $order);
+        if (array_diff(array_keys($input), ['order_date', 'warehouse_id', 'external_order_number', 'items', 'reason', 'idempotency_key']) !== []) {
+            throw ValidationException::withMessages(['order' => 'Only date, price, warehouse and external reference may be corrected after shipment.']);
+        }
+        foreach ($input['items'] ?? [] as $line) {
+            if (! is_array($line) || array_diff(array_keys($line), ['id', 'selling_price']) !== []) {
+                throw ValidationException::withMessages(['items' => 'Shipped product, configuration and quantity cannot be changed.']);
+            }
+        }
+        $data = Validator::make($input, [
+            'reason' => ['required', 'string', 'min:5', 'max:2000'],
+            'idempotency_key' => ['required', 'uuid'],
+            'order_date' => ['sometimes', 'required', 'date_format:Y-m-d'],
+            'warehouse_id' => ['sometimes', 'required', 'integer', 'exists:warehouses,id'],
+            'external_order_number' => ['nullable', 'string', 'max:255'],
+            'items' => ['sometimes', 'array'],
+            'items.*.id' => ['required', 'integer', 'distinct'],
+            'items.*.selling_price' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
+        ])->validate();
+        $normalized = collect($data['items'] ?? [])->sortBy('id')->values()->all();
+        $requestHash = hash('sha256', json_encode([
+            'order' => $order->id, 'date' => $data['order_date'] ?? null,
+            'warehouse' => $data['warehouse_id'] ?? null,
+            'external' => array_key_exists('external_order_number', $data) ? trim((string) $data['external_order_number']) : null,
+            'items' => $normalized, 'reason' => trim($data['reason']),
+        ], JSON_THROW_ON_ERROR));
+
+        return DB::transaction(function () use ($order, $data, $actor, $requestHash): OrderAmendment {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->authorization->authorize($actor, OrderPermission::Amend, $order);
+            $existing = OrderAmendment::query()->where('idempotency_key', $data['idempotency_key'])->first();
+            if ($existing !== null) {
+                if ($existing->order_id !== $order->id || $existing->request_hash !== $requestHash) {
+                    throw ValidationException::withMessages(['idempotency_key' => 'This amendment request was already used for different changes.']);
+                }
+
+                return $existing;
+            }
+            if ($order->status !== OrderStatus::Fulfilled || $order->marketplace_platform_id === null || ! $order->fulfillment()->exists()) {
+                throw ValidationException::withMessages(['order' => 'Post-shipment correction is available only for shipped platform Orders.']);
+            }
+            $start = $this->startedAt($order);
+            if ($start === null) {
+                throw ValidationException::withMessages(['order' => 'The original reservation or shipment time is unavailable.']);
+            }
+            $expires = $start->copy()->addHours($this->windowHours());
+            $override = now()->greaterThan($expires);
+            if ($override) {
+                $this->authorization->authorize($actor, OrderPermission::AmendAfterWindow, $order);
+            }
+            $amendment = OrderAmendment::query()->create([
+                'order_id' => $order->id, 'amended_by_user_id' => $actor->id, 'reason' => trim($data['reason']),
+                'window_started_at' => $start, 'window_expired_at' => $expires,
+                'after_window_override' => $override, 'idempotency_key' => $data['idempotency_key'], 'request_hash' => $requestHash,
+            ]);
+            $items = $order->items()->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $changes = collect($data['items'] ?? [])->keyBy('id');
+            if ($changes->count() !== count($data['items'] ?? []) || $changes->keys()->diff($items->keys())->isNotEmpty()) {
+                throw ValidationException::withMessages(['items' => 'Every corrected price must belong to this Order exactly once.']);
+            }
+            $totalsInput = [];
+            $changedPrices = [];
+            foreach ($items as $item) {
+                $price = isset($changes[$item->id]) ? bcadd((string) $changes[$item->id]['selling_price'], '0', 2) : (string) $item->selling_price;
+                if (bccomp($price, (string) $item->selling_price, 2) !== 0) {
+                    $this->authorization->authorize($actor, OrderPermission::ViewSellingPrice, $order);
+                    $this->authorization->authorize($actor, OrderPermission::EditSellingPrice, $order);
+                    $this->line($amendment, $item, 'selling_price', (string) $item->selling_price, $price);
+                    $changedPrices[$item->id] = true;
+                }
+                if (bccomp(bcmul((string) $item->ordered_quantity, $price, 2), (string) $item->discount_total, 2) < 0) {
+                    throw ValidationException::withMessages(['items' => 'Line discount cannot exceed corrected line value.']);
+                }
+                $totalsInput[] = new OrderItemData($item->product_id, $item->ordered_quantity, $price, (string) $item->discount_total, (string) $item->vat_rate, $item->notes);
+            }
+            if ($changedPrices !== []) {
+                $totals = $this->totals->calculate($totalsInput);
+                foreach ($items->values() as $index => $item) {
+                    if (! isset($changedPrices[$item->id])) {
+                        continue;
+                    }
+                    $line = $totals['lines'][$index];
+                    // This B1 correction changes only commercial Order values, never a fulfilled row or COGS.
+                    DB::table('order_items')->where('id', $item->id)->update([
+                        'selling_price' => $line['selling_price'], 'vat_amount' => $line['vat_amount'],
+                        'line_total' => $line['line_total'], 'updated_at' => now(),
+                    ]);
+                }
+                $order->forceFill(array_intersect_key($totals, array_flip(['subtotal', 'discount_total', 'vat_total', 'grand_total'])))->save();
+            }
+            if (isset($data['order_date']) && $data['order_date'] !== $order->order_date->format('Y-m-d')) {
+                $this->line($amendment, null, 'order_date', $order->order_date->format('Y-m-d'), $data['order_date']);
+                $order->forceFill(['order_date' => $data['order_date']])->save();
+            }
+            if (isset($data['warehouse_id'])) {
+                $previousId = $this->correctedWarehouseId($order) ?? $order->warehouse_id;
+                $targetId = (int) $data['warehouse_id'];
+                if ($targetId !== $previousId) {
+                    $target = Warehouse::query()->lockForUpdate()->findOrFail($targetId);
+                    $platform = MarketplacePlatform::query()->findOrFail($order->marketplace_platform_id);
+                    $this->locations->assertSelectable($target, $platform);
+                    foreach ($items as $item) {
+                        if (! $this->responsibilities->canAccessProduct($actor, $item->product_id, $platform->id, $targetId)) {
+                            throw ValidationException::withMessages(['warehouse_id' => 'The corrected Warehouse is outside your active Responsibility scope.']);
+                        }
+                    }
+                    $previous = Warehouse::query()->findOrFail($previousId);
+                    $this->line($amendment, null, 'warehouse_correction',
+                        json_encode(['warehouse_id' => $previous->id, 'name' => $previous->name], JSON_THROW_ON_ERROR),
+                        json_encode(['warehouse_id' => $target->id, 'name' => $target->name], JSON_THROW_ON_ERROR));
+                }
+            }
+            if (array_key_exists('external_order_number', $data)) {
+                $external = trim((string) $data['external_order_number']) ?: null;
+                if ($external !== $order->external_order_number) {
+                    $hash = $this->externalIdentity->hash($order->marketplace_platform_id, $external);
+                    if ($hash !== null && Order::query()->where('external_identity_hash', $hash)->where('id', '!=', $order->id)->exists()) {
+                        throw ValidationException::withMessages(['external_order_number' => 'This external order number already belongs to another Order on this Platform.']);
+                    }
+                    $this->line($amendment, null, 'external_order_number', $order->external_order_number, $external);
+                    $order->forceFill(['external_order_number' => $external, 'external_identity_hash' => $hash])->save();
+                }
+            }
+            if (! $amendment->lines()->exists()) {
+                throw ValidationException::withMessages(['order' => 'Change at least one supported shipped Order value.']);
+            }
+            $this->activity->log('order.post_shipment_corrected', $actor, $order, [
+                'amendment_id' => $amendment->id, 'after_window_override' => $override,
+            ]);
+
+            return $amendment;
+        }, 5);
     }
 
     /**

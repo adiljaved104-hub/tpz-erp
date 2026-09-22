@@ -7,7 +7,12 @@
                 @foreach ($amendment->lines as $line)
                     <div class="break-words">
                         <span class="font-medium">{{ $line->order_item_id ? 'Line #'.$line->order_item_id.' · ' : '' }}{{ str_replace('_', ' ', ucfirst($line->field)) }}:</span>
-                        {{ $line->old_value ?? '—' }} → {{ $line->new_value ?? '—' }}
+                        @if ($line->field === 'warehouse_correction')
+                            {{ json_decode($line->old_value, true)['name'] ?? 'Unknown warehouse' }} → {{ json_decode($line->new_value, true)['name'] ?? 'Unknown warehouse' }}
+                            <span class="text-xs text-gray-500">(documentary correction; original shipment unchanged)</span>
+                        @else
+                            {{ $line->old_value ?? '—' }} → {{ $line->new_value ?? '—' }}
+                        @endif
                     </div>
                 @endforeach
             </div>

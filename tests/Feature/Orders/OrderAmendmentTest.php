@@ -4,6 +4,7 @@ namespace Tests\Feature\Orders;
 
 use App\Actions\Orders\FulfillOrder;
 use App\Actions\Orders\SaveAndReserveOrder;
+use App\Actions\Orders\SaveAsShippedOrder;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\Enums\EmployeeRole;
@@ -12,6 +13,7 @@ use App\Exceptions\InsufficientInventoryException;
 use App\Filament\Pages\Administration\OrderSettings as OrderSettingsPage;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Models\Employee;
+use App\Models\MarketplacePlatform;
 use App\Models\Order;
 use App\Models\OrderAmendment;
 use App\Models\OrderAmendmentLine;
@@ -26,6 +28,7 @@ use App\Services\Authorization\OrderAuthorization;
 use App\Services\Orders\OrderAmendmentService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -208,6 +211,129 @@ class OrderAmendmentTest extends TestCase
         $this->assertDatabaseCount('order_amendments', 1);
     }
 
+    public function test_directly_shipped_platform_order_date_and_external_reference_corrections_use_immutable_ledger(): void
+    {
+        [$owner, $order] = $this->shippedPlatformOrder();
+        $service = app(OrderAmendmentService::class);
+        $this->assertTrue($service->canCorrectShipped($order, $owner));
+        $this->assertNotNull($service->expiresAt($order));
+        $oldDate = $order->order_date->format('Y-m-d');
+        $newDate = now()->subDay()->toDateString();
+        $key = (string) Str::uuid();
+        $input = ['reason' => 'Correct original sale date and platform reference', 'idempotency_key' => $key,
+            'order_date' => $newDate, 'external_order_number' => 'PLATFORM-CORRECTED'];
+        $amendment = $service->correctShipped($order, $input, $owner);
+        $this->assertSame($amendment->id, $service->correctShipped($order, $input, $owner)->id);
+        $this->assertSame($newDate, $order->refresh()->order_date->format('Y-m-d'));
+        $this->assertSame('PLATFORM-CORRECTED', $order->external_order_number);
+        $this->assertDatabaseHas('order_amendment_lines', ['field' => 'order_date', 'old_value' => $oldDate, 'new_value' => $newDate]);
+        $this->assertDatabaseHas('order_amendment_lines', ['field' => 'external_order_number', 'new_value' => 'PLATFORM-CORRECTED']);
+        $this->assertFalse($amendment->after_window_override);
+    }
+
+    public function test_shipped_price_correction_changes_order_totals_without_rewriting_fulfillment_cogs_or_invoice(): void
+    {
+        [$owner, $order] = $this->shippedPlatformOrder();
+        $item = $order->items()->sole();
+        $movementBefore = StockMovement::query()->get()->toArray();
+        $fulfillmentBefore = $order->fulfillment->items()->sole()->toArray();
+        $invoice = $this->linkedInvoice($order, $owner);
+        $invoiceBefore = DB::table('tax_invoices')->where('id', $invoice->id)->first();
+
+        app(OrderAmendmentService::class)->correctShipped($order, [
+            'reason' => 'Approved post-sale price correction', 'idempotency_key' => (string) Str::uuid(),
+            'items' => [['id' => $item->id, 'selling_price' => '125.00']],
+        ], $owner);
+
+        $this->assertSame('125.00', $item->fresh()->selling_price);
+        $this->assertSame('250.00', $order->refresh()->grand_total);
+        $this->assertSame(2, $item->fresh()->ordered_quantity);
+        $this->assertSame($fulfillmentBefore, $order->fulfillment->items()->sole()->toArray());
+        $this->assertSame($movementBefore, StockMovement::query()->get()->toArray());
+        $this->assertEquals($invoiceBefore, DB::table('tax_invoices')->where('id', $invoice->id)->first());
+    }
+
+    public function test_shipped_warehouse_correction_is_documentary_and_original_stock_history_stays_intact(): void
+    {
+        [$owner, $order] = $this->shippedPlatformOrder();
+        $historicalId = $order->warehouse_id;
+        $target = Warehouse::factory()->create(['status' => true]);
+        $movements = StockMovement::query()->get()->toArray();
+        $fulfillment = $order->fulfillment->items()->sole()->toArray();
+        $service = app(OrderAmendmentService::class);
+        $amendment = $service->correctShipped($order, [
+            'reason' => 'Correct recorded dispatch warehouse', 'idempotency_key' => (string) Str::uuid(),
+            'warehouse_id' => $target->id,
+        ], $owner);
+
+        $this->assertSame($historicalId, $order->refresh()->warehouse_id);
+        $this->assertSame($target->id, $service->correctedWarehouseId($order));
+        $this->assertSame($target->name, $service->correctedWarehouseName($order));
+        $this->assertSame($movements, StockMovement::query()->get()->toArray());
+        $this->assertSame($fulfillment, $order->fulfillment->items()->sole()->toArray());
+        $line = $amendment->lines()->where('field', 'warehouse_correction')->sole();
+        $this->assertSame($historicalId, json_decode($line->old_value, true)['warehouse_id']);
+        $this->assertSame($target->id, json_decode($line->new_value, true)['warehouse_id']);
+        Livewire::actingAs($owner)->test(ViewOrder::class, ['record' => $order->getRouteKey()])
+            ->assertSee('Shipped From (historical)')->assertSee('Corrected Warehouse (documentary only)')
+            ->assertSee($target->name);
+    }
+
+    public function test_shipped_quantity_product_and_configuration_payloads_are_rejected_without_side_effects(): void
+    {
+        [$owner, $order] = $this->shippedPlatformOrder();
+        $item = $order->items()->sole();
+        foreach ([
+            ['items' => [['id' => $item->id, 'quantity' => 3, 'selling_price' => '100.00']]],
+            ['items' => [['id' => $item->id, 'product_id' => 999, 'selling_price' => '100.00']]],
+            ['items' => [['id' => $item->id, 'upgrade_recipe_id' => 999, 'selling_price' => '100.00']]],
+            ['quantity' => 3],
+        ] as $attempt) {
+            try {
+                app(OrderAmendmentService::class)->correctShipped($order, array_merge($attempt, [
+                    'reason' => 'Attempt unsupported shipped change', 'idempotency_key' => (string) Str::uuid(),
+                ]), $owner);
+                $this->fail('Shipped products and quantities cannot be amended.');
+            } catch (ValidationException) {
+                $this->assertSame(2, $item->fresh()->ordered_quantity);
+            }
+        }
+        $this->assertDatabaseCount('order_amendments', 0);
+        $this->assertDatabaseCount('stock_movements', 1);
+    }
+
+    public function test_post_shipment_requires_reason_and_window_override_is_owner_admin_only_by_default(): void
+    {
+        [$owner, $order] = $this->shippedPlatformOrder();
+        $service = app(OrderAmendmentService::class);
+        try {
+            $service->correctShipped($order, ['reason' => '', 'idempotency_key' => (string) Str::uuid(),
+                'external_order_number' => 'WITHOUT-REASON'], $owner);
+            $this->fail('Reason is required.');
+        } catch (ValidationException) {
+            $this->assertDatabaseCount('order_amendments', 0);
+        }
+        DB::table('order_status_events')->where('order_id', $order->id)->where('from_status', 'draft')
+            ->update(['created_at' => now()->subHours(2)]);
+        $admin = User::factory()->create();
+        Employee::factory()->for($admin)->role(EmployeeRole::Admin)->create(['email' => $admin->email]);
+        $manager = User::factory()->create();
+        Employee::factory()->for($manager)->role(EmployeeRole::Manager)->create(['email' => $manager->email]);
+        $this->assertFalse($service->canCorrectShipped($order, $manager));
+        $this->assertTrue($service->correctShipped($order, ['reason' => 'Owner approves late correction',
+            'idempotency_key' => (string) Str::uuid(), 'external_order_number' => 'OWNER-LATE'], $owner)->after_window_override);
+        $this->assertTrue($service->correctShipped($order, ['reason' => 'Admin approves late correction',
+            'idempotency_key' => (string) Str::uuid(), 'external_order_number' => 'ADMIN-LATE'], $admin)->after_window_override);
+    }
+
+    public function test_post_shipment_action_has_distinct_label_and_pre_shipment_action_is_hidden(): void
+    {
+        [$owner, $order] = $this->shippedPlatformOrder();
+        Livewire::actingAs($owner)->test(ViewOrder::class, ['record' => $order->getRouteKey()])
+            ->assertActionVisible('postShipmentCorrection')
+            ->assertActionHidden('amendOrder');
+    }
+
     /** @return array{User, Order, ProductInventory} */
     private function reservedOrder(int $available = 10): array
     {
@@ -223,5 +349,35 @@ class OrderAmendmentTest extends TestCase
         ), $owner);
 
         return [$owner->refresh(), $order, $stock];
+    }
+
+    /** @return array{User, Order} */
+    private function shippedPlatformOrder(): array
+    {
+        $owner = User::factory()->create();
+        Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
+        $product = Product::factory()->create();
+        $warehouse = Warehouse::factory()->create(['status' => true, 'is_default' => true]);
+        $platform = MarketplacePlatform::factory()->create(['status' => true]);
+        ProductInventory::factory()->create(['product_id' => $product->id, 'warehouse_id' => $warehouse->id,
+            'available_quantity' => 10, 'reserved_quantity' => 0, 'average_cost' => '50.0000']);
+        $order = app(SaveAsShippedOrder::class)->handle(new SaveAndReserveOrderData(
+            $warehouse->id, $platform->id, 'PLATFORM-ORIGINAL', now()->toDateString(),
+            $owner->employee->id, 'Shipped amendment test', [new OrderItemData($product->id, 2, '100.00')],
+            (string) Str::uuid(),
+        ), $owner);
+
+        return [$owner->refresh(), $order];
+    }
+
+    private function linkedInvoice(Order $order, User $actor): TaxInvoice
+    {
+        return TaxInvoice::query()->create([
+            'source_order_id' => $order->id, 'invoice_number' => 'SHIP-TEST-1', 'status' => 'issued',
+            'invoice_date' => now()->toDateString(), 'customer_name' => 'Original customer',
+            'vat_rate' => '5.00', 'subtotal_excluding_vat' => '190.48', 'vat_amount' => '9.52',
+            'grand_total' => '200.00', 'seller_snapshot' => [], 'terms_en_snapshot' => 'Unchanged terms',
+            'created_by_user_id' => $actor->id, 'issued_at' => now(), 'idempotency_key' => (string) Str::uuid(),
+        ]);
     }
 }

@@ -606,6 +606,46 @@ class InventoryService
         ]);
     }
 
+    /**
+     * Adjust an existing active reservation without replacing its unique reservation key or
+     * responsibility attribution. Every delta gets its own immutable stock movement.
+     */
+    public function adjustOrderReservation(InventoryReservation $reservation, int $quantity, User $actor, string $movementReference, string $idempotencyKey, string $movementGroup): void
+    {
+        if (DB::transactionLevel() === 0 || $quantity < 1) {
+            throw new InventoryInvariantException('A positive Order reservation adjustment requires an active transaction.');
+        }
+
+        $reservation = InventoryReservation::query()->lockForUpdate()->findOrFail($reservation->id);
+        if ($reservation->status !== InventoryReservationStatus::Active) {
+            throw new InventoryInvariantException('Only an active Order reservation can be amended.');
+        }
+        $delta = $quantity - $reservation->quantity;
+        if ($delta === 0) {
+            return;
+        }
+
+        $inventory = ProductInventory::query()->lockForUpdate()->findOrFail($reservation->product_inventory_id);
+        if ($delta > 0 && $delta > $inventory->sellableQuantity()) {
+            throw new InsufficientInventoryException('Insufficient Sellable inventory for the Order amendment.');
+        }
+        if ($delta < 0 && $inventory->reserved_quantity < -$delta) {
+            throw new InventoryInvariantException('Reserved inventory is lower than the requested release.');
+        }
+
+        $before = $this->snapshot($inventory);
+        $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $delta])->save();
+        $reservation->forceFill(['quantity' => $quantity])->save();
+        $component = $reservation->reservation_kind === InventoryReservationKind::UpgradeComponent;
+        $type = $delta > 0
+            ? ($component ? StockMovementType::UpgradeComponentReservation : StockMovementType::Reservation)
+            : ($component ? StockMovementType::UpgradeComponentReservationRelease : StockMovementType::ReservationRelease);
+        $this->createMovement(
+            $inventory, $actor, $movementReference, $movementGroup, $type, abs($delta), 0, $delta, 0,
+            $before, $reservation, 'Controlled Order amendment', $idempotencyKey,
+        );
+    }
+
     /** @return array{movement:StockMovement,unit_cost:string,total_value:string,inventory:ProductInventory} */
     public function fulfillUpgradeComponentReservation(
         InventoryReservation $reservation,

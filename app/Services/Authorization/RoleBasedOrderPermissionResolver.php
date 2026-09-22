@@ -43,7 +43,7 @@ class RoleBasedOrderPermissionResolver implements OrderPermissionResolver
         }
 
         if (in_array($permission, [
-            OrderPermission::View, OrderPermission::Create, OrderPermission::UpdateDraft,
+            OrderPermission::View, OrderPermission::Create, OrderPermission::UpdateDraft, OrderPermission::Amend,
             OrderPermission::Confirm, OrderPermission::Reserve, OrderPermission::Process,
             OrderPermission::ViewSellingPrice, OrderPermission::EditSellingPrice, OrderPermission::Export,
         ], true)) {
@@ -60,7 +60,7 @@ class RoleBasedOrderPermissionResolver implements OrderPermissionResolver
         }
 
         if (in_array($permission, [
-            OrderPermission::View, OrderPermission::Create, OrderPermission::UpdateDraft,
+            OrderPermission::View, OrderPermission::Create, OrderPermission::UpdateDraft, OrderPermission::Amend,
             OrderPermission::Reserve, OrderPermission::ViewSellingPrice, OrderPermission::EditSellingPrice,
         ], true)) {
             return true;

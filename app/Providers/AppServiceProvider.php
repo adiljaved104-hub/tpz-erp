@@ -85,10 +85,13 @@ use App\Models\OfficeFinanceAccount;
 use App\Models\OfficeFinanceTransaction;
 use App\Models\OpeningStockEntry;
 use App\Models\Order;
+use App\Models\OrderAmendment;
+use App\Models\OrderAmendmentLine;
 use App\Models\OrderFulfillment;
 use App\Models\OrderFulfillmentItem;
 use App\Models\OrderItem;
 use App\Models\OrderItemUpgradeSelection;
+use App\Models\OrderSetting;
 use App\Models\OrderStatusEvent;
 use App\Models\OrderUpgradeExecution;
 use App\Models\OrderUpgradeExecutionLine;
@@ -477,6 +480,9 @@ class AppServiceProvider extends ServiceProvider
             'opening_stock' => OpeningStockEntry::class,
             'inventory_reservation' => InventoryReservation::class,
             'order' => Order::class,
+            'order_setting' => OrderSetting::class,
+            'order_amendment' => OrderAmendment::class,
+            'order_amendment_line' => OrderAmendmentLine::class,
             'order_fulfillment' => OrderFulfillment::class,
             'order_fulfillment_item' => OrderFulfillmentItem::class,
             'order_item' => OrderItem::class,

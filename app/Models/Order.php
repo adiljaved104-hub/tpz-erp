@@ -115,6 +115,11 @@ class Order extends Model
         return $this->hasMany(OrderItem::class)->orderBy('line_number')->orderBy('id');
     }
 
+    public function amendments(): HasMany
+    {
+        return $this->hasMany(OrderAmendment::class)->orderByDesc('id');
+    }
+
     public function statusEvents(): HasMany
     {
         return $this->hasMany(OrderStatusEvent::class)->orderBy('created_at')->orderBy('id');

@@ -19,6 +19,7 @@ use App\Models\ProductBrand;
 use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\EmployeePermissionOverrideService;
+use App\Services\Orders\OrderAmendmentService;
 use App\Services\Orders\OrderReadService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -33,6 +34,36 @@ class OrderResponsibilityAndPermissionTest extends TestCase
 {
     use RefreshDatabase;
     use ResponsibilityTestFoundation;
+
+    public function test_scoped_staff_can_amend_within_window_but_cannot_override_expiry_or_quantity_cap(): void
+    {
+        $foundation = $this->responsibilityFoundation(10);
+        $staff = $foundation['employee']->user;
+        app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation, ResponsibilityAssignmentMode::Quantity, [
+            'assignedQuantity' => 3,
+        ]), $foundation['owner']);
+        $order = app(SaveAndReserveOrder::class)->handle($this->data(
+            $foundation['product'], $foundation['inventory']->warehouse_id, $staff, null, 2,
+        ), $staff);
+        $service = app(OrderAmendmentService::class);
+        $item = $order->items()->sole();
+        $service->amend($order, ['reason' => 'Customer requests one more', 'idempotency_key' => (string) Str::uuid(),
+            'items' => [['id' => $item->id, 'quantity' => 3]]], $staff);
+        $this->assertSame(3, $item->fresh()->reservation->quantity);
+        try {
+            $service->amend($order, ['reason' => 'Exceed assigned quantity', 'idempotency_key' => (string) Str::uuid(),
+                'items' => [['id' => $item->id, 'quantity' => 4]]], $staff);
+            $this->fail('Quantity cap must apply to B1 increments.');
+        } catch (ValidationException) {
+            $this->assertSame(3, $foundation['inventory']->refresh()->reserved_quantity);
+        }
+
+        $order->forceFill(['reserved_at' => now()->subHours(2)])->save();
+        $this->assertFalse($service->canAmend($order->refresh(), $staff));
+        $this->expectException(AuthorizationException::class);
+        $service->amend($order, ['reason' => 'Outside allowed window', 'idempotency_key' => (string) Str::uuid(),
+            'external_order_number' => 'LATE-STAFF'], $staff);
+    }
 
     public function test_staff_requires_an_active_matching_responsibility(): void
     {

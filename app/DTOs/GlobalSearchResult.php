@@ -10,5 +10,6 @@ final readonly class GlobalSearchResult
         public string $description,
         public string $url,
         public string $icon = 'heroicon-o-magnifying-glass',
+        public ?array $mobileTarget = null,
     ) {}
 }

@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\Mobile\V1\ProductController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
+use App\Http\Controllers\Api\Mobile\V1\SearchController;
 use App\Http\Controllers\Api\Mobile\V1\TaskController;
 use App\Http\Controllers\Api\Mobile\V1\WarrantyController;
 use App\Http\Controllers\Api\Mobile\V1\WorkspaceController;
@@ -56,6 +57,7 @@ Route::prefix('mobile/v1')
             Route::post('/{conversation}/read', 'read')->whereNumber('conversation');
         });
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
+            Route::get('/search', SearchController::class);
             Route::get('/inventory', 'inventory');
             Route::get('/products', [ProductController::class, 'index']);
             Route::get('/products/{product}', [ProductController::class, 'show'])->whereNumber('product');

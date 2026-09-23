@@ -20,8 +20,8 @@ use App\Models\User;
 use App\Models\WarrantyRepair;
 use App\Services\Authorization\ChatAuthorization;
 use App\Services\Authorization\CustomerReturnAuthorization;
-use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\HrRecordAuthorization;
+use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Authorization\TaskAuthorization;
@@ -41,7 +41,7 @@ class NotificationTarget
             'customer_return' => [CustomerReturn::class, 'returns'],'warranty_repair' => [WarrantyRepair::class, 'warranty'],
             'conversation' => [Conversation::class, 'chat'],'responsibility_assignment' => [ResponsibilityAssignment::class, 'responsibilities'],
             'product_inventory' => [ProductInventory::class, 'inventory'],
-            'hr_notice' => [HrNotice::class, 'hr'],'employee_warning' => [EmployeeWarning::class, 'hr'],default => [null, null],
+            'hr_notice' => [HrNotice::class, 'hr/notices'],'employee_warning' => [EmployeeWarning::class, 'hr/warnings'],default => [null, null],
         };
         if ($model === null || ! ($record = $model::query()->find((int) $id))) {
             return null;

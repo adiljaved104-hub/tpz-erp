@@ -3,11 +3,17 @@
 namespace Tests\Feature\Mobile;
 
 use App\Enums\EmployeeRole;
+use App\Jobs\SendMobilePush;
+use App\Models\MobileDevice;
 use App\Models\WarningCategory;
 use App\Services\Hr\EmployeeWarningService;
 use App\Services\Hr\HrNoticeService;
 use App\Services\Mobile\NotificationTarget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Tests\Support\ResponsibilityTestFoundation;
 use Tests\TestCase;
 
@@ -53,14 +59,14 @@ class MobileHrNotificationTargetTest extends TestCase
         $target = app(NotificationTarget::class);
 
         $this->assertSame(
-            ['module' => 'hr', 'id' => $notice->id],
+            ['module' => 'hr/notices', 'id' => $notice->id],
             $target->resolve($staff, ['target_type' => 'hr_notice', 'target_id' => $notice->id]),
         );
         $this->assertNull(
             $target->resolve($outsider, ['target_type' => 'hr_notice', 'target_id' => $notice->id]),
         );
         $this->assertSame(
-            ['module' => 'hr', 'id' => $warning->id],
+            ['module' => 'hr/warnings', 'id' => $warning->id],
             $target->resolve($staff, ['target_type' => 'employee_warning', 'target_id' => $warning->id]),
         );
         $this->assertNull(
@@ -101,10 +107,10 @@ class MobileHrNotificationTargetTest extends TestCase
 
         $expoToken = 'ExponentPushToken[hrnotice123]';
 
-        \App\Models\MobileDevice::query()->create([
+        MobileDevice::query()->create([
             'user_id' => $staff->id,
             'personal_access_token_id' => $accessToken->id,
-            'device_id' => (string) \Illuminate\Support\Str::uuid(),
+            'device_id' => (string) Str::uuid(),
             'token_hash' => hash('sha256', $expoToken),
             'expo_token' => $expoToken,
             'platform' => 'android',
@@ -114,10 +120,10 @@ class MobileHrNotificationTargetTest extends TestCase
 
         config(['mobile.push_enabled' => true]);
 
-        \Illuminate\Support\Facades\Queue::fake();
+        Queue::fake();
 
-        \Illuminate\Support\Facades\Http::fake([
-            'https://exp.host/--/api/v2/push/send' => \Illuminate\Support\Facades\Http::response([
+        Http::fake([
+            'https://exp.host/--/api/v2/push/send' => Http::response([
                 'data' => [
                     'status' => 'ok',
                     'id' => 'expo-ticket-1',
@@ -125,12 +131,12 @@ class MobileHrNotificationTargetTest extends TestCase
             ], 200),
         ]);
 
-        (new \App\Jobs\SendMobilePush(
+        (new SendMobilePush(
             $staff->id,
             (string) $notification->id,
         ))->handle();
 
-        \Illuminate\Support\Facades\Http::assertSent(function ($request) use ($expoToken, $notice, $notification): bool {
+        Http::assertSent(function ($request) use ($expoToken, $notice, $notification): bool {
             $payload = $request->data();
 
             return $request->url() === 'https://exp.host/--/api/v2/push/send'
@@ -145,10 +151,10 @@ class MobileHrNotificationTargetTest extends TestCase
 
     public function test_mobile_push_listener_is_registered_once(): void
     {
-        $exitCode = \Illuminate\Support\Facades\Artisan::call('event:list');
+        $exitCode = Artisan::call('event:list');
         $this->assertSame(0, $exitCode);
 
-        $output = \Illuminate\Support\Facades\Artisan::output();
+        $output = Artisan::output();
 
         $this->assertSame(
             1,

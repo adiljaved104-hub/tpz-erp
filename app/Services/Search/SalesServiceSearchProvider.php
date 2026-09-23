@@ -67,6 +67,7 @@ class SalesServiceSearchProvider implements GlobalSearchProvider
                     $order->status->getLabel(),
                     OrderResource::getUrl('view', ['record' => $order->id]),
                     'heroicon-o-shopping-bag',
+                    ['module' => 'orders', 'id' => $order->id],
                 ));
         } catch (AuthorizationException) {
             return collect();
@@ -84,7 +85,7 @@ class SalesServiceSearchProvider implements GlobalSearchProvider
         SearchQuery::match($query, ['customer_returns.reference'], $term);
         SearchQuery::rank($query, 'customer_returns.reference', $term);
 
-        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Returns', $row->reference.($row->platform ? ' · '.$row->platform : ''), ucfirst($row->status), CustomerReturnResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-arrow-uturn-left'));
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Returns', $row->reference.($row->platform ? ' · '.$row->platform : ''), ucfirst($row->status), CustomerReturnResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-arrow-uturn-left', ['module' => 'returns', 'id' => $row->id]));
     }
 
     private function claims(User $user, string $term, int $limit): Collection
@@ -98,7 +99,7 @@ class SalesServiceSearchProvider implements GlobalSearchProvider
         SearchQuery::match($query, ['reference', 'external_claim_reference'], $term);
         SearchQuery::rank($query, 'reference', $term);
 
-        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Claims / Safe-T', $row->reference, ($row->external_claim_reference ? 'External: '.$row->external_claim_reference.' · ' : '').ucfirst($row->status), SafetClaimResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-document-check'));
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Claims / Safe-T', $row->reference, ($row->external_claim_reference ? 'External: '.$row->external_claim_reference.' · ' : '').ucfirst($row->status), SafetClaimResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-document-check', ['module' => 'cases/claims', 'id' => $row->id]));
     }
 
     private function warranties(User $user, string $term, int $limit): Collection
@@ -119,7 +120,8 @@ class SalesServiceSearchProvider implements GlobalSearchProvider
             $internal = $row->source === 'damaged_item' || $row->damaged_stock_event_id !== null;
 
             return new GlobalSearchResult($internal ? 'Internal Repairs' : 'Warranty', $row->reference.' · '.$row->sku, $row->name.' · '.ucfirst(str_replace('_', ' ', $row->status)),
-                ($internal ? InternalRepairResource::class : WarrantyRepairResource::class)::getUrl('view', ['record' => $row->id]), 'heroicon-o-wrench-screwdriver');
+                ($internal ? InternalRepairResource::class : WarrantyRepairResource::class)::getUrl('view', ['record' => $row->id]), 'heroicon-o-wrench-screwdriver',
+                ['module' => $internal ? 'internal-repairs' : 'warranty', 'id' => $row->id]);
         });
     }
 
@@ -134,6 +136,6 @@ class SalesServiceSearchProvider implements GlobalSearchProvider
         SearchQuery::match($query, ['reference', 'category', 'description'], $term);
         SearchQuery::rank($query, 'reference', $term);
 
-        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Complaints', $row->reference.' · '.$row->category, ucfirst($row->status), ComplaintResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-chat-bubble-left-ellipsis'));
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Complaints', $row->reference.' · '.$row->category, ucfirst($row->status), ComplaintResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-chat-bubble-left-ellipsis', ['module' => 'cases/complaints', 'id' => $row->id]));
     }
 }

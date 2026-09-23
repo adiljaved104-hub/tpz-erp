@@ -47,7 +47,7 @@ class OperationsSearchProvider implements GlobalSearchProvider
 
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Tasks', $row->reference.' · '.$row->title,
             ucfirst(str_replace('_', ' ', $row->status)).' · '.ucfirst($row->priority).' · '.($row->employee ?: ($row->team ? 'Team: '.$row->team : 'Unassigned')),
-            TaskResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-clipboard-document-list'));
+            TaskResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-clipboard-document-list', ['module' => 'tasks', 'id' => $row->id]));
     }
 
     private function transfers(User $user, string $term, int $limit): Collection
@@ -96,6 +96,6 @@ class OperationsSearchProvider implements GlobalSearchProvider
         SearchQuery::match($query, ['responsibility_assignments.reference', 'employees.name'], $term);
         SearchQuery::rank($query, 'responsibility_assignments.reference', $term);
 
-        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Responsibility Assignments', $row->reference.' · '.$row->employee, ucfirst(str_replace('_', ' ', $row->assignment_mode)).' · '.ucfirst($row->status), ResponsibilityAssignmentResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-user-group'));
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Responsibility Assignments', $row->reference.' · '.$row->employee, ucfirst(str_replace('_', ' ', $row->assignment_mode)).' · '.ucfirst($row->status), ResponsibilityAssignmentResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-user-group', ['module' => 'responsibilities', 'id' => $row->id]));
     }
 }

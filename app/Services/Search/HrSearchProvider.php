@@ -31,7 +31,7 @@ class HrSearchProvider implements GlobalSearchProvider
             SearchQuery::rank($notices, 'title', $query);
             $results = $results->concat($notices->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
                 'Notices', $row->reference.' · '.$row->title, ucfirst($row->priority).' · '.ucfirst($row->status),
-                HrNoticeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-megaphone',
+                HrNoticeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-megaphone', ['module' => 'hr/notices', 'id' => $row->id],
             )));
         }
 
@@ -46,7 +46,7 @@ class HrSearchProvider implements GlobalSearchProvider
             SearchQuery::rank($warnings, 'employee_warnings.title', $query);
             $results = $results->concat($warnings->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
                 'Warnings', $row->reference.' · '.$row->title, $row->employee.' · '.ucfirst($row->warning_level).' · '.ucfirst($row->status),
-                EmployeeWarningResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-exclamation-triangle',
+                EmployeeWarningResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-exclamation-triangle', ['module' => 'hr/warnings', 'id' => $row->id],
             )));
         }
 

@@ -46,7 +46,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
 
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Products', $row->sku.' · '.$row->name, trim(($row->model ? $row->model.' · ' : '').ucfirst($row->status)),
-            ProductResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-cube',
+            ProductResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-cube', ['module' => 'products', 'id' => $row->id],
         ));
     }
 
@@ -67,7 +67,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Employees', $row->employee_id.' · '.$row->name,
             ucfirst($row->role).($row->team_name ? ' · '.$row->team_name : '').' · '.($row->status ? 'Active' : 'Inactive'),
-            EmployeeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-user',
+            EmployeeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-user', ['module' => 'hr/employees', 'id' => $row->id],
         ));
     }
 

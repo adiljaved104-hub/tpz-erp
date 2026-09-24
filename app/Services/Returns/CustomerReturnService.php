@@ -30,6 +30,7 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Claims\SafetClaimService;
 use App\Services\Inventory\DamagedStockEventService;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryBalanceService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
 use App\Services\Orders\OrderResponsibilityScopeService;
@@ -44,6 +45,7 @@ class CustomerReturnService
     public function __construct(
         private readonly CustomerReturnAuthorization $authorization,
         private readonly InventoryBalanceService $balances,
+        private readonly InventoryAllocationService $allocation,
         private readonly WeightedAverageCostCalculator $costs,
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
@@ -217,6 +219,9 @@ class CustomerReturnService
                 $inspection = CustomerReturnInspection::query()->create(['customer_return_item_id' => $locked->id, 'quantity' => $quantity, 'result' => $enum, 'inspected_by_user_id' => $actor->id, 'inspected_at' => now(), 'notes' => $data->notes, 'posting_key' => $ordinal++ === 0 ? $data->postingKey : (string) Str::uuid()]);
                 $type = $enum === CustomerReturnInspectionResult::Sellable ? StockMovementType::CustomerReturnQcSellable : StockMovementType::CustomerReturnQcDamaged;
                 $movement = $this->movement($inventory, $inspection, $actor, $movementRefs[$enum->value], $group, $type, $quantity, $enum === CustomerReturnInspectionResult::Sellable ? $quantity : 0, $enum === CustomerReturnInspectionResult::Damaged ? $quantity : 0, $before, (string) $locked->inventory_unit_cost, 'Customer Return QC classification');
+                if ($enum === CustomerReturnInspectionResult::Sellable) {
+                    $this->allocation->restoreCustomerReturn($locked, $inventory, $quantity, $inspection, $actor);
+                }
                 $portion = bcmul((string) $locked->inventory_unit_cost, (string) $quantity, 4);
                 $this->bucket($movement, -$quantity, $qBefore, $qBefore - $quantity, bcsub('0', $portion, 4), $vBefore, bcsub($vBefore, $portion, 4));
                 $qBefore -= $quantity;

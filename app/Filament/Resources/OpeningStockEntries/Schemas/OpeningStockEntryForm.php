@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\OpeningStockEntries\Schemas;
 
+use App\Models\InventoryAllocationAccount;
 use App\Models\Product;
 use App\Models\Warehouse;
 use Filament\Forms\Components\Hidden;
@@ -25,6 +26,9 @@ class OpeningStockEntryForm
                     TextInput::make('available_quantity')->label('Available Quantity')->numeric()->integer()->minValue(0)->default(0)->required(),
                     TextInput::make('damaged_quantity')->label('Damaged Quantity')->numeric()->integer()->minValue(0)->default(0)->required(),
                     TextInput::make('unit_cost')->label('Unit Cost')->prefix('AED')->required()->rule('regex:/^\d{1,11}(?:\.\d{1,4})?$/'),
+                    Select::make('allocation_account_id')->label('Allocate Available Stock To')
+                        ->options(fn (): array => InventoryAllocationAccount::query()->where('status', true)->where('is_system', false)->orderBy('name')->pluck('name', 'id')->all())
+                        ->searchable()->helperText('Required in strict mode. Migration/shadow may leave this blank for System / Unallocated.'),
                     Textarea::make('reason')->required()->maxLength(2000)->columnSpanFull(),
                     Hidden::make('idempotency_key')->default(fn (): string => (string) Str::uuid()),
                 ])->columns(2),

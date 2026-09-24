@@ -12,5 +12,6 @@ final readonly class PostOpeningStockData
         public string $unitCost,
         public string $reason,
         public string $idempotencyKey,
+        public ?int $allocationAccountId = null,
     ) {}
 }

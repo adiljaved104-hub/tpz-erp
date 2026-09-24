@@ -10,6 +10,7 @@ use App\Models\ResponsibilityAssignment;
 use App\Models\User;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\Inventory\InventoryAllocationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ class ResponsibilityReadService
         private readonly PurchaseAuthorization $purchaseAuthorization,
         private readonly ResponsibilityAllocationService $allocations,
         private readonly ResponsibilityCapacityService $capacity,
+        private readonly InventoryAllocationService $inventoryAllocations,
     ) {}
 
     public function assignmentsFor(User $user): Builder
@@ -191,21 +193,30 @@ class ResponsibilityReadService
             $rowsQuery->whereIn('p.id', $productIdsFilter);
         }
         $rows = $rowsQuery->get();
+        $allocationMetrics = $this->inventoryAllocations->employeeMetrics($employeeId, $rows->pluck('inventory_id'));
         $capacity = collect(array_keys($ownQuantities))
             ->mapWithKeys(fn (int $inventoryId): array => [$inventoryId => $this->capacity->summary($inventoryId)]);
 
-        return $rows->map(function (object $row) use ($productReasons, $platforms, $inventoryReasons, $inventoryPlatforms, $ownQuantities, $ownRemaining, $capacity): object {
+        return $rows->map(function (object $row) use ($productReasons, $platforms, $inventoryReasons, $inventoryPlatforms, $ownQuantities, $ownRemaining, $capacity, $allocationMetrics): object {
             $row->available = (int) ($row->available_quantity ?? 0);
             $row->condition_label = ProductCondition::tryFrom((string) $row->condition)?->label() ?? '—';
             $row->reserved = (int) ($row->reserved_quantity ?? 0);
             $row->sellable = $row->available - $row->reserved;
+            $row->physical_sellable = $row->sellable;
             $row->damaged = (int) ($row->damaged_quantity ?? 0);
             $row->assigned_quantity = (int) ($ownQuantities[$row->inventory_id] ?? 0);
             $row->remaining_allocation = (int) ($ownRemaining[$row->inventory_id] ?? 0);
             $row->is_quantity_limited = $row->assigned_quantity > 0;
+            $allocation = $allocationMetrics->get($row->inventory_id);
+            $row->my_reserved = (int) ($allocation?->reserved ?? 0);
+            $row->my_allocated = (int) ($allocation?->allocated ?? 0);
+            $row->my_available = max(0, $row->my_allocated - $row->my_reserved);
+            $row->other_allocated = (int) ($allocation?->other_allocated ?? 0);
+            $row->system_unallocated = (int) ($allocation?->system_unallocated ?? 0);
+            $row->allocation_reconciliation_gap = $row->available - (int) ($allocation?->ledger_allocated ?? 0);
             $row->employee_usable = max(0, $row->is_quantity_limited
-                ? min($row->sellable, $row->remaining_allocation)
-                : $row->sellable);
+                ? min($row->my_available, $row->remaining_allocation)
+                : $row->my_available);
             $row->stock_status = match (true) {
                 $row->employee_usable === 0 => 'out_of_stock',
                 $row->employee_usable < 2 => 'low_stock',

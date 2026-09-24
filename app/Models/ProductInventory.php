@@ -58,6 +58,11 @@ class ProductInventory extends Model
         return $this->hasMany(InventoryReservation::class);
     }
 
+    public function allocationBalances(): HasMany
+    {
+        return $this->hasMany(InventoryAllocationBalance::class);
+    }
+
     public function responsibilityQuantities(): HasMany
     {
         return $this->hasMany(InventoryResponsibilityQuantity::class);

@@ -2,9 +2,13 @@
 
 namespace App\Filament\Resources\Purchases\Schemas;
 
+use App\Enums\InventoryAllocationMode;
+use App\Models\InventoryAllocationAccount;
+use App\Services\Inventory\InventoryAllocationPolicyService;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
@@ -25,6 +29,11 @@ class PurchaseReceiptForm
                     TextInput::make('accepted_quantity')->integer()->numeric()->minValue(0)->default(0)->required(),
                     TextInput::make('damaged_quantity')->integer()->numeric()->minValue(0)->default(0)->required(),
                     TextInput::make('rejected_quantity')->integer()->numeric()->minValue(0)->default(0)->required(),
+                    Select::make('allocation_account_id')->label('Allocate Accepted Stock To')
+                        ->options(fn (): array => InventoryAllocationAccount::query()->where('status', true)
+                            ->when(app(InventoryAllocationPolicyService::class)->mode() === InventoryAllocationMode::Strict, fn ($query) => $query->where('is_system', false))
+                            ->orderBy('name')->pluck('name', 'id')->all())
+                        ->searchable()->helperText('Required only when the allocation policy is Ask at GRN.'),
                     Textarea::make('notes')->maxLength(2000),
                 ])->addable(false)->deletable(false)->reorderable(false)->columns(3)->columnSpanFull(),
             ])->columns(2),

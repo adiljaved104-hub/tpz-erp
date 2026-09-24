@@ -7,6 +7,7 @@ use Database\Factories\PurchaseReceiptItemFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class PurchaseReceiptItem extends Model
@@ -53,6 +54,11 @@ class PurchaseReceiptItem extends Model
     public function movements(): MorphMany
     {
         return $this->morphMany(StockMovement::class, 'source');
+    }
+
+    public function allocationLines(): HasMany
+    {
+        return $this->hasMany(PurchaseReceiptAllocationLine::class);
     }
 
     public function valuationQuantity(): int

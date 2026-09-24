@@ -14,6 +14,7 @@ use App\Models\PurchaseReceipt;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Inventory\DamagedStockEventService;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -25,6 +26,7 @@ class PurchaseReceiptPostingService
 {
     public function __construct(
         private readonly InventoryService $inventory,
+        private readonly InventoryAllocationService $allocation,
         private readonly DamagedStockEventService $damagedStock,
         private readonly ActivityLogger $activity,
     ) {}
@@ -122,6 +124,9 @@ class PurchaseReceiptPostingService
                 }
 
                 $movement = $this->inventory->receivePurchaseItem($receiptItem, $actor, $movementReference, $movementGroup);
+                if ($request->acceptedQuantity > 0 && $movement !== null) {
+                    $this->allocation->recordReceipt($receiptItem, $movement->inventory()->firstOrFail(), $actor, $request->allocationAccountId);
+                }
                 if ($request->damagedQuantity > 0) {
                     $damageReference = $damageReferences[$purchaseItem->id] ?? null;
                     if ($damageReference === null || $movement === null) {

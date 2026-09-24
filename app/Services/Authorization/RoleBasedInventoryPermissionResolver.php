@@ -35,6 +35,9 @@ class RoleBasedInventoryPermissionResolver implements InventoryPermissionResolve
                 InventoryPermission::MarkDamaged,
                 InventoryPermission::RestoreDamaged,
                 InventoryPermission::ViewMovements,
+                InventoryPermission::ViewAllocations,
+                InventoryPermission::ManageAllocations,
+                InventoryPermission::ManageAllocationSettings,
             ], true),
             EmployeeRole::Manager => in_array($permission, [
                 InventoryPermission::View,

@@ -58,6 +58,74 @@ class InventoryAllocationLedgerTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_migration_uses_explicit_mysql_safe_identifier_names(): void
+    {
+        $migration = file_get_contents(database_path('migrations/2026_09_23_090000_create_inventory_allocation_ledger.php'));
+
+        $identifiers = [
+            'iaa_identity_uq',
+            'iaa_type_idx',
+            'iaa_employee_uq',
+            'iaa_employee_fk',
+            'iaa_team_uq',
+            'iaa_team_fk',
+            'iaa_system_idx',
+            'iaa_status_idx',
+            'ias_singleton_uq',
+            'ias_updated_by_fk',
+            'ialr_target_fk',
+            'ialr_product_fk',
+            'ialr_brand_fk',
+            'ialr_category_fk',
+            'ialr_warehouse_fk',
+            'ialr_priority_idx',
+            'ialr_status_idx',
+            'ialr_created_by_fk',
+            'iab_account_fk',
+            'iab_inventory_fk',
+            'iab_account_inventory_uq',
+            'iae_event_key_uq',
+            'iae_event_type_idx',
+            'iae_inventory_fk',
+            'iae_from_account_fk',
+            'iae_to_account_fk',
+            'iae_source_idx',
+            'iae_order_fk',
+            'iae_receipt_fk',
+            'iae_actor_fk',
+            'iae_inventory_created_idx',
+            'iarl_reservation_fk',
+            'iarl_account_fk',
+            'iarl_status_idx',
+            'iarl_reservation_account_uq',
+            'pral_receipt_item_fk',
+            'pral_account_fk',
+            'pral_receipt_account_uq',
+            'iatl_context_type_idx',
+            'iatl_context_id_idx',
+            'iatl_account_fk',
+            'iatl_source_inventory_fk',
+            'iatl_destination_inventory_fk',
+            'iatl_order_item_fk',
+            'iatl_status_idx',
+            'iatl_context_account_inventory_uq',
+            'iaa_identity_chk',
+            'iab_values_chk',
+            'iaa_identity_bi',
+            'iaa_identity_bu',
+            'iab_values_bi',
+            'iab_values_bu',
+        ];
+
+        foreach ($identifiers as $identifier) {
+            $this->assertLessThanOrEqual(64, strlen($identifier), $identifier);
+            $this->assertStringContainsString($identifier, $migration);
+        }
+
+        $this->assertStringNotContainsString('->constrained(', $migration);
+        $this->assertDoesNotMatchRegularExpression('/->(?:unique|index)\(\s*\)/', $migration);
+    }
+
     public function test_migration_reconciles_legacy_stock_and_preserves_active_reservations_in_system_account(): void
     {
         $migration = require database_path('migrations/2026_09_23_090000_create_inventory_allocation_ledger.php');

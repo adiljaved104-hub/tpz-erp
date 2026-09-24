@@ -28,6 +28,7 @@ use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\Warehouse;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Responsibilities\BulkResponsibilityAssignmentService;
@@ -157,6 +158,15 @@ class WarehouseResponsibilityTest extends TestCase
         $quantity = app(CreateResponsibilityAssignment::class)->handle(
             $this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 10]),
             $f['owner'],
+        );
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $allocations->reconcile(
+            $f['inventory'],
+            $allocations->employeeAccount($f['employee']->id),
+            5,
+            $f['owner'],
+            'Responsibility test allocation',
         );
 
         $warehouseOrder = $this->reserve($warehouseFoundation, 5, $warehouseUser);

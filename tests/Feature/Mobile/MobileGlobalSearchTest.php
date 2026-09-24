@@ -10,20 +10,25 @@ use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\ProductBrand;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarningCategory;
 use App\Services\Hr\EmployeeWarningService;
 use App\Services\Hr\HrNoticeService;
+use App\Services\Responsibilities\ResponsibilityAssignmentService;
+use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Search\GlobalSearchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Tests\Support\ResponsibilityTestFoundation;
 use Tests\TestCase;
 
 class MobileGlobalSearchTest extends TestCase
 {
     use RefreshDatabase;
+    use ResponsibilityTestFoundation;
 
     public function test_authorized_product_order_employee_and_hr_records_return_mobile_targets_without_web_urls(): void
     {
@@ -79,6 +84,97 @@ class MobileGlobalSearchTest extends TestCase
         $this->assertTarget($owner, 'TPZ-SEARCH-STAFF', 'Employees', ['module' => 'hr/employees', 'id' => $staff->employee->id]);
         $this->assertTarget($owner, 'Mobile Search Notice', 'Notices', ['module' => 'hr/notices', 'id' => $notice->id]);
         $this->assertTarget($owner, 'Mobile Search Warning', 'Warnings', ['module' => 'hr/warnings', 'id' => $warning->id]);
+    }
+
+    public function test_product_search_supports_normalized_and_legacy_brand_values(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $acer = ProductBrand::factory()->create([
+            'name' => 'Acer',
+            'normalized_name' => 'acer',
+        ]);
+        $normalized = Product::factory()->create([
+            'sku' => 'BRAND-NORMALIZED-001',
+            'name' => 'Travel Notebook',
+            'model' => 'NX-100',
+            'brand' => 'Historical Catalog Value',
+            'brand_id' => $acer->id,
+        ]);
+        $legacy = Product::factory()->create([
+            'sku' => 'BRAND-LEGACY-001',
+            'name' => 'Office Notebook',
+            'model' => 'LX-200',
+            'brand' => 'Legacy Acer',
+            'brand_id' => null,
+        ]);
+
+        $this->assertTarget($owner, 'acer', 'Products', ['module' => 'products', 'id' => $normalized->id]);
+        $this->assertTarget($owner, 'Legacy Acer', 'Products', ['module' => 'products', 'id' => $legacy->id]);
+    }
+
+    public function test_staff_brand_search_remains_limited_to_product_responsibility_scope(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+        $acer = ProductBrand::factory()->create([
+            'name' => 'Acer',
+            'normalized_name' => 'acer',
+        ]);
+        $authorized = Product::factory()->create([
+            'sku' => 'ACER-AUTHORIZED-001',
+            'name' => 'Authorized Notebook',
+            'brand' => 'Catalog Brand',
+            'brand_id' => $acer->id,
+        ]);
+        $unrelated = Product::factory()->create([
+            'sku' => 'ACER-UNRELATED-001',
+            'name' => 'Unrelated Notebook',
+            'brand' => 'Catalog Brand',
+            'brand_id' => $acer->id,
+        ]);
+
+        app(ResponsibilityAssignmentService::class)->create(
+            $this->assignmentData(
+                ['employee' => $staff->employee, 'brand' => $acer],
+                overrides: ['brandId' => null, 'productId' => $authorized->id],
+            ),
+            $owner,
+        );
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $staff->employee->id,
+            'permission_key' => ProductPermission::View->value,
+            'effect' => EmployeePermissionEffect::Allow,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Brand search responsibility-scope test',
+        ]);
+        app(EmployeePermissionOverrideResolver::class)->forgetEmployee($staff->employee->id);
+
+        $scope = app(ResponsibilityProductScopeService::class);
+        $this->assertTrue($scope->canAccessProduct($staff, $authorized->id));
+        $this->assertFalse($scope->canAccessProduct($staff, $unrelated->id));
+
+        $response = $this->search($staff, 'acer')->assertOk();
+        $items = collect(collect($response->json('data'))->firstWhere('group', 'Products')['items'] ?? []);
+        $productIds = $items->pluck('target.id');
+
+        $this->assertTrue($productIds->contains($authorized->id), $response->getContent());
+        $this->assertFalse($productIds->contains($unrelated->id), $response->getContent());
+        $this->assertStringNotContainsString('"url"', $response->getContent());
+    }
+
+    public function test_existing_product_sku_name_and_model_searches_continue_to_work(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $product = Product::factory()->create([
+            'sku' => 'EXISTING-SEARCH-SKU',
+            'name' => 'Existing Search Name',
+            'model' => 'EXISTING-MODEL-900',
+        ]);
+        $target = ['module' => 'products', 'id' => $product->id];
+
+        $this->assertTarget($owner, 'EXISTING-SEARCH-SKU', 'Products', $target);
+        $this->assertTarget($owner, 'Existing Search Name', 'Products', $target);
+        $this->assertTarget($owner, 'EXISTING-MODEL-900', 'Products', $target);
     }
 
     public function test_product_search_respects_effective_permission_denial(): void

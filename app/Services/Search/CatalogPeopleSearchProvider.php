@@ -38,9 +38,12 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         if (! app(ProductAuthorization::class)->allows($user, ProductPermission::View)) {
             return collect();
         }
-        $query = DB::table('products')->where('products.inventory_item_type', 'product')->select(['products.id', 'products.sku', 'products.name', 'products.model', 'products.status']);
+        $query = DB::table('products')
+            ->leftJoin('product_brands as search_product_brands', 'search_product_brands.id', '=', 'products.brand_id')
+            ->where('products.inventory_item_type', 'product')
+            ->select(['products.id', 'products.sku', 'products.name', 'products.model', 'products.status']);
         app(ResponsibilityProductScopeService::class)->apply($query, 'products.id', $user);
-        SearchQuery::match($query, ['products.sku', 'products.name', 'products.model'], $term);
+        SearchQuery::match($query, ['products.sku', 'products.name', 'products.model', 'products.brand', 'search_product_brands.name'], $term);
         SearchQuery::rank($query, 'products.sku', $term);
         SearchQuery::rank($query, 'products.name', $term);
 

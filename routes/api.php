@@ -96,6 +96,7 @@ Route::prefix('mobile/v1')
             Route::post('/returns/{return}/{action}', [ReturnController::class, 'act'])->whereNumber('return');
             Route::get('/cases/{kind}', [CaseController::class, 'index'])->whereIn('kind', ['claims', 'complaints']);
             Route::get('/cases/{kind}/{record}', [CaseController::class, 'show'])->whereIn('kind', ['claims', 'complaints'])->whereNumber('record');
+            Route::post('/cases/{kind}/{record}/{action}', [CaseController::class, 'act'])->whereIn('kind', ['claims', 'complaints'])->whereNumber('record');
             Route::get('/internal-repairs', [WarrantyController::class, 'internalRepairs']);
             Route::get('/warranty', [WarrantyController::class, 'index']);
             Route::get('/warranty/{warranty}', [WarrantyController::class, 'show'])->whereNumber('warranty');

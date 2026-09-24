@@ -466,6 +466,147 @@ class InventoryAllocationLedgerTest extends TestCase
         $event->forceFill(['reason' => 'tampered'])->save();
     }
 
+    public function test_allocation_page_searches_allocatable_inventory_by_sku_name_and_model_with_clear_labels(): void
+    {
+        [$owner, $product, $warehouse, $inventory] = $this->foundation(4);
+        $product->forceFill(['name' => 'EliteBook 840 G8', 'model' => '840-G8', 'brand' => 'HP'])->save();
+        app(InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
+
+        $this->actingAs($owner);
+        Livewire::test(InventoryAllocations::class)
+            ->set('inventorySearch', $product->sku)
+            ->assertSee($product->sku)
+            ->assertSee('EliteBook 840 G8')
+            ->assertSee($warehouse->name)
+            ->assertSee('Unassigned: 4')
+            ->set('inventorySearch', '840-G8')
+            ->assertSee($product->sku)
+            ->set('inventorySearch', 'EliteBook')
+            ->assertSee($product->sku);
+    }
+
+    public function test_bulk_allocation_updates_every_balance_and_creates_one_immutable_event_per_product(): void
+    {
+        [$owner, $firstProduct, $warehouse, $firstInventory] = $this->foundation(5);
+        $firstProduct->forceFill(['name' => 'HP EliteBook'])->save();
+        $secondProduct = Product::factory()->create(['name' => 'Dell Latitude', 'model' => '5420']);
+        $secondInventory = ProductInventory::factory()->create([
+            'product_id' => $secondProduct->id,
+            'warehouse_id' => $warehouse->id,
+            'available_quantity' => 6,
+            'reserved_quantity' => 0,
+        ]);
+        $service = app(InventoryAllocationService::class);
+        $service->ensureShadowCoverage($firstInventory, $owner);
+        $service->ensureShadowCoverage($secondInventory, $owner);
+        $employee = Employee::factory()->create(['employee_id' => 'TPZ-0012', 'name' => 'Ahmed Khan', 'status' => true]);
+
+        $this->actingAs($owner);
+        Livewire::test(InventoryAllocations::class)
+            ->call('addInventory', $firstInventory->id)
+            ->call('addInventory', $secondInventory->id)
+            ->assertSee('HP EliteBook')
+            ->assertSee('Dell Latitude')
+            ->set('targetSearch', 'Ahmed')
+            ->assertSee('TPZ-0012 — Ahmed Khan')
+            ->call('selectTarget', $employee->id)
+            ->set("allocationQuantities.{$firstInventory->id}", 2)
+            ->set("allocationQuantities.{$secondInventory->id}", 3)
+            ->set('reason', 'Initial stock allocation')
+            ->assertSee('2 × HP EliteBook')
+            ->assertSee('3 × Dell Latitude')
+            ->call('allocateStock')
+            ->assertHasNoErrors()
+            ->assertNotified('Stock allocated successfully to TPZ-0012 — Ahmed Khan.')
+            ->assertSet('selectedInventoryIds', []);
+
+        $account = InventoryAllocationAccount::query()->where('employee_id', $employee->id)->sole();
+        $this->assertDatabaseHas('inventory_allocation_balances', [
+            'account_id' => $account->id,
+            'product_inventory_id' => $firstInventory->id,
+            'allocated_quantity' => 2,
+        ]);
+        $this->assertDatabaseHas('inventory_allocation_balances', [
+            'account_id' => $account->id,
+            'product_inventory_id' => $secondInventory->id,
+            'allocated_quantity' => 3,
+        ]);
+        $this->assertSame(2, InventoryAllocationEvent::query()->where('event_type', 'reconciliation_transfer')->count());
+    }
+
+    public function test_invalid_bulk_allocation_rolls_back_every_product(): void
+    {
+        [$owner, , $warehouse, $firstInventory] = $this->foundation(2);
+        $secondInventory = ProductInventory::factory()->create([
+            'product_id' => Product::factory(),
+            'warehouse_id' => $warehouse->id,
+            'available_quantity' => 1,
+            'reserved_quantity' => 0,
+        ]);
+        $service = app(InventoryAllocationService::class);
+        $service->ensureShadowCoverage($firstInventory, $owner);
+        $service->ensureShadowCoverage($secondInventory, $owner);
+        $employee = Employee::factory()->create(['status' => true]);
+
+        $this->actingAs($owner);
+        Livewire::test(InventoryAllocations::class)
+            ->call('addInventory', $firstInventory->id)
+            ->call('addInventory', $secondInventory->id)
+            ->call('selectTarget', $employee->id)
+            ->set("allocationQuantities.{$firstInventory->id}", 1)
+            ->set("allocationQuantities.{$secondInventory->id}", 2)
+            ->set('reason', 'Atomic allocation validation')
+            ->call('allocateStock')
+            ->assertHasErrors(["allocationQuantities.{$secondInventory->id}"])
+            ->assertSee('Quantity cannot exceed the 1 unit currently available.')
+            ->assertNotified('Stock was not allocated')
+            ->assertSet('reason', 'Atomic allocation validation')
+            ->assertSet('selectedInventoryIds', [$firstInventory->id, $secondInventory->id]);
+
+        $account = InventoryAllocationAccount::query()->where('employee_id', $employee->id)->sole();
+        $this->assertDatabaseMissing('inventory_allocation_balances', [
+            'account_id' => $account->id,
+            'allocated_quantity' => 1,
+        ]);
+        $this->assertDatabaseMissing('inventory_allocation_events', [
+            'event_type' => 'reconciliation_transfer',
+        ]);
+        $this->assertSame(2, $service->systemAccount()->balances()->where('product_inventory_id', $firstInventory->id)->value('allocated_quantity'));
+    }
+
+    public function test_allocation_validation_identifies_required_fields_without_clearing_entered_data(): void
+    {
+        $owner = User::factory()->create();
+        Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
+
+        $this->actingAs($owner);
+        Livewire::test(InventoryAllocations::class)
+            ->set('inventorySearch', 'EliteBook')
+            ->set('reason', '')
+            ->call('allocateStock')
+            ->assertHasErrors(['selectedInventoryIds', 'targetId', 'reason'])
+            ->assertSee('Please select at least one product.')
+            ->assertSee('Please select an employee or team.')
+            ->assertSee('Please provide a reason before continuing.')
+            ->assertNotified('Stock was not allocated')
+            ->assertSet('inventorySearch', 'EliteBook');
+    }
+
+    public function test_team_search_uses_a_human_readable_label(): void
+    {
+        $owner = User::factory()->create();
+        Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
+        $team = Team::query()->create(['name' => 'E-Commerce Team', 'status' => true]);
+
+        $this->actingAs($owner);
+        Livewire::test(InventoryAllocations::class)
+            ->set('targetType', 'team')
+            ->set('targetSearch', 'Commerce')
+            ->assertSee('E-Commerce Team')
+            ->call('selectTarget', $team->id)
+            ->assertSet('targetLabel', 'E-Commerce Team');
+    }
+
     public function test_allocation_management_page_uses_existing_inventory_permissions(): void
     {
         $owner = User::factory()->create();
@@ -479,7 +620,7 @@ class InventoryAllocationLedgerTest extends TestCase
         $this->assertTrue(InventoryAllocations::canAccess());
         Livewire::test(InventoryAllocations::class)
             ->assertOk()
-            ->assertSee('Allocation Policy')
+            ->assertSee('Stock Allocation Settings')
             ->assertSee('Immutable Allocation Events');
         $this->actingAs($admin);
         $this->assertTrue(InventoryAllocations::canAccess());
@@ -515,9 +656,9 @@ class InventoryAllocationLedgerTest extends TestCase
             ->assertOk()
             ->assertSee($visibleProduct->sku)
             ->assertDontSee($hiddenProduct->sku)
-            ->assertDontSee('Allocation Policy')
-            ->assertDontSee('Reconcile Legacy Stock')
-            ->assertDontSee('Automatic Allocation Rules');
+            ->assertDontSee('Stock Allocation Settings')
+            ->assertDontSee('Allocate Existing Stock')
+            ->assertDontSee('Automatic Stock Rules');
     }
 
     private function foundation(int $quantity): array

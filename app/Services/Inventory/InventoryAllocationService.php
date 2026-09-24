@@ -71,16 +71,63 @@ class InventoryAllocationService
     public function reconcile(ProductInventory $inventory, InventoryAllocationAccount $target, int $quantity, User $actor, string $reason): void
     {
         DB::transaction(function () use ($inventory, $target, $quantity, $actor, $reason): void {
-            $system = $this->systemAccount();
-            $source = $this->balance($system, $inventory, true);
-            if ($quantity < 1 || $source->availableQuantity() < $quantity || $target->is_system) {
-                throw ValidationException::withMessages(['quantity' => 'Reconciliation quantity exceeds available System / Unallocated stock.']);
-            }
-            $destination = $this->balance($target, $inventory, true);
-            $source->decrement('allocated_quantity', $quantity);
-            $destination->increment('allocated_quantity', $quantity);
-            $this->event('reconciliation_transfer', $inventory, $quantity, $actor, $reason, null, $system, $target);
+            $this->reconcileInventory($inventory, $target, $quantity, $actor, $reason, 'quantity');
         }, 5);
+    }
+
+    /**
+     * @param  array<int, int>  $quantitiesByInventoryId
+     */
+    public function reconcileMany(array $quantitiesByInventoryId, InventoryAllocationAccount $target, User $actor, string $reason): void
+    {
+        DB::transaction(function () use ($quantitiesByInventoryId, $target, $actor, $reason): void {
+            ksort($quantitiesByInventoryId);
+
+            foreach ($quantitiesByInventoryId as $inventoryId => $quantity) {
+                $inventory = ProductInventory::query()
+                    ->with(['product:id,sku,name', 'warehouse:id,name'])
+                    ->lockForUpdate()
+                    ->findOrFail($inventoryId);
+
+                $this->reconcileInventory(
+                    $inventory,
+                    $target,
+                    $quantity,
+                    $actor,
+                    $reason,
+                    "allocationQuantities.{$inventoryId}",
+                );
+            }
+        }, 5);
+    }
+
+    private function reconcileInventory(
+        ProductInventory $inventory,
+        InventoryAllocationAccount $target,
+        int $quantity,
+        User $actor,
+        string $reason,
+        string $errorKey,
+    ): void {
+        $system = $this->systemAccount();
+        $source = $this->balance($system, $inventory, true);
+        if ($quantity < 1 || $source->availableQuantity() < $quantity || $target->is_system) {
+            $product = $inventory->product;
+            $warehouse = $inventory->warehouse;
+            $available = $source->availableQuantity();
+            $units = $available === 1 ? 'unit' : 'units';
+            $label = $product === null
+                ? "Inventory #{$inventory->id}"
+                : trim("{$product->sku} — {$product->name}".($warehouse === null ? '' : " — {$warehouse->name}"));
+
+            throw ValidationException::withMessages([
+                $errorKey => "{$label} — Quantity cannot exceed the {$available} {$units} currently available.",
+            ]);
+        }
+        $destination = $this->balance($target, $inventory, true);
+        $source->decrement('allocated_quantity', $quantity);
+        $destination->increment('allocated_quantity', $quantity);
+        $this->event('reconciliation_transfer', $inventory, $quantity, $actor, $reason, null, $system, $target);
     }
 
     public function reserve(InventoryReservation $reservation, OrderItem $item, User $actor): void

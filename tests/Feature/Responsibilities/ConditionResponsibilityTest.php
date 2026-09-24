@@ -19,6 +19,7 @@ use App\Models\ProductBrand;
 use App\Models\ProductCategory;
 use App\Models\ProductInventory;
 use App\Models\Warehouse;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Responsibilities\BulkResponsibilityAssignmentService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
@@ -207,6 +208,15 @@ class ConditionResponsibilityTest extends TestCase
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, [
             'assignedQuantity' => 1,
         ]), $f['owner']);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $allocations->reconcile(
+            $f['inventory'],
+            $allocations->employeeAccount($f['employee']->id),
+            1,
+            $f['owner'],
+            'Condition responsibility test allocation',
+        );
 
         $scope = app(ResponsibilityProductScopeService::class);
         $this->assertTrue($scope->canAccessInventory($f['employee']->user, $f['inventory']->id));

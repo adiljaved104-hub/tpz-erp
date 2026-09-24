@@ -10,5 +10,6 @@ final readonly class PurchaseReceiptItemData
         public int $damagedQuantity,
         public int $rejectedQuantity,
         public ?string $notes = null,
+        public ?int $allocationAccountId = null,
     ) {}
 }

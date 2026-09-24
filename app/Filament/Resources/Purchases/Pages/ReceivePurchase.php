@@ -57,6 +57,7 @@ class ReceivePurchase extends Page
         $data = $this->form->getState();
         $items = array_map(fn (array $item): PurchaseReceiptItemData => new PurchaseReceiptItemData(
             (int) $item['purchase_item_id'], (int) $item['accepted_quantity'], (int) $item['damaged_quantity'], (int) $item['rejected_quantity'], $item['notes'] ?? null,
+            filled($item['allocation_account_id'] ?? null) ? (int) $item['allocation_account_id'] : null,
         ), array_values($data['items']));
         $receipt = app(ReceivePurchaseAction::class)->handle($purchase, new ReceivePurchaseData(
             $items, (string) $data['received_at'], (string) $data['idempotency_key'], $data['supplier_delivery_note'] ?? null, $data['notes'] ?? null,

@@ -22,6 +22,7 @@ class CreateOpeningStockEntry extends CreateRecord
             unitCost: (string) $data['unit_cost'],
             reason: $data['reason'],
             idempotencyKey: $data['idempotency_key'],
+            allocationAccountId: filled($data['allocation_account_id'] ?? null) ? (int) $data['allocation_account_id'] : null,
         ), auth()->user())->source;
     }
 }

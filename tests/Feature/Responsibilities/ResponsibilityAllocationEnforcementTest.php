@@ -32,6 +32,7 @@ use App\Models\Order;
 use App\Models\ResponsibilityAssignment;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
@@ -171,6 +172,10 @@ class ResponsibilityAllocationEnforcementTest extends TestCase
     {
         $f = $this->responsibilityFoundation(10);
         $assignment = $this->quantity($f, 10);
+        $allocation = app(InventoryAllocationService::class);
+        $allocation->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $allocation->reconcile($f['inventory'], $allocation->employeeAccount($f['owner']->employee->id), 5, $f['owner'], 'Owner stock allocation');
+        $allocation->reconcile($f['inventory'], $allocation->employeeAccount($f['employee']->id), 5, $f['owner'], 'Employee stock allocation');
         $ownerOrder = app(SaveAndReserveOrder::class)->handle(new SaveAndReserveOrderData(
             warehouseId: $f['inventory']->warehouse_id,
             platformId: null,

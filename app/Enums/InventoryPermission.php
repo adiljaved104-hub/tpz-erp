@@ -14,4 +14,7 @@ enum InventoryPermission: string
     case RestoreDamaged = 'inventory.restore_damaged';
     case ViewMovements = 'inventory.view_movements';
     case Export = 'inventory.export';
+    case ViewAllocations = 'inventory.view_allocations';
+    case ManageAllocations = 'inventory.manage_allocations';
+    case ManageAllocationSettings = 'inventory.manage_allocation_settings';
 }

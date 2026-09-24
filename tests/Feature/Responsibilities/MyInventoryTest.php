@@ -14,6 +14,7 @@ use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductInventory;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -58,7 +59,7 @@ class MyInventoryTest extends TestCase
             ->assertOk()
             ->assertSeeHtml('data-inventory-details-toggle')
             ->assertSeeHtml('data-inventory-details-row')
-            ->assertSeeHtml('colspan="11"')
+            ->assertSeeHtml('colspan="14"')
             ->assertSeeHtml('sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6')
             ->assertSee('Original Allocation')
             ->assertSee('Outstanding Allocation')
@@ -91,6 +92,7 @@ class MyInventoryTest extends TestCase
     {
         $f = $this->responsibilityFoundation(2, 0);
         $this->assignProduct($f, $f['product']);
+        $this->allocateToEmployee($f, $f['inventory']);
         $unrelated = Product::factory()->create();
         ProductInventory::factory()->create([
             'product_id' => $unrelated->id,
@@ -108,11 +110,13 @@ class MyInventoryTest extends TestCase
         $f = $this->responsibilityFoundation(0, 0);
         $one = Product::factory()->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name]);
         $two = Product::factory()->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name]);
-        ProductInventory::factory()->create(['product_id' => $one->id, 'warehouse_id' => $f['inventory']->warehouse_id, 'available_quantity' => 1, 'reserved_quantity' => 0]);
-        ProductInventory::factory()->create(['product_id' => $two->id, 'warehouse_id' => $f['inventory']->warehouse_id, 'available_quantity' => 2, 'reserved_quantity' => 0]);
+        $oneInventory = ProductInventory::factory()->create(['product_id' => $one->id, 'warehouse_id' => $f['inventory']->warehouse_id, 'available_quantity' => 1, 'reserved_quantity' => 0]);
+        $twoInventory = ProductInventory::factory()->create(['product_id' => $two->id, 'warehouse_id' => $f['inventory']->warehouse_id, 'available_quantity' => 2, 'reserved_quantity' => 0]);
         $this->assignProduct($f, $f['product']);
         $this->assignProduct($f, $one);
         $this->assignProduct($f, $two);
+        $this->allocateToEmployee($f, $oneInventory);
+        $this->allocateToEmployee($f, $twoInventory);
 
         $rows = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->keyBy('product_id');
         $this->assertSame('out_of_stock', $rows[$f['product']->id]->stock_status);
@@ -130,6 +134,7 @@ class MyInventoryTest extends TestCase
             $this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 1]),
             $f['owner'],
         );
+        $this->allocateToEmployee($f, $f['inventory']);
         $row = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
         $this->assertTrue($row->is_quantity_limited);
         $this->assertSame(1, $row->employee_usable);
@@ -163,6 +168,7 @@ class MyInventoryTest extends TestCase
             $f['owner'],
         );
         $f['inventory']->forceFill(['available_quantity' => $physical])->save();
+        $this->allocateToEmployee($f, $f['inventory']);
 
         $row = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
         $this->assertSame($physical, $row->sellable);
@@ -183,6 +189,7 @@ class MyInventoryTest extends TestCase
     {
         $f = $this->responsibilityFoundation(10, 3);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
+        $this->allocateToEmployee($f, $f['inventory'], 7);
 
         $row = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
 
@@ -199,6 +206,7 @@ class MyInventoryTest extends TestCase
             $this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 1]),
             $f['owner'],
         );
+        $this->allocateToEmployee($f, $f['inventory']);
 
         $row = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
         $this->assertSame(10, $row->sellable);
@@ -223,6 +231,7 @@ class MyInventoryTest extends TestCase
             $this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 1]),
             $f['owner'],
         );
+        $this->allocateToEmployee($f, $f['inventory']);
         $reservation = InventoryReservation::factory()->create([
             'product_inventory_id' => $f['inventory']->id,
             'product_id' => $f['product']->id,
@@ -283,6 +292,7 @@ class MyInventoryTest extends TestCase
     {
         $f = $this->responsibilityFoundation(1, 0);
         $this->assignProduct($f, $f['product']);
+        $this->allocateToEmployee($f, $f['inventory']);
         $component = Livewire::actingAs($f['employee']->user)->test(MyInventory::class);
 
         $component->call('applyStockStatus', 'low_stock')->assertSet('stockStatus', 'low_stock')->assertViewHas('inventoryRows', fn ($rows): bool => $rows->count() === 1);
@@ -410,7 +420,7 @@ class MyInventoryTest extends TestCase
         DB::disableQueryLog();
 
         $this->assertCount(13, $rows);
-        $this->assertLessThanOrEqual(16, $queries, 'My Inventory must batch-load Product visibility, Condition scope, and stock context.');
+        $this->assertLessThanOrEqual(18, $queries, 'My Inventory must batch-load Product visibility, allocation ownership, Condition scope, and stock context.');
     }
 
     public function test_employee_inventory_is_paginated_with_sensible_per_page_controls(): void
@@ -474,5 +484,18 @@ class MyInventoryTest extends TestCase
             'productId' => $product->id,
             'platformId' => $platformId,
         ]), $foundation['owner']);
+    }
+
+    private function allocateToEmployee(array $foundation, ProductInventory $inventory, ?int $quantity = null): void
+    {
+        $service = app(InventoryAllocationService::class);
+        $service->ensureShadowCoverage($inventory->refresh(), $foundation['owner']);
+        $service->reconcile(
+            $inventory->refresh(),
+            $service->employeeAccount($foundation['employee']->id),
+            $quantity ?? (int) $inventory->available_quantity,
+            $foundation['owner'],
+            'Focused My Inventory allocation',
+        );
     }
 }

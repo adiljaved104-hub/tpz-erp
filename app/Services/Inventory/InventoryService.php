@@ -55,6 +55,7 @@ class InventoryService
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
         private readonly ResponsibilityAllocationService $allocations,
+        private readonly InventoryAllocationService $allocationLedger,
     ) {}
 
     public function postOpeningStock(PostOpeningStockData $data, User $actor): InventoryMutationResult
@@ -68,6 +69,7 @@ class InventoryService
             'unit_cost' => trim($data->unitCost),
             'reason' => trim($data->reason),
             'idempotency_key' => $data->idempotencyKey,
+            'allocation_account_id' => $data->allocationAccountId,
         ], [
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
@@ -76,6 +78,7 @@ class InventoryService
             'unit_cost' => ['required', 'regex:/^\d{1,11}(?:\.\d{1,4})?$/'],
             'reason' => ['required', 'string', 'max:2000'],
             'idempotency_key' => ['required', 'uuid'],
+            'allocation_account_id' => ['nullable', 'integer', 'exists:inventory_allocation_accounts,id'],
         ])->after(function ($validator) use ($data): void {
             if ($data->availableQuantity + $data->damagedQuantity <= 0) {
                 $validator->errors()->add('available_quantity', 'Opening Stock requires a positive available or damaged quantity.');
@@ -146,6 +149,7 @@ class InventoryService
                     $validated['unit_cost'],
                     available: true,
                 ));
+                $this->allocationLedger->recordOpeningStock($entry, $inventory, $validated['available_quantity'], $actor, $validated['allocation_account_id']);
             }
 
             if ($validated['damaged_quantity'] > 0) {
@@ -439,6 +443,8 @@ class InventoryService
             throw new InsufficientInventoryException("Insufficient Sellable inventory for {$item->sku}.");
         }
 
+        $this->allocationLedger->ensureShadowCoverage($inventory, $actor);
+
         $before = $this->snapshot($inventory);
         $reservation = InventoryReservation::query()->create([
             'order_item_id' => $item->id,
@@ -460,6 +466,7 @@ class InventoryService
         if ($responsibilityAssignmentId !== null) {
             $this->allocations->recordReservation($responsibilityAssignmentId, $reservation);
         }
+        $this->allocationLedger->reserve($reservation, $item, $actor);
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $item->ordered_quantity])->save();
         $movement = $this->createMovement(
             $inventory,
@@ -516,6 +523,7 @@ class InventoryService
             throw new InsufficientInventoryException("{$component->specification} required: {$quantity}; available: {$available}.");
         }
 
+        $this->allocationLedger->ensureShadowCoverage($inventory, $actor);
         $before = $this->snapshot($inventory);
         $reservation = InventoryReservation::query()->create([
             'order_item_id' => $selection->order_item_id,
@@ -534,6 +542,7 @@ class InventoryService
             'reserved_by_user_id' => $actor->id,
             'reserved_at' => now(),
         ]);
+        $this->allocationLedger->reserve($reservation, $selection->orderItem, $actor);
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $quantity])->save();
         $movement = $this->createMovement(
             $inventory, $actor, $movementReference, $movementGroup,
@@ -571,6 +580,7 @@ class InventoryService
         }
 
         $before = $this->snapshot($inventory);
+        $this->allocationLedger->release($reservation, $actor, $reason);
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity - $reservation->quantity])->save();
         $reservation->forceFill([
             'status' => InventoryReservationStatus::Released,
@@ -634,6 +644,9 @@ class InventoryService
         }
 
         $before = $this->snapshot($inventory);
+        if ($reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
+            $this->allocationLedger->adjustReservation($reservation, $reservation->orderItem()->with('order')->firstOrFail(), $quantity, $actor);
+        }
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $delta])->save();
         $reservation->forceFill(['quantity' => $quantity])->save();
         $component = $reservation->reservation_kind === InventoryReservationKind::UpgradeComponent;
@@ -747,6 +760,12 @@ class InventoryService
         $unitCost = (string) $inventory->average_cost;
         $totalValue = bcmul((string) $quantity, $unitCost, 4);
         $before = $this->snapshot($inventory);
+        $this->allocationLedger->ensureShadowCoverage($inventory, $actor);
+        if ($reservation !== null) {
+            $this->allocationLedger->fulfill($reservation, $actor);
+        } else {
+            $this->allocationLedger->consumeDirectQuantity($execution->selection->orderItem, $inventory, $quantity, $actor);
+        }
         $reservedDelta = $reservation === null ? 0 : -$quantity;
         $inventory->forceFill([
             'available_quantity' => $inventory->available_quantity - $quantity,
@@ -791,6 +810,7 @@ class InventoryService
             ->lockForUpdate()
             ->firstOrFail();
         $quantity = $orderItem->ordered_quantity;
+        $this->allocationLedger->ensureShadowCoverage($inventory, $actor);
 
         if ($inventory->average_cost === null) {
             throw new InventoryInvariantException("{$orderItem->sku} has no Inventory Average Cost and cannot be fulfilled.");
@@ -835,6 +855,11 @@ class InventoryService
             $this->allocations->recordFulfilment($responsibilityAssignmentId, $fulfillmentItem);
         }
         $before = $this->snapshot($inventory);
+        if ($reservation === null) {
+            $this->allocationLedger->consumeDirect($orderItem, $inventory, $actor);
+        } elseif ($reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
+            $this->allocationLedger->fulfill($reservation, $actor);
+        }
         $reservedDelta = $reservation === null ? 0 : -$quantity;
         $inventory->forceFill([
             'available_quantity' => $inventory->available_quantity - $quantity,
@@ -916,6 +941,10 @@ class InventoryService
                 throw new InsufficientInventoryException('Only Sellable inventory can be marked damaged.');
             }
 
+            if (! $restore) {
+                $this->allocationLedger->ensureShadowCoverage($inventory, $actor);
+            }
+
             $before = $this->snapshot($inventory);
             $availableDelta = $restore ? $validated['quantity'] : -$validated['quantity'];
             $damagedDelta = $restore ? -$validated['quantity'] : $validated['quantity'];
@@ -938,6 +967,11 @@ class InventoryService
                 $validated['reason'],
                 $validated['idempotency_key'],
             );
+            if ($restore) {
+                $this->allocationLedger->restoreDamaged($inventory, $validated['quantity'], $movement, $actor);
+            } else {
+                $this->allocationLedger->markDamaged($inventory, $validated['quantity'], $movement, $actor);
+            }
             $event = $restore ? 'inventory.damaged_restored' : 'inventory.marked_damaged';
             $this->activity->log($event, $actor, $inventory, [
                 'movement_reference' => $movement->reference,
@@ -964,9 +998,11 @@ class InventoryService
             throw new InventoryInvariantException("Positive transferable inventory for {$item->sku} requires an average cost.");
         }
 
+        $this->allocationLedger->ensureShadowCoverage($inventory, $actor);
         $before = $this->snapshot($inventory);
         $inventory->forceFill(['available_quantity' => $inventory->available_quantity - $item->quantity])->save();
         $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferDispatch, $item->quantity, -$item->quantity, 0, 0, $before, $item, 'Stock Transfer dispatch', $item->posting_key, $inventory->average_cost);
+        $this->allocationLedger->dispatchTransfer($item, $inventory, $item->quantity, $actor);
         $this->activity->log('inventory.transfer_out', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'source_warehouse_id' => $inventory->warehouse_id, 'quantity' => $item->quantity]);
 
         return $movement;
@@ -983,6 +1019,7 @@ class InventoryService
         $newAverage = $this->costs->weightedAverage($inventory->totalOnHand(), $inventory->average_cost, $item->dispatched_quantity, (string) $item->dispatch_unit_cost);
         $inventory->forceFill(['available_quantity' => $inventory->available_quantity + $item->dispatched_quantity, 'average_cost' => $newAverage])->save();
         $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferReceipt, $item->dispatched_quantity, $item->dispatched_quantity, 0, 0, $before, $item, 'Stock Transfer receipt', null, (string) $item->dispatch_unit_cost);
+        $this->allocationLedger->completeTransfer($item, $inventory, $actor, false);
         $this->activity->log('inventory.transfer_in', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'destination_warehouse_id' => $destinationWarehouseId, 'quantity' => $item->dispatched_quantity]);
 
         return [$inventory, $movement];
@@ -999,6 +1036,7 @@ class InventoryService
         $newAverage = $this->costs->weightedAverage($inventory->totalOnHand(), $inventory->average_cost, $item->dispatched_quantity, (string) $item->dispatch_unit_cost);
         $inventory->forceFill(['available_quantity' => $inventory->available_quantity + $item->dispatched_quantity, 'average_cost' => $newAverage])->save();
         $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferReturnedToSource, $item->dispatched_quantity, $item->dispatched_quantity, 0, 0, $before, $item, 'Stock Transfer returned to source', null, (string) $item->dispatch_unit_cost);
+        $this->allocationLedger->completeTransfer($item, $inventory, $actor, true);
         $this->activity->log('inventory.transfer_in', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'destination_warehouse_id' => $inventory->warehouse_id, 'quantity' => $item->dispatched_quantity, 'returned_to_source' => true]);
 
         return [$inventory, $movement];

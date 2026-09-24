@@ -220,6 +220,9 @@ class EmployeePermissionCatalog
                 $this->item(InventoryPermission::RestoreDamaged, 'Restore Damaged Stock', true),
                 $this->item(InventoryPermission::ViewMovements, 'View Stock Movements'),
                 $this->item(InventoryPermission::Export, 'Export Inventory'),
+                $this->item(InventoryPermission::ViewAllocations, 'View Inventory Allocations'),
+                $this->item(InventoryPermission::ManageAllocations, 'Manage Inventory Allocations', true),
+                $this->item(InventoryPermission::ManageAllocationSettings, 'Manage Allocation Settings', true),
             ],
             'Responsibility' => [
                 $this->item(ResponsibilityPermission::ViewAll, 'View All Responsibility Assignments'),

@@ -517,6 +517,7 @@ class InventoryAllocationLedgerTest extends TestCase
             ->assertSee('3 × Dell Latitude')
             ->call('allocateStock')
             ->assertHasNoErrors()
+            ->assertNotified('Stock allocated successfully to TPZ-0012 — Ahmed Khan.')
             ->assertSet('selectedInventoryIds', []);
 
         $account = InventoryAllocationAccount::query()->where('employee_id', $employee->id)->sole();
@@ -556,7 +557,11 @@ class InventoryAllocationLedgerTest extends TestCase
             ->set("allocationQuantities.{$secondInventory->id}", 2)
             ->set('reason', 'Atomic allocation validation')
             ->call('allocateStock')
-            ->assertHasErrors(["allocationQuantities.{$secondInventory->id}"]);
+            ->assertHasErrors(["allocationQuantities.{$secondInventory->id}"])
+            ->assertSee('Quantity cannot exceed the 1 unit currently available.')
+            ->assertNotified('Stock was not allocated')
+            ->assertSet('reason', 'Atomic allocation validation')
+            ->assertSet('selectedInventoryIds', [$firstInventory->id, $secondInventory->id]);
 
         $account = InventoryAllocationAccount::query()->where('employee_id', $employee->id)->sole();
         $this->assertDatabaseMissing('inventory_allocation_balances', [
@@ -567,6 +572,24 @@ class InventoryAllocationLedgerTest extends TestCase
             'event_type' => 'reconciliation_transfer',
         ]);
         $this->assertSame(2, $service->systemAccount()->balances()->where('product_inventory_id', $firstInventory->id)->value('allocated_quantity'));
+    }
+
+    public function test_allocation_validation_identifies_required_fields_without_clearing_entered_data(): void
+    {
+        $owner = User::factory()->create();
+        Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
+
+        $this->actingAs($owner);
+        Livewire::test(InventoryAllocations::class)
+            ->set('inventorySearch', 'EliteBook')
+            ->set('reason', '')
+            ->call('allocateStock')
+            ->assertHasErrors(['selectedInventoryIds', 'targetId', 'reason'])
+            ->assertSee('Please select at least one product.')
+            ->assertSee('Please select an employee or team.')
+            ->assertSee('Please provide a reason before continuing.')
+            ->assertNotified('Stock was not allocated')
+            ->assertSet('inventorySearch', 'EliteBook');
     }
 
     public function test_team_search_uses_a_human_readable_label(): void

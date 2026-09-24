@@ -114,12 +114,14 @@ class InventoryAllocationService
         if ($quantity < 1 || $source->availableQuantity() < $quantity || $target->is_system) {
             $product = $inventory->product;
             $warehouse = $inventory->warehouse;
+            $available = $source->availableQuantity();
+            $units = $available === 1 ? 'unit' : 'units';
             $label = $product === null
                 ? "Inventory #{$inventory->id}"
                 : trim("{$product->sku} — {$product->name}".($warehouse === null ? '' : " — {$warehouse->name}"));
 
             throw ValidationException::withMessages([
-                $errorKey => "{$label} has {$source->availableQuantity()} unassigned units available.",
+                $errorKey => "{$label} — Quantity cannot exceed the {$available} {$units} currently available.",
             ]);
         }
         $destination = $this->balance($target, $inventory, true);

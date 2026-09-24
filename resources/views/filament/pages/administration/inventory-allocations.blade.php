@@ -31,9 +31,9 @@
                 <x-filament::section heading="Allocate Existing Stock" description="Assign unallocated stock to an employee or team. Physical stock quantity will not change.">
                     <form wire:submit="allocateStock" class="space-y-5">
                         <div>
-                            <label class="text-sm font-medium" for="inventory-search">Find Products</label>
-                            <input id="inventory-search" wire:model.live.debounce.400ms="inventorySearch" type="search" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900" placeholder="Search by SKU, product, brand or model (2+ characters)" autocomplete="off">
-                            @error('inventorySearch') <p class="mt-1 text-sm text-danger-600">{{ $message }}</p> @enderror
+                            <label class="text-sm font-medium" for="inventory-search">Find Products <span class="text-danger-600" aria-hidden="true">*</span></label>
+                            <input id="inventory-search" wire:model.live.debounce.400ms="inventorySearch" type="search" @class(['mt-1 w-full rounded-lg dark:bg-gray-900', 'border-danger-500 ring-1 ring-danger-500' => $errors->has('inventorySearch') || $errors->has('selectedInventoryIds'), 'border-gray-300 dark:border-white/10' => ! $errors->has('inventorySearch') && ! $errors->has('selectedInventoryIds')]) aria-invalid="{{ $errors->has('inventorySearch') || $errors->has('selectedInventoryIds') ? 'true' : 'false' }}" aria-describedby="inventory-search-error selected-inventory-error" placeholder="Search by SKU, product, brand or model (2+ characters)" autocomplete="off">
+                            @error('inventorySearch') <p id="inventory-search-error" class="mt-1 text-sm text-danger-600">{{ $message }}</p> @enderror
                             @if (mb_strlen(trim($inventorySearch)) >= 2)
                                 <div class="mt-2 max-h-64 divide-y overflow-y-auto rounded-lg border border-gray-200 dark:divide-white/10 dark:border-white/10">
                                     @forelse ($inventorySearchResults as $inventory)
@@ -49,7 +49,7 @@
                             @endif
                         </div>
 
-                        @error('selectedInventoryIds') <p class="text-sm text-danger-600">{{ $message }}</p> @enderror
+                        @error('selectedInventoryIds') <p id="selected-inventory-error" class="text-sm text-danger-600">{{ $message }}</p> @enderror
                         @if ($selectedInventories->isNotEmpty())
                             <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
                                 <table class="w-full min-w-[44rem] text-sm">
@@ -57,13 +57,13 @@
                                     <tbody class="divide-y divide-gray-200 dark:divide-white/10">
                                         @foreach ($selectedInventories as $inventory)
                                             @php($unassigned = $inventory->allocationBalances->first()?->availableQuantity() ?? 0)
-                                            <tr wire:key="allocation-inventory-{{ $inventory->id }}">
+                                            <tr wire:key="allocation-inventory-{{ $inventory->id }}" @class(['bg-danger-50/70 dark:bg-danger-500/10' => $errors->has("allocationQuantities.{$inventory->id}")])>
                                                 <td class="px-3 py-3"><span class="font-medium">{{ $inventory->product->name }}</span><span class="block text-xs text-gray-500">{{ $inventory->product->sku }}@if($inventory->product->model) · {{ $inventory->product->model }}@endif</span></td>
                                                 <td class="px-3 py-3">{{ $inventory->warehouse->name }}</td>
                                                 <td class="px-3 py-3 text-right tabular-nums">{{ $unassigned }}</td>
                                                 <td class="px-3 py-3">
-                                                    <input wire:model.live.debounce.300ms="allocationQuantities.{{ $inventory->id }}" type="number" min="1" max="{{ $unassigned }}" class="w-28 rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900" aria-label="Quantity to allocate for {{ $inventory->product->name }}">
-                                                    @error("allocationQuantities.{$inventory->id}") <p class="mt-1 text-xs text-danger-600">{{ $message }}</p> @enderror
+                                                    <input wire:model.live.debounce.300ms="allocationQuantities.{{ $inventory->id }}" type="number" min="1" max="{{ $unassigned }}" @class(['w-28 rounded-lg dark:bg-gray-900', 'border-danger-500 ring-1 ring-danger-500' => $errors->has("allocationQuantities.{$inventory->id}"), 'border-gray-300 dark:border-white/10' => ! $errors->has("allocationQuantities.{$inventory->id}")]) aria-invalid="{{ $errors->has("allocationQuantities.{$inventory->id}") ? 'true' : 'false' }}" aria-describedby="allocation-quantity-error-{{ $inventory->id }}" aria-label="Quantity to allocate for {{ $inventory->product->name }}">
+                                                    @error("allocationQuantities.{$inventory->id}") <p id="allocation-quantity-error-{{ $inventory->id }}" class="mt-1 max-w-xs text-xs text-danger-600">{{ $message }}</p> @enderror
                                                 </td>
                                                 <td class="px-3 py-3 text-right"><button type="button" wire:click="removeInventory({{ $inventory->id }})" class="text-sm font-medium text-danger-600 hover:underline">Remove</button></td>
                                             </tr>
@@ -74,7 +74,7 @@
                         @endif
 
                         <fieldset class="space-y-3">
-                            <legend class="text-sm font-medium">Give Stock To</legend>
+                            <legend class="text-sm font-medium">Give Stock To <span class="text-danger-600" aria-hidden="true">*</span></legend>
                             <div class="flex gap-4">
                                 <label class="inline-flex items-center gap-2"><input wire:model.live="targetType" type="radio" value="employee"> Employee</label>
                                 <label class="inline-flex items-center gap-2"><input wire:model.live="targetType" type="radio" value="team"> Team</label>
@@ -86,7 +86,7 @@
                                     <button type="button" wire:click="clearTarget" class="text-primary-700 hover:underline dark:text-primary-300">Change</button>
                                 </div>
                             @else
-                                <input id="target-search" wire:model.live.debounce.400ms="targetSearch" type="search" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900" placeholder="Search by {{ $targetType === 'employee' ? 'employee ID or name' : 'team name' }}" autocomplete="off">
+                                <input id="target-search" wire:model.live.debounce.400ms="targetSearch" type="search" @class(['w-full rounded-lg dark:bg-gray-900', 'border-danger-500 ring-1 ring-danger-500' => $errors->has('targetId') || $errors->has('targetSearch'), 'border-gray-300 dark:border-white/10' => ! $errors->has('targetId') && ! $errors->has('targetSearch')]) aria-invalid="{{ $errors->has('targetId') || $errors->has('targetSearch') ? 'true' : 'false' }}" aria-describedby="target-id-error target-search-error" placeholder="Search by {{ $targetType === 'employee' ? 'employee ID or name' : 'team name' }}" autocomplete="off">
                                 @if (mb_strlen(trim($targetSearch)) >= 2)
                                     <div class="max-h-48 divide-y overflow-y-auto rounded-lg border border-gray-200 dark:divide-white/10 dark:border-white/10">
                                         @forelse ($targetSearchResults as $target)
@@ -97,14 +97,14 @@
                                     </div>
                                 @endif
                             @endif
-                            @error('targetId') <p class="text-sm text-danger-600">{{ $message }}</p> @enderror
-                            @error('targetSearch') <p class="text-sm text-danger-600">{{ $message }}</p> @enderror
+                            @error('targetId') <p id="target-id-error" class="text-sm text-danger-600">{{ $message }}</p> @enderror
+                            @error('targetSearch') <p id="target-search-error" class="text-sm text-danger-600">{{ $message }}</p> @enderror
                         </fieldset>
 
-                        <label class="block text-sm font-medium">Reason
-                            <textarea wire:model.live.debounce.400ms="reason" rows="3" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900" placeholder="Example: Initial stock allocation"></textarea>
+                        <label class="block text-sm font-medium">Reason <span class="text-danger-600" aria-hidden="true">*</span>
+                            <textarea wire:model.live.debounce.400ms="reason" rows="3" @class(['mt-1 w-full rounded-lg dark:bg-gray-900', 'border-danger-500 ring-1 ring-danger-500' => $errors->has('reason'), 'border-gray-300 dark:border-white/10' => ! $errors->has('reason')]) aria-invalid="{{ $errors->has('reason') ? 'true' : 'false' }}" aria-describedby="allocation-reason-error" placeholder="Example: Initial stock allocation"></textarea>
                         </label>
-                        @error('reason') <p class="text-sm text-danger-600">{{ $message }}</p> @enderror
+                        @error('reason') <p id="allocation-reason-error" class="text-sm text-danger-600">{{ $message }}</p> @enderror
 
                         @if ($selectedInventories->isNotEmpty())
                             <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm dark:border-white/10 dark:bg-white/5">

@@ -6,6 +6,7 @@ use App\Enums\EmployeeRole;
 use App\Enums\InventoryAllocationMode;
 use App\Enums\InventoryAllocationPolicy;
 use App\Enums\InventoryPermission;
+use App\Filament\Concerns\HandlesActionFeedback;
 use App\Models\Employee;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
@@ -33,6 +34,8 @@ use Illuminate\Validation\ValidationException;
 
 class InventoryAllocations extends Page
 {
+    use HandlesActionFeedback;
+
     protected string $view = 'filament.pages.administration.inventory-allocations';
 
     protected static ?string $slug = 'administration/inventory-allocations';
@@ -206,38 +209,56 @@ class InventoryAllocations extends Page
 
     public function allocateStock(): void
     {
-        abort_unless($this->globalAdministrationAllowed(), 403);
-        app(InventoryAuthorization::class)->authorize(auth()->user(), InventoryPermission::ManageAllocations);
-        $data = $this->validate([
-            'selectedInventoryIds' => ['required', 'array', 'min:1', 'max:100'],
-            'selectedInventoryIds.*' => ['required', 'integer', 'distinct', 'exists:product_inventories,id'],
-            'allocationQuantities' => ['required', 'array'],
-            'targetType' => ['required', 'in:employee,team'],
-            'targetId' => [
-                'required',
-                'integer',
-                Rule::exists($this->targetType === 'team' ? 'teams' : 'employees', 'id')->where('status', true),
-            ],
-            'reason' => ['required', 'string', 'min:5', 'max:2000'],
-        ]);
+        $this->runWithActionFeedback(function (): void {
+            abort_unless($this->globalAdministrationAllowed(), 403);
+            app(InventoryAuthorization::class)->authorize(auth()->user(), InventoryPermission::ManageAllocations);
+            $data = $this->validate([
+                'selectedInventoryIds' => ['required', 'array', 'min:1', 'max:100'],
+                'selectedInventoryIds.*' => ['required', 'integer', 'distinct', 'exists:product_inventories,id'],
+                'allocationQuantities' => ['required', 'array'],
+                'targetType' => ['required', 'in:employee,team'],
+                'targetId' => [
+                    'required',
+                    'integer',
+                    Rule::exists($this->targetType === 'team' ? 'teams' : 'employees', 'id')->where('status', true),
+                ],
+                'reason' => ['required', 'string', 'min:5', 'max:2000'],
+            ], [
+                'selectedInventoryIds.required' => 'Please select at least one product.',
+                'selectedInventoryIds.min' => 'Please select at least one product.',
+                'selectedInventoryIds.max' => 'Select no more than 100 products in one allocation.',
+                'selectedInventoryIds.*.exists' => 'One selected product is no longer available. Remove it and try again.',
+                'allocationQuantities.required' => 'Enter a quantity for each selected product.',
+                'targetId.required' => 'Please select an employee or team.',
+                'targetId.exists' => 'The selected employee or team is no longer active.',
+                'reason.required' => 'Please provide a reason before continuing.',
+                'reason.min' => 'Please provide a reason of at least 5 characters.',
+            ]);
 
-        $quantities = [];
-        foreach ($data['selectedInventoryIds'] as $inventoryId) {
-            $quantity = $data['allocationQuantities'][$inventoryId] ?? null;
-            if (filter_var($quantity, FILTER_VALIDATE_INT) === false || (int) $quantity < 1) {
-                throw ValidationException::withMessages([
-                    "allocationQuantities.{$inventoryId}" => 'Enter a quantity of at least 1.',
-                ]);
+            $quantities = [];
+            foreach ($data['selectedInventoryIds'] as $inventoryId) {
+                $quantity = $data['allocationQuantities'][$inventoryId] ?? null;
+                if (filter_var($quantity, FILTER_VALIDATE_INT) === false || (int) $quantity < 1) {
+                    $inventory = ProductInventory::query()->with('product:id,sku,name')->find($inventoryId);
+                    $label = $inventory?->product === null
+                        ? "Inventory #{$inventoryId}"
+                        : "{$inventory->product->sku} — {$inventory->product->name}";
+
+                    throw ValidationException::withMessages([
+                        "allocationQuantities.{$inventoryId}" => "{$label} — Enter a quantity of at least 1.",
+                    ]);
+                }
+                $quantities[(int) $inventoryId] = (int) $quantity;
             }
-            $quantities[(int) $inventoryId] = (int) $quantity;
-        }
 
-        $account = $data['targetType'] === 'employee'
-            ? app(InventoryAllocationService::class)->employeeAccount($data['targetId'])
-            : app(InventoryAllocationService::class)->teamAccount($data['targetId']);
-        app(InventoryAllocationService::class)->reconcileMany($quantities, $account, auth()->user(), $data['reason']);
-        $this->reset('selectedInventoryIds', 'allocationQuantities', 'targetId', 'targetSearch', 'targetLabel', 'reason');
-        Notification::make()->success()->title('Stock allocated')->send();
+            $account = $data['targetType'] === 'employee'
+                ? app(InventoryAllocationService::class)->employeeAccount($data['targetId'])
+                : app(InventoryAllocationService::class)->teamAccount($data['targetId']);
+            app(InventoryAllocationService::class)->reconcileMany($quantities, $account, auth()->user(), $data['reason']);
+            $recipient = $this->allocationAccountLabel($account);
+            $this->reset('selectedInventoryIds', 'allocationQuantities', 'targetId', 'targetSearch', 'targetLabel', 'reason');
+            Notification::make()->success()->title("Stock allocated successfully to {$recipient}.")->send();
+        }, 'Stock was not allocated');
     }
 
     public function selectRuleAccount(int $accountId): void

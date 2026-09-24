@@ -22,7 +22,7 @@ class CriticalAlertDispatcher
             return false;
         }
 
-        $id = $this->deterministicId($type.':'.$eventKey.':user:'.$recipient->id);
+        $id = $this->notificationId($recipient, $type, $eventKey);
         $inApp = $this->rules->channelEnabled($type, 'in_app');
         $email = $this->rules->channelEnabled($type, 'email');
         $delivered = false;
@@ -71,6 +71,11 @@ class CriticalAlertDispatcher
 
             return false;
         }
+    }
+
+    public function notificationId(User $recipient, string $type, string $eventKey): string
+    {
+        return $this->deterministicId($type.':'.$eventKey.':user:'.$recipient->id);
     }
 
     private function activeUser(User $user): bool

@@ -87,6 +87,7 @@ Route::prefix('mobile/v1')
             Route::get('/notifications', [NotificationController::class, 'index']);
             Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
             Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
+            Route::post('/notifications/{notification}/acknowledge', [NotificationController::class, 'acknowledge']);
             Route::get('/returns', [ReturnController::class, 'index']);
             Route::get('/returns/options', [ReturnController::class, 'options']);
             Route::get('/returns/eligible-orders', [ReturnController::class, 'eligibleOrders']);

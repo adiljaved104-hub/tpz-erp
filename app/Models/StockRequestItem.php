@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockRequestItem extends Model
 {
@@ -28,10 +29,28 @@ class StockRequestItem extends Model
         return $this->belongsTo(ProductInventory::class, 'product_inventory_id');
     }
 
+    public function sourceLines(): HasMany
+    {
+        return $this->hasMany(StockRequestSourceLine::class, 'stock_request_item_id');
+    }
+
     public function getProposedSourceSummaryAttribute(): string
     {
         return collect($this->proposed_sources)
             ->map(fn (array $source): string => "{$source['label']}: {$source['available_quantity']}")
             ->join(' · ');
+    }
+
+    public function getSourceApprovalSummaryAttribute(): string
+    {
+        return $this->sourceLines
+            ->map(function (StockRequestSourceLine $line): string {
+                $approval = $line->requiresOwnerAdminApproval() && $line->status->value === 'pending'
+                    ? 'Owner/Admin Approval Required'
+                    : $line->status->getLabel();
+
+                return "{$line->source_label} — {$line->proposed_quantity} — {$approval}";
+            })
+            ->join("\n");
     }
 }

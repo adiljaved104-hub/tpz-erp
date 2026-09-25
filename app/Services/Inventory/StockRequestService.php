@@ -125,11 +125,11 @@ class StockRequestService
                 $inventory = $inventories->get($item['product_inventory_id']);
                 $availability = $this->sourceAvailability((int) $inventory->id, true);
                 $requested = (int) $item['quantity'];
-                if ($requested > $availability['transferable_available']) {
-                    $available = $availability['transferable_available'];
+                if ($requested > $availability['requestable_available']) {
+                    $available = $availability['requestable_available'];
                     $units = $available === 1 ? 'unit is' : 'units are';
                     throw ValidationException::withMessages([
-                        "items.{$index}.quantity" => "{$inventory->product->sku} — Only {$available} {$units} currently available from Employee/Team allocation holders.",
+                        "items.{$index}.quantity" => "{$inventory->product->sku} — Only {$available} {$units} currently available across Employee/Team and System / Unassigned sources.",
                     ]);
                 }
 
@@ -141,7 +141,7 @@ class StockRequestService
                     return $holder + ['proposed_quantity' => $quantity];
                 })->filter(fn (array $holder): bool => $holder['proposed_quantity'] > 0)->values()->all();
 
-                $request->items()->create([
+                $requestItem = $request->items()->create([
                     'product_inventory_id' => $inventory->id,
                     'sku' => $inventory->product->sku,
                     'product_name' => $inventory->product->name,
@@ -150,6 +150,26 @@ class StockRequestService
                     'proposed_sources' => $proposed,
                     'system_unassigned_quantity' => $availability['system_unassigned'],
                 ]);
+
+                foreach ($proposed as $source) {
+                    $requestItem->sourceLines()->create([
+                        'stock_request_id' => $request->id,
+                        'inventory_allocation_account_id' => $source['account_id'],
+                        'source_type' => $source['type'],
+                        'source_label' => $source['label'],
+                        'proposed_quantity' => $source['proposed_quantity'],
+                    ]);
+                }
+
+                if ($remaining > 0) {
+                    $requestItem->sourceLines()->create([
+                        'stock_request_id' => $request->id,
+                        'inventory_allocation_account_id' => $availability['system_account_id'],
+                        'source_type' => 'system',
+                        'source_label' => 'System / Unassigned Stock',
+                        'proposed_quantity' => $remaining,
+                    ]);
+                }
             }
 
             $this->activity->log('stock_request.created', $actor, $request, [
@@ -161,7 +181,7 @@ class StockRequestService
                 'reason_recorded' => true,
             ]);
 
-            return $request->load(['items', 'requester', 'order']);
+            return $request->load(['items.sourceLines', 'requester', 'order']);
         }, 5);
     }
 
@@ -178,6 +198,7 @@ class StockRequestService
 
         return $query->where(function (Builder $scope) use ($employeeId, $visibleInventoryIds): void {
             $scope->where('requested_by_employee_id', $employeeId)
+                ->orWhereHas('sourceLines.account', fn (Builder $accounts): Builder => $accounts->where('employee_id', $employeeId))
                 ->orWhereDoesntHave('items', fn (Builder $items): Builder => $items->whereNotIn('product_inventory_id', $visibleInventoryIds));
         });
     }
@@ -188,6 +209,10 @@ class StockRequestService
             return false;
         }
         if (! $this->responsibilities->requiresScope($actor) || $request->requested_by_employee_id === $actor->employee?->id) {
+            return true;
+        }
+
+        if ($request->sourceLines()->whereHas('account', fn (Builder $accounts): Builder => $accounts->where('employee_id', $actor->employee?->id))->exists()) {
             return true;
         }
 
@@ -231,7 +256,7 @@ class StockRequestService
             ->orderByDesc('id')->limit(20)->get();
     }
 
-    /** @return array{holders: Collection<int, array{account_id:int,type:string,label:string,available_quantity:int}>, transferable_available:int, system_unassigned:int} */
+    /** @return array{holders: Collection<int, array{account_id:int,type:string,label:string,available_quantity:int}>, transferable_available:int, system_unassigned:int, system_account_id:?int, requestable_available:int} */
     public function sourceAvailability(int $inventoryId, bool $lock = false): array
     {
         $query = InventoryAllocationBalance::query()
@@ -243,7 +268,8 @@ class StockRequestService
             $query->lockForUpdate();
         }
         $balances = $query->get();
-        $system = (int) $balances->filter(fn (InventoryAllocationBalance $balance): bool => $balance->account->is_system)->sum(fn (InventoryAllocationBalance $balance): int => $balance->availableQuantity());
+        $systemBalances = $balances->filter(fn (InventoryAllocationBalance $balance): bool => $balance->account->is_system);
+        $system = (int) $systemBalances->sum(fn (InventoryAllocationBalance $balance): int => $balance->availableQuantity());
         $holders = $balances->filter(fn (InventoryAllocationBalance $balance): bool => ! $balance->account->is_system && $balance->account->status)
             ->map(fn (InventoryAllocationBalance $balance): array => [
                 'account_id' => $balance->account_id,
@@ -256,6 +282,8 @@ class StockRequestService
             'holders' => $holders,
             'transferable_available' => (int) $holders->sum('available_quantity'),
             'system_unassigned' => $system,
+            'system_account_id' => $systemBalances->first()?->account_id,
+            'requestable_available' => (int) $holders->sum('available_quantity') + $system,
         ];
     }
 

@@ -67,12 +67,12 @@ class StockTransferController extends MobileController
 
     public function store(Request $request): JsonResponse
     {
-        app(StockTransferAuthorization::class)->authorize($request->user(), StockTransferPermission::Create);
+        $user = $request->user();
+        app(StockTransferAuthorization::class)->authorize($user, StockTransferPermission::Create);
         $data = $request->validate([
             'source_warehouse_id' => 'required|integer',
             'destination_warehouse_id' => 'required|integer|different:source_warehouse_id',
             'transfer_date' => 'required|date_format:Y-m-d',
-            'handled_by_employee_id' => 'nullable|integer',
             'notes' => 'nullable|string|max:5000',
             'idempotency_key' => 'required|uuid',
             'items' => 'required|array|min:1|max:100',
@@ -80,7 +80,8 @@ class StockTransferController extends MobileController
             'items.*.quantity' => 'required|integer|min:1',
         ]);
         if ($existing = StockTransfer::query()->where('idempotency_key', $data['idempotency_key'])->first()) {
-            app(StockTransferAuthorization::class)->authorize($request->user(), StockTransferPermission::View, $existing);
+            abort_unless($existing->created_by_user_id === $user->id, 403);
+            app(StockTransferAuthorization::class)->authorize($user, StockTransferPermission::View, $existing);
 
             return $this->show($request, $existing->id);
         }
@@ -94,9 +95,9 @@ class StockTransferController extends MobileController
             $data['transfer_date'],
             $items,
             $data['idempotency_key'],
-            $data['handled_by_employee_id'] ?? null,
+            $user->employee?->id,
             $data['notes'] ?? null,
-        ), $request->user());
+        ), $user);
 
         return $this->show($request, $transfer->id);
     }

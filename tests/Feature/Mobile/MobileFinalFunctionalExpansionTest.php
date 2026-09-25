@@ -8,6 +8,7 @@ use App\Models\Employee;
 use App\Models\InventoryReservation;
 use App\Models\Product;
 use App\Models\ProductInventory;
+use App\Models\StockTransfer;
 use App\Models\Supplier;
 use App\Models\TaxInvoice;
 use App\Models\Team;
@@ -61,6 +62,7 @@ class MobileFinalFunctionalExpansionTest extends TestCase
     public function test_stock_transfer_uses_domain_actions_and_rejects_invalid_transitions(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
+        $otherOwner = $this->user(EmployeeRole::Owner);
         $staff = $this->user(EmployeeRole::Staff);
         $source = Warehouse::factory()->create(['status' => true]);
         $destination = Warehouse::factory()->create(['status' => true]);
@@ -74,14 +76,25 @@ class MobileFinalFunctionalExpansionTest extends TestCase
             'average_cost' => '75.0000',
         ]);
 
-        $create = $this->as($owner)->postJson('/api/mobile/v1/workspace/stock-transfers', [
+        $createKey = (string) Str::uuid();
+        $payload = [
             'source_warehouse_id' => $source->id,
             'destination_warehouse_id' => $destination->id,
             'transfer_date' => now()->toDateString(),
-            'idempotency_key' => (string) Str::uuid(),
+            'handled_by_employee_id' => $staff->employee->id,
+            'idempotency_key' => $createKey,
             'items' => [['product_id' => $product->id, 'quantity' => 2]],
-        ])->assertOk()->assertJsonPath('data.status', 'draft');
+        ];
+        $create = $this->as($owner)->postJson('/api/mobile/v1/workspace/stock-transfers', $payload)
+            ->assertOk()->assertJsonPath('data.status', 'draft');
         $transferId = $create->json('data.id');
+        $transfer = StockTransfer::query()->findOrFail($transferId);
+        $this->assertSame($owner->id, $transfer->created_by_user_id);
+        $this->assertSame($owner->employee->id, $transfer->handled_by_employee_id);
+        $this->as($owner)->postJson('/api/mobile/v1/workspace/stock-transfers', $payload)
+            ->assertOk()->assertJsonPath('data.id', $transferId);
+        $this->assertSame(1, StockTransfer::query()->where('idempotency_key', $createKey)->count());
+        $this->as($otherOwner)->postJson('/api/mobile/v1/workspace/stock-transfers', $payload)->assertForbidden();
 
         $this->as($owner)->postJson('/api/mobile/v1/workspace/stock-transfers/'.$transferId.'/receive', [
             'idempotency_key' => (string) Str::uuid(),

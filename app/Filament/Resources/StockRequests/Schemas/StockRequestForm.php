@@ -21,6 +21,14 @@ class StockRequestForm
     {
         return $schema->components([
             Section::make('Request Details')->columns(2)->schema([
+                Placeholder::make('requested_by')->label('Requested By')
+                    ->content(function (): string {
+                        $employee = auth()->user()?->employee;
+
+                        return $employee === null
+                            ? 'Active employee login required'
+                            : trim("{$employee->employee_id} — {$employee->name}", ' —');
+                    })->columnSpanFull(),
                 Select::make('purpose')
                     ->options(collect(StockRequestPurpose::cases())->mapWithKeys(fn (StockRequestPurpose $purpose): array => [$purpose->value => $purpose->getLabel()])->all())
                     ->required()->live()->default(StockRequestPurpose::ForOrder->value),
@@ -38,7 +46,7 @@ class StockRequestForm
                 Textarea::make('reason')->required()->minLength(5)->maxLength(2000)->rows(3)->columnSpanFull()
                     ->helperText('Explain why the stock is required. Creating this request does not move or reserve stock.'),
             ]),
-            Section::make('Products')->description('System / Unassigned stock is shown separately and is not proposed as an Employee/Team transfer source.')->schema([
+            Section::make('Products')->description('Sources are calculated automatically. System / Unassigned stock is shown separately and requires Owner/Admin approval.')->schema([
                 Repeater::make('items')->minItems(1)->maxItems(100)->defaultItems(1)->addActionLabel('Add Product')->columns(3)->schema([
                     Select::make('product_inventory_id')->label('Product / Warehouse')->required()->distinct()->searchable()->live()
                         ->getSearchResultsUsing(fn (string $search): array => app(StockRequestService::class)->searchInventories(auth()->user(), $search)
@@ -57,7 +65,7 @@ class StockRequestForm
                         $availability = app(StockRequestService::class)->sourceAvailability($inventoryId);
                         $holders = $availability['holders']->map(fn (array $source): string => "{$source['label']}: {$source['available_quantity']}")->join(' · ');
 
-                        return ($holders === '' ? 'Employee/Team sources: none' : $holders)." · System / Unassigned: {$availability['system_unassigned']}";
+                        return ($holders === '' ? 'Employee/Team sources: none' : $holders)." · System / Unassigned: {$availability['system_unassigned']} · Total requestable: {$availability['requestable_available']}";
                     })->columnSpanFull(),
                 ]),
             ]),

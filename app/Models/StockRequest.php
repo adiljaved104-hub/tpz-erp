@@ -36,6 +36,11 @@ class StockRequest extends Model
         return $this->hasMany(StockRequestItem::class);
     }
 
+    public function sourceLines(): HasMany
+    {
+        return $this->hasMany(StockRequestSourceLine::class);
+    }
+
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);

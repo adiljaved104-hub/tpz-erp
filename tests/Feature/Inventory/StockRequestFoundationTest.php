@@ -63,6 +63,7 @@ class StockRequestFoundationTest extends TestCase
 
         $this->assertMatchesRegularExpression('/^SR-\d{4}-\d{6}$/', $request->reference);
         $this->assertCount(2, $request->items);
+        $this->assertCount(3, $request->sourceLines);
         $first = $request->items->firstWhere('product_inventory_id', $f['inventory']->id);
         $this->assertSame(6, collect($first->proposed_sources)->sum('proposed_quantity'));
         $this->assertSame(3, $first->system_unassigned_quantity);
@@ -137,12 +138,13 @@ class StockRequestFoundationTest extends TestCase
         try {
             $this->createRequest($f['owner'], StockRequestPurpose::PermanentTransfer, [
                 new StockRequestItemData($second->id, 1),
-                new StockRequestItemData($f['inventory']->id, 6),
+                new StockRequestItemData($f['inventory']->id, 11),
             ]);
             $this->fail('Quantity above transferable allocation must fail.');
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey('items.1.quantity', $exception->errors());
             $this->assertStringContainsString($f['product']->sku, $exception->errors()['items.1.quantity'][0]);
+            $this->assertStringContainsString('Employee/Team and System / Unassigned', $exception->errors()['items.1.quantity'][0]);
             $this->assertStringNotContainsString('SQLSTATE', $exception->errors()['items.1.quantity'][0]);
         }
         $this->assertDatabaseCount('stock_requests', 0);

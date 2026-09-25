@@ -37,7 +37,7 @@ class StockRequestResource extends Resource
         $user = auth()->user();
 
         return $user instanceof User
-            ? app(StockRequestService::class)->visibleQuery($user)
+            ? app(StockRequestService::class)->visibleQuery($user)->with(['items.sourceLines.decidedBy'])
             : parent::getEloquentQuery()->whereRaw('1 = 0');
     }
 

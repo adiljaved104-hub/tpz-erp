@@ -5,8 +5,10 @@ namespace App\Filament\Resources\StockRequests\Pages;
 use App\Enums\StockRequestSourceStatus;
 use App\Filament\Concerns\HandlesActionFeedback;
 use App\Filament\Resources\StockRequests\StockRequestResource;
+use App\Models\StockRequestExecution;
 use App\Models\StockRequestSourceLine;
 use App\Services\Inventory\StockRequestApprovalService;
+use App\Services\Inventory\StockRequestExecutionService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -22,6 +24,14 @@ class ViewStockRequest extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('executeRequest')
+                ->label('Execute Request')
+                ->color('primary')
+                ->requiresConfirmation()
+                ->modalHeading('Execute approved Stock Request?')
+                ->modalDescription(fn (): string => implode("\n", app(StockRequestExecutionService::class)->summary($this->record)))
+                ->visible(fn (): bool => app(StockRequestExecutionService::class)->canExecute(auth()->user(), $this->record))
+                ->action(fn () => $this->executeRequest()),
             Action::make('approveSource')
                 ->label('Approve Stock Source')
                 ->color('success')
@@ -44,6 +54,19 @@ class ViewStockRequest extends ViewRecord
                 ->visible(fn (): bool => $this->eligibleSourceOptions() !== [])
                 ->action(fn (array $data) => $this->recordDecision($data, StockRequestSourceStatus::Rejected)),
         ];
+    }
+
+    private function executeRequest(): void
+    {
+        $result = $this->runWithActionFeedback(
+            fn (): StockRequestExecution => app(StockRequestExecutionService::class)->execute($this->record, (string) str()->uuid(), auth()->user()),
+            'Stock Request execution was not completed',
+        );
+        if (! $result instanceof StockRequestExecution) {
+            return;
+        }
+        $this->record->refresh()->load(['items.sourceLines.decidedBy', 'execution.executedBy.employee']);
+        Notification::make()->success()->title('Stock request completed successfully.')->send();
     }
 
     /** @param array<string, mixed> $data */

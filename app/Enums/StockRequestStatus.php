@@ -11,6 +11,7 @@ enum StockRequestStatus: string implements HasColor, HasLabel
     case PartiallyApproved = 'partially_approved';
     case Approved = 'approved';
     case Rejected = 'rejected';
+    case Completed = 'completed';
 
     public function getLabel(): string
     {
@@ -19,6 +20,7 @@ enum StockRequestStatus: string implements HasColor, HasLabel
             self::PartiallyApproved => 'Partially Approved',
             self::Approved => 'Approved',
             self::Rejected => 'Rejected',
+            self::Completed => 'Completed',
         };
     }
 
@@ -29,6 +31,7 @@ enum StockRequestStatus: string implements HasColor, HasLabel
             self::PartiallyApproved => 'info',
             self::Approved => 'success',
             self::Rejected => 'danger',
+            self::Completed => 'success',
         };
     }
 }

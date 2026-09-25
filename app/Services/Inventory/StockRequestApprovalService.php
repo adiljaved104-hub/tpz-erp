@@ -11,6 +11,7 @@ use App\Models\StockRequestSourceLine;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Notifications\StockRequestNotificationDispatcher;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,7 @@ class StockRequestApprovalService
     public function __construct(
         private readonly InventoryAuthorization $authorization,
         private readonly ActivityLogger $activity,
+        private readonly StockRequestNotificationDispatcher $notifications,
     ) {}
 
     public function canDecide(User $actor, StockRequestSourceLine $line): bool
@@ -80,7 +82,7 @@ class StockRequestApprovalService
             'note.required' => 'Please enter a reason for rejecting this request.',
         ])->validate();
 
-        return DB::transaction(function () use ($line, $decision, $validated, $actor): StockRequestSourceLine {
+        $result = DB::transaction(function () use ($line, $decision, $validated, $actor): StockRequestSourceLine {
             $locked = StockRequestSourceLine::query()
                 ->with(['account', 'item.inventory.product'])
                 ->whereKey($line->id)
@@ -139,6 +141,9 @@ class StockRequestApprovalService
 
             return $locked->refresh();
         }, 5);
+        $this->notifications->decided($result);
+
+        return $result;
     }
 
     private function assertCurrentlyAvailable(StockRequestSourceLine $line): void

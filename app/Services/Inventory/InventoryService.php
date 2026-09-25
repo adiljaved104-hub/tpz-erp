@@ -427,7 +427,8 @@ class InventoryService
             'Stock received for accepted quotation', $posting->idempotency_key, (string) $posting->purchase_unit_cost);
     }
 
-    public function reserveOrderItem(OrderItem $item, User $actor, string $reservationReference, string $movementReference, string $idempotencyKey, string $movementGroup, ?int $responsibilityAssignmentId = null): InventoryReservation
+    /** @param array<int, int>|null $exactAllocationSources */
+    public function reserveOrderItem(OrderItem $item, User $actor, string $reservationReference, string $movementReference, string $idempotencyKey, string $movementGroup, ?int $responsibilityAssignmentId = null, ?array $exactAllocationSources = null): InventoryReservation
     {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Order reservation requires an active transaction.');
@@ -466,7 +467,11 @@ class InventoryService
         if ($responsibilityAssignmentId !== null) {
             $this->allocations->recordReservation($responsibilityAssignmentId, $reservation);
         }
-        $this->allocationLedger->reserve($reservation, $item, $actor);
+        if ($exactAllocationSources === null) {
+            $this->allocationLedger->reserve($reservation, $item, $actor);
+        } else {
+            $this->allocationLedger->reserveExact($reservation, $exactAllocationSources, $actor);
+        }
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $item->ordered_quantity])->save();
         $movement = $this->createMovement(
             $inventory,

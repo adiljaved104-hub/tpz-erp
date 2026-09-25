@@ -49,6 +49,16 @@ class StockRequestInfolist
                     ])->columnSpanFull(),
                 ])->columnSpanFull(),
             ]),
+            Section::make('Execution')->columns(2)->schema([
+                TextEntry::make('execution.execution_type')->label('Execution Type')->placeholder('Not executed')->formatStateUsing(fn (?string $state): string => match ($state) {
+                    'order_reservation' => 'Order Reservation',
+                    'permanent_transfer' => 'Permanent Transfer',
+                    default => $state ?? 'Not executed',
+                }),
+                TextEntry::make('execution.executed_at')->label('Executed At')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('execution.executedBy.employee.name')->label('Executed By')->placeholder('—'),
+                TextEntry::make('execution.order.reference')->label('Reserved Order')->placeholder('—'),
+            ])->visible(fn ($record): bool => $record->execution()->exists()),
         ]);
     }
 }

@@ -42,6 +42,7 @@ class RoleBasedInventoryPermissionResolver implements InventoryPermissionResolve
                 InventoryPermission::CreateStockRequests,
                 InventoryPermission::DecideOwnStockRequestSources,
                 InventoryPermission::DecideAllStockRequestSources,
+                InventoryPermission::ExecuteStockRequests,
             ], true),
             EmployeeRole::Manager => in_array($permission, [
                 InventoryPermission::View,

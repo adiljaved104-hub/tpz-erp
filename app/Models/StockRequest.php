@@ -7,6 +7,7 @@ use App\Enums\StockRequestStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use LogicException;
 
 class StockRequest extends Model
@@ -54,5 +55,10 @@ class StockRequest extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function execution(): HasOne
+    {
+        return $this->hasOne(StockRequestExecution::class);
     }
 }

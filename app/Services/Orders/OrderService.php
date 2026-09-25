@@ -810,7 +810,11 @@ class OrderService
         }, 5);
     }
 
-    public function reserveDraft(Order $order, User $actor): Order
+    /**
+     * @param  array<int, array<int, int>>|null  $exactAllocationSourcesByItemId
+     * @param  (\Closure(Order, Collection<int, OrderItem>): void)|null  $afterReserved
+     */
+    public function reserveDraft(Order $order, User $actor, ?array $exactAllocationSourcesByItemId = null, ?User $scopeActor = null, ?\Closure $afterReserved = null): Order
     {
         $this->authorization->authorize($actor, OrderPermission::Reserve, $order);
         $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->get();
@@ -835,9 +839,10 @@ class OrderService
             }
         }
 
-        return DB::transaction(function () use ($order, $actor, $reservationReferences, $movementReferences, $postingKeys, $upgradePlans, $componentReservationReferences, $componentMovementReferences, $componentPostingKeys): Order {
+        return DB::transaction(function () use ($order, $actor, $exactAllocationSourcesByItemId, $scopeActor, $afterReserved, $reservationReferences, $movementReferences, $postingKeys, $upgradePlans, $componentReservationReferences, $componentMovementReferences, $componentPostingKeys): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->authorization->authorize($actor, OrderPermission::Reserve, $order);
+            $scopeActor ??= $actor;
 
             if ($order->status !== OrderStatus::Draft) {
                 throw new InvalidOrderTransitionException('Only a Draft Order can be reserved.');
@@ -848,8 +853,8 @@ class OrderService
 
             $this->locations->assertSelectable($warehouse, $platform);
 
-            if ($this->responsibilities->requiresScope($actor)) {
-                ResponsibilityAssignment::query()->active()->where('employee_id', $actor->employee->id)->lockForUpdate()->get();
+            if ($this->responsibilities->requiresScope($scopeActor)) {
+                ResponsibilityAssignment::query()->active()->where('employee_id', $scopeActor->employee->id)->lockForUpdate()->get();
             }
 
             $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->lockForUpdate()->get();
@@ -874,7 +879,7 @@ class OrderService
             }
             foreach ($items as $item) {
                 $product = Product::query()->products()->lockForUpdate()->findOrFail($item->product_id);
-                if (! $this->responsibilities->canAccessProduct($actor, $item->product_id, $platform?->id, $warehouse->id)) {
+                if (! $this->responsibilities->canAccessProduct($scopeActor, $item->product_id, $platform?->id, $warehouse->id)) {
                     throw ValidationException::withMessages(['items' => 'A Product is outside your active Responsibility Assignments.']);
                 }
                 if ($item->upgradeSelection !== null) {
@@ -883,7 +888,7 @@ class OrderService
             }
             $allocationAssignments = [];
             foreach ($requiredByProduct as $productId => $requiredQuantity) {
-                $allocation = $this->allocations->lockAndAssert($actor, $inventories->get((int) $productId), $platform?->id, (int) $requiredQuantity);
+                $allocation = $this->allocations->lockAndAssert($scopeActor, $inventories->get((int) $productId), $platform?->id, (int) $requiredQuantity);
                 $allocationAssignments[(int) $productId] = $allocation['assignment_id'] ?? null;
             }
             $this->upgrades->assertInstallStock(array_values($upgradePlans), $warehouse->id);
@@ -900,6 +905,7 @@ class OrderService
                     $postingKeys[$item->id],
                     $movementGroup,
                     $allocationAssignments[$item->product_id] ?? null,
+                    $exactAllocationSourcesByItemId[$item->id] ?? null,
                 );
                 if ($item->upgradeSelection !== null) {
                     $this->upgrades->reserveComponents(
@@ -916,6 +922,9 @@ class OrderService
             }
 
             $order->forceFill(['status' => OrderStatus::Reserved, 'reserved_by_user_id' => $actor->id, 'reserved_at' => now()])->save();
+            if ($afterReserved !== null) {
+                $afterReserved($order, $items);
+            }
             $this->timeline($order, OrderStatus::Draft, OrderStatus::Reserved, $actor, null, ['item_count' => $items->count(), 'total_quantity' => $quantity]);
             $this->activity->log('order.reserved', $actor, $order, [
                 'order_reference' => $order->reference,

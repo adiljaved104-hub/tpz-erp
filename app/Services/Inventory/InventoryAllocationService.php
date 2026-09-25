@@ -157,6 +157,57 @@ class InventoryAllocationService
         }
     }
 
+    /** @param array<int, int> $quantitiesByAccountId */
+    public function reserveExact(InventoryReservation $reservation, array $quantitiesByAccountId, User $actor): void
+    {
+        $inventory = ProductInventory::query()->lockForUpdate()->findOrFail($reservation->product_inventory_id);
+        $quantitiesByAccountId = array_filter($quantitiesByAccountId, fn (int $quantity): bool => $quantity > 0);
+        ksort($quantitiesByAccountId);
+
+        if (array_sum($quantitiesByAccountId) !== $reservation->quantity) {
+            throw ValidationException::withMessages(['execution' => 'Approved stock sources do not match the required reservation quantity.']);
+        }
+
+        foreach ($quantitiesByAccountId as $accountId => $quantity) {
+            $account = InventoryAllocationAccount::query()->where('status', true)->findOrFail($accountId);
+            $balance = $this->balance($account, $inventory, true);
+            if ($balance->availableQuantity() < $quantity) {
+                throw ValidationException::withMessages([
+                    'execution' => "{$account->name} now has only {$balance->availableQuantity()} of the {$quantity} approved units available. This request cannot be executed.",
+                ]);
+            }
+            $balance->increment('reserved_quantity', $quantity);
+            InventoryAllocationReservationLine::query()->create([
+                'inventory_reservation_id' => $reservation->id,
+                'account_id' => $account->id,
+                'quantity' => $quantity,
+                'status' => 'reserved',
+            ]);
+            $this->event($account->is_system ? 'approved_system_reservation' : 'approved_source_reservation', $inventory, $quantity, $actor,
+                'Approved Stock Request source reservation', $reservation, $account);
+        }
+    }
+
+    public function transferExact(ProductInventory $inventory, InventoryAllocationAccount $source, InventoryAllocationAccount $destination, int $quantity, User $actor, Model $request): InventoryAllocationEvent
+    {
+        $lockedInventory = ProductInventory::query()->lockForUpdate()->findOrFail($inventory->id);
+        $sourceBalance = $this->balance($source, $lockedInventory, true);
+        if ($quantity < 1 || $sourceBalance->availableQuantity() < $quantity) {
+            throw ValidationException::withMessages([
+                'execution' => "{$source->name} now has only {$sourceBalance->availableQuantity()} of the {$quantity} approved units available. This request cannot be executed.",
+            ]);
+        }
+        if ($source->is($destination)) {
+            throw ValidationException::withMessages(['execution' => 'The approved source already belongs to the requester.']);
+        }
+        $destinationBalance = $this->balance($destination, $lockedInventory, true);
+        $sourceBalance->decrement('allocated_quantity', $quantity);
+        $destinationBalance->increment('allocated_quantity', $quantity);
+
+        return $this->event('stock_request_transfer', $lockedInventory, $quantity, $actor,
+            'Approved permanent Stock Request transfer', $request, $source, $destination);
+    }
+
     public function release(InventoryReservation $reservation, User $actor, string $reason): void
     {
         InventoryAllocationReservationLine::query()->where('inventory_reservation_id', $reservation->id)
@@ -471,9 +522,9 @@ class InventoryAllocationService
         return $query->firstOrFail();
     }
 
-    private function event(string $type, ProductInventory $inventory, int $quantity, ?User $actor, string $reason, ?Model $source = null, ?InventoryAllocationAccount $from = null, ?InventoryAllocationAccount $to = null, array $metadata = []): void
+    private function event(string $type, ProductInventory $inventory, int $quantity, ?User $actor, string $reason, ?Model $source = null, ?InventoryAllocationAccount $from = null, ?InventoryAllocationAccount $to = null, array $metadata = []): InventoryAllocationEvent
     {
-        InventoryAllocationEvent::query()->create([
+        return InventoryAllocationEvent::query()->create([
             'event_key' => (string) Str::uuid(), 'event_type' => $type, 'product_inventory_id' => $inventory->id,
             'from_account_id' => $from?->id, 'to_account_id' => $to?->id, 'quantity' => $quantity,
             'source_type' => $source?->getMorphClass(), 'source_id' => $source?->getKey(),

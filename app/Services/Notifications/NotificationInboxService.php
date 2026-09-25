@@ -14,6 +14,7 @@ use App\Filament\Resources\EmployeeWarnings\EmployeeWarningResource;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Filament\Resources\SafetClaims\SafetClaimResource;
+use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\Tasks\TaskResource;
 use App\Filament\Resources\WarrantyRepairs\WarrantyRepairResource;
 use App\Models\Conversation;
@@ -24,6 +25,7 @@ use App\Models\HrNotice;
 use App\Models\LeaveRequest;
 use App\Models\ProductInventory;
 use App\Models\SafetClaim;
+use App\Models\StockRequest;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\WarrantyRepair;
@@ -36,6 +38,7 @@ use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Chat\ChatRecordMentionService;
 use App\Services\Hr\HrScopeService;
+use App\Services\Inventory\StockRequestService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
@@ -52,6 +55,7 @@ class NotificationInboxService
         private readonly SafetClaimAuthorization $claimAuthorization,
         private readonly WarrantyRepairAuthorization $warrantyAuthorization,
         private readonly ChatRecordMentionService $recordMentions,
+        private readonly StockRequestService $stockRequests,
     ) {}
 
     public function query(User $user): Builder
@@ -165,6 +169,14 @@ class NotificationInboxService
                 : ['url' => null, 'available' => false];
         }
 
+        if (($data['target_type'] ?? null) === 'stock_request') {
+            $record = StockRequest::query()->find((int) $data['target_id']);
+
+            return $record instanceof StockRequest && $this->stockRequests->canView($user, $record)
+                ? ['url' => StockRequestResource::getUrl('view', ['record' => $record]), 'available' => true]
+                : ['url' => null, 'available' => false];
+        }
+
         if (($data['target_type'] ?? null) === 'warranty_repair') {
             $record = WarrantyRepair::query()->find((int) $data['target_id']);
 
@@ -209,6 +221,7 @@ class NotificationInboxService
                 'warranty.sla_due_soon', 'warranty.sla_overdue', 'inventory.low_stock', 'inventory.out_of_stock',
                 'claim.needs_filing', 'return.awaiting_qc', 'leave.submitted', 'leave.approved', 'leave.rejected',
                 'warning.issued', 'notice.published', 'chat.mention', 'chat.direct_message',
+                'stock_request.created', 'stock_request.approved', 'stock_request.completed',
             ])
             ->latest('created_at')
             ->value('id');

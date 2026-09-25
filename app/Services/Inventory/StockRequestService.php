@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Notifications\StockRequestNotificationDispatcher;
 use App\Services\Orders\OrderReadService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
@@ -35,6 +36,7 @@ class StockRequestService
         private readonly ResponsibilityProductScopeService $responsibilities,
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
+        private readonly StockRequestNotificationDispatcher $notifications,
     ) {}
 
     public function create(CreateStockRequestData $data, User $actor): StockRequest
@@ -101,7 +103,7 @@ class StockRequestService
 
         $reference = $this->references->nextStockRequestReference();
 
-        return DB::transaction(function () use ($validated, $actor, $employee, $reference, $inventoryIds): StockRequest {
+        $request = DB::transaction(function () use ($validated, $actor, $employee, $reference, $inventoryIds): StockRequest {
             $inventories = ProductInventory::query()
                 ->with(['product', 'warehouse'])
                 ->whereKey($inventoryIds)
@@ -183,6 +185,9 @@ class StockRequestService
 
             return $request->load(['items.sourceLines', 'requester', 'order']);
         }, 5);
+        $this->notifications->created($request);
+
+        return $request;
     }
 
     public function visibleQuery(User $actor): Builder

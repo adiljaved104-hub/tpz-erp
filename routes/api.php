@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Mobile\V1\OrderController;
 use App\Http\Controllers\Api\Mobile\V1\PasswordResetController;
 use App\Http\Controllers\Api\Mobile\V1\ProductController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseController;
+use App\Http\Controllers\Api\Mobile\V1\PurchaseReceiptController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
 use App\Http\Controllers\Api\Mobile\V1\SearchController;
@@ -75,6 +76,8 @@ Route::prefix('mobile/v1')
             Route::get('/purchases/{purchase}', [PurchaseController::class, 'show'])->whereNumber('purchase');
             Route::put('/purchases/{purchase}', [PurchaseController::class, 'update'])->whereNumber('purchase');
             Route::post('/purchases/{purchase}/{action}', [PurchaseController::class, 'act'])->whereNumber('purchase');
+            Route::get('/purchase-receipts', [PurchaseReceiptController::class, 'index']);
+            Route::get('/purchase-receipts/{receipt}', [PurchaseReceiptController::class, 'show'])->whereNumber('receipt');
             Route::get('/orders', [OrderController::class, 'index']);
             Route::get('/orders/options', [OrderController::class, 'options']);
             Route::post('/orders', [OrderController::class, 'store']);

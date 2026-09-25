@@ -17,4 +17,6 @@ enum InventoryPermission: string
     case ViewAllocations = 'inventory.view_allocations';
     case ManageAllocations = 'inventory.manage_allocations';
     case ManageAllocationSettings = 'inventory.manage_allocation_settings';
+    case ViewStockRequests = 'inventory.view_stock_requests';
+    case CreateStockRequests = 'inventory.create_stock_requests';
 }

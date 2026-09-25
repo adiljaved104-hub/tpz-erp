@@ -80,6 +80,13 @@ class ReferenceSequenceService
         return "TRF-{$year}-".str_pad((string) $this->next("stock_transfer:{$year}"), 6, '0', STR_PAD_LEFT);
     }
 
+    public function nextStockRequestReference(?int $year = null): string
+    {
+        $year ??= (int) now()->format('Y');
+
+        return "SR-{$year}-".str_pad((string) $this->next("stock_request:{$year}"), 6, '0', STR_PAD_LEFT);
+    }
+
     public function nextCustomerReturnReference(?int $year = null): string
     {
         $year ??= (int) now()->format('Y');

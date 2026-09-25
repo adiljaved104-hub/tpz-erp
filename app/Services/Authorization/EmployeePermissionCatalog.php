@@ -223,6 +223,8 @@ class EmployeePermissionCatalog
                 $this->item(InventoryPermission::ViewAllocations, 'View Inventory Allocations'),
                 $this->item(InventoryPermission::ManageAllocations, 'Manage Inventory Allocations', true),
                 $this->item(InventoryPermission::ManageAllocationSettings, 'Manage Allocation Settings', true),
+                $this->item(InventoryPermission::ViewStockRequests, 'View Stock Requests'),
+                $this->item(InventoryPermission::CreateStockRequests, 'Create Stock Requests', true),
             ],
             'Responsibility' => [
                 $this->item(ResponsibilityPermission::ViewAll, 'View All Responsibility Assignments'),

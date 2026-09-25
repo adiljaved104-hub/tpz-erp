@@ -113,6 +113,7 @@ use App\Models\SafetClaim;
 use App\Models\SafetClaimStatusEvent;
 use App\Models\SalesConfiguration;
 use App\Models\StockMovement;
+use App\Models\StockRequest;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
 use App\Models\StockTransferStatusEvent;
@@ -476,6 +477,7 @@ class AppServiceProvider extends ServiceProvider
             'product_category' => ProductCategory::class,
             'product_inventory' => ProductInventory::class,
             'stock_movement' => StockMovement::class,
+            'stock_request' => StockRequest::class,
             'opening_stock' => OpeningStockEntry::class,
             'inventory_reservation' => InventoryReservation::class,
             'order' => Order::class,

@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Mobile\V1\PasswordResetController;
 use App\Http\Controllers\Api\Mobile\V1\ProductController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseReceiptController;
+use App\Http\Controllers\Api\Mobile\V1\ReportController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
 use App\Http\Controllers\Api\Mobile\V1\SearchController;
@@ -95,6 +96,9 @@ Route::prefix('mobile/v1')
             Route::get('/reservations', [InventoryReservationController::class, 'index']);
             Route::get('/reservations/{reservation}', [InventoryReservationController::class, 'show'])->whereNumber('reservation');
             Route::post('/reservations/{reservation}/release', [InventoryReservationController::class, 'release'])->whereNumber('reservation');
+            Route::get('/reports', [ReportController::class, 'index']);
+            Route::get('/reports/{report}', [ReportController::class, 'show'])
+                ->where('report', '[A-Za-z0-9._-]+');
             Route::get('/invoices', [InvoiceController::class, 'index']);
             Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->whereNumber('invoice');
             Route::get('/orders', [OrderController::class, 'index']);

@@ -35,6 +35,7 @@ use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
+use App\Services\Reports\ReportCatalog;
 
 class MobileWorkspaceCapabilities
 {
@@ -50,6 +51,7 @@ class MobileWorkspaceCapabilities
         $locations = app(InventoryLocationAuthorization::class)->allows($user, InventoryLocationPermission::View);
         $transfers = app(StockTransferAuthorization::class)->allows($user, StockTransferPermission::View);
         $invoices = app(InvoiceAuthorization::class)->allows($user, InvoicePermission::View);
+        $reports = app(ReportCatalog::class)->available($user) !== [];
         $returns = app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View);
         $warranty = app(WarrantyRepairAuthorization::class)->allows($user, WarrantyRepairPermission::View);
         $tasks = app(TaskAuthorization::class)->allows($user, TaskPermission::View);
@@ -74,6 +76,7 @@ class MobileWorkspaceCapabilities
             $this->module('stock_transfers', 'Stock Transfers', 'Authorized stock movements', 'TRN', $transfers),
             $this->module('reservations', 'Reservations', 'Authorized inventory reservations', 'RSV', $inventory),
             $this->module('invoices', 'Invoices', 'Authorized tax invoices', 'INVX', $invoices),
+            $this->module('reports', 'Reports', 'Authorized ERP reports and analytics', 'RPT', $reports),
             $this->module('hr', 'HR', 'People, notices and warnings', 'HR', $hrVisible),
             $this->module('responsibilities', 'Responsibilities', 'Your assigned product scope', 'RSP', $responsibilities),
             $this->module('returns', 'Returns', 'Authorized customer returns', 'RET', $returns),

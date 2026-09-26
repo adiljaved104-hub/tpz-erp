@@ -16,8 +16,9 @@ class ProductExportService
 {
     /** @var array<int, string> */
     private const BASE_FIELDS = [
-        'sku', 'name', 'brand', 'category', 'model', 'condition', 'processor', 'ram', 'storage',
-        'screen_size', 'graphics', 'color', 'warranty', 'description', 'status', 'created_at', 'updated_at',
+        'sku', 'name', 'brand', 'category', 'model', 'condition', 'processor', 'processor_class', 'processor_model',
+        'processor_generation', 'ram', 'storage', 'screen_size', 'graphics', 'color', 'touch_screen', 'is_convertible_360',
+        'accounting_title_override', 'website_title_override', 'warranty', 'description', 'status', 'created_at', 'updated_at',
     ];
 
     public function __construct(
@@ -72,12 +73,12 @@ class ProductExportService
         $fields = self::BASE_FIELDS;
 
         if ($this->authorization->allows($actor, ProductPermission::ViewSellingPrice)) {
-            array_splice($fields, 13, 0, ['selling_price']);
+            array_splice($fields, (int) array_search('warranty', $fields, true), 0, ['selling_price']);
         }
 
         if ($this->authorization->allows($actor, ProductPermission::ViewCostPrice)) {
             $sellingPosition = array_search('selling_price', $fields, true);
-            array_splice($fields, $sellingPosition === false ? 13 : $sellingPosition, 0, ['cost_price']);
+            array_splice($fields, $sellingPosition === false ? (int) array_search('warranty', $fields, true) : $sellingPosition, 0, ['cost_price']);
         }
 
         return $fields;
@@ -100,7 +101,14 @@ class ProductExportService
                     ->orWhere(function (Builder $legacy) use ($search): void {
                         $legacy->whereNull('brand_id')->where('brand', 'like', "%{$search}%");
                     })
-                    ->orWhere('model', 'like', "%{$search}%");
+                    ->orWhere('model', 'like', "%{$search}%")
+                    ->orWhere('processor_class', 'like', "%{$search}%")
+                    ->orWhere('processor_model', 'like', "%{$search}%")
+                    ->orWhere('processor_generation', 'like', "%{$search}%")
+                    ->orWhere('ram', 'like', "%{$search}%")
+                    ->orWhere('storage', 'like', "%{$search}%")
+                    ->orWhere('graphics', 'like', "%{$search}%")
+                    ->orWhere('color', 'like', "%{$search}%");
             });
         }
 

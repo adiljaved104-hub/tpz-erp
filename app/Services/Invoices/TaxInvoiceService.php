@@ -3,6 +3,7 @@
 namespace App\Services\Invoices;
 
 use App\Enums\InvoicePermission;
+use App\Enums\ProductTitleMode;
 use App\Models\TaxInvoice;
 use App\Models\User;
 use App\Services\ActivityLogger;
@@ -10,6 +11,7 @@ use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\CompanyProfileService;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class TaxInvoiceService
@@ -19,10 +21,12 @@ class TaxInvoiceService
     public function create(array $data, User $actor): TaxInvoice
     {
         $this->authorization->authorize($actor, InvoicePermission::Create);
+        $data['title_mode'] ??= ProductTitleMode::Auto->value;
         $validated = validator($data, [
             'customer_name' => ['required', 'string', 'max:255'], 'customer_address' => ['required', 'string', 'max:2000'],
             'customer_trn' => ['nullable', 'string', 'max:50'], 'order_reference' => ['required', 'string', 'max:100'],
             'source_order_id' => ['nullable', 'integer'],
+            'title_mode' => ['required', Rule::enum(ProductTitleMode::class)],
             'invoice_date' => ['required', 'date'], 'idempotency_key' => ['required', 'uuid'], 'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.description' => ['required', 'string', 'max:2000'], 'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.unit_price_including_vat' => ['required', 'decimal:0,2', 'gt:0'],
@@ -54,6 +58,7 @@ class TaxInvoiceService
         return DB::transaction(function () use ($validated, $actor, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor): TaxInvoice {
             $invoice = TaxInvoice::query()->create([
                 'invoice_number' => $number, 'order_reference' => $validated['order_reference'] ?? null, 'source_order_id' => $validated['source_order_id'] ?? null, 'invoice_date' => $validated['invoice_date'],
+                'title_mode' => $validated['title_mode'],
                 'customer_name' => trim($validated['customer_name']), 'customer_address' => $validated['customer_address'] ?? null, 'customer_trn' => $validated['customer_trn'] ?? null,
                 'vat_rate' => $vatRate, 'subtotal_excluding_vat' => $net, 'vat_amount' => $vat, 'grand_total' => $gross,
                 'seller_snapshot' => $profile, 'terms_en_snapshot' => $settings->terms_en, 'terms_ar_snapshot' => $settings->terms_ar,

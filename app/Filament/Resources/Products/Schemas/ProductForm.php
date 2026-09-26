@@ -84,7 +84,23 @@ class ProductForm
                 // =========================
 
                 TextInput::make('processor')
-                    ->label('Processor')
+                    ->label('Processor (Legacy / Compatibility)')
+                    ->helperText('Existing Products may continue using this field. Prefer the structured processor fields below.')
+                    ->live(debounce: 500),
+
+                TextInput::make('processor_class')
+                    ->label('Processor Class')
+                    ->placeholder('Core i5')
+                    ->live(debounce: 500),
+
+                TextInput::make('processor_model')
+                    ->label('Processor Model')
+                    ->placeholder('i5-1334U')
+                    ->live(debounce: 500),
+
+                TextInput::make('processor_generation')
+                    ->label('Processor Generation')
+                    ->placeholder('13th Gen')
                     ->live(debounce: 500),
 
                 TextInput::make('ram')
@@ -104,7 +120,32 @@ class ProductForm
                     ->live(debounce: 500),
 
                 TextInput::make('color')
-                    ->label('Color'),
+                    ->label('Color')
+                    ->live(debounce: 500),
+
+                Select::make('touch_screen')
+                    ->label('Touch Screen')
+                    ->options(['1' => 'Yes', '0' => 'No'])
+                    ->placeholder('Not specified')
+                    ->native(false)
+                    ->live(),
+
+                Select::make('is_convertible_360')
+                    ->label('360 / Convertible')
+                    ->options(['1' => 'Yes', '0' => 'No'])
+                    ->placeholder('Not specified')
+                    ->native(false)
+                    ->live(),
+
+                TextInput::make('accounting_title_override')
+                    ->label('Accounting Title Override')
+                    ->helperText('Optional. Leave blank to use the deterministic generated title.')
+                    ->maxLength(255),
+
+                TextInput::make('website_title_override')
+                    ->label('Website Title Override')
+                    ->helperText('Optional. Leave blank to use the deterministic generated title.')
+                    ->maxLength(255),
 
                 Placeholder::make('possible_duplicates')
                     ->label('Possible Duplicate Products')
@@ -218,10 +259,17 @@ class ProductForm
             'brand_id' => $get('brand_id'),
             'model' => $get('model'),
             'processor' => $get('processor'),
+            'processor_class' => $get('processor_class'),
+            'processor_model' => $get('processor_model'),
+            'processor_generation' => $get('processor_generation'),
             'ram' => $get('ram'),
             'storage' => $get('storage'),
             'screen_size' => $get('screen_size'),
             'graphics' => $get('graphics'),
+            'color' => $get('color'),
+            'touch_screen' => $get('touch_screen'),
+            'is_convertible_360' => $get('is_convertible_360'),
+            'condition' => $get('condition'),
         ], $record?->id);
     }
 

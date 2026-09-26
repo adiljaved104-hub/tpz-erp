@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\TaxInvoices;
 
 use App\Enums\InvoicePermission;
+use App\Enums\ProductTitleMode;
 use App\Filament\Resources\TaxInvoices\Pages\CreateTaxInvoice;
 use App\Filament\Resources\TaxInvoices\Pages\ListTaxInvoices;
 use App\Filament\Resources\TaxInvoices\Pages\ViewTaxInvoice;
@@ -70,6 +71,24 @@ class TaxInvoiceResource extends Resource
             Section::make('Import from Order')
                 ->description('Optional. Search by ERP Order Number or External / Marketplace Order ID, then review and adjust the Invoice before saving. Manual entry remains available.')
                 ->schema([
+                    Select::make('title_mode')
+                        ->label('Product Title Mode')
+                        ->options(collect(ProductTitleMode::cases())->mapWithKeys(fn (ProductTitleMode $mode): array => [$mode->value => $mode->label()])->all())
+                        ->default(ProductTitleMode::Auto->value)
+                        ->required()
+                        ->live()
+                        ->helperText('Auto selects the safest customer title from the source Order. The resolved description is snapshotted on issue.')
+                        ->afterStateUpdated(function ($state, Get $get, Set $set): void {
+                            $user = auth()->user();
+                            $sourceOrderId = $get('source_order_id');
+                            if (! $user instanceof User || blank($sourceOrderId)) {
+                                return;
+                            }
+                            $prefill = app(TaxInvoiceOrderImportService::class)->prefill($user, (int) $sourceOrderId, (string) $state);
+                            if ($prefill !== null) {
+                                $set('items', $prefill['items']);
+                            }
+                        }),
                     Select::make('source_order_id')
                         ->label('Import from Order')
                         ->placeholder('Search an Order to prefill this Invoice')
@@ -85,7 +104,7 @@ class TaxInvoiceResource extends Resource
                         ->afterStateUpdated(function ($state, Get $get, Set $set): void {
                             $user = auth()->user();
                             $prefill = $user instanceof User && filled($state)
-                                ? app(TaxInvoiceOrderImportService::class)->prefill($user, (int) $state)
+                                ? app(TaxInvoiceOrderImportService::class)->prefill($user, (int) $state, (string) ($get('title_mode') ?: ProductTitleMode::Auto->value))
                                 : null;
                             if ($prefill === null) {
                                 $set('source_order_id', null);
@@ -190,6 +209,7 @@ class TaxInvoiceResource extends Resource
         return $schema->components([
             Section::make('Tax Invoice')->columns(4)->schema([
                 TextEntry::make('invoice_number')->label('Invoice #'), TextEntry::make('order_reference')->label('Order ID')->placeholder('—'), TextEntry::make('invoice_date')->date('d M Y'), TextEntry::make('status')->badge(),
+                TextEntry::make('title_mode')->label('Title Mode')->formatStateUsing(fn (ProductTitleMode $state): string => $state->label()),
                 TextEntry::make('customer_name'), TextEntry::make('customer_trn')->label('Customer TRN')->placeholder('—'), TextEntry::make('customer_address')->columnSpan(2)->placeholder('—'),
                 TextEntry::make('subtotal_excluding_vat')->money('AED'), TextEntry::make('vat_amount')->label('VAT')->money('AED'), TextEntry::make('grand_total')->money('AED')->weight('bold'), TextEntry::make('createdBy.name')->label('Created By'),
             ]),

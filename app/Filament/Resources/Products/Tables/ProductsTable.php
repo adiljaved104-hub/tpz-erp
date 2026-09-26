@@ -33,7 +33,10 @@ class ProductsTable
         return $table
             ->columns([
                 TextColumn::make('sku')->label('SKU')->searchable()->sortable()->toggleable(),
-                TextColumn::make('name')->label('Product')->searchable()->sortable()->toggleable(),
+                TextColumn::make('name')->label('Product')->searchable([
+                    'name', 'accounting_title_override', 'website_title_override', 'model', 'processor',
+                    'processor_class', 'processor_model', 'processor_generation', 'ram', 'storage', 'graphics', 'color',
+                ])->sortable()->toggleable(),
                 TextColumn::make('brandRelation.name')->label('Brand')->badge()->searchable()->sortable()
                     ->formatStateUsing(fn ($state, Product $record): string => $state ?? $record->brand)->toggleable(),
                 TextColumn::make('categoryRelation.name')->label('Category')->badge()->searchable()->sortable()
@@ -44,6 +47,9 @@ class ProductsTable
                     ->formatStateUsing(fn (ProductCondition $state): string => $state->label())
                     ->toggleable(),
                 TextColumn::make('processor')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('processor_class')->label('Processor Class')->searchable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('processor_model')->label('Processor Model')->searchable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('processor_generation')->label('Generation')->searchable()->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('ram')->label('RAM')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('storage')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('screen_size')->label('Screen')->toggleable(isToggledHiddenByDefault: true),

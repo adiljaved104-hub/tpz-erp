@@ -6,6 +6,7 @@ use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
 use App\Filament\Resources\Products\Pages\CreateProduct;
 use App\Filament\Resources\Products\Pages\EditProduct;
+use App\Filament\Resources\Products\Pages\ImportProducts;
 use App\Filament\Resources\Products\Pages\ListProducts;
 use App\Filament\Resources\Products\Pages\ViewProduct;
 use App\Filament\Resources\Products\Schemas\ProductForm;
@@ -39,7 +40,8 @@ class ProductResource extends Resource
         $user = auth()->user();
         $fields = [
             'id', 'sku', 'name', 'brand', 'brand_id', 'category', 'category_id', 'model', 'condition', 'processor', 'ram', 'storage',
-            'screen_size', 'graphics', 'color', 'warranty', 'description', 'status', 'created_at', 'updated_at',
+            'processor_class', 'processor_model', 'processor_generation', 'screen_size', 'graphics', 'color', 'touch_screen',
+            'is_convertible_360', 'accounting_title_override', 'website_title_override', 'warranty', 'description', 'status', 'created_at', 'updated_at',
         ];
 
         if ($user instanceof User && app(ProductAuthorization::class)->allows($user, ProductPermission::ViewSellingPrice)) {
@@ -86,6 +88,7 @@ class ProductResource extends Resource
         return [
             'index' => ListProducts::route('/'),
             'create' => CreateProduct::route('/create'),
+            'import' => ImportProducts::route('/import'),
             'view' => ViewProduct::route('/{record}'),
             'edit' => EditProduct::route('/{record}/edit'),
         ];

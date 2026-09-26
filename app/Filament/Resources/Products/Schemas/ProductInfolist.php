@@ -8,6 +8,7 @@ use App\Enums\ProductStatus;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Authorization\ProductAuthorization;
+use App\Services\Products\ProductTitleService;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Schema;
 
@@ -29,6 +30,9 @@ class ProductInfolist
                     ->formatStateUsing(fn (ProductCondition $state): string => $state->label()),
                 TextEntry::make('processor')
                     ->placeholder('-'),
+                TextEntry::make('processor_class')->label('Processor Class')->placeholder('-'),
+                TextEntry::make('processor_model')->label('Processor Model')->placeholder('-'),
+                TextEntry::make('processor_generation')->label('Generation')->placeholder('-'),
                 TextEntry::make('ram')
                     ->placeholder('-'),
                 TextEntry::make('storage')
@@ -39,6 +43,10 @@ class ProductInfolist
                     ->placeholder('-'),
                 TextEntry::make('color')
                     ->placeholder('-'),
+                TextEntry::make('touch_screen')->label('Touch Screen')->formatStateUsing(fn (?bool $state): string => $state === null ? 'Not specified' : ($state ? 'Yes' : 'No')),
+                TextEntry::make('is_convertible_360')->label('360 / Convertible')->formatStateUsing(fn (?bool $state): string => $state === null ? 'Not specified' : ($state ? 'Yes' : 'No')),
+                TextEntry::make('accounting_title')->label('Accounting / Short Title')->state(fn (Product $record): string => app(ProductTitleService::class)->accounting($record))->columnSpanFull(),
+                TextEntry::make('website_title')->label('Website / Customer Title')->state(fn (Product $record): string => app(ProductTitleService::class)->website($record))->columnSpanFull(),
                 TextEntry::make('warranty')
                     ->formatStateUsing(fn (int $state): string => Product::warrantyLabel($state)),
                 TextEntry::make('cost_price')

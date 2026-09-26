@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ProductTitleMode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,6 +19,7 @@ class TaxInvoice extends Model
             'invoice_date' => 'immutable_date', 'issued_at' => 'immutable_datetime', 'voided_at' => 'immutable_datetime',
             'seller_snapshot' => 'array', 'vat_rate' => 'decimal:2', 'subtotal_excluding_vat' => 'decimal:2',
             'vat_amount' => 'decimal:2', 'grand_total' => 'decimal:2',
+            'title_mode' => ProductTitleMode::class,
         ];
     }
 

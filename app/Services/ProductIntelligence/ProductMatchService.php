@@ -26,6 +26,7 @@ use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Products\ProductTitleService;
 use App\Services\Upgrades\UpgradeRecipeValidationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -47,6 +48,7 @@ class ProductMatchService
         private readonly QuotationAuthorization $quotations,
         private readonly ProductAuthorization $products,
         private readonly UpgradeRecipeValidationService $recipeValidator,
+        private readonly ProductTitleService $titles,
     ) {}
 
     /** @return Collection<int, ProductMatchResult> */
@@ -74,7 +76,10 @@ class ProductMatchService
             $componentSpecification = $request->context->allowsComponents()
                 ? $product->component?->specification
                 : null;
-            $candidateText = trim($product->sku.' '.$product->name.' '.($componentSpecification ?? ''));
+            $candidateText = trim(implode(' ', array_filter([
+                $product->sku, $product->name, $this->titles->accounting($product),
+                $this->titles->website($product), $componentSpecification,
+            ])));
             $candidate = $this->interpreter->interpret($candidateText, $candidateAttributes, [$product->displayBrandName()]);
             $scored = $this->scorer->score($parsed, $candidate, $request->context);
             $recipe = $configuration?->recipes->first(fn (UpgradeRecipe $recipe): bool => $recipe->active && $this->recipeValidator->validate($recipe)->valid);
@@ -134,7 +139,9 @@ class ProductMatchService
     {
         $candidateLimit = (int) config('product_matching.candidate_limit', 150);
         $query = Product::query()->active()->select([
-            'id', 'sku', 'name', 'inventory_item_type', 'brand', 'brand_id', 'model', 'processor', 'ram', 'storage', 'screen_size', 'graphics', 'status',
+            'id', 'sku', 'name', 'inventory_item_type', 'brand', 'brand_id', 'category', 'category_id', 'model', 'processor',
+            'processor_class', 'processor_model', 'processor_generation', 'ram', 'storage', 'screen_size', 'graphics', 'color',
+            'touch_screen', 'is_convertible_360', 'accounting_title_override', 'website_title_override', 'condition', 'status',
         ])->with('brandRelation:id,name,status');
 
         if ($request->context->allowsComponents()) {
@@ -167,9 +174,15 @@ class ProductMatchService
                         ->orWhere('brand', 'like', "%{$token}%")
                         ->orWhere('model', 'like', "%{$token}%")
                         ->orWhere('processor', 'like', "%{$token}%")
+                        ->orWhere('processor_class', 'like', "%{$token}%")
+                        ->orWhere('processor_model', 'like', "%{$token}%")
+                        ->orWhere('processor_generation', 'like', "%{$token}%")
                         ->orWhere('ram', 'like', "%{$token}%")
                         ->orWhere('storage', 'like', "%{$token}%")
-                        ->orWhere('graphics', 'like', "%{$token}%");
+                        ->orWhere('graphics', 'like', "%{$token}%")
+                        ->orWhere('color', 'like', "%{$token}%")
+                        ->orWhere('accounting_title_override', 'like', "%{$token}%")
+                        ->orWhere('website_title_override', 'like', "%{$token}%");
 
                     if ($request->context->allowsComponents()) {
                         $where->orWhereHas('component', function (Builder $component) use ($token): void {
@@ -262,10 +275,17 @@ class ProductMatchService
             'brand' => $product->displayBrandName(),
             'model' => $product->model,
             'processor' => $product->processor,
+            'processor_class' => $product->processor_class,
+            'processor_model' => $product->processor_model,
+            'processor_generation' => $product->processor_generation,
             'ram' => $configuration?->target_ram_mb ? ($configuration->target_ram_mb / 1024).'GB RAM' : $product->ram,
             'storage' => $configuration?->target_storage_total_gb ? $configuration->target_storage_total_gb.'GB Storage' : $product->storage,
             'graphics' => $product->graphics,
             'screen_size' => $product->screen_size,
+            'color' => $product->color,
+            'touch_screen' => $product->touch_screen,
+            'is_convertible_360' => $product->is_convertible_360,
+            'condition' => $product->condition?->value,
         ];
     }
 

@@ -28,11 +28,18 @@ class Product extends Model
         'model',
         'condition',
         'processor',
+        'processor_class',
+        'processor_model',
+        'processor_generation',
         'ram',
         'storage',
         'screen_size',
         'graphics',
         'color',
+        'touch_screen',
+        'is_convertible_360',
+        'accounting_title_override',
+        'website_title_override',
         'warranty',
         'selling_price',
         'description',
@@ -47,6 +54,8 @@ class Product extends Model
             'warranty' => 'integer',
             'cost_price' => 'decimal:4',
             'selling_price' => 'decimal:2',
+            'touch_screen' => 'boolean',
+            'is_convertible_360' => 'boolean',
         ];
     }
 
@@ -78,6 +87,11 @@ class Product extends Model
     public function salesConfigurations(): HasMany
     {
         return $this->hasMany(SalesConfiguration::class);
+    }
+
+    public function marketplaceListings(): HasMany
+    {
+        return $this->hasMany(ProductMarketplaceListing::class);
     }
 
     public function inventories(): HasMany

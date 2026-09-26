@@ -124,6 +124,8 @@ Route::prefix('mobile/v1')
             Route::get('/warranty/{warranty}', [WarrantyController::class, 'show'])->whereNumber('warranty');
             Route::post('/warranty/{warranty}/{action}', [WarrantyController::class, 'act'])->whereNumber('warranty');
             Route::get('/tasks', [TaskController::class, 'index']);
+            Route::get('/tasks/options', [TaskController::class, 'options']);
+            Route::post('/tasks', [TaskController::class, 'store']);
             Route::get('/tasks/{task}', [TaskController::class, 'show'])->whereNumber('task');
             Route::post('/tasks/{task}/{action}', [TaskController::class, 'act'])->whereNumber('task');
         });

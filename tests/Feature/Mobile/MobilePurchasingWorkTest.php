@@ -17,6 +17,7 @@ use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
 use App\Models\StockMovement;
 use App\Models\Supplier;
+use App\Models\Task;
 use App\Models\TaskCompletionSubmission;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -136,6 +137,75 @@ class MobilePurchasingWorkTest extends TestCase
             ->assertJsonPath('data.status', 'cancelled');
     }
 
+    public function test_mobile_task_creation_options_permissions_and_idempotency(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $assignee = $this->user(EmployeeRole::Staff);
+        $other = $this->user(EmployeeRole::Manager);
+        $key = (string) Str::uuid();
+
+        $options = $this->as($owner)
+            ->getJson('/api/mobile/v1/workspace/tasks/options')
+            ->assertOk()
+            ->assertJsonPath('data.can_create', true)
+            ->assertJsonPath('data.can_assign', true);
+
+        $this->assertContains(
+            $assignee->employee->id,
+            collect($options->json('data.employees'))->pluck('id'),
+        );
+
+        $payload = [
+            'title' => 'Mobile Build 8 task',
+            'description' => 'Created from the mobile Task form.',
+            'priority' => 'high',
+            'assignment_mode' => 'single_employee',
+            'assigned_employee_id' => $assignee->employee->id,
+            'due_at' => now()->addDay()->format('Y-m-d H:i:s'),
+            'idempotency_key' => $key,
+        ];
+
+        $created = $this->as($owner)
+            ->postJson('/api/mobile/v1/workspace/tasks', $payload)
+            ->assertOk()
+            ->assertJsonPath('data.title', 'Mobile Build 8 task')
+            ->assertJsonPath('data.fields.priority', 'high');
+
+        $taskId = $created->json('data.id');
+
+        $this->assertDatabaseHas('tasks', [
+            'id' => $taskId,
+            'created_by_user_id' => $owner->id,
+            'idempotency_key' => $key,
+        ]);
+
+        $this->assertDatabaseHas('task_assignments', [
+            'task_id' => $taskId,
+            'employee_id' => $assignee->employee->id,
+        ]);
+
+        $retry = $this->as($owner)
+            ->postJson('/api/mobile/v1/workspace/tasks', $payload)
+            ->assertOk();
+
+        $this->assertSame($taskId, $retry->json('data.id'));
+        $this->assertSame(1, Task::query()->where('idempotency_key', $key)->count());
+
+        $this->as($other)
+            ->postJson('/api/mobile/v1/workspace/tasks', $payload)
+            ->assertForbidden();
+
+        $this->as($assignee)
+            ->getJson('/api/mobile/v1/workspace/tasks/options')
+            ->assertForbidden();
+
+        $this->as($assignee)
+            ->postJson('/api/mobile/v1/workspace/tasks', [
+                ...$payload,
+                'idempotency_key' => (string) Str::uuid(),
+            ])
+            ->assertForbidden();
+    }
     public function test_chat_detail_read_send_and_targets_remain_participant_private(): void
     {
         $owner = $this->user(EmployeeRole::Owner);

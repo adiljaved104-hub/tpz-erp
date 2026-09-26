@@ -2,11 +2,15 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
+use App\DTOs\Tasks\CreateTaskData;
+use App\Enums\TaskAssignmentMode;
 use App\Enums\TaskPermission;
+use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Exceptions\TaskException;
 use App\Models\Task;
 use App\Services\Authorization\TaskAuthorization;
+use App\Services\Tasks\TaskAssigneeService;
 use App\Services\Tasks\TaskQueryService;
 use App\Services\Tasks\TaskService;
 use Illuminate\Http\JsonResponse;
@@ -28,9 +32,131 @@ class TaskController extends MobileController
             $query->whereNotIn('status', ['completed', 'cancelled'])->whereBetween('due_at', [now(), now()->addHours(24)]);
         }
 
-        return $this->page($request, $query, ['title', 'description'], fn ($task) => $this->present($request, $task));
+        $response = $this->page(
+            $request,
+            $query,
+            ['title', 'description'],
+            fn ($task) => $this->present($request, $task),
+        );
+
+        $response->setData([
+            ...$response->getData(true),
+            'can_create' => app(TaskAuthorization::class)
+                ->allows($request->user(), TaskPermission::Create),
+        ]);
+
+        return $response;
     }
 
+    public function options(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $auth = app(TaskAuthorization::class);
+
+        $auth->authorize($user, TaskPermission::Create);
+
+        $assignees = app(TaskAssigneeService::class);
+
+        return response()->json([
+            'data' => [
+                'can_create' => true,
+                'can_assign' => $auth->allows($user, TaskPermission::Assign),
+
+                'employees' => collect($assignees->options(null, $user))
+                    ->map(fn (string $name, int|string $id): array => [
+                        'id' => (int) $id,
+                        'name' => $name,
+                    ])
+                    ->values()
+                    ->all(),
+
+                'teams' => collect($assignees->teamOptions($user))
+                    ->map(fn (string $name, int|string $id): array => [
+                        'id' => (int) $id,
+                        'name' => $name,
+                    ])
+                    ->values()
+                    ->all(),
+
+                'priorities' => array_map(
+                    fn (TaskPriority $priority): array => [
+                        'value' => $priority->value,
+                        'label' => $priority->getLabel(),
+                    ],
+                    TaskPriority::cases(),
+                ),
+
+                'assignment_modes' => array_map(
+                    fn (TaskAssignmentMode $mode): array => [
+                        'value' => $mode->value,
+                        'label' => $mode->getLabel(),
+                    ],
+                    TaskAssignmentMode::cases(),
+                ),
+            ],
+        ]);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        app(TaskAuthorization::class)
+            ->authorize($user, TaskPermission::Create);
+
+        $data = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string|max:5000',
+            'priority' => 'required|in:low,normal,high,critical',
+
+            'assignment_mode' =>
+                'nullable|in:single_employee,multiple_employees,entire_team,team_queue',
+
+            'assigned_employee_id' => 'nullable|integer',
+            'assigned_employee_ids' => 'nullable|array|max:100',
+            'assigned_employee_ids.*' => 'integer|distinct',
+            'assigned_team_id' => 'nullable|integer',
+
+            'due_at' => 'nullable|date',
+            'follow_up_at' => 'nullable|date',
+
+            'idempotency_key' => 'required|uuid',
+        ]);
+
+        if ($existing = Task::query()
+            ->where('idempotency_key', $data['idempotency_key'])
+            ->first()) {
+
+            abort_unless(
+                $existing->created_by_user_id === $user->id,
+                403,
+            );
+
+            return $this->show($request, $existing);
+        }
+
+        $task = app(TaskService::class)->create(
+            new CreateTaskData(
+                title: $data['title'],
+                description: $data['description'] ?? null,
+                priority: TaskPriority::from($data['priority']),
+                assignedEmployeeId: $data['assigned_employee_id'] ?? null,
+                assignedTeamId: $data['assigned_team_id'] ?? null,
+                dueAt: $data['due_at'] ?? null,
+                followUpAt: $data['follow_up_at'] ?? null,
+                linkedType: null,
+                linkedRecordId: null,
+                idempotencyKey: $data['idempotency_key'],
+                assignedEmployeeIds: $data['assigned_employee_ids'] ?? [],
+                assignmentMode: isset($data['assignment_mode'])
+                    ? TaskAssignmentMode::from($data['assignment_mode'])
+                    : null,
+            ),
+            $user,
+        );
+
+        return $this->show($request, $task);
+    }
     public function show(Request $request, Task $task): JsonResponse
     {
         app(TaskAuthorization::class)->authorize($request->user(), TaskPermission::View, $task);

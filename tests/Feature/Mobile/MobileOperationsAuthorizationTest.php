@@ -259,6 +259,50 @@ class MobileOperationsAuthorizationTest extends TestCase
         $this->assertSame(0, $this->as($second)->getJson('/api/mobile/v1/chat')->json('unread_count'));
     }
 
+    public function test_reopening_direct_chat_reactivates_previous_participant(): void
+    {
+        $one = $this->responsibilityUser(EmployeeRole::Owner);
+        $two = $this->responsibilityUser(EmployeeRole::Staff);
+
+        $first = $this->token($one);
+        $second = $this->token($two);
+
+        $conversationId = $this->as($first)
+            ->postJson('/api/mobile/v1/chat', [
+                'type' => 'direct',
+                'employee_id' => $two->employee->id,
+            ])
+            ->assertOk()
+            ->json('data.id');
+
+        $conversation = \App\Models\Conversation::query()->findOrFail($conversationId);
+
+        $conversation->participants()
+            ->where('employee_id', $two->employee->id)
+            ->update(['left_at' => now()]);
+
+        $this->as($second)
+            ->getJson('/api/mobile/v1/chat/'.$conversationId.'/messages')
+            ->assertForbidden();
+
+        $this->as($first)
+            ->postJson('/api/mobile/v1/chat', [
+                'type' => 'direct',
+                'employee_id' => $two->employee->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.id', $conversationId);
+
+        $this->assertDatabaseHas('conversation_participants', [
+            'conversation_id' => $conversationId,
+            'employee_id' => $two->employee->id,
+            'left_at' => null,
+        ]);
+
+        $this->as($second)
+            ->getJson('/api/mobile/v1/chat/'.$conversationId.'/messages')
+            ->assertOk();
+    }
     public function test_return_record_scope_and_receive_permission(): void
     {
         $f = $this->assigned();

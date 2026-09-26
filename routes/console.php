@@ -24,6 +24,11 @@ Schedule::command('warranty:send-sla-notifications')
     ->name('warranty-sla-notification-evaluator')
     ->withoutOverlapping(30);
 
+Schedule::command('inventory:send-stock-reminders')
+    ->hourly()
+    ->name('inventory-stock-reminder-evaluator')
+    ->withoutOverlapping(30);
+
 $hikvisionInterval = max(1, (int) config('hikvision.sync_interval_minutes', 5));
 Schedule::command('hikvision:sync-attendance')
     ->cron("*/{$hikvisionInterval} * * * *")

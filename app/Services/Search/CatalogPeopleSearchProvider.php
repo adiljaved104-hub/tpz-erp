@@ -38,15 +38,18 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         if (! app(ProductAuthorization::class)->allows($user, ProductPermission::View)) {
             return collect();
         }
-        $query = DB::table('products')->where('products.inventory_item_type', 'product')->select(['products.id', 'products.sku', 'products.name', 'products.model', 'products.status']);
+        $query = DB::table('products')
+            ->leftJoin('product_brands as search_product_brands', 'search_product_brands.id', '=', 'products.brand_id')
+            ->where('products.inventory_item_type', 'product')
+            ->select(['products.id', 'products.sku', 'products.name', 'products.model', 'products.status']);
         app(ResponsibilityProductScopeService::class)->apply($query, 'products.id', $user);
-        SearchQuery::match($query, ['products.sku', 'products.name', 'products.model'], $term);
+        SearchQuery::match($query, ['products.sku', 'products.name', 'products.model', 'products.brand', 'search_product_brands.name'], $term);
         SearchQuery::rank($query, 'products.sku', $term);
         SearchQuery::rank($query, 'products.name', $term);
 
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Products', $row->sku.' · '.$row->name, trim(($row->model ? $row->model.' · ' : '').ucfirst($row->status)),
-            ProductResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-cube',
+            ProductResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-cube', ['module' => 'products', 'id' => $row->id],
         ));
     }
 
@@ -67,7 +70,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Employees', $row->employee_id.' · '.$row->name,
             ucfirst($row->role).($row->team_name ? ' · '.$row->team_name : '').' · '.($row->status ? 'Active' : 'Inactive'),
-            EmployeeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-user',
+            EmployeeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-user', ['module' => 'hr/employees', 'id' => $row->id],
         ));
     }
 
@@ -82,7 +85,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
 
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Suppliers', $row->name, trim(($row->contact_person ?: 'Supplier').' · '.($row->status ? 'Active' : 'Inactive')),
-            SupplierResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-building-storefront',
+            SupplierResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-building-storefront', ['module' => 'suppliers', 'id' => $row->id],
         ));
     }
 
@@ -99,7 +102,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             $row->location_type === 'company_warehouse' ? 'Warehouses' : 'Inventory Locations',
             $row->code.' · '.$row->name, str_replace('_', ' ', ucfirst($row->location_type)).' · '.($row->status ? 'Active' : 'Inactive'),
-            WarehouseResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-map-pin',
+            WarehouseResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-map-pin', ['module' => 'inventory-locations', 'id' => $row->id],
         ));
     }
 }

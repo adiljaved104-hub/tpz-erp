@@ -30,7 +30,7 @@ class PurchasingSearchProvider implements GlobalSearchProvider
             $results = $results->concat($purchases->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
                 'Purchase Orders', $row->reference.($row->supplier ? ' · '.$row->supplier : ''),
                 ($row->supplier_invoice_number ? 'Invoice: '.$row->supplier_invoice_number.' · ' : '').ucfirst($row->status),
-                PurchaseResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-shopping-cart',
+                PurchaseResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-shopping-cart', ['module' => 'purchases', 'id' => $row->id],
             )));
         }
 
@@ -44,7 +44,7 @@ class PurchasingSearchProvider implements GlobalSearchProvider
             $results = $results->concat($receipts->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
                 'GRNs / Receiving', $row->reference.' · '.$row->purchase_reference,
                 trim(($row->supplier ?: 'Receiving').($row->supplier_delivery_note ? ' · Delivery: '.$row->supplier_delivery_note : '')),
-                PurchaseReceiptResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-clipboard-document-check',
+                PurchaseReceiptResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-clipboard-document-check', ['module' => 'purchase-receipts', 'id' => $row->id],
             )));
         }
 

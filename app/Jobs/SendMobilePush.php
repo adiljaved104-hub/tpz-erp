@@ -6,9 +6,11 @@ use App\Models\MobileDevice;
 use App\Models\User;
 use App\Services\CompanyEmailPolicyService;
 use App\Services\Mobile\NotificationTarget;
+use App\Services\Notifications\NotificationInboxService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class SendMobilePush implements ShouldQueue
 {
@@ -33,10 +35,20 @@ class SendMobilePush implements ShouldQueue
             return;
         }
         $n = $user->notifications()->find($this->notificationId);
-        if (! $n || $n->read_at !== null || app(NotificationTarget::class)->resolve($user, $n->data) === null) {
+        if (! $n || $n->read_at !== null) {
             return;
         }
-        MobileDevice::query()->where('user_id', $user->id)->whereNull('disabled_at')->with('accessToken')->chunkById(100, function ($devices) {
+        if (app(NotificationTarget::class)->resolve($user, $n->data) === null) {
+            return;
+        }
+
+        $title = trim((string) ($n->data['title'] ?? ''));
+        $title = $title !== '' ? Str::limit($title, 120) : 'Tech Point Zone ERP';
+        $messages = app(NotificationInboxService::class)->displayMessages(collect([$n]), $user);
+        $body = trim((string) ($messages[(string) $n->id] ?? ''));
+        $body = $body !== '' ? Str::limit($body, 240) : 'You have a new ERP notification.';
+
+        MobileDevice::query()->where('user_id', $user->id)->whereNull('disabled_at')->with('accessToken')->chunkById(100, function ($devices) use ($title, $body) {
             foreach ($devices as $device) {
                 $session = $device->accessToken;
                 if (! $session || ($session->expires_at !== null && $session->expires_at->isPast())) {
@@ -51,8 +63,8 @@ class SendMobilePush implements ShouldQueue
                     $http = $http->withToken(config('mobile.expo_access_token'));
                 }
                 $response = $http->post('https://exp.host/--/api/v2/push/send', [
-                    'to' => $device->expo_token, 'title' => 'Tech Point Zone ERP', 'body' => 'You have a new ERP notification.',
-                    'sound' => 'default', 'channelId' => 'erp', 'data' => ['notification_id' => $this->notificationId],
+                    'to' => $device->expo_token, 'title' => $title, 'body' => $body,
+                    'sound' => 'default', 'channelId' => 'erp-alerts', 'data' => ['notification_id' => $this->notificationId],
                 ])->throw();
                 $ticket = $response->json('data');
                 if (($ticket['details']['error'] ?? null) === 'DeviceNotRegistered') {

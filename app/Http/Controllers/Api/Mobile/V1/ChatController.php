@@ -25,8 +25,9 @@ class ChatController extends MobileController
     public function index(Request $request): JsonResponse
     {
         $this->authorize($request);
-        $d = $request->validate(['q' => 'nullable|string|max:100', 'page' => 'nullable|integer|min:1', 'per_page' => 'nullable|integer|min:1|max:50']);
-        $query = app(ChatQueryService::class)->inbox($request->user(), $d['q'] ?? '');
+        $d = $request->validate(['q' => 'nullable|string|max:100', 'page' => 'nullable|integer|min:1', 'per_page' => 'nullable|integer|min:1|max:50',
+            'filter' => 'nullable|in:all,direct,teams,contexts,channels,archived']);
+        $query = app(ChatQueryService::class)->inbox($request->user(), $d['q'] ?? '', $d['filter'] ?? 'all');
         // Match the record-level team authorization, including inactive teams.
         $query->where(fn ($q) => $q->where('type', '!=', 'team')->orWhereHas('team', fn ($t) => $t->where('status', true)));
         $page = $query->paginate($d['per_page'] ?? 25)->through(fn ($c) => $this->present($request, $c));
@@ -34,14 +35,30 @@ class ChatController extends MobileController
         return response()->json([...$page->toArray(), 'unread_count' => app(ChatQueryService::class)->totalUnread($request->user())]);
     }
 
-    private function present(Request $request, Conversation $c): array
+    private function present(Request $request, Conversation $c, bool $detail = false): array
     {
         app(ChatAuthorization::class)->authorizeConversation($request->user(), $c);
+        $c->loadMissing(['team:id,name', 'participants.employee:id,name', 'latestMessage.sender:id,name']);
         $unread = app(ConversationMessageService::class)->unreadCount($request->user(), $c);
-
-        return ['id' => $c->id, 'title' => app(ConversationPresenter::class)->label($c, $request->user()),
+        $data = ['id' => $c->id, 'title' => app(ConversationPresenter::class)->label($c, $request->user()),
             'subtitle' => app(ConversationPresenter::class)->typeLabel($c), 'meta' => $c->latestMessage?->created_at?->toIso8601String(),
             'status' => $c->status->value, 'unread_count' => $unread];
+        if (! $detail) {
+            return $data;
+        }
+
+        return [...$data,
+            'fields' => ['type' => $c->type->value, 'team' => $c->team?->name],
+            'participants' => $c->participants->whereNull('left_at')->map(fn ($participant) => [
+                'id' => $participant->employee_id,
+                'name' => $participant->employee?->name,
+            ])->values(),
+            'latest_message' => $c->latestMessage ? [
+                'id' => $c->latestMessage->id,
+                'sender' => $c->latestMessage->sender?->name,
+                'created_at' => $c->latestMessage->created_at?->toIso8601String(),
+            ] : null,
+        ];
     }
 
     public function options(Request $request): JsonResponse
@@ -74,7 +91,7 @@ class ChatController extends MobileController
 
     public function show(Request $request, Conversation $conversation): JsonResponse
     {
-        return response()->json(['data' => $this->present($request, $conversation)]);
+        return response()->json(['data' => $this->present($request, $conversation, true)]);
     }
 
     public function messages(Request $request, Conversation $conversation): JsonResponse

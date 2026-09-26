@@ -185,4 +185,3 @@ class PasswordResetController extends Controller
         ], 422);
     }
 }
-

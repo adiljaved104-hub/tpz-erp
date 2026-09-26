@@ -85,7 +85,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
 
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Suppliers', $row->name, trim(($row->contact_person ?: 'Supplier').' · '.($row->status ? 'Active' : 'Inactive')),
-            SupplierResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-building-storefront',
+            SupplierResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-building-storefront', ['module' => 'suppliers', 'id' => $row->id],
         ));
     }
 
@@ -102,7 +102,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             $row->location_type === 'company_warehouse' ? 'Warehouses' : 'Inventory Locations',
             $row->code.' · '.$row->name, str_replace('_', ' ', ucfirst($row->location_type)).' · '.($row->status ? 'Active' : 'Inactive'),
-            WarehouseResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-map-pin',
+            WarehouseResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-map-pin', ['module' => 'inventory-locations', 'id' => $row->id],
         ));
     }
 }

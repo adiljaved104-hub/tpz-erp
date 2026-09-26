@@ -6,12 +6,15 @@ use App\Enums\ChatPermission;
 use App\Enums\ComplaintPermission;
 use App\Enums\CustomerReturnPermission;
 use App\Enums\HrPermission;
+use App\Enums\InventoryLocationPermission;
 use App\Enums\InventoryPermission;
+use App\Enums\InvoicePermission;
 use App\Enums\OrderPermission;
 use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
 use App\Enums\ResponsibilityPermission;
 use App\Enums\SafetClaimPermission;
+use App\Enums\StockTransferPermission;
 use App\Enums\TaskPermission;
 use App\Enums\WarrantyRepairPermission;
 use App\Models\Employee;
@@ -22,11 +25,14 @@ use App\Services\Authorization\ComplaintAuthorization;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\HrAuthorization;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Authorization\InventoryLocationAuthorization;
+use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
+use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 
@@ -40,6 +46,10 @@ class MobileWorkspaceCapabilities
         $products = app(ProductAuthorization::class)->allows($user, ProductPermission::View)
             || app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::ViewOwn);
         $purchases = app(PurchaseAuthorization::class)->allows($user, PurchasePermission::View);
+        $suppliers = app(PurchaseAuthorization::class)->allows($user, PurchasePermission::SupplierView);
+        $locations = app(InventoryLocationAuthorization::class)->allows($user, InventoryLocationPermission::View);
+        $transfers = app(StockTransferAuthorization::class)->allows($user, StockTransferPermission::View);
+        $invoices = app(InvoiceAuthorization::class)->allows($user, InvoicePermission::View);
         $returns = app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View);
         $warranty = app(WarrantyRepairAuthorization::class)->allows($user, WarrantyRepairPermission::View);
         $tasks = app(TaskAuthorization::class)->allows($user, TaskPermission::View);
@@ -59,6 +69,11 @@ class MobileWorkspaceCapabilities
             $this->module('inventory', 'My Inventory', 'Assigned stock and inventory', 'INV', $inventory),
             $this->module('products', 'Products', 'Search products and SKUs', 'PRD', $products),
             $this->module('purchases', 'Purchases', 'Purchases and receipts', 'PUR', $purchases),
+            $this->module('suppliers', 'Suppliers', 'Authorized supplier contacts', 'SUP', $suppliers),
+            $this->module('inventory_locations', 'Locations', 'Warehouses and inventory locations', 'LOC', $locations),
+            $this->module('stock_transfers', 'Stock Transfers', 'Authorized stock movements', 'TRN', $transfers),
+            $this->module('reservations', 'Reservations', 'Authorized inventory reservations', 'RSV', $inventory),
+            $this->module('invoices', 'Invoices', 'Authorized tax invoices', 'INVX', $invoices),
             $this->module('hr', 'HR', 'People, notices and warnings', 'HR', $hrVisible),
             $this->module('responsibilities', 'Responsibilities', 'Your assigned product scope', 'RSP', $responsibilities),
             $this->module('returns', 'Returns', 'Authorized customer returns', 'RET', $returns),

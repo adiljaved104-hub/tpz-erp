@@ -43,10 +43,21 @@ class CriticalAlertRecipientResolver
     public function inventory(ProductInventory $inventory, string $eventKey = 'inventory.low_stock'): Collection
     {
         if ($this->rules->recipientStrategy($eventKey) === 'owner_admin_fallback') {
-            return $this->authorizedAdmins(fn (User $user): bool => app(InventoryAuthorization::class)->allows($user, InventoryPermission::View, $inventory));
+            return $this->inventoryEscalation($inventory);
         }
 
-        return $this->activeUsers()->filter(fn (User $user): bool => app(InventoryAuthorization::class)->allows($user, InventoryPermission::View, $inventory))->values();
+        $responsible = $this->activeUsers()
+            ->filter(fn (User $user): bool => in_array($user->employee?->role, [EmployeeRole::Manager, EmployeeRole::Staff], true)
+                && app(InventoryAuthorization::class)->allows($user, InventoryPermission::View, $inventory))
+            ->values();
+
+        return $responsible->isNotEmpty() ? $responsible : $this->inventoryEscalation($inventory);
+    }
+
+    /** @return Collection<int, User> */
+    public function inventoryEscalation(ProductInventory $inventory): Collection
+    {
+        return $this->authorizedAdmins(fn (User $user): bool => app(InventoryAuthorization::class)->allows($user, InventoryPermission::View, $inventory));
     }
 
     /** @return Collection<int, User> */

@@ -112,6 +112,7 @@ use App\Models\ResponsibilityAssignment;
 use App\Models\SafetClaim;
 use App\Models\SafetClaimStatusEvent;
 use App\Models\SalesConfiguration;
+use App\Models\StockAlertIncident;
 use App\Models\StockMovement;
 use App\Models\StockRequest;
 use App\Models\StockTransfer;
@@ -476,6 +477,7 @@ class AppServiceProvider extends ServiceProvider
             'product_brand' => ProductBrand::class,
             'product_category' => ProductCategory::class,
             'product_inventory' => ProductInventory::class,
+            'stock_alert_incident' => StockAlertIncident::class,
             'stock_movement' => StockMovement::class,
             'stock_request' => StockRequest::class,
             'opening_stock' => OpeningStockEntry::class,

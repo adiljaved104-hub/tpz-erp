@@ -44,7 +44,7 @@ class PurchasingSearchProvider implements GlobalSearchProvider
             $results = $results->concat($receipts->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
                 'GRNs / Receiving', $row->reference.' · '.$row->purchase_reference,
                 trim(($row->supplier ?: 'Receiving').($row->supplier_delivery_note ? ' · Delivery: '.$row->supplier_delivery_note : '')),
-                PurchaseReceiptResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-clipboard-document-check',
+                PurchaseReceiptResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-clipboard-document-check', ['module' => 'purchase-receipts', 'id' => $row->id],
             )));
         }
 

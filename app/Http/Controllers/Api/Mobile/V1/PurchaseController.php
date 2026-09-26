@@ -41,8 +41,13 @@ class PurchaseController extends MobileController
 
     public function index(Request $request): JsonResponse
     {
-        $response = $this->page($request, app(PurchaseReadService::class)->purchases($request->user())
-            ->with(['supplier:id,name'])->orderByDesc('purchase_date')->orderByDesc('id'),
+        $filter = $request->validate(['filter' => 'nullable|in:open'])['filter'] ?? null;
+        $query = app(PurchaseReadService::class)->purchases($request->user())
+            ->with(['supplier:id,name'])->orderByDesc('purchase_date')->orderByDesc('id');
+        if ($filter === 'open') {
+            $query->whereNotIn('status', [PurchaseStatus::Closed->value, PurchaseStatus::Cancelled->value]);
+        }
+        $response = $this->page($request, $query,
             ['reference', 'supplier_invoice_number'], fn ($p) => $this->present($request, $p));
         $response->setData([...$response->getData(true), 'can_create' => app(PurchaseAuthorization::class)->allows($request->user(), PurchasePermission::Create)]);
 

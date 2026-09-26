@@ -230,14 +230,17 @@ class MobileGlobalSearchTest extends TestCase
         $this->search($outsider, $warning->title)->assertOk()->assertJsonPath('data', []);
     }
 
-    public function test_results_without_mobile_destinations_are_omitted(): void
+    public function test_supplier_results_use_the_new_mobile_destination_without_web_urls(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);
-        $supplier = Supplier::factory()->create(['name' => 'Unsupported Mobile Supplier']);
+        $supplier = Supplier::factory()->create(['name' => 'Supported Mobile Supplier']);
 
-        $this->search($owner, $supplier->name)
-            ->assertOk()
-            ->assertJsonPath('data', []);
+        $response = $this->search($owner, $supplier->name)->assertOk();
+        $item = collect($response->json('data'))->flatMap(fn (array $group) => $group['items'])
+            ->firstWhere('target.module', 'suppliers');
+
+        $this->assertSame($supplier->id, $item['target']['id']);
+        $this->assertStringNotContainsString('"url"', $response->getContent());
     }
 
     public function test_short_queries_return_empty_results_safely(): void

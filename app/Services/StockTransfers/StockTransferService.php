@@ -55,6 +55,10 @@ class StockTransferService
         ])->validate();
 
         if ($existing = StockTransfer::query()->where('idempotency_key', $validated['idempotency_key'])->first()) {
+            if ($existing->created_by_user_id !== $actor->id) {
+                throw new AuthorizationException;
+            }
+
             return $existing;
         }
         $source = Warehouse::query()->findOrFail($validated['source_warehouse_id']);

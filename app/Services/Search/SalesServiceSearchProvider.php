@@ -52,7 +52,7 @@ class SalesServiceSearchProvider implements GlobalSearchProvider
         SearchQuery::match($query, ['invoice_number', 'order_reference', 'customer_name'], $term);
         SearchQuery::rank($query, 'invoice_number', $term);
 
-        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Invoices', $row->invoice_number, $row->customer_name.' · '.ucfirst($row->status), TaxInvoiceResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-document-currency-dollar'));
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Invoices', $row->invoice_number, $row->customer_name.' · '.ucfirst($row->status), TaxInvoiceResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-document-currency-dollar', ['module' => 'invoices', 'id' => $row->id]));
     }
 
     private function orders(User $user, string $term, int $limit): Collection

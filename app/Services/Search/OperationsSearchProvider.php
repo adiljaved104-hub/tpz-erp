@@ -62,7 +62,7 @@ class OperationsSearchProvider implements GlobalSearchProvider
         SearchQuery::match($query, ['stock_transfers.reference', 'source.name', 'destination.name'], $term);
         SearchQuery::rank($query, 'stock_transfers.reference', $term);
 
-        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Stock Transfers', $row->reference, $row->source.' → '.$row->destination.' · '.ucfirst($row->status), StockTransferResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-arrows-right-left'));
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Stock Transfers', $row->reference, $row->source.' → '.$row->destination.' · '.ucfirst($row->status), StockTransferResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-arrows-right-left', ['module' => 'stock-transfers', 'id' => $row->id]));
     }
 
     private function reservations(User $user, string $term, int $limit): Collection
@@ -76,7 +76,7 @@ class OperationsSearchProvider implements GlobalSearchProvider
         SearchQuery::match($query, ['inventory_reservations.reference', 'products.sku', 'products.name'], $term);
         SearchQuery::rank($query, 'inventory_reservations.reference', $term);
 
-        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Reservations', $row->reference.' · '.$row->sku, $row->name.' · Qty '.$row->quantity.' · '.ucfirst($row->status), InventoryReservationResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-lock-closed'));
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Reservations', $row->reference.' · '.$row->sku, $row->name.' · Qty '.$row->quantity.' · '.ucfirst($row->status), InventoryReservationResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-lock-closed', ['module' => 'reservations', 'id' => $row->id]));
     }
 
     private function responsibilities(User $user, string $term, int $limit): Collection

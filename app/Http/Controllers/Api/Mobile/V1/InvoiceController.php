@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\Mobile\V1;
 use App\Enums\InvoicePermission;
 use App\Models\TaxInvoice;
 use App\Services\Authorization\InvoiceAuthorization;
+use App\Services\Invoices\TaxInvoiceDocumentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class InvoiceController extends MobileController
 {
@@ -34,6 +36,22 @@ class InvoiceController extends MobileController
         return response()->json(['data' => $this->present($request, $invoice, true)]);
     }
 
+    public function pdf(Request $request, int $invoice): Response
+    {
+        $invoice = TaxInvoice::query()->findOrFail($invoice);
+
+        app(InvoiceAuthorization::class)->authorize(
+            $request->user(),
+            InvoicePermission::DownloadPdf,
+            $invoice,
+        );
+
+        $documents = app(TaxInvoiceDocumentService::class);
+
+        return $documents->pdf($invoice)
+            ->download($documents->filename($invoice));
+    }
+
     private function present(Request $request, TaxInvoice $invoice, bool $detail = false): array
     {
         $data = [
@@ -43,9 +61,12 @@ class InvoiceController extends MobileController
             'meta' => $invoice->invoice_date?->format('Y-m-d'),
             'status' => $invoice->status,
         ];
+
         if (! $detail) {
             return $data;
         }
+
+        $authorization = app(InvoiceAuthorization::class);
 
         $fields = [
             'invoice_number' => $invoice->invoice_number,
@@ -56,11 +77,13 @@ class InvoiceController extends MobileController
             'voided_at' => $invoice->voided_at?->format('Y-m-d H:i'),
             'void_reason' => $invoice->void_reason,
         ];
-        $financial = app(InvoiceAuthorization::class)->allows(
+
+        $financial = $authorization->allows(
             $request->user(),
             InvoicePermission::ViewAll,
             $invoice,
         );
+
         if ($financial) {
             $fields += [
                 'customer_trn' => $invoice->customer_trn,
@@ -71,15 +94,25 @@ class InvoiceController extends MobileController
             ];
         }
 
-        return [...$data, 'fields' => $fields, 'items' => $invoice->items->map(fn ($item): array => [
-            'description' => $item->description,
-            'quantity' => $item->quantity,
-            ...($financial ? [
-                'unit_price_including_vat' => $item->unit_price_including_vat,
-                'subtotal_excluding_vat' => $item->subtotal_excluding_vat,
-                'vat_amount' => $item->vat_amount,
-                'total_including_vat' => $item->total_including_vat,
-            ] : []),
-        ]), 'actions' => []];
+        return [
+            ...$data,
+            'fields' => $fields,
+            'items' => $invoice->items->map(fn ($item): array => [
+                'description' => $item->description,
+                'quantity' => $item->quantity,
+                ...($financial ? [
+                    'unit_price_including_vat' => $item->unit_price_including_vat,
+                    'subtotal_excluding_vat' => $item->subtotal_excluding_vat,
+                    'vat_amount' => $item->vat_amount,
+                    'total_including_vat' => $item->total_including_vat,
+                ] : []),
+            ]),
+            'can_download_pdf' => $authorization->allows(
+                $request->user(),
+                InvoicePermission::DownloadPdf,
+                $invoice,
+            ),
+            'actions' => [],
+        ];
     }
 }

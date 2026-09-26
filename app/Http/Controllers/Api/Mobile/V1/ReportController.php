@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api\Mobile\V1;
 
 use App\Services\Reports\ReportCatalog;
+use App\Services\Reports\ReportExportService;
 use App\Services\Reports\ReportQueryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class ReportController extends MobileController
 {
@@ -34,6 +36,32 @@ class ReportController extends MobileController
         return response()->json(['data' => $reports]);
     }
 
+    public function export(Request $request, string $report, string $format): Response
+    {
+        $filters = $request->only([
+            'from',
+            'to',
+            'status',
+            'employee_id',
+            'team_id',
+            'platform_id',
+            'product_id',
+            'brand_id',
+            'warehouse_id',
+            'supplier_id',
+            'category',
+            'cost_center',
+            'channel',
+            'office_account_id',
+        ]);
+
+        return app(ReportExportService::class)->export(
+            $request->user(),
+            $report,
+            $format,
+            $filters,
+        );
+    }
     public function show(Request $request, string $report): JsonResponse
     {
         $user = $request->user();

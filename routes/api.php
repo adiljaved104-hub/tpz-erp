@@ -97,9 +97,13 @@ Route::prefix('mobile/v1')
             Route::get('/reservations/{reservation}', [InventoryReservationController::class, 'show'])->whereNumber('reservation');
             Route::post('/reservations/{reservation}/release', [InventoryReservationController::class, 'release'])->whereNumber('reservation');
             Route::get('/reports', [ReportController::class, 'index']);
+            Route::get('/reports/{report}/export/{format}', [ReportController::class, 'export'])
+                ->where('report', '[A-Za-z0-9._-]+')
+                ->where('format', 'xlsx|csv|pdf');
             Route::get('/reports/{report}', [ReportController::class, 'show'])
                 ->where('report', '[A-Za-z0-9._-]+');
             Route::get('/invoices', [InvoiceController::class, 'index']);
+            Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->whereNumber('invoice');
             Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->whereNumber('invoice');
             Route::get('/orders', [OrderController::class, 'index']);
             Route::get('/orders/options', [OrderController::class, 'options']);

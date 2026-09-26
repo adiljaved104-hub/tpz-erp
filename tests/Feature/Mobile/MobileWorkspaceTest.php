@@ -38,6 +38,19 @@ class MobileWorkspaceTest extends TestCase
         }
     }
 
+    public function test_mobile_api_guests_never_redirect_to_web_login(): void
+    {
+        $this->get('/api/mobile/v1/workspace/reports')
+            ->assertUnauthorized()
+            ->assertExactJson(['message' => 'Unauthenticated.']);
+
+        $this->get(
+            '/api/mobile/v1/workspace/invoices/1/pdf',
+            ['Accept' => 'application/pdf'],
+        )
+            ->assertUnauthorized()
+            ->assertExactJson(['message' => 'Unauthenticated.']);
+    }
     public function test_owner_can_open_workspace_modules(): void
     {
         $user = User::factory()->create([

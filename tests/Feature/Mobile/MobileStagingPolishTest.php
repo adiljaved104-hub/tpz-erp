@@ -208,6 +208,33 @@ class MobileStagingPolishTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_mobile_order_can_save_directly_as_shipped_when_authorized(): void
+    {
+        $f = $this->responsibilityFoundation(5);
+        $payload = [
+            'mode' => 'shipped',
+            'warehouse_id' => $f['inventory']->warehouse_id,
+            'order_date' => now()->toDateString(),
+            'idempotency_key' => (string) Str::uuid(),
+            'external_order_number' => 'MOBILE-SHIPPED-001',
+            'items' => [[
+                'product_id' => $f['product']->id,
+                'quantity' => 1,
+                'selling_price' => '200',
+                'discount_total' => '0',
+                'vat_rate' => '0',
+            ]],
+        ];
+
+        $response = $this->as($f['owner'])
+            ->postJson('/api/mobile/v1/workspace/orders', $payload)
+            ->assertOk()
+            ->assertJsonPath('data.status', 'fulfilled');
+
+        $this->assertNotNull($response->json('data.id'));
+        $this->assertSame(4, $f['inventory']->refresh()->available_quantity);
+    }
+
     public function test_price_restricted_product_editor_never_receives_or_changes_price_fields(): void
     {
         $f = $this->responsibilityFoundation(5);

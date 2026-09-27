@@ -30,6 +30,7 @@ class AuthSecuritySchemaAndAuthorizationTest extends TestCase
         $this->assertTrue(Schema::hasColumns('login_security_settings', ['login_logo_path', 'login_title', 'login_subtitle', 'allowed_login_email_domain', 'legacy_owner_email_transition_completed_at']));
         $this->assertTrue(Schema::hasColumns('login_email_change_requests', ['user_id', 'initiated_by_user_id', 'current_email', 'new_email', 'current_verified_at', 'new_verified_at', 'completed_at', 'cancelled_at']));
         $this->assertTrue(Schema::hasColumn('users', 'email_two_factor_enabled_at'));
+        $this->assertTrue(Schema::hasColumn('users', 'password_changed_at'));
         $this->assertDatabaseCount('authentication_otp_challenges', 0);
         $this->assertDatabaseCount('login_security_settings', 0);
 

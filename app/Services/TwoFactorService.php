@@ -6,14 +6,17 @@ use App\Enums\AuthSecurityPermission;
 use App\Enums\EmployeeRole;
 use App\Models\User;
 use App\Services\Authorization\AuthSecurityAuthorization;
+use App\Services\Security\MfaPolicy;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class TwoFactorService
 {
     public function __construct(
         private readonly AuthSecurityAuthorization $authorization,
         private readonly ActivityLogger $activity,
+        private readonly MfaPolicy $policy,
     ) {}
 
     public function enableSelf(User $user): void
@@ -44,6 +47,12 @@ class TwoFactorService
 
     private function disable(User $target, User $actor, bool $managementReset): void
     {
+        if ($this->policy->requires($target)) {
+            throw ValidationException::withMessages([
+                'currentPassword' => 'Email two-factor authentication is required for this account role and cannot be disabled.',
+            ]);
+        }
+
         DB::transaction(function () use ($target, $actor, $managementReset): void {
             $locked = User::query()->lockForUpdate()->findOrFail($target->id);
             $locked->forceFill(['email_two_factor_enabled_at' => null])->save();

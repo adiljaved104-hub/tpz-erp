@@ -219,6 +219,7 @@ use App\Services\Reports\Providers\OfficeFinanceReportProvider;
 use App\Services\Reports\Providers\QuotationReportProvider;
 use App\Services\Reports\Providers\WebSalesReportProvider;
 use App\Services\Reports\ReportRegistry;
+use App\Services\Security\ApplicationSecurityPolicy;
 use App\Services\ServiceCases\ServiceCaseAssigneeService;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
 use Filament\Navigation\NavigationManager;
@@ -228,6 +229,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -271,6 +273,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Password::defaults(fn (): Password => ApplicationSecurityPolicy::passwordRule());
+
         RateLimiter::for('mobile-login', function (Request $request): array {
             $email = mb_strtolower(trim((string) $request->input('email')));
 

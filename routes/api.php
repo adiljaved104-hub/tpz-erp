@@ -19,8 +19,8 @@ use App\Http\Controllers\Api\Mobile\V1\ReportController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
 use App\Http\Controllers\Api\Mobile\V1\SearchController;
-use App\Http\Controllers\Api\Mobile\V1\StockTransferController;
 use App\Http\Controllers\Api\Mobile\V1\StockRequestController;
+use App\Http\Controllers\Api\Mobile\V1\StockTransferController;
 use App\Http\Controllers\Api\Mobile\V1\SupplierController;
 use App\Http\Controllers\Api\Mobile\V1\TaskController;
 use App\Http\Controllers\Api\Mobile\V1\WarrantyController;
@@ -29,8 +29,9 @@ use App\Http\Middleware\EnsureEligibleEmployee;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('mobile/v1/auth')->group(function (): void {
-    Route::post('/login', [AuthController::class, 'login'])
-        ->middleware('throttle:mobile-login');
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/mfa/verify', [AuthController::class, 'verifyMfa'])
+        ->middleware('throttle:10,1');
 
     Route::post('/password/forgot', [PasswordResetController::class, 'requestCode'])
         ->middleware('throttle:mobile-login');

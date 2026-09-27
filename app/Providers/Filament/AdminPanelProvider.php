@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Auth\EmailOtpAuthenticationProvider;
 use App\Filament\Auth\Login;
 use App\Filament\Widgets\ErpDashboardOverview;
+use App\Http\Middleware\EnforceWebSecurityPolicy;
 use App\Services\Branding\ApplicationBranding;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -83,6 +84,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                EnforceWebSecurityPolicy::class,
             ]);
     }
 }

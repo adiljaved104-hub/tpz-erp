@@ -6,6 +6,7 @@ use App\Enums\AuthenticationOtpPurpose;
 use App\Exceptions\OtpChallengeException;
 use App\Models\User;
 use App\Services\AuthenticationOtpService;
+use App\Services\Security\MfaPolicy;
 use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\Contracts\HasBeforeChallengeHook;
 use Filament\Auth\MultiFactor\Contracts\MultiFactorAuthenticationProvider;
@@ -21,7 +22,10 @@ class EmailOtpAuthenticationProvider implements HasBeforeChallengeHook, MultiFac
 {
     private const SESSION_KEY = 'auth_security.two_factor_challenge';
 
-    public function __construct(private readonly AuthenticationOtpService $challenges) {}
+    public function __construct(
+        private readonly AuthenticationOtpService $challenges,
+        private readonly MfaPolicy $policy,
+    ) {}
 
     public function getId(): string
     {
@@ -35,7 +39,8 @@ class EmailOtpAuthenticationProvider implements HasBeforeChallengeHook, MultiFac
 
     public function isEnabled(Authenticatable $user): bool
     {
-        return $user instanceof User && filled($user->email_two_factor_enabled_at);
+        return $user instanceof User
+            && (filled($user->email_two_factor_enabled_at) || $this->policy->requires($user));
     }
 
     public function beforeChallenge(Authenticatable $user): void

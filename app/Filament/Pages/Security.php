@@ -6,6 +6,7 @@ use App\Enums\AuthenticationOtpPurpose;
 use App\Exceptions\OtpChallengeException;
 use App\Models\User;
 use App\Services\AuthenticationOtpService;
+use App\Services\Security\MfaPolicy;
 use App\Services\TwoFactorService;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -33,6 +34,13 @@ class Security extends Page
     public int $resendSeconds = 0;
 
     public int $cooldownVersion = 0;
+
+    public function mfaRequired(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User && app(MfaPolicy::class)->requires($user);
+    }
 
     public function requestEnable(AuthenticationOtpService $challenges): void
     {

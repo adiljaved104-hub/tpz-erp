@@ -16,7 +16,6 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\ProductIntelligence\ProductSearchOptions;
-use App\Services\Products\ProductTitleService;
 use App\Services\Purchases\PurchaseCostHistoryService;
 use App\Services\Purchases\PurchasePriceVarianceService;
 use App\Services\Purchases\PurchaseProductContextService;
@@ -107,6 +106,7 @@ class QuickStockPurchase extends Page
                 Action::make('bulkAddProducts')->label('Bulk Add Products')->disabled(fn (Get $get): bool => blank($get('warehouse_id')))
                     ->schema([
                         Select::make('product_ids')->multiple()->searchable()->required()
+                            ->wrapOptionLabels()
                             ->options([])
                             ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
                             ->getOptionLabelsUsing(fn (array $values): array => self::productLabels(array_map('intval', $values)))
@@ -128,7 +128,7 @@ class QuickStockPurchase extends Page
                 Repeater::make('items')->schema([
                     Select::make('product_id')->label('Product / Component')
                         ->placeholder('Search by SKU, product name, or component specification')
-                        ->searchable()->required()->live()
+                        ->searchable()->required()->live()->wrapOptionLabels()
                         ->options([])
                         ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
                         ->getOptionLabelUsing(fn ($value): ?string => self::productLabels([(int) $value])[(int) $value] ?? null)
@@ -272,9 +272,8 @@ class QuickStockPurchase extends Page
     private static function productLabel(Product $product): string
     {
         $kind = $product->inventory_item_type === InventoryItemType::Component ? '[Component] ' : '';
-        $title = app(ProductTitleService::class)->accounting($product);
 
-        return "{$kind}{$product->sku} — {$title}";
+        return "{$kind}{$product->sku} — {$product->name}";
     }
 
     private static function warehouseSelected(QuickStockPurchase $livewire): bool

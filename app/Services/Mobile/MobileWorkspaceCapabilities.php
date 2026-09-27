@@ -43,6 +43,7 @@ class MobileWorkspaceCapabilities
     {
         $inventory = app(InventoryAuthorization::class)->allows($user, InventoryPermission::View)
             || app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::ViewOwn);
+        $stockRequests = app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests);
         $orders = app(OrderAuthorization::class)->allows($user, OrderPermission::View);
         $products = app(ProductAuthorization::class)->allows($user, ProductPermission::View)
             || app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::ViewOwn);
@@ -74,6 +75,7 @@ class MobileWorkspaceCapabilities
             $this->module('suppliers', 'Suppliers', 'Authorized supplier contacts', 'SUP', $suppliers),
             $this->module('inventory_locations', 'Locations', 'Warehouses and inventory locations', 'LOC', $locations),
             $this->module('stock_transfers', 'Stock Transfers', 'Authorized stock movements', 'TRN', $transfers),
+            $this->module('stock_requests', 'Stock Requests', 'Request, approve and execute authorized stock', 'SRQ', $stockRequests),
             $this->module('reservations', 'Reservations', 'Authorized inventory reservations', 'RSV', $inventory),
             $this->module('invoices', 'Invoices', 'Authorized tax invoices', 'INVX', $invoices),
             $this->module('reports', 'Reports', 'Authorized ERP reports and analytics', 'RPT', $reports),

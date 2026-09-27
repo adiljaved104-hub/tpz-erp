@@ -37,7 +37,6 @@ class ChatController extends MobileController
 
     private function present(Request $request, Conversation $c, bool $detail = false): array
     {
-        app(ChatAuthorization::class)->authorizeConversation($request->user(), $c);
         $c->loadMissing(['team:id,name', 'participants.employee:id,name', 'latestMessage.sender:id,name']);
         $unread = app(ConversationMessageService::class)->unreadCount($request->user(), $c);
         $data = ['id' => $c->id, 'title' => app(ConversationPresenter::class)->label($c, $request->user()),
@@ -91,6 +90,8 @@ class ChatController extends MobileController
 
     public function show(Request $request, Conversation $conversation): JsonResponse
     {
+        app(ChatAuthorization::class)->authorizeConversation($request->user(), $conversation);
+
         return response()->json(['data' => $this->present($request, $conversation, true)]);
     }
 

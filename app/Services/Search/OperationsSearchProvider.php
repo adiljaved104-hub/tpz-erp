@@ -11,6 +11,7 @@ use App\Enums\TaskPermission;
 use App\Filament\Resources\InventoryReservations\InventoryReservationResource;
 use App\Filament\Resources\ResponsibilityAssignments\ResponsibilityAssignmentResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
+use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\Tasks\TaskResource;
 use App\Models\Task;
 use App\Models\User;
@@ -20,6 +21,7 @@ use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\StockTransfers\StockTransferReadService;
+use App\Services\Inventory\StockRequestService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +30,8 @@ class OperationsSearchProvider implements GlobalSearchProvider
     public function search(User $user, string $query, int $limit): Collection
     {
         return collect()->concat($this->tasks($user, $query, $limit))->concat($this->transfers($user, $query, $limit))
-            ->concat($this->reservations($user, $query, $limit))->concat($this->responsibilities($user, $query, $limit));
+            ->concat($this->stockRequests($user, $query, $limit))->concat($this->reservations($user, $query, $limit))
+            ->concat($this->responsibilities($user, $query, $limit));
     }
 
     private function tasks(User $user, string $term, int $limit): Collection
@@ -63,6 +66,35 @@ class OperationsSearchProvider implements GlobalSearchProvider
         SearchQuery::rank($query, 'stock_transfers.reference', $term);
 
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult('Stock Transfers', $row->reference, $row->source.' → '.$row->destination.' · '.ucfirst($row->status), StockTransferResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-arrows-right-left', ['module' => 'stock-transfers', 'id' => $row->id]));
+    }
+
+    private function stockRequests(User $user, string $term, int $limit): Collection
+    {
+        $service = app(StockRequestService::class);
+        if (! app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests)) {
+            return collect();
+        }
+
+        $ids = $service->visibleQuery($user)->select('stock_requests.id');
+        $query = DB::table('stock_requests')
+            ->leftJoin('employees', 'employees.id', '=', 'stock_requests.requested_by_employee_id')
+            ->leftJoin('orders', 'orders.id', '=', 'stock_requests.order_id')
+            ->whereIn('stock_requests.id', $ids)
+            ->select([
+                'stock_requests.id', 'stock_requests.reference', 'stock_requests.status', 'stock_requests.purpose',
+                'stock_requests.reason', 'employees.name as requester', 'orders.reference as order_reference',
+            ]);
+        SearchQuery::match($query, ['stock_requests.reference', 'stock_requests.reason', 'employees.name', 'orders.reference'], $term);
+        SearchQuery::rank($query, 'stock_requests.reference', $term);
+
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
+            'Stock Requests',
+            $row->reference,
+            ucfirst(str_replace('_', ' ', $row->status)).' · '.($row->requester ?: 'Unknown requester'),
+            StockRequestResource::getUrl('view', ['record' => $row->id]),
+            'heroicon-o-clipboard-document-list',
+            ['module' => 'stock-requests', 'id' => $row->id],
+        ));
     }
 
     private function reservations(User $user, string $term, int $limit): Collection

@@ -239,6 +239,36 @@ class MobileOperationsAuthorizationTest extends TestCase
         $this->assertDatabaseCount('mobile_devices', 0);
     }
 
+    public function test_device_registration_rate_limit_does_not_consume_chat_creation_limit(): void
+    {
+        $one = $this->responsibilityUser(EmployeeRole::Owner);
+        $two = $this->responsibilityUser(EmployeeRole::Staff);
+        $token = $this->token($one);
+        $deviceId = (string) Str::uuid();
+        $payload = [
+            'device_id' => $deviceId,
+            'expo_token' => 'ExponentPushToken[rateLimitIsolation]',
+            'platform' => 'android',
+        ];
+
+        for ($i = 0; $i < 30; $i++) {
+            $this->as($token)
+                ->postJson('/api/mobile/v1/devices', $payload)
+                ->assertOk();
+        }
+
+        $this->as($token)
+            ->postJson('/api/mobile/v1/devices', $payload)
+            ->assertTooManyRequests();
+
+        $this->as($token)
+            ->postJson('/api/mobile/v1/chat', [
+                'type' => 'direct',
+                'employee_id' => $two->employee->id,
+            ])
+            ->assertOk();
+    }
+
     public function test_chat_direct_messages_are_private_and_read_markers_are_monotonic(): void
     {
         $one = $this->responsibilityUser(EmployeeRole::Owner);

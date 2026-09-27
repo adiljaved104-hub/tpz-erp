@@ -285,6 +285,12 @@ class MobileOperationsAuthorizationTest extends TestCase
             ->getJson('/api/mobile/v1/chat/'.$conversationId.'/messages')
             ->assertForbidden();
 
+        $inbox = $this->as($second)
+            ->getJson('/api/mobile/v1/chat')
+            ->assertOk();
+
+        $this->assertNotContains($conversationId, collect($inbox->json('data'))->pluck('id'));
+
         $this->as($first)
             ->postJson('/api/mobile/v1/chat', [
                 'type' => 'direct',

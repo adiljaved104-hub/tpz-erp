@@ -3,6 +3,7 @@
 namespace Tests\Feature\Purchases;
 
 use App\Enums\EmployeeRole;
+use App\Enums\InventoryItemType;
 use App\Filament\Pages\Purchasing\QuickStockPurchase;
 use App\Models\Employee;
 use App\Models\Product;
@@ -60,6 +61,43 @@ class QuickStockPurchaseUiTest extends TestCase
         $this->assertFalse($field->isDisabled());
         $this->assertArrayHasKey($active->id, $field->getSearchResults('ACTIVE-SKU'));
         $this->assertArrayNotHasKey($inactive->id, $field->getSearchResults('STOPPED-SKU'));
+    }
+
+    public function test_product_intelligence_search_keeps_long_title_matching_but_uses_compact_receiving_labels(): void
+    {
+        $this->actingAs($this->user(EmployeeRole::Owner));
+        $warehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create([
+            'sku' => 'TPZ-000030',
+            'name' => 'Dell marketplace customer title with UniqueLongSearchNeedle and many promotional specifications that must not fill the receiving dropdown',
+            'accounting_title_override' => 'Dell Plus 2-in-1 DB04250 Core Ultra 7 16GB/512GB',
+        ]);
+        $componentProduct = Product::factory()->create([
+            'sku' => 'RAM-16-DDR4',
+            'inventory_item_type' => InventoryItemType::Component,
+            'name' => 'RAM 16GB DDR4 3200',
+        ]);
+        $component = Livewire::test(QuickStockPurchase::class)->fillForm(['warehouse_id' => $warehouse->id]);
+        $field = collect($component->instance()->getSchema('content')->getFlatFields(withHidden: true))
+            ->first(fn ($field): bool => $field->getName() === 'product_id');
+
+        $results = $field->getSearchResults('UniqueLongSearchNeedle');
+        $this->assertSame('TPZ-000030 — Dell Plus 2-in-1 DB04250 Core Ultra 7 16GB/512GB', $results[$product->id]);
+        $this->assertStringNotContainsString('promotional specifications', $results[$product->id]);
+
+        $componentResults = $field->getSearchResults('RAM-16-DDR4');
+        $this->assertSame('[Component] RAM-16-DDR4 — RAM 16GB DDR4 3200', $componentResults[$componentProduct->id]);
+
+        $lineKey = array_key_first($component->instance()->getSchema('content')->getRawState()['items']);
+        $component->set("data.items.{$lineKey}.product_id", (string) $product->id);
+        $selectedField = collect($component->instance()->getSchema('content')->getFlatFields(withHidden: true))
+            ->first(fn ($field): bool => $field->getName() === 'product_id');
+        $this->assertSame('TPZ-000030 — Dell Plus 2-in-1 DB04250 Core Ultra 7 16GB/512GB', $selectedField->getOptionLabel());
+
+        $source = file_get_contents(app_path('Filament/Pages/Purchasing/QuickStockPurchase.php'));
+        $this->assertIsString($source);
+        $this->assertStringContainsString('getOptionLabelsUsing(fn (array $values): array => self::productLabels', $source);
+        $this->assertStringContainsString('getOptionLabelUsing(fn ($value): ?string => self::productLabels', $source);
     }
 
     public function test_page_initializes_one_stable_uuid_and_default_handler(): void

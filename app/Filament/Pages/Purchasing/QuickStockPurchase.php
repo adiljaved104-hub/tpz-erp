@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\ProductIntelligence\ProductSearchOptions;
+use App\Services\Products\ProductTitleService;
 use App\Services\Purchases\PurchaseCostHistoryService;
 use App\Services\Purchases\PurchasePriceVarianceService;
 use App\Services\Purchases\PurchaseProductContextService;
@@ -247,27 +248,33 @@ class QuickStockPurchase extends Page
             return [];
         }
 
-        return app(ProductSearchOptions::class)->search(
+        $matches = app(ProductSearchOptions::class)->search(
             $search,
             ProductMatchContext::Receiving,
             auth()->user(),
         );
+
+        return self::productLabels(array_map('intval', array_keys($matches)));
     }
 
     /** @param array<int, int> $ids */
     private static function productLabels(array $ids): array
     {
-        return Product::query()->whereKey($ids)->get(['id', 'sku', 'inventory_item_type', 'name', 'brand', 'model'])
-            ->mapWithKeys(fn (Product $product): array => [$product->id => self::productLabel($product)])->all();
+        $products = Product::query()->with('categoryRelation')->whereKey($ids)->get()->keyBy('id');
+
+        return collect($ids)->mapWithKeys(function (int $id) use ($products): array {
+            $product = $products->get($id);
+
+            return $product instanceof Product ? [$id => self::productLabel($product)] : [];
+        })->all();
     }
 
     private static function productLabel(Product $product): string
     {
-        $details = collect([$product->brand, $product->model])->filter()->implode(' ');
-
         $kind = $product->inventory_item_type === InventoryItemType::Component ? '[Component] ' : '';
+        $title = app(ProductTitleService::class)->accounting($product);
 
-        return "{$kind}{$product->sku} — {$product->name}".($details === '' ? '' : " ({$details})");
+        return "{$kind}{$product->sku} — {$title}";
     }
 
     private static function warehouseSelected(QuickStockPurchase $livewire): bool

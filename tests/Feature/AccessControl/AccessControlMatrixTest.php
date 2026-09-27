@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\AccessControl;
 
+use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\ExpensePermission;
 use App\Enums\InvoicePermission;
@@ -13,6 +14,8 @@ use App\Filament\Pages\Administration\AccessControl;
 use App\Models\Employee;
 use App\Models\Team;
 use App\Services\Authorization\AccessControlModuleRegistry;
+use App\Services\Authorization\EmployeePermissionOverrideService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -180,6 +183,121 @@ class AccessControlMatrixTest extends TestCase
         $this->assertSame('allow', $component->instance()->draftSettings[ExpensePermission::Create->value]);
         $this->assertSame('inherit', $component->instance()->draftSettings[ExpensePermission::ViewAmount->value]);
         $this->assertDatabaseCount('employee_permission_overrides', 0);
+    }
+
+    public function test_bulk_access_changes_only_explicit_permissions_and_preserves_mixed_overrides(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $first = $this->employee(EmployeeRole::Staff);
+        $second = $this->employee(EmployeeRole::Staff);
+        $service = app(EmployeePermissionOverrideService::class);
+        $service->change($first, ProductPermission::Export->value, EmployeePermissionEffect::Allow, null, $owner->user);
+        $service->change($second, ProductPermission::Export->value, EmployeePermissionEffect::Deny, null, $owner->user);
+
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('toggleEmployeeSelection', $first->id)
+            ->call('toggleEmployeeSelection', $second->id);
+
+        $this->assertSame('mixed', $component->instance()->draftSettings[ProductPermission::Export->value]);
+
+        $component->call('setModuleAccess', 'products', 'view_edit')
+            ->call('saveChanges')
+            ->assertHasNoErrors();
+
+        foreach ([$first, $second] as $employee) {
+            foreach ([ProductPermission::View, ProductPermission::Create, ProductPermission::Update] as $permission) {
+                $this->assertDatabaseHas('employee_permission_overrides', [
+                    'employee_id' => $employee->id,
+                    'permission_key' => $permission->value,
+                    'effect' => 'allow',
+                ]);
+            }
+        }
+        $this->assertDatabaseHas('employee_permission_overrides', ['employee_id' => $first->id, 'permission_key' => ProductPermission::Export->value, 'effect' => 'allow']);
+        $this->assertDatabaseHas('employee_permission_overrides', ['employee_id' => $second->id, 'permission_key' => ProductPermission::Export->value, 'effect' => 'deny']);
+        $this->assertDatabaseHas('activity_logs', ['event' => 'employee_permission.allowed', 'subject_id' => $first->id]);
+        $this->assertDatabaseHas('activity_logs', ['event' => 'employee_permission.allowed', 'subject_id' => $second->id]);
+    }
+
+    public function test_bulk_advanced_permission_requires_owner_reason_and_is_atomic(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $first = $this->employee(EmployeeRole::Staff);
+        $second = $this->employee(EmployeeRole::Staff);
+
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('toggleEmployeeSelection', $first->id)
+            ->call('toggleEmployeeSelection', $second->id)
+            ->call('stagePermission', ProductPermission::ViewCostPrice->value, 'allow')
+            ->call('saveChanges')
+            ->assertHasErrors(['changeReason']);
+        $this->assertDatabaseMissing('employee_permission_overrides', ['permission_key' => ProductPermission::ViewCostPrice->value]);
+
+        $component->set('changeReason', 'Approved finance access for purchasing review')
+            ->call('saveChanges')
+            ->assertHasNoErrors();
+        foreach ([$first, $second] as $employee) {
+            $this->assertDatabaseHas('employee_permission_overrides', [
+                'employee_id' => $employee->id,
+                'permission_key' => ProductPermission::ViewCostPrice->value,
+                'effect' => 'allow',
+            ]);
+        }
+
+        $protectedOwner = $this->employee(EmployeeRole::Owner);
+        $third = $this->employee(EmployeeRole::Staff);
+        try {
+            app(EmployeePermissionOverrideService::class)->changeMany(
+                [$third->id, $protectedOwner->id],
+                [OrderPermission::View->value => EmployeePermissionEffect::Allow],
+                null,
+                $owner->user,
+            );
+            $this->fail('A protected Owner in the target set must reject the complete bulk operation.');
+        } catch (AuthorizationException) {
+            $this->assertTrue(true);
+        }
+        $this->assertDatabaseMissing('employee_permission_overrides', [
+            'employee_id' => $third->id,
+            'permission_key' => OrderPermission::View->value,
+        ]);
+    }
+
+    public function test_admin_cannot_bulk_stage_financial_access_or_select_owner(): void
+    {
+        $admin = $this->employee(EmployeeRole::Admin);
+        $first = $this->employee(EmployeeRole::Staff);
+        $second = $this->employee(EmployeeRole::Staff);
+        $owner = $this->employee(EmployeeRole::Owner);
+        $component = Livewire::actingAs($admin->user)->test(AccessControl::class)
+            ->call('toggleEmployeeSelection', $first->id)
+            ->call('toggleEmployeeSelection', $second->id)
+            ->call('stagePermission', ProductPermission::ViewCostPrice->value, 'allow')
+            ->assertForbidden();
+
+        Livewire::actingAs($admin->user)->test(AccessControl::class)
+            ->call('toggleEmployeeSelection', $owner->id)
+            ->assertForbidden();
+    }
+
+    public function test_expanded_group_and_advanced_module_state_survive_consecutive_staged_changes(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->id)
+            ->call('setGroupExpanded', 'products_inventory', true)
+            ->call('setAdvancedExpanded', 'products', true)
+            ->call('stagePermission', ProductPermission::Export->value, 'allow')
+            ->call('stagePermission', ProductPermission::Activate->value, 'allow')
+            ->call('setModuleAccess', 'products', 'view_edit');
+
+        $this->assertContains('products_inventory', $component->instance()->expandedGroups);
+        $this->assertContains('products', $component->instance()->expandedAdvancedModules);
+        $this->assertSame('allow', $component->instance()->draftSettings[ProductPermission::Export->value]);
+        $this->assertSame('allow', $component->instance()->draftSettings[ProductPermission::Activate->value]);
+        $this->assertStringContainsString('data-testid="access-group-products_inventory"', $component->html());
+        $this->assertStringContainsString('data-testid="access-advanced-products"', $component->html());
     }
 
     public function test_employee_and_module_search_filters_are_live_and_responsive_layout_has_no_matrix(): void

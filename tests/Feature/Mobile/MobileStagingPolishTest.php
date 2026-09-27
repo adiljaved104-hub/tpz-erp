@@ -60,6 +60,7 @@ class MobileStagingPolishTest extends TestCase
         $ownerKeys = collect($owner->json('data'))->pluck('key');
         $this->assertContains('sales', $ownerKeys);
         $this->assertContains('purchases', $ownerKeys);
+        $this->assertContains('stock_requests', $ownerKeys);
         $this->assertContains('hr', $ownerKeys);
         $cards = $this->as($f['owner'])->getJson('/api/mobile/v1/dashboard?period=today')->assertOk()->json('data.cards');
         $this->assertNotEmpty($cards);

@@ -18,6 +18,7 @@ class MobileWorkspaceTest extends TestCase
         'orders',
         'modules',
         'purchases',
+        'stock-requests',
         'hr',
         'cases/claims',
         'cases/complaints',

@@ -52,16 +52,16 @@ Route::prefix('mobile/v1')
     ->group(function (): void {
         Route::get('/dashboard', DashboardController::class);
         Route::get('/workspace/modules', [WorkspaceController::class, 'modules']);
-        Route::post('/devices', [DeviceController::class, 'register'])->middleware('throttle:30,1');
+        Route::post('/devices', [DeviceController::class, 'register'])->middleware('throttle:mobile-device-register');
         Route::delete('/devices', [DeviceController::class, 'unregister']);
 
         Route::prefix('chat')->controller(ChatController::class)->group(function (): void {
             Route::get('/', 'index');
             Route::get('/options', 'options');
-            Route::post('/', 'store')->middleware('throttle:30,1');
+            Route::post('/', 'store')->middleware('throttle:mobile-chat-create');
             Route::get('/{conversation}', 'show')->whereNumber('conversation');
             Route::get('/{conversation}/messages', 'messages')->whereNumber('conversation');
-            Route::post('/{conversation}/messages', 'send')->whereNumber('conversation')->middleware('throttle:60,1');
+            Route::post('/{conversation}/messages', 'send')->whereNumber('conversation')->middleware('throttle:mobile-chat-message');
             Route::post('/{conversation}/read', 'read')->whereNumber('conversation');
         });
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {

@@ -280,6 +280,15 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('mobile-device-register', fn (Request $request): Limit => Limit::perMinute(30)
+            ->by('mobile-device-register:user:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
+        RateLimiter::for('mobile-chat-create', fn (Request $request): Limit => Limit::perMinute(30)
+            ->by('mobile-chat-create:user:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
+        RateLimiter::for('mobile-chat-message', fn (Request $request): Limit => Limit::perMinute(60)
+            ->by('mobile-chat-message:user:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
         Gate::policy(Employee::class, EmployeePolicy::class);
         Gate::policy(ActivityLog::class, ActivityLogPolicy::class);
         Gate::policy(Supplier::class, SupplierPolicy::class);

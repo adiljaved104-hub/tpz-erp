@@ -13,6 +13,7 @@ use App\Enums\PurchaseStatus;
 use App\Exceptions\QuickStockPurchaseIdempotencyConflictException;
 use App\Models\ActivityLog;
 use App\Models\Employee;
+use App\Models\InventoryAllocationBalance;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Purchase;
@@ -21,6 +22,7 @@ use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Inventory\InventoryAllocationService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -76,6 +78,65 @@ class QuickStockPurchaseTest extends TestCase
         $this->assertSame(1, $result->purchase->receipts()->count());
         $this->assertSame(20, StockMovement::query()->count());
         $this->assertSame(20, ProductInventory::query()->sum('available_quantity'));
+    }
+
+    public function test_explicit_allocation_account_receives_stock_and_handler_is_not_inferred_as_owner(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $allocatedEmployee = $this->user(EmployeeRole::Manager)->employee;
+        $handler = $this->user(EmployeeRole::Manager)->employee;
+        $warehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create();
+        $allocations = app(InventoryAllocationService::class);
+        $allocatedAccount = $allocations->employeeAccount($allocatedEmployee->id);
+        $handlerAccount = $allocations->employeeAccount($handler->id);
+
+        $result = app(QuickStockPurchase::class)->handle(new QuickStockPurchaseData(
+            warehouseId: $warehouse->id,
+            purchaseDate: now()->toDateString(),
+            items: [new PurchaseItemData($product->id, 4, '100.0000')],
+            idempotencyKey: (string) Str::uuid(),
+            handledByEmployeeId: $handler->id,
+            allocationAccountId: $allocatedAccount->id,
+        ), $owner);
+
+        $inventory = ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->sole();
+        $this->assertSame(4, $inventory->available_quantity);
+        $this->assertSame($handler->id, $result->purchase->handled_by_employee_id);
+        $this->assertSame(4, InventoryAllocationBalance::query()->where('account_id', $allocatedAccount->id)->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+        $this->assertDatabaseMissing('inventory_allocation_balances', [
+            'account_id' => $handlerAccount->id,
+            'product_inventory_id' => $inventory->id,
+        ]);
+        $this->assertDatabaseHas('purchase_receipt_allocation_lines', [
+            'account_id' => $allocatedAccount->id,
+            'quantity' => 4,
+            'allocation_method' => 'grn_selected',
+        ]);
+    }
+
+    public function test_no_explicit_allocation_uses_system_unallocated_in_shadow_mode(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $handler = $this->user(EmployeeRole::Manager)->employee;
+        $warehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create();
+
+        app(QuickStockPurchase::class)->handle(new QuickStockPurchaseData(
+            warehouseId: $warehouse->id,
+            purchaseDate: now()->toDateString(),
+            items: [new PurchaseItemData($product->id, 3, '80.0000')],
+            idempotencyKey: (string) Str::uuid(),
+            handledByEmployeeId: $handler->id,
+        ), $owner);
+
+        $inventory = ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->sole();
+        $system = app(InventoryAllocationService::class)->systemAccount();
+        $this->assertSame(3, InventoryAllocationBalance::query()->where('account_id', $system->id)->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+        $this->assertDatabaseMissing('inventory_allocation_balances', [
+            'account_id' => app(InventoryAllocationService::class)->employeeAccount($handler->id)->id,
+            'product_inventory_id' => $inventory->id,
+        ]);
     }
 
     public function test_identical_retry_returns_existing_result_and_changed_retry_conflicts(): void

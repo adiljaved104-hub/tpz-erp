@@ -5,6 +5,7 @@ namespace Tests\Feature\AccessControl;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\ExpensePermission;
+use App\Enums\InventoryPermission;
 use App\Enums\InvoicePermission;
 use App\Enums\OrderPermission;
 use App\Enums\ProductPermission;
@@ -56,6 +57,7 @@ class AccessControlMatrixTest extends TestCase
             ->call('selectEmployee', $staff->id)
             ->assertSee('People & HR')
             ->assertSee('Products & Inventory')
+            ->assertSee('Location Balances')
             ->assertSee('Web Sales')
             ->assertSee('Quotations & Invoices')
             ->assertSee('Tax Invoices')
@@ -65,6 +67,9 @@ class AccessControlMatrixTest extends TestCase
             ->assertSee('Backup Settings')
             ->assertSee('Notification Rules')
             ->assertSee('Reports & Exports');
+
+        $module = collect(app(AccessControlModuleRegistry::class)->modules())->firstWhere('key', 'location_balances');
+        $this->assertSame([InventoryPermission::ViewLocationBalances->value], $module['view_keys']);
     }
 
     public function test_module_view_and_edit_is_staged_until_explicit_save_and_maps_only_primary_permissions(): void

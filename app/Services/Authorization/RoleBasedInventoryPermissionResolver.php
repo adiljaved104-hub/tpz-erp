@@ -30,6 +30,7 @@ class RoleBasedInventoryPermissionResolver implements InventoryPermissionResolve
             EmployeeRole::Owner => $permission !== InventoryPermission::ReverseOpeningStock,
             EmployeeRole::Admin => in_array($permission, [
                 InventoryPermission::View,
+                InventoryPermission::ViewLocationBalances,
                 InventoryPermission::Reserve,
                 InventoryPermission::ReleaseReservation,
                 InventoryPermission::MarkDamaged,
@@ -46,12 +47,14 @@ class RoleBasedInventoryPermissionResolver implements InventoryPermissionResolve
             ], true),
             EmployeeRole::Manager => in_array($permission, [
                 InventoryPermission::View,
+                InventoryPermission::ViewLocationBalances,
                 InventoryPermission::ViewMovements,
                 InventoryPermission::ViewStockRequests,
                 InventoryPermission::CreateStockRequests,
                 InventoryPermission::DecideOwnStockRequestSources,
             ], true),
             EmployeeRole::Staff => in_array($permission, [
+                InventoryPermission::ViewLocationBalances,
                 InventoryPermission::ViewStockRequests,
                 InventoryPermission::CreateStockRequests,
                 InventoryPermission::DecideOwnStockRequestSources,

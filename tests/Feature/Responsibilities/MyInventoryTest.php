@@ -2,7 +2,10 @@
 
 namespace Tests\Feature\Responsibilities;
 
+use App\Actions\Purchases\QuickStockPurchase;
 use App\Actions\Responsibilities\CreateResponsibilityAssignment;
+use App\DTOs\Purchases\PurchaseItemData;
+use App\DTOs\Purchases\QuickStockPurchaseData;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\ProductCondition;
@@ -15,9 +18,11 @@ use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductInventory;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Preferences\UserUiPreferenceService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\ResponsibilityTestFoundation;
@@ -475,6 +480,67 @@ class MyInventoryTest extends TestCase
             ->call('resetInventoryColumns')
             ->assertSet('visibleColumns', fn (array $columns): bool => in_array('condition', $columns, true));
         $this->assertDatabaseMissing('user_ui_preferences', ['user_id' => $first['employee']->user_id, 'preference_key' => 'my_inventory.columns']);
+    }
+
+    public function test_collapsed_sections_are_persisted_per_user_and_default_to_expanded(): void
+    {
+        $first = $this->responsibilityFoundation();
+        $second = $this->responsibilityUser(EmployeeRole::Staff);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($first), $first['owner']);
+
+        Livewire::actingAs($first['employee']->user)->test(MyInventory::class)
+            ->assertSet('collapsedSections', [])
+            ->assertSee('Hide Filters')
+            ->assertSee('Hide Responsibilities')
+            ->call('toggleSection', 'filters')
+            ->assertSet('collapsedSections', ['filters'])
+            ->assertSee('Show Filters')
+            ->assertDontSee('Search Products')
+            ->call('toggleSection', 'responsibilities')
+            ->assertSet('collapsedSections', ['filters', 'responsibilities'])
+            ->assertSee('Show Responsibilities');
+
+        $this->assertDatabaseHas('user_ui_preferences', [
+            'user_id' => $first['employee']->user_id,
+            'preference_key' => UserUiPreferenceService::MY_INVENTORY_COLLAPSED_SECTIONS,
+        ]);
+
+        Livewire::actingAs($second)->test(MyInventory::class)
+            ->assertSet('collapsedSections', [])
+            ->assertSee('Hide Filters');
+
+        Livewire::actingAs($first['employee']->user)->test(MyInventory::class)
+            ->assertSet('collapsedSections', ['filters', 'responsibilities']);
+    }
+
+    public function test_received_stock_becomes_usable_only_for_the_selected_allocation_owner(): void
+    {
+        $first = $this->responsibilityFoundation(0);
+        $other = $this->responsibilityUser(EmployeeRole::Staff);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($first), $first['owner']);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData([
+            'employee' => $other->employee,
+            'brand' => $first['brand'],
+        ]), $first['owner']);
+        $account = app(InventoryAllocationService::class)->employeeAccount($first['employee']->id);
+
+        app(QuickStockPurchase::class)->handle(new QuickStockPurchaseData(
+            warehouseId: $first['inventory']->warehouse_id,
+            purchaseDate: now()->toDateString(),
+            items: [new PurchaseItemData($first['product']->id, 3, '100.0000')],
+            idempotencyKey: (string) Str::uuid(),
+            handledByEmployeeId: $other->employee->id,
+            allocationAccountId: $account->id,
+        ), $first['owner']);
+
+        $owned = app(ResponsibilityReadService::class)->myInventory($first['employee']->user)
+            ->firstWhere('product_id', $first['product']->id);
+        $unowned = app(ResponsibilityReadService::class)->myInventory($other)
+            ->firstWhere('product_id', $first['product']->id);
+
+        $this->assertSame(3, $first['inventory']->refresh()->available_quantity);
+        $this->assertSame(3, $owned->employee_usable);
+        $this->assertSame(0, $unowned->employee_usable);
     }
 
     private function assignProduct(array $foundation, Product $product, ?int $platformId = null): void

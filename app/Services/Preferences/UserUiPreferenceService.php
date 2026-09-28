@@ -11,12 +11,15 @@ class UserUiPreferenceService
 {
     public const MY_INVENTORY_COLUMNS = 'my_inventory.columns';
 
+    public const MY_INVENTORY_COLLAPSED_SECTIONS = 'my_inventory.collapsed_sections';
+
     public const NAVIGATION_HIDDEN_ITEMS = 'navigation.hidden_items';
 
     public const NAVIGATION_GROUP_ORDER = 'navigation.group_order';
 
     private const ALLOWED_KEYS = [
         self::MY_INVENTORY_COLUMNS,
+        self::MY_INVENTORY_COLLAPSED_SECTIONS,
         self::NAVIGATION_HIDDEN_ITEMS,
         self::NAVIGATION_GROUP_ORDER,
     ];

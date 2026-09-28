@@ -212,6 +212,7 @@ class EmployeePermissionCatalog
             ],
             'Inventory' => [
                 $this->item(InventoryPermission::View, 'View Inventory'),
+                $this->item(InventoryPermission::ViewLocationBalances, 'View Location Balances'),
                 $this->item(InventoryPermission::PostOpeningStock, 'Post Opening Stock', true),
                 $this->item(InventoryPermission::ReverseOpeningStock, 'Reverse Opening Stock', true),
                 $this->item(InventoryPermission::Reserve, 'Reserve Inventory', true),

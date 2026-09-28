@@ -5,6 +5,7 @@ namespace App\Enums;
 enum InventoryPermission: string
 {
     case View = 'inventory.view';
+    case ViewLocationBalances = 'inventory.view_location_balances';
     case ViewFinancials = 'inventory.view_financials';
     case PostOpeningStock = 'inventory.post_opening_stock';
     case ReverseOpeningStock = 'inventory.reverse_opening_stock';

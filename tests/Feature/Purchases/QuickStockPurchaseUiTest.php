@@ -32,6 +32,7 @@ class QuickStockPurchaseUiTest extends TestCase
             Livewire::test(QuickStockPurchase::class)
                 ->assertSee('Quick Stock Purchase')
                 ->assertSee('Handled By / Reported By')
+                ->assertSee('Allocate Stock To')
                 ->assertSee('Bulk Add Products')
                 ->assertSee('Latest Purchase Cost')
                 ->assertSee('Current Stock');

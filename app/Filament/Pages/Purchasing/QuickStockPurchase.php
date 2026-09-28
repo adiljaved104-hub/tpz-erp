@@ -5,16 +5,19 @@ namespace App\Filament\Pages\Purchasing;
 use App\Actions\Purchases\QuickStockPurchase as QuickStockPurchaseAction;
 use App\DTOs\Purchases\PurchaseItemData;
 use App\DTOs\Purchases\QuickStockPurchaseData;
+use App\Enums\InventoryAllocationMode;
 use App\Enums\InventoryItemType;
 use App\Enums\ProductMatchContext;
 use App\Enums\PurchasePermission;
 use App\Filament\Resources\PurchaseReceipts\PurchaseReceiptResource;
 use App\Models\Employee;
+use App\Models\InventoryAllocationAccount;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\Inventory\InventoryAllocationPolicyService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\Purchases\PurchaseCostHistoryService;
 use App\Services\Purchases\PurchasePriceVarianceService;
@@ -99,6 +102,11 @@ class QuickStockPurchase extends Page
                         }),
                     Select::make('handled_by_employee_id')->label('Handled By / Reported By')->searchable()->nullable()
                         ->options(fn (): array => Employee::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all()),
+                    Select::make('allocation_account_id')->label('Allocate Stock To')->searchable()->nullable()
+                        ->options(fn (): array => InventoryAllocationAccount::query()->where('status', true)
+                            ->when(app(InventoryAllocationPolicyService::class)->mode() === InventoryAllocationMode::Strict, fn ($query) => $query->where('is_system', false))
+                            ->orderBy('is_system')->orderBy('name')->pluck('name', 'id')->all())
+                        ->helperText('Optional in migration/shadow mode. If blank, the configured GRN allocation policy applies; Handled By does not determine stock ownership.'),
                 ]),
                 Textarea::make('notes')->maxLength(5000)->rows(2),
             ])->compact(),
@@ -221,6 +229,7 @@ class QuickStockPurchase extends Page
                 idempotencyKey: (string) $state['idempotency_key'],
                 supplierId: filled($state['supplier_id'] ?? null) ? (int) $state['supplier_id'] : null,
                 handledByEmployeeId: filled($state['handled_by_employee_id'] ?? null) ? (int) $state['handled_by_employee_id'] : null,
+                allocationAccountId: filled($state['allocation_account_id'] ?? null) ? (int) $state['allocation_account_id'] : null,
                 supplierInvoiceNumber: $state['supplier_invoice_number'] ?? null,
                 supplierInvoiceDate: $state['supplier_invoice_date'] ?? null,
                 supplierDeliveryNote: $state['supplier_delivery_note'] ?? null,

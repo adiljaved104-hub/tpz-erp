@@ -13,12 +13,14 @@ class ProductInventoryPolicy
 
     public function viewAny(User $user): bool
     {
-        return $this->authorization->allows($user, InventoryPermission::View);
+        return $this->authorization->allows($user, InventoryPermission::View)
+            && $this->authorization->allows($user, InventoryPermission::ViewLocationBalances);
     }
 
     public function view(User $user, ProductInventory $inventory): bool
     {
-        return $this->authorization->allows($user, InventoryPermission::View, $inventory);
+        return $this->authorization->allows($user, InventoryPermission::ViewLocationBalances)
+            && $this->authorization->allows($user, InventoryPermission::View, $inventory);
     }
 
     public function create(User $user): bool

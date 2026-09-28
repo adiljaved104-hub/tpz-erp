@@ -4,7 +4,9 @@ namespace Tests\Feature\Phase2;
 
 use App\Actions\Inventory\PostOpeningStock;
 use App\DTOs\Inventory\PostOpeningStockData;
+use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
+use App\Enums\InventoryPermission;
 use App\Filament\Resources\InventoryReservations\InventoryReservationResource;
 use App\Filament\Resources\OpeningStockEntries\OpeningStockEntryResource;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
@@ -14,6 +16,7 @@ use App\Models\Employee;
 use App\Models\Product;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Authorization\EmployeePermissionOverrideService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -47,6 +50,49 @@ class InventoryFilamentTest extends TestCase
         $this->get(StockMovementResource::getUrl())->assertForbidden();
         $this->get(OpeningStockEntryResource::getUrl())->assertForbidden();
         $this->get(InventoryReservationResource::getUrl())->assertForbidden();
+    }
+
+    public function test_location_balances_requires_its_page_permission_and_normal_inventory_view(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $manager = $this->user(EmployeeRole::Manager);
+        $staff = $this->user(EmployeeRole::Staff);
+
+        $this->actingAs($manager);
+        $this->assertTrue(ProductInventoryResource::canViewAny());
+
+        app(EmployeePermissionOverrideService::class)->change(
+            $manager->employee,
+            InventoryPermission::ViewLocationBalances->value,
+            EmployeePermissionEffect::Deny,
+            'Focused Location Balances access test',
+            $owner,
+        );
+        $this->actingAs($manager->fresh());
+        $this->assertFalse(ProductInventoryResource::canViewAny());
+
+        $this->actingAs($staff->fresh());
+        $this->assertFalse(ProductInventoryResource::canViewAny());
+
+        app(EmployeePermissionOverrideService::class)->change(
+            $staff->employee,
+            InventoryPermission::View->value,
+            EmployeePermissionEffect::Allow,
+            'Existing Inventory View override remains effective',
+            $owner,
+        );
+        $this->actingAs($staff->fresh());
+        $this->assertTrue(ProductInventoryResource::canViewAny());
+
+        app(EmployeePermissionOverrideService::class)->change(
+            $staff->employee,
+            InventoryPermission::ViewLocationBalances->value,
+            EmployeePermissionEffect::Deny,
+            'Location Balances may be denied independently',
+            $owner,
+        );
+        $this->actingAs($staff->fresh());
+        $this->assertFalse(ProductInventoryResource::canViewAny());
     }
 
     public function test_stock_movement_table_renders_full_product_context_and_preserves_cost_authorization(): void

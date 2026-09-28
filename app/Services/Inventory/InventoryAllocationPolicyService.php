@@ -34,17 +34,18 @@ class InventoryAllocationPolicyService
     public function receiptAccount(ProductInventory $inventory, ?int $selectedAccountId): array
     {
         $policy = $this->policy();
-        if ($policy === InventoryAllocationPolicy::AskAtGrn) {
-            if ($selectedAccountId === null) {
-                throw ValidationException::withMessages(['items' => 'Select an allocation account for each accepted GRN line.']);
-            }
 
+        if ($selectedAccountId !== null) {
             $account = InventoryAllocationAccount::query()->where('status', true)->findOrFail($selectedAccountId);
             if ($this->mode() === InventoryAllocationMode::Strict && $account->is_system) {
                 throw ValidationException::withMessages(['items' => 'Strict allocation requires an active Employee or Team allocation account.']);
             }
 
             return [$account, 'grn_selected'];
+        }
+
+        if ($policy === InventoryAllocationPolicy::AskAtGrn) {
+            throw ValidationException::withMessages(['items' => 'Select an allocation account for each accepted GRN line.']);
         }
         if ($policy === InventoryAllocationPolicy::Automatic) {
             $product = $inventory->product;

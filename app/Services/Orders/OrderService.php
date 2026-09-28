@@ -371,6 +371,9 @@ class OrderService
                 $postingKeys[$index]['base'],
                 $movementGroup,
                 $allocationAssignments[$item->product_id] ?? null,
+                $data->items[$index]->allocationSources,
+                $data->items[$index]->allocationSources !== null,
+                "items.{$index}.allocation_sources",
             );
             if ($upgradePlans[$index] instanceof OrderUpgradePlan) {
                 $selection = $this->upgradePlanning->lockAndCreateSelection($item, $upgradePlans[$index], $actor);
@@ -566,6 +569,7 @@ class OrderService
                         $postingKeys[$index]['base'],
                         null,
                         $allocationAssignments[$item->product_id] ?? null,
+                        $data->items[$index]->allocationSources,
                     );
                     if ($item->upgradeSelection !== null) {
                         $this->upgrades->execute(

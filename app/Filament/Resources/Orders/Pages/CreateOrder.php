@@ -44,6 +44,7 @@ class CreateOrder extends CreateRecord
                     notes: $item['notes'] ?? null,
                     salesConfigurationId: filled($item['sales_configuration_id'] ?? null) ? (int) $item['sales_configuration_id'] : null,
                     upgradeRecipeId: filled($item['upgrade_recipe_id'] ?? null) ? (int) $item['upgrade_recipe_id'] : null,
+                    allocationSources: self::allocationSources($item['allocation_sources'] ?? []),
                 ), array_values($data['items'])),
                 idempotencyKey: (string) $data['idempotency_key'],
             );
@@ -144,7 +145,7 @@ class CreateOrder extends CreateRecord
             return "data.{$key}";
         }
 
-        if (! preg_match('/^items\.(\d+)\.(product_id|quantity|selling_price)$/', $key, $matches)) {
+        if (! preg_match('/^items\.(\d+)\.(product_id|quantity|selling_price|allocation_sources)$/', $key, $matches)) {
             return null;
         }
 
@@ -159,5 +160,18 @@ class CreateOrder extends CreateRecord
         $user = auth()->user();
 
         return $user instanceof User && app(OrderAuthorization::class)->allows($user, OrderPermission::Fulfill);
+    }
+
+    /** @param array<int|string, array{account_id?:mixed,quantity?:mixed}> $rows
+     * @return array<int, int>|null
+     */
+    private static function allocationSources(array $rows): ?array
+    {
+        $sources = collect($rows)
+            ->filter(fn ($row): bool => is_array($row) && filled($row['account_id'] ?? null) && (int) ($row['quantity'] ?? 0) > 0)
+            ->mapWithKeys(fn (array $row): array => [(int) $row['account_id'] => (int) $row['quantity']])
+            ->all();
+
+        return $sources === [] ? null : $sources;
     }
 }

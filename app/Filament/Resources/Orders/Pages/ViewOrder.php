@@ -13,6 +13,7 @@ use App\Filament\Actions\CreateTaskFromSourceAction;
 use App\Filament\Actions\OpenChatDiscussionAction;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\OrderAmendmentService;
 use App\Services\Orders\OrderFulfillmentLocationService;
 use Filament\Actions\Action;
@@ -58,7 +59,9 @@ class ViewOrder extends ViewRecord
                         'external_order_number' => $this->record->external_order_number,
                         'items' => $this->record->items()->orderBy('line_number')->get()->map(fn ($item): array => [
                             'id' => $item->id, 'product' => $item->sku.' · '.$item->product_name,
+                            'product_id' => $item->product_id,
                             'quantity' => $item->ordered_quantity,
+                            'allocation_sources' => [],
                             ...($canViewPrice ? ['selling_price' => $item->selling_price] : []),
                         ])->all(),
                         'idempotency_key' => (string) Str::uuid(),
@@ -69,11 +72,24 @@ class ViewOrder extends ViewRecord
                     TextInput::make('external_order_number')->label('External Order Number')->maxLength(255),
                     Repeater::make('items')->label('Order Items')->schema([
                         Hidden::make('id'),
+                        Hidden::make('product_id'),
                         TextInput::make('product')->label('Product')->disabled()->dehydrated(false),
                         TextInput::make('quantity')->label('Quantity')->numeric()->minValue(1)->required(),
                         TextInput::make('selling_price')->label('Selling Price (AED)')->numeric()->minValue(0)
                             ->visible(fn (): bool => app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $this->record)
                                 && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $this->record)),
+                        Repeater::make('allocation_sources')->label('Additional Stock Source')
+                            ->helperText('Required only when increasing this line. The split must equal the added quantity.')
+                            ->schema([
+                                Select::make('account_id')->label('Consume From')
+                                    ->options(fn (Get $get): array => app(InventoryAllocationService::class)->orderSourceOptions(
+                                        (int) $get('../../product_id'),
+                                        (int) $this->record->warehouse_id,
+                                        auth()->user(),
+                                    ))
+                                    ->required()->searchable()->disableOptionsWhenSelectedInSiblingRepeaterItems(),
+                                TextInput::make('quantity')->label('Additional Quantity')->numeric()->integer()->minValue(1)->required(),
+                            ])->columns(2)->defaultItems(0)->addActionLabel('Add Stock Source')->columnSpanFull(),
                     ])->addable(false)->deletable(false)->reorderable(false),
                     Textarea::make('reason')->label('Reason for amendment')->required()->minLength(5)->maxLength(2000),
                 ])

@@ -9,6 +9,7 @@ use App\Enums\SafetClaimPermission;
 use App\Enums\WarrantyRepairPermission;
 use App\Models\CustomerReturn;
 use App\Models\Employee;
+use App\Models\InventoryAllocationBalance;
 use App\Models\ProductInventory;
 use App\Models\SafetClaim;
 use App\Models\User;
@@ -47,16 +48,11 @@ class CriticalAlertRecipientResolver
     /** @return Collection<int, User> */
     public function inventory(ProductInventory $inventory, string $eventKey = 'inventory.low_stock'): Collection
     {
-        if ($this->rules->recipientStrategy($eventKey) === 'owner_admin_fallback') {
-            return $this->inventoryEscalation($inventory);
-        }
-
-        $responsible = $this->activeUsers()
-            ->filter(fn (User $user): bool => in_array($user->employee?->role, [EmployeeRole::Manager, EmployeeRole::Staff], true)
-                && $this->inventoryAlertAuthorized($user, $inventory))
+        return $this->activeUsers()
+            ->filter(fn (User $user): bool => in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+                || $this->inventoryAlertAuthorized($user, $inventory))
+            ->unique('id')
             ->values();
-
-        return $responsible->isNotEmpty() ? $responsible : $this->inventoryEscalation($inventory);
     }
 
     /** @return Collection<int, User> */
@@ -67,8 +63,16 @@ class CriticalAlertRecipientResolver
 
     public function inventoryAlertAuthorized(User $user, ProductInventory $inventory): bool
     {
+        if (in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
+            return true;
+        }
+
         if (! $this->inventoryAuthorization->allows($user, InventoryPermission::View)) {
             return false;
+        }
+
+        if ($this->hasPositiveAllocation($user, $inventory)) {
+            return true;
         }
 
         if ($this->inventoryAuthorization->allows($user, InventoryPermission::View, $inventory)) {
@@ -91,6 +95,28 @@ class CriticalAlertRecipientResolver
                 $platformId,
                 (int) $inventory->warehouse_id,
             ));
+    }
+
+    private function hasPositiveAllocation(User $user, ProductInventory $inventory): bool
+    {
+        $employee = $user->employee;
+        if ($employee === null) {
+            return false;
+        }
+
+        return InventoryAllocationBalance::query()
+            ->join('inventory_allocation_accounts as account', 'account.id', '=', 'inventory_allocation_balances.account_id')
+            ->where('inventory_allocation_balances.product_inventory_id', $inventory->id)
+            ->where('inventory_allocation_balances.allocated_quantity', '>', 0)
+            ->where('account.status', true)
+            ->where('account.is_system', false)
+            ->where(function ($query) use ($employee): void {
+                $query->where('account.employee_id', $employee->id);
+                if ($employee->team_id !== null) {
+                    $query->orWhere('account.team_id', $employee->team_id);
+                }
+            })
+            ->exists();
     }
 
     /** @return Collection<int, User> */

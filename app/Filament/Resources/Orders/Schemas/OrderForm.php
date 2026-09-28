@@ -12,6 +12,7 @@ use App\Models\SalesConfiguration;
 use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
@@ -86,6 +87,29 @@ class OrderForm
                             ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->required()->live(onBlur: true)
                             ->disabled(fn (): bool => ! self::allowed(OrderPermission::EditSellingPrice)),
                         Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get)),
+                        Repeater::make('allocation_sources')
+                            ->label('Stock Source / Consume From')
+                            ->helperText('Choose exactly whose allocation supplies this line. Add rows to split the quantity across sources.')
+                            ->schema([
+                                Select::make('account_id')
+                                    ->label('Allocation Source')
+                                    ->options(fn (Get $get): array => self::allocationSourceOptions(
+                                        (int) $get('../../product_id'),
+                                        (int) $get('../../../../warehouse_id'),
+                                    ))
+                                    ->required()
+                                    ->searchable()
+                                    ->disableOptionsWhenSelectedInSiblingRepeaterItems(),
+                                TextInput::make('quantity')->label('Source Quantity')->numeric()->integer()->minValue(1)->required(),
+                            ])
+                            ->columns(2)
+                            ->defaultItems(0)
+                            ->required(fn (Get $get): bool => self::allocationSourceOptions(
+                                (int) $get('product_id'),
+                                (int) $get('../../warehouse_id'),
+                            ) !== [])
+                            ->addActionLabel('Split Across Another Source')
+                            ->columnSpanFull(),
                         Toggle::make('upgraded_configuration')->label('Upgraded Configuration')->live()
                             ->afterStateUpdated(function ($state, Get $get, Set $set): void {
                                 if (! $state) {
@@ -236,10 +260,21 @@ class OrderForm
         $set('target_storage_total_gb', null);
         $set('sales_configuration_id', null);
         $set('upgrade_recipe_id', null);
+        $set('allocation_sources', []);
 
         if ((bool) $get('upgraded_configuration')) {
             self::refreshConfigurationSelection($get, $set);
         }
+    }
+
+    /** @return array<int, string> */
+    private static function allocationSourceOptions(int $productId, int $warehouseId): array
+    {
+        $user = auth()->user();
+
+        return $user instanceof User && $productId > 0 && $warehouseId > 0
+            ? app(InventoryAllocationService::class)->orderSourceOptions($productId, $warehouseId, $user)
+            : [];
     }
 
     private static function targetRamOptions(int $productId): array

@@ -23,4 +23,5 @@ enum InventoryPermission: string
     case DecideOwnStockRequestSources = 'inventory.decide_own_stock_request_sources';
     case DecideAllStockRequestSources = 'inventory.decide_all_stock_request_sources';
     case ExecuteStockRequests = 'inventory.execute_stock_requests';
+    case ConsumeFromAllAllocations = 'inventory.consume_from_all_allocations';
 }

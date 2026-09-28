@@ -43,9 +43,13 @@ class OrderAmendmentTest extends TestCase
         [$actor, $order, $stock] = $this->reservedOrder();
         $service = app(OrderAmendmentService::class);
         $item = $order->items()->sole();
+        $sourceAccountId = (int) $item->reservation->allocationLines()->where('status', 'reserved')->value('account_id');
         $key = (string) Str::uuid();
         $input = ['reason' => 'Customer changed order quantities', 'idempotency_key' => $key,
-            'external_order_number' => 'EXT-101', 'items' => [['id' => $item->id, 'quantity' => 4, 'selling_price' => '120.00']]];
+            'external_order_number' => 'EXT-101', 'items' => [[
+                'id' => $item->id, 'quantity' => 4, 'selling_price' => '120.00',
+                'allocation_sources' => [['account_id' => $sourceAccountId, 'quantity' => 2]],
+            ]]];
 
         $amendment = $service->amend($order, $input, $actor);
         $this->assertSame($amendment->id, $service->amend($order, $input, $actor)->id);
@@ -70,9 +74,13 @@ class OrderAmendmentTest extends TestCase
     {
         [$actor, $order, $stock] = $this->reservedOrder(2);
         $item = $order->items()->sole();
+        $sourceAccountId = (int) $item->reservation->allocationLines()->where('status', 'reserved')->value('account_id');
         try {
             app(OrderAmendmentService::class)->amend($order, ['reason' => 'Need impossible additional stock',
-                'idempotency_key' => (string) Str::uuid(), 'items' => [['id' => $item->id, 'quantity' => 9]]], $actor);
+                'idempotency_key' => (string) Str::uuid(), 'items' => [[
+                    'id' => $item->id, 'quantity' => 9,
+                    'allocation_sources' => [['account_id' => $sourceAccountId, 'quantity' => 7]],
+                ]]], $actor);
             $this->fail('Insufficient stock must reject amendment.');
         } catch (InsufficientInventoryException) {
             $this->assertSame(2, $item->fresh()->ordered_quantity);

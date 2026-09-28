@@ -3,12 +3,10 @@
 namespace App\Services\Notifications;
 
 use App\Enums\EmployeeRole;
-use App\Enums\InventoryPermission;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Models\StockAlertIncident;
 use App\Models\StockAlertIncidentRecipient;
 use App\Models\User;
-use App\Services\Authorization\InventoryAuthorization;
 
 class StockAlertReminderService
 {
@@ -16,7 +14,6 @@ class StockAlertReminderService
         private readonly StockAlertIncidentService $incidents,
         private readonly CriticalAlertRecipientResolver $recipients,
         private readonly CriticalAlertDispatcher $alerts,
-        private readonly InventoryAuthorization $inventoryAuthorization,
     ) {}
 
     /** @return array{reminders:int, escalations:int, resolved:int} */
@@ -160,6 +157,6 @@ class StockAlertReminderService
 
         return $user instanceof User
             && $user->employee?->status === true
-            && $this->inventoryAuthorization->allows($user, InventoryPermission::View, $incident->inventory);
+            && $this->recipients->inventoryAlertAuthorized($user, $incident->inventory);
     }
 }

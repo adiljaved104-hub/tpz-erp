@@ -17,11 +17,16 @@ use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use Illuminate\Support\Collection;
 
 class CriticalAlertRecipientResolver
 {
-    public function __construct(private readonly NotificationRuleService $rules) {}
+    public function __construct(
+        private readonly NotificationRuleService $rules,
+        private readonly InventoryAuthorization $inventoryAuthorization,
+        private readonly OrderResponsibilityScopeService $orderResponsibilities,
+    ) {}
 
     /** @return Collection<int, User> */
     public function warranty(WarrantyRepair $case, string $eventKey = 'warranty.due_soon'): Collection
@@ -48,7 +53,7 @@ class CriticalAlertRecipientResolver
 
         $responsible = $this->activeUsers()
             ->filter(fn (User $user): bool => in_array($user->employee?->role, [EmployeeRole::Manager, EmployeeRole::Staff], true)
-                && app(InventoryAuthorization::class)->allows($user, InventoryPermission::View, $inventory))
+                && $this->inventoryAlertAuthorized($user, $inventory))
             ->values();
 
         return $responsible->isNotEmpty() ? $responsible : $this->inventoryEscalation($inventory);
@@ -57,7 +62,35 @@ class CriticalAlertRecipientResolver
     /** @return Collection<int, User> */
     public function inventoryEscalation(ProductInventory $inventory): Collection
     {
-        return $this->authorizedAdmins(fn (User $user): bool => app(InventoryAuthorization::class)->allows($user, InventoryPermission::View, $inventory));
+        return $this->authorizedAdmins(fn (User $user): bool => $this->inventoryAlertAuthorized($user, $inventory));
+    }
+
+    public function inventoryAlertAuthorized(User $user, ProductInventory $inventory): bool
+    {
+        if (! $this->inventoryAuthorization->allows($user, InventoryPermission::View)) {
+            return false;
+        }
+
+        if ($this->inventoryAuthorization->allows($user, InventoryPermission::View, $inventory)) {
+            return true;
+        }
+
+        if (! in_array($user->employee?->role, [EmployeeRole::Manager, EmployeeRole::Staff], true)) {
+            return false;
+        }
+
+        $inventory->loadMissing('product.marketplaceListings');
+
+        return $inventory->product->marketplaceListings
+            ->pluck('marketplace_platform_id')
+            ->map(fn ($platformId): int => (int) $platformId)
+            ->unique()
+            ->contains(fn (int $platformId): bool => $this->orderResponsibilities->hasMatchingActiveResponsibility(
+                $user,
+                (int) $inventory->product_id,
+                $platformId,
+                (int) $inventory->warehouse_id,
+            ));
     }
 
     /** @return Collection<int, User> */

@@ -3,12 +3,14 @@
 namespace App\Services\Notifications;
 
 use App\Enums\CustomerReturnPermission;
+use App\Enums\EmployeeRole;
 use App\Enums\InventoryPermission;
 use App\Enums\SafetClaimPermission;
 use App\Enums\TaskPermission;
 use App\Enums\WarrantyRepairPermission;
 use App\Filament\Pages\Chat;
 use App\Filament\Pages\Hr\LeaveManagement;
+use App\Filament\Pages\MarketplaceOperations;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\EmployeeWarnings\EmployeeWarningResource;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
@@ -23,6 +25,7 @@ use App\Models\CustomerReturn;
 use App\Models\EmployeeWarning;
 use App\Models\HrNotice;
 use App\Models\LeaveRequest;
+use App\Models\MarketplaceOperationIncident;
 use App\Models\ProductInventory;
 use App\Models\SafetClaim;
 use App\Models\StockRequest;
@@ -134,6 +137,15 @@ class NotificationInboxService
             return ['url' => LeaveManagement::getUrl(), 'available' => true];
         }
 
+        if (($data['target_type'] ?? null) === 'marketplace_operation_incident') {
+            $incident = MarketplaceOperationIncident::query()->find((int) $data['target_id']);
+            $allowed = $incident instanceof MarketplaceOperationIncident
+                && ($incident->recipients()->where('user_id', $user->id)->exists()
+                    || in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true));
+
+            return ['url' => $allowed ? MarketplaceOperations::getUrl() : null, 'available' => $allowed];
+        }
+
         if (($data['target_type'] ?? null) === 'employee_warning') {
             $warning = EmployeeWarning::query()->find((int) $data['target_id']);
             if (! $warning instanceof EmployeeWarning || ! $this->hrRecords->canViewWarning($user, $warning)) {
@@ -222,6 +234,7 @@ class NotificationInboxService
                 'claim.needs_filing', 'return.awaiting_qc', 'leave.submitted', 'leave.approved', 'leave.rejected',
                 'warning.issued', 'notice.published', 'chat.mention', 'chat.direct_message',
                 'stock_request.created', 'stock_request.approved', 'stock_request.completed',
+                'marketplace.featured_offer_lost', 'marketplace.stock_exposure',
             ])
             ->latest('created_at')
             ->value('id');

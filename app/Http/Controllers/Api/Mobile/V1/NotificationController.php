@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
+use App\Services\Marketplace\MarketplaceIncidentAcknowledgementService;
 use App\Services\Mobile\NotificationTarget;
 use App\Services\Notifications\NotificationInboxService;
 use App\Services\Notifications\StockAlertAcknowledgementService;
@@ -20,7 +21,8 @@ class NotificationController extends MobileController
         $messages = $inbox->displayMessages($page->getCollection(), $user);
         $page->through(function ($n) use ($user, $messages) {
             $target = app(NotificationTarget::class)->resolve($user, $n->data);
-            $acknowledgment = $target ? app(StockAlertAcknowledgementService::class)->context($user, $n) : null;
+            $acknowledgment = $target ? (app(StockAlertAcknowledgementService::class)->context($user, $n)
+                ?? app(MarketplaceIncidentAcknowledgementService::class)->context($user, $n)) : null;
 
             return ['id' => $n->id, 'title' => $target ? ($n->data['title'] ?? 'ERP notification') : 'ERP notification',
                 'subtitle' => $target ? ($messages[$n->id] ?? null) : 'Open the ERP for details, or access is no longer available.',
@@ -52,8 +54,12 @@ class NotificationController extends MobileController
         $record = $inbox->own($request->user(), $notification);
         abort_if(app(NotificationTarget::class)->resolve($request->user(), $record->data) === null, 404);
 
+        $marketplace = app(MarketplaceIncidentAcknowledgementService::class)->context($request->user(), $record);
+
         return response()->json([
-            'data' => app(StockAlertAcknowledgementService::class)->acknowledge($request->user(), $record),
+            'data' => $marketplace !== null
+                ? app(MarketplaceIncidentAcknowledgementService::class)->acknowledge($request->user(), $record)
+                : app(StockAlertAcknowledgementService::class)->acknowledge($request->user(), $record),
             'unread_count' => $inbox->unreadCount($request->user()),
         ]);
     }

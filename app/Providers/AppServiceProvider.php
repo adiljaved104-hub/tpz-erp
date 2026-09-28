@@ -74,6 +74,7 @@ use App\Models\InventoryReservation;
 use App\Models\InvoiceSetting;
 use App\Models\LeaveRequest;
 use App\Models\LoginSecuritySetting;
+use App\Models\MarketplaceOperationIncident;
 use App\Models\MarketplacePlatform;
 use App\Models\MarketplaceReturnRemoval;
 use App\Models\MarketplaceReturnRemovalEvent;
@@ -211,6 +212,8 @@ use App\Services\Authorization\UpgradeAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Hikvision\HikvisionAttendanceImporter;
+use App\Services\Marketplace\AmazonUaeMonitorAdapter;
+use App\Services\Marketplace\MarketplaceMonitorManager;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\ProductIntelligence\LocalProductQueryInterpreter;
 use App\Services\Reports\Providers\CoreReportProvider;
@@ -265,6 +268,9 @@ class AppServiceProvider extends ServiceProvider
         );
         $this->app->scoped(ServiceCaseAssigneeService::class);
         $this->app->scoped(NavigationPreferenceService::class);
+        $this->app->singleton(MarketplaceMonitorManager::class, fn ($app): MarketplaceMonitorManager => new MarketplaceMonitorManager([
+            $app->make(AmazonUaeMonitorAdapter::class),
+        ]));
         $this->app->scoped(NavigationManager::class, fn (): NavigationManager => new PersonalizedNavigationManager);
     }
 
@@ -523,6 +529,7 @@ class AppServiceProvider extends ServiceProvider
             'customer_return_refund' => CustomerReturnRefund::class,
             'marketplace_return_removal' => MarketplaceReturnRemoval::class,
             'marketplace_return_removal_item' => MarketplaceReturnRemovalItem::class,
+            'marketplace_operation_incident' => MarketplaceOperationIncident::class,
             'marketplace_return_removal_event' => MarketplaceReturnRemovalEvent::class,
             'damaged_stock_event' => DamagedStockEvent::class,
             'safet_claim' => SafetClaim::class,

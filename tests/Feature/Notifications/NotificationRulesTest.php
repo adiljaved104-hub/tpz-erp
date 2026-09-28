@@ -42,6 +42,9 @@ class NotificationRulesTest extends TestCase
         $this->assertDatabaseHas('notification_rules', ['event_key' => 'warranty.due_soon', 'threshold_value' => 3, 'threshold_unit' => 'days']);
         $this->assertDatabaseHas('notification_rules', ['event_key' => 'inventory.low_stock', 'threshold_value' => null]);
         $this->assertDatabaseHas('notification_rules', ['event_key' => 'hr.warning_issued']);
+        $this->assertDatabaseHas('notification_rules', ['event_key' => 'marketplace.featured_offer_lost', 'enabled' => true]);
+        $this->assertDatabaseHas('notification_rules', ['event_key' => 'marketplace.stock_exposure', 'enabled' => true]);
+        $this->assertDatabaseHas('notification_rules', ['event_key' => 'marketplace.daily_summary', 'in_app_enabled' => false, 'email_enabled' => true]);
         $count = NotificationRule::query()->count();
 
         app(NotificationRuleService::class)->ensureDefaults();
@@ -144,7 +147,9 @@ class NotificationRulesTest extends TestCase
         $owner = $this->user(EmployeeRole::Owner);
         $staff = $this->user(EmployeeRole::Staff);
 
-        $this->actingAs($owner)->get(NotificationRuleResource::getUrl())->assertOk()->assertSee('Task Assigned');
+        $this->actingAs($owner)->get(NotificationRuleResource::getUrl())->assertOk()->assertSee('Notification Rules');
+        Livewire::actingAs($owner)->test(ListNotificationRules::class)
+            ->assertCanSeeTableRecords([NotificationRule::query()->where('event_key', 'task.assigned')->firstOrFail()]);
         $this->actingAs($staff)->get(NotificationRuleResource::getUrl())->assertForbidden();
     }
 

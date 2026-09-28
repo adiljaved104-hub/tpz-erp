@@ -29,6 +29,19 @@ Schedule::command('inventory:send-stock-reminders')
     ->name('inventory-stock-reminder-evaluator')
     ->withoutOverlapping(30);
 
+$marketplaceInterval = max(5, (int) config('marketplace_monitoring.interval_minutes', 15));
+Schedule::command('marketplace:monitor')
+    ->cron("*/{$marketplaceInterval} * * * *")
+    ->name('marketplace-operations-monitor')
+    ->withoutOverlapping(max(10, $marketplaceInterval * 2))
+    ->when(fn (): bool => (bool) config('marketplace_monitoring.enabled', true));
+
+Schedule::command('marketplace:send-summary')
+    ->dailyAt((string) config('marketplace_monitoring.summary_time', '08:00'))
+    ->name('marketplace-operations-summary')
+    ->withoutOverlapping(60)
+    ->when(fn (): bool => (bool) config('marketplace_monitoring.enabled', true));
+
 $hikvisionInterval = max(1, (int) config('hikvision.sync_interval_minutes', 5));
 Schedule::command('hikvision:sync-attendance')
     ->cron("*/{$hikvisionInterval} * * * *")

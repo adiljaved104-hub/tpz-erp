@@ -4,6 +4,7 @@ namespace App\Services\Mobile;
 
 use App\Enums\ComplaintPermission;
 use App\Enums\CustomerReturnPermission;
+use App\Enums\EmployeeRole;
 use App\Enums\InventoryPermission;
 use App\Enums\OrderPermission;
 use App\Enums\ResponsibilityPermission;
@@ -15,11 +16,12 @@ use App\Models\Conversation;
 use App\Models\CustomerReturn;
 use App\Models\EmployeeWarning;
 use App\Models\HrNotice;
+use App\Models\MarketplaceOperationIncident;
 use App\Models\Order;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
-use App\Models\StockRequest;
 use App\Models\SafetClaim;
+use App\Models\StockRequest;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\WarrantyRepair;
@@ -33,8 +35,8 @@ use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
-use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Inventory\StockRequestService;
+use App\Services\Responsibilities\ResponsibilityProductScopeService;
 
 class NotificationTarget
 {
@@ -50,6 +52,7 @@ class NotificationTarget
             'safet_claim' => [SafetClaim::class, 'cases/claims'], 'complaint' => [Complaint::class, 'cases/complaints'],
             'conversation' => [Conversation::class, 'chat'], 'responsibility_assignment' => [ResponsibilityAssignment::class, 'responsibilities'],
             'product_inventory' => [ProductInventory::class, 'inventory'], 'stock_request' => [StockRequest::class, 'stock-requests'],
+            'marketplace_operation_incident' => [MarketplaceOperationIncident::class, 'marketplace-operations'],
             'hr_notice' => [HrNotice::class, 'hr/notices'], 'employee_warning' => [EmployeeWarning::class, 'hr/warnings'], default => [null, null],
         };
         if ($model === null || ! ($record = $model::query()->find((int) $id))) {
@@ -74,6 +77,8 @@ class NotificationTarget
                 || app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::ViewOwn))
                 && app(ResponsibilityProductScopeService::class)->canAccessInventory($user, $record->id),
             $record instanceof StockRequest => app(StockRequestService::class)->canView($user, $record),
+            $record instanceof MarketplaceOperationIncident => $record->recipients()->where('user_id', $user->id)->exists()
+                || in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true),
             default => false,
         };
 

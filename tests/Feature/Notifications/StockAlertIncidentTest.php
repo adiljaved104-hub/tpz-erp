@@ -4,9 +4,11 @@ namespace Tests\Feature\Notifications;
 
 use App\Enums\EmployeeRole;
 use App\Models\ActivityLog;
+use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductInventory;
+use App\Models\ProductMarketplaceListing;
 use App\Models\StockAlertIncident;
 use App\Models\StockAlertIncidentRecipient;
 use App\Models\User;
@@ -23,6 +25,87 @@ class StockAlertIncidentTest extends TestCase
 {
     use RefreshDatabase;
     use ResponsibilityTestFoundation;
+
+    public function test_platform_responsibility_routes_main_warehouse_low_stock_without_allocation_or_duplicates(): void
+    {
+        $context = $this->platformContext();
+
+        $this->assertDatabaseMissing('inventory_allocation_balances', [
+            'product_inventory_id' => $context['inventory']->id,
+        ]);
+
+        $this->transition($context['inventory'], 2);
+        $this->transition($context['inventory'], 1);
+
+        $this->assertSame(1, $context['responsible']->notifications()->where('type', 'inventory.low_stock')->count());
+        $this->assertSame(0, $context['unrelated']->notifications()->count());
+        $this->assertSame(0, $context['owner']->notifications()->where('type', 'inventory.low_stock')->count());
+        $this->assertDatabaseHas('stock_alert_incident_recipients', [
+            'user_id' => $context['responsible']->id,
+            'recipient_role' => StockAlertIncidentRecipient::PRIMARY,
+        ]);
+    }
+
+    public function test_platform_responsibility_routes_main_warehouse_out_of_stock(): void
+    {
+        $context = $this->platformContext();
+
+        $this->transition($context['inventory'], 0);
+
+        $this->assertSame(1, $context['responsible']->notifications()->where('type', 'inventory.out_of_stock')->count());
+        $this->assertSame(0, $context['unrelated']->notifications()->count());
+        $this->assertSame(0, $context['owner']->notifications()->where('type', 'inventory.out_of_stock')->count());
+    }
+
+    public function test_owner_and_admin_remain_the_fallback_when_no_responsibility_matches(): void
+    {
+        $owner = $this->mobileUser(EmployeeRole::Owner);
+        $admin = $this->mobileUser(EmployeeRole::Admin);
+        $unrelated = $this->mobileUser(EmployeeRole::Manager);
+        $inventory = ProductInventory::factory()->create([
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+        ]);
+
+        $this->transition($inventory, 2);
+
+        $this->assertSame(1, $owner->notifications()->where('type', 'inventory.low_stock')->count());
+        $this->assertSame(1, $admin->notifications()->where('type', 'inventory.low_stock')->count());
+        $this->assertSame(0, $unrelated->notifications()->count());
+    }
+
+    public function test_brand_and_product_responsibilities_keep_routing_without_duplicate_notifications(): void
+    {
+        $owner = $this->mobileUser(EmployeeRole::Owner);
+        $brand = ProductBrand::factory()->create(['name' => 'Dell', 'normalized_name' => 'dell']);
+        $product = Product::factory()->create(['brand' => $brand->name, 'brand_id' => $brand->id]);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+        ]);
+        $brandResponsible = $this->mobileUser(EmployeeRole::Manager);
+        $productResponsible = $this->mobileUser(EmployeeRole::Manager);
+
+        app(ResponsibilityAssignmentService::class)->create(
+            $this->assignmentData(['employee' => $brandResponsible->employee, 'brand' => $brand]),
+            $owner,
+        );
+        app(ResponsibilityAssignmentService::class)->create(
+            $this->assignmentData(
+                ['employee' => $productResponsible->employee, 'brand' => $brand],
+                overrides: ['brandId' => null, 'productId' => $product->id],
+            ),
+            $owner,
+        );
+
+        $this->transition($inventory, 2);
+        $this->transition($inventory, 1);
+
+        $this->assertSame(1, $brandResponsible->notifications()->where('type', 'inventory.low_stock')->count());
+        $this->assertSame(1, $productResponsible->notifications()->where('type', 'inventory.low_stock')->count());
+        $this->assertDatabaseCount('stock_alert_incident_recipients', 2);
+    }
 
     public function test_low_stock_crossing_creates_one_incident_for_all_responsible_employees_only(): void
     {
@@ -227,6 +310,44 @@ class StockAlertIncidentTest extends TestCase
         }
 
         return compact('owner', 'responsible', 'inventory');
+    }
+
+    /** @return array{owner:User,responsible:User,unrelated:User,inventory:ProductInventory} */
+    private function platformContext(): array
+    {
+        $owner = $this->mobileUser(EmployeeRole::Owner);
+        $responsible = $this->mobileUser(EmployeeRole::Manager);
+        $unrelated = $this->mobileUser(EmployeeRole::Manager);
+        $brand = ProductBrand::factory()->create(['name' => 'HP', 'normalized_name' => 'hp']);
+        $platform = MarketplacePlatform::factory()->create([
+            'name' => 'Amazon UAE',
+            'normalized_name' => 'amazon uae',
+            'code' => 'amazon_uae',
+        ]);
+        $product = Product::factory()->create(['brand' => $brand->name, 'brand_id' => $brand->id]);
+        ProductMarketplaceListing::query()->create([
+            'product_id' => $product->id,
+            'marketplace_platform_id' => $platform->id,
+            'marketplace_identifier' => 'ASIN-'.Str::upper(Str::random(8)),
+            'listing_sku' => 'AMZ-'.Str::upper(Str::random(8)),
+            'listing_title' => $product->name,
+        ]);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => Warehouse::factory()->create(['marketplace_platform_id' => null])->id,
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+        ]);
+
+        app(ResponsibilityAssignmentService::class)->create(
+            $this->assignmentData(
+                ['employee' => $responsible->employee, 'brand' => $brand],
+                overrides: ['brandId' => null, 'platformId' => $platform->id],
+            ),
+            $owner,
+        );
+
+        return compact('owner', 'responsible', 'unrelated', 'inventory');
     }
 
     private function transition(ProductInventory $inventory, int $available): void

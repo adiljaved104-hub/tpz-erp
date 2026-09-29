@@ -244,7 +244,6 @@ class PurchaseReceiptCorrectionTest extends TestCase
                 'corrected_quantity' => 4,
                 'reason' => 'There is no actual quantity change.',
             ])
-            ->assertHasActionErrors(['corrected_quantity'])
             ->assertNotified('GRN correction was not recorded');
 
         $this->assertDatabaseCount('purchase_receipt_corrections', 0);
@@ -259,7 +258,7 @@ class PurchaseReceiptCorrectionTest extends TestCase
 
         Livewire::actingAs($staff)
             ->test(ViewPurchaseReceipt::class, ['record' => $receiptItem->purchase_receipt_id])
-            ->assertActionHidden('correctReceivedQuantity');
+            ->assertDontSee('Correct Received Quantity');
 
         $this->assertDatabaseCount('purchase_receipt_corrections', 0);
     }

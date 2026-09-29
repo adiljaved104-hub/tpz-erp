@@ -205,6 +205,65 @@ class PurchaseReceiptCorrectionTest extends TestCase
             ->assertSee('GRC-');
     }
 
+    public function test_owner_submits_correction_action_and_sees_refreshed_effective_quantities_and_history(): void
+    {
+        [$owner, $purchase, $receiptItem] = $this->receivedPurchase(4, '20.0000');
+
+        $component = Livewire::actingAs($owner)
+            ->test(ViewPurchaseReceipt::class, ['record' => $receiptItem->purchase_receipt_id])
+            ->assertActionVisible('correctReceivedQuantity')
+            ->callAction('correctReceivedQuantity', [
+                'receipt_item_id' => $receiptItem->id,
+                'corrected_quantity' => 3,
+                'reason' => 'Quantity was entered incorrectly on the posted GRN.',
+            ])
+            ->assertHasNoErrors()
+            ->assertNotified('GRN correction recorded')
+            ->assertSee('Correction History')
+            ->assertSee('Original Received')
+            ->assertSee('Prior Corrections')
+            ->assertSee('Effective Received')
+            ->assertSee('GRC-');
+
+        $correction = $receiptItem->corrections()->sole();
+        $component->assertSee($correction->reference);
+        $this->assertSame(4, $receiptItem->refresh()->accepted_quantity);
+        $this->assertSame(-1, $correction->adjustment_quantity);
+        $this->assertSame(3, ProductInventory::query()->sole()->available_quantity);
+        $this->assertSame(3, $purchase->items()->sole()->received_quantity);
+    }
+
+    public function test_rejected_correction_action_shows_error_and_does_not_write(): void
+    {
+        [$owner, , $receiptItem] = $this->receivedPurchase(4, '20.0000');
+
+        Livewire::actingAs($owner)
+            ->test(ViewPurchaseReceipt::class, ['record' => $receiptItem->purchase_receipt_id])
+            ->callAction('correctReceivedQuantity', [
+                'receipt_item_id' => $receiptItem->id,
+                'corrected_quantity' => 4,
+                'reason' => 'There is no actual quantity change.',
+            ])
+            ->assertHasActionErrors(['corrected_quantity'])
+            ->assertNotified('GRN correction was not recorded');
+
+        $this->assertDatabaseCount('purchase_receipt_corrections', 0);
+        $this->assertSame(4, $receiptItem->refresh()->accepted_quantity);
+        $this->assertSame(4, ProductInventory::query()->sole()->available_quantity);
+    }
+
+    public function test_unauthorized_employee_cannot_use_correction_action(): void
+    {
+        [, , $receiptItem] = $this->receivedPurchase(4, '20.0000');
+        $staff = $this->user(EmployeeRole::Staff);
+
+        Livewire::actingAs($staff)
+            ->test(ViewPurchaseReceipt::class, ['record' => $receiptItem->purchase_receipt_id])
+            ->assertActionHidden('correctReceivedQuantity');
+
+        $this->assertDatabaseCount('purchase_receipt_corrections', 0);
+    }
+
     private function receivedPurchase(int $quantity, string $cost): array
     {
         $owner = $this->user(EmployeeRole::Owner);

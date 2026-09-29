@@ -19,6 +19,7 @@ use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ViewPurchaseReceipt extends ViewRecord
 {
@@ -33,8 +34,9 @@ class ViewPurchaseReceipt extends ViewRecord
                     && app(PurchaseAuthorization::class)->allows(auth()->user(), PurchasePermission::CorrectReceipt, $this->record->purchase))
                 ->modalHeading('Correct Posted GRN Quantity')
                 ->modalDescription('This records an immutable downward correction. Use normal Purchase Receiving for additional genuine stock.')
+                ->fillForm(fn (): array => ['idempotency_key' => (string) Str::uuid()])
                 ->schema([
-                    Hidden::make('idempotency_key')->default(fn (): string => (string) Str::uuid()),
+                    Hidden::make('idempotency_key')->required()->uuid(),
                     Select::make('receipt_item_id')
                         ->label('Product')
                         ->options(fn (): array => $this->record->items()->with('product:id,name,sku')->orderBy('id')->get()
@@ -68,15 +70,32 @@ class ViewPurchaseReceipt extends ViewRecord
                 ])
                 ->action(function (array $data): void {
                     $item = $this->record->items()->findOrFail($data['receipt_item_id']);
-                    app(PurchaseReceiptCorrectionService::class)->correct(
-                        $item,
-                        (int) $data['corrected_quantity'],
-                        $data['reason'],
-                        $data['idempotency_key'],
-                        auth()->user(),
-                    );
+                    try {
+                        $correction = app(PurchaseReceiptCorrectionService::class)->correct(
+                            $item,
+                            (int) $data['corrected_quantity'],
+                            $data['reason'],
+                            $data['idempotency_key'],
+                            auth()->user(),
+                        );
+                    } catch (ValidationException $exception) {
+                        Notification::make()
+                            ->danger()
+                            ->title('GRN correction was not recorded')
+                            ->body(collect($exception->errors())->flatten()->first())
+                            ->send();
+
+                        throw $exception;
+                    }
+
                     $this->record->refresh();
-                    Notification::make()->success()->title('GRN correction recorded')->send();
+                    $this->dispatch('$refresh');
+
+                    Notification::make()
+                        ->success()
+                        ->title('GRN correction recorded')
+                        ->body("{$correction->reference} was recorded and the effective quantities were updated.")
+                        ->send();
                 }),
         ];
     }

@@ -22,13 +22,17 @@ class PurchaseReceiptInfolist
 
         $itemEntries = [
             TextEntry::make('product.name')->label('Product'),
-            TextEntry::make('accepted_quantity')->label('Accepted Qty'),
+            TextEntry::make('accepted_quantity')->label('Original Received'),
+            TextEntry::make('prior_corrections')->label('Prior Corrections'),
+            TextEntry::make('effective_received')->label('Effective Received'),
             TextEntry::make('damaged_quantity')->label('Damaged Qty'),
             TextEntry::make('rejected_quantity')->label('Rejected Qty'),
         ];
         $itemColumns = [
             TableColumn::make('Product'),
-            TableColumn::make('Accepted Qty'),
+            TableColumn::make('Original Received'),
+            TableColumn::make('Prior Corrections'),
+            TableColumn::make('Effective Received'),
             TableColumn::make('Damaged Qty'),
             TableColumn::make('Rejected Qty'),
         ];
@@ -110,8 +114,14 @@ class PurchaseReceiptInfolist
 
         return $receipt->items()
             ->select($columns)
+            ->withSum('corrections as prior_corrections_total', 'adjustment_quantity')
             ->with('product:id,name')
-            ->get();
+            ->get()
+            ->each(function ($item): void {
+                $priorCorrections = (int) $item->prior_corrections_total;
+                $item->setAttribute('prior_corrections', $priorCorrections);
+                $item->setAttribute('effective_received', $item->accepted_quantity + $priorCorrections);
+            });
     }
 
     private static function financial(?PurchaseReceipt $receipt): bool

@@ -138,7 +138,7 @@ class PurchaseReceiptCorrectionTest extends TestCase
         ]);
         $otherBalance = InventoryAllocationBalance::query()->create([
             'account_id' => $otherAccount->id, 'product_inventory_id' => $inventory->id,
-            'allocated_quantity' => 0, 'reserved_quantity' => 0,
+            'allocated_quantity' => 2, 'reserved_quantity' => 0,
         ]);
         PurchaseReceiptAllocationLine::query()->create([
             'purchase_receipt_item_id' => $receiptItem->id,
@@ -153,7 +153,7 @@ class PurchaseReceiptCorrectionTest extends TestCase
 
         $this->assertSame(0, $firstBalance->refresh()->allocated_quantity);
         $this->assertSame(1, $secondBalance->refresh()->allocated_quantity);
-        $this->assertSame(0, $otherBalance->refresh()->allocated_quantity);
+        $this->assertSame(2, $otherBalance->refresh()->allocated_quantity);
         $this->assertSame([2, 1], $correction->allocationLines()->orderBy('id')->pluck('quantity')->all());
     }
 

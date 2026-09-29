@@ -29,6 +29,7 @@ use App\Models\OrderItemUpgradeSelection;
 use App\Models\OrderUpgradeExecution;
 use App\Models\Product;
 use App\Models\ProductInventory;
+use App\Models\PurchaseReceiptCorrection;
 use App\Models\PurchaseReceiptItem;
 use App\Models\QuotationSourcingPosting;
 use App\Models\StockMovement;
@@ -392,6 +393,64 @@ class InventoryService
             'Purchase receipt',
             $receiptItem->posting_key,
             $receiptItem->inventory_unit_cost,
+        );
+    }
+
+    public function correctPurchaseReceipt(PurchaseReceiptCorrection $correction, User $actor, string $movementReference): StockMovement
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Purchase receipt correction requires an active transaction.');
+        }
+
+        if ($existing = StockMovement::query()->where('idempotency_key', $correction->idempotency_key)->first()) {
+            if ($existing->source_type !== $correction->getMorphClass() || $existing->source_id !== $correction->id) {
+                throw new DuplicateInventoryPostingException('The correction idempotency key belongs to another inventory operation.');
+            }
+
+            return $existing;
+        }
+
+        $quantity = -$correction->adjustment_quantity;
+        $inventoryId = ProductInventory::query()
+            ->where('product_id', $correction->product_id)
+            ->where('warehouse_id', $correction->warehouse_id)
+            ->value('id');
+        if ($inventoryId === null) {
+            throw new InventoryInvariantException('The original receipt inventory balance no longer exists.');
+        }
+        $inventory = $this->balances->lock($inventoryId);
+
+        if ($quantity < 1 || $inventory->sellableQuantity() < $quantity) {
+            throw new InventoryInvariantException('The original received stock has already been reserved or consumed. Resolve the stock usage before correcting this GRN.');
+        }
+
+        $before = $this->snapshot($inventory);
+        $newAverage = $this->costs->reverseWeightedAverage(
+            $inventory->totalOnHand(),
+            $inventory->average_cost,
+            $quantity,
+            $correction->inventory_unit_cost,
+        );
+        $inventory->forceFill([
+            'available_quantity' => $inventory->available_quantity - $quantity,
+            'average_cost' => $newAverage,
+        ])->save();
+
+        return $this->createMovement(
+            $inventory,
+            $actor,
+            $movementReference,
+            $correction->movement_group,
+            StockMovementType::PurchaseReceiptCorrection,
+            $quantity,
+            -$quantity,
+            0,
+            0,
+            $before,
+            $correction,
+            'Purchase receipt quantity correction',
+            $correction->idempotency_key,
+            $correction->inventory_unit_cost,
         );
     }
 

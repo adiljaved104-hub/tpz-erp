@@ -48,4 +48,9 @@ class PurchaseReceipt extends Model
     {
         return $this->hasMany(PurchaseReceiptItem::class);
     }
+
+    public function corrections(): HasMany
+    {
+        return $this->hasMany(PurchaseReceiptCorrection::class);
+    }
 }

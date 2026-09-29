@@ -14,6 +14,7 @@ enum PurchasePermission: string
     case Receive = 'purchase.receive';
     case Close = 'purchase.close';
     case ViewReceipts = 'purchase.view_receipts';
+    case CorrectReceipt = 'purchase.correct_receipt';
     case Export = 'purchase.export';
     case QuickReceive = 'purchase.quick_receive';
     case SupplierView = 'supplier.view';

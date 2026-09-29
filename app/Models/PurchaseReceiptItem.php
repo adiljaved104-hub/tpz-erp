@@ -61,6 +61,11 @@ class PurchaseReceiptItem extends Model
         return $this->hasMany(PurchaseReceiptAllocationLine::class);
     }
 
+    public function corrections(): HasMany
+    {
+        return $this->hasMany(PurchaseReceiptCorrection::class);
+    }
+
     public function valuationQuantity(): int
     {
         return $this->accepted_quantity + $this->damaged_quantity;

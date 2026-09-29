@@ -58,6 +58,38 @@ class PurchaseReceiptInfolist
                     ->extraAttributes(['style' => 'overflow-x:auto;'])
                     ->columnSpanFull(),
             ])->columns(2),
+            Section::make('Correction History')
+                ->description('Immutable corrections to originally posted accepted quantities.')
+                ->schema([
+                    RepeatableEntry::make('corrections')
+                        ->label('Corrections')
+                        ->state(fn (PurchaseReceipt $record): Collection => $record->corrections()
+                            ->with(['product:id,name', 'performedBy:id,name'])
+                            ->orderByDesc('corrected_at')->get())
+                        ->schema([
+                            TextEntry::make('reference')->label('Correction'),
+                            TextEntry::make('product.name')->label('Product'),
+                            TextEntry::make('quantity_before')->label('Before'),
+                            TextEntry::make('corrected_quantity')->label('After'),
+                            TextEntry::make('adjustment_quantity')->label('Adjustment'),
+                            TextEntry::make('reason')->label('Reason'),
+                            TextEntry::make('performedBy.name')->label('Corrected By'),
+                            TextEntry::make('corrected_at')->label('Corrected At')->dateTime('d M Y, h:i A', config('app.timezone')),
+                        ])
+                        ->table([
+                            TableColumn::make('Correction'),
+                            TableColumn::make('Product'),
+                            TableColumn::make('Before'),
+                            TableColumn::make('After'),
+                            TableColumn::make('Adjustment'),
+                            TableColumn::make('Reason'),
+                            TableColumn::make('Corrected By'),
+                            TableColumn::make('Corrected At'),
+                        ])
+                        ->extraAttributes(['style' => 'overflow-x:auto;'])
+                        ->columnSpanFull(),
+                ])
+                ->visible(fn (PurchaseReceipt $record): bool => $record->corrections()->exists()),
         ]);
     }
 

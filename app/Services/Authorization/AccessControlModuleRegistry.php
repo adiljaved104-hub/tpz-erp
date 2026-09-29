@@ -94,7 +94,7 @@ class AccessControlModuleRegistry
             $this->module('damaged', 'Damaged Items', 'products_inventory', [DamagedStockPermission::View]),
 
             $this->module('suppliers', 'Suppliers', 'purchasing', [PurchasePermission::SupplierView], [PurchasePermission::SupplierManage]),
-            $this->module('purchases', 'Purchases & Receipts', 'purchasing', [PurchasePermission::View], [PurchasePermission::Create, PurchasePermission::UpdateDraft], [PurchasePermission::ViewFinancials, PurchasePermission::ViewCostHistory, PurchasePermission::Approve, PurchasePermission::Cancel, PurchasePermission::Receive, PurchasePermission::Close, PurchasePermission::ViewReceipts, PurchasePermission::Export, PurchasePermission::QuickReceive]),
+            $this->module('purchases', 'Purchases & Receipts', 'purchasing', [PurchasePermission::View], [PurchasePermission::Create, PurchasePermission::UpdateDraft], [PurchasePermission::ViewFinancials, PurchasePermission::ViewCostHistory, PurchasePermission::Approve, PurchasePermission::Cancel, PurchasePermission::Receive, PurchasePermission::Close, PurchasePermission::ViewReceipts, PurchasePermission::CorrectReceipt, PurchasePermission::Export, PurchasePermission::QuickReceive]),
 
             $this->module('orders', 'Orders', 'sales_orders', [OrderPermission::View], [OrderPermission::Create, OrderPermission::UpdateDraft], [OrderPermission::Amend, OrderPermission::AmendAfterWindow, OrderPermission::ManageAmendmentSettings, OrderPermission::Confirm, OrderPermission::Reserve, OrderPermission::Process, OrderPermission::Fulfill, OrderPermission::Cancel, OrderPermission::ViewSellingPrice, OrderPermission::EditSellingPrice, OrderPermission::ViewCost, OrderPermission::ViewProfit, OrderPermission::Export]),
 

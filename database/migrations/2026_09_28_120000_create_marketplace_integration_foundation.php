@@ -98,6 +98,7 @@ return new class extends Migration
         Schema::table('product_marketplace_listings', function (Blueprint $table): void {
             $table->unsignedBigInteger('marketplace_account_id')->nullable()->after('marketplace_platform_id');
             $table->string('direct_url', 2048)->nullable()->after('listing_title');
+            $table->index('marketplace_platform_id', 'pml_platform_idx');
             $table->dropUnique('pml_platform_identifier_uq');
             $table->dropUnique('pml_platform_sku_uq');
             $table->index(['product_id', 'marketplace_account_id'], 'pml_product_account_idx');
@@ -181,6 +182,10 @@ return new class extends Migration
             $table->dropColumn(['marketplace_account_id', 'direct_url']);
             $table->unique(['marketplace_platform_id', 'marketplace_identifier'], 'pml_platform_identifier_uq');
             $table->unique(['marketplace_platform_id', 'listing_sku'], 'pml_platform_sku_uq');
+        });
+
+        Schema::table('product_marketplace_listings', function (Blueprint $table): void {
+            $table->dropIndex('pml_platform_idx');
         });
         Schema::dropIfExists('marketplace_monitoring_settings');
         Schema::dropIfExists('marketplace_connection_capabilities');

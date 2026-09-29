@@ -24,7 +24,7 @@ class MarketplaceMonitoringSettingsService
             'monitoring_interval_minutes' => (int) config('marketplace_monitoring.interval_minutes', 15),
             'employee_reminder_minutes' => 60,
             'acknowledgement_stops_reminders' => true,
-            'escalation_threshold_minutes' => 1440,
+            'escalation_threshold_minutes' => 120,
             'escalation_recipient_strategy' => 'manager_owner_admin',
             'escalation_channels' => ['in_app', 'email'],
             'summary_times' => ['09:00', '14:00', '19:00'],
@@ -50,7 +50,7 @@ class MarketplaceMonitoringSettingsService
         if ($summaryTimes->isEmpty()) {
             throw ValidationException::withMessages(['summaryTimes' => 'Add at least one valid management summary time.']);
         }
-        $channels = collect($data['escalation_channels'] ?? [])->intersect(['in_app', 'email'])->unique()->values();
+        $channels = collect($data['escalation_channels'] ?? [])->intersect(['in_app', 'email', 'push'])->unique()->values();
         if ($channels->isEmpty()) {
             throw ValidationException::withMessages(['escalationChannels' => 'Enable at least one escalation channel.']);
         }
@@ -64,11 +64,11 @@ class MarketplaceMonitoringSettingsService
                 'monitoring_interval_minutes' => max(5, min(1440, (int) ($data['monitoring_interval_minutes'] ?? 15))),
                 'employee_reminder_minutes' => max(15, min(10080, (int) ($data['employee_reminder_minutes'] ?? 60))),
                 'acknowledgement_stops_reminders' => (bool) ($data['acknowledgement_stops_reminders'] ?? true),
-                'escalation_threshold_minutes' => max(15, min(43200, (int) ($data['escalation_threshold_minutes'] ?? 1440))),
+                'escalation_threshold_minutes' => max(15, min(43200, (int) ($data['escalation_threshold_minutes'] ?? 120))),
                 'escalation_recipient_strategy' => in_array($data['escalation_recipient_strategy'] ?? null, ['manager_owner_admin', 'owner_admin'], true) ? $data['escalation_recipient_strategy'] : 'manager_owner_admin',
                 'escalation_channels' => $channels->all(),
                 'summary_times' => $summaryTimes->all(),
-                'event_channels' => collect($data['event_channels'] ?? ['in_app', 'email'])->intersect(['in_app', 'email'])->unique()->values()->all(),
+                'event_channels' => collect($data['event_channels'] ?? ['in_app', 'email'])->intersect(['in_app', 'email', 'push'])->unique()->values()->all(),
                 'updated_by_user_id' => $actor->id,
             ])->save();
             $this->activity->log('marketplace_monitoring.settings_updated', $actor, $setting, ['before' => $before, 'after' => $setting->fresh()->toArray()]);

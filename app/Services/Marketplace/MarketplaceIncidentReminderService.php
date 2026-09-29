@@ -69,7 +69,7 @@ class MarketplaceIncidentReminderService
         foreach ($managers->merge($this->incidents->escalationRecipients())->unique('id') as $user) {
             $recipient = MarketplaceOperationIncidentRecipient::query()->firstOrCreate(['incident_id' => $incident->id, 'user_id' => $user->id], ['recipient_role' => MarketplaceOperationIncidentRecipient::ESCALATION]);
             $type = $incident->incident_type === MarketplaceOperationIncident::FEATURED_OFFER_LOST ? 'marketplace.featured_offer_lost' : 'marketplace.stock_exposure';
-            if (! in_array('in_app', $settings['escalation_channels'], true) && ! in_array('email', $settings['escalation_channels'], true)) {
+            if (array_intersect(['in_app', 'email', 'push'], $settings['escalation_channels']) === []) {
                 continue;
             }
             $payload = ['category' => 'marketplace', 'event' => $type, 'title' => 'Marketplace Incident Escalation', 'message' => $incident->product->sku.' · '.$incident->product->name.' remains unresolved and unacknowledged.', 'reference' => $incident->product->sku, 'status' => 'Escalated', 'target_type' => 'marketplace_operation_incident', 'target_id' => $incident->id, 'marketplace_operation_incident_id' => $incident->id, 'acknowledgment_required' => true];

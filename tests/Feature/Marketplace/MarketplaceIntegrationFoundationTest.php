@@ -9,6 +9,8 @@ use App\Enums\MarketplaceConnectionCapability;
 use App\Enums\MarketplaceConnectionType;
 use App\Enums\MarketplaceObservationState;
 use App\Enums\ProductCondition;
+use App\Filament\Pages\MarketplaceOperations;
+use App\Jobs\SendMobilePush;
 use App\Models\MarketplaceAccount;
 use App\Models\MarketplaceConnection;
 use App\Models\MarketplaceConnectionCapabilityRecord;
@@ -18,6 +20,7 @@ use App\Models\ProductBrand;
 use App\Models\ProductMarketplaceListing;
 use App\Services\Marketplace\MarketplaceConnectionCapabilityResolver;
 use App\Services\Marketplace\MarketplaceListingLocator;
+use App\Services\Marketplace\MarketplaceMonitoringService;
 use App\Services\Marketplace\MarketplaceMonitoringSettingsService;
 use App\Services\Marketplace\MarketplaceMonitorManager;
 use App\Services\Marketplace\MarketplaceNewOrderService;
@@ -26,6 +29,8 @@ use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
+use Livewire\Livewire;
 use Tests\Support\ResponsibilityTestFoundation;
 use Tests\TestCase;
 
@@ -116,24 +121,66 @@ class MarketplaceIntegrationFoundationTest extends TestCase
         $owner = $this->responsibilityUser(EmployeeRole::Owner);
         $service = app(MarketplaceMonitoringSettingsService::class);
         $this->assertSame(['09:00', '14:00', '19:00'], $service->effective()['summary_times']);
+        $this->assertSame(120, $service->effective()['escalation_threshold_minutes']);
 
         $service->save(array_replace($service->effective(), [
             'summary_times' => ['08:30', '17:15'],
             'employee_reminder_minutes' => 60,
             'escalation_threshold_minutes' => 180,
             'escalation_recipient_strategy' => 'manager_owner_admin',
-            'escalation_channels' => ['in_app'],
+            'escalation_channels' => ['in_app', 'push'],
+            'event_channels' => ['email', 'push'],
         ]), $owner);
         $effective = $service->effective();
         $this->assertSame(['08:30', '17:15'], $effective['summary_times']);
         $this->assertSame(180, $effective['escalation_threshold_minutes']);
-        $this->assertSame(['in_app'], $effective['escalation_channels']);
+        $this->assertSame(['in_app', 'push'], $effective['escalation_channels']);
+        $this->assertSame(['email', 'push'], $effective['event_channels']);
         CarbonImmutable::setTestNow('2026-09-28 08:30:00');
         try {
             $this->assertTrue($service->summaryDueNow());
         } finally {
             CarbonImmutable::setTestNow();
         }
+    }
+
+    public function test_owner_can_disable_monitoring_from_marketplace_operations_settings(): void
+    {
+        $owner = $this->responsibilityUser(EmployeeRole::Owner);
+
+        $this->actingAs($owner);
+        Livewire::test(MarketplaceOperations::class)
+            ->assertSet('settings.monitoring_enabled', true)
+            ->set('settings.monitoring_enabled', false)
+            ->call('saveSettings')
+            ->assertHasNoErrors();
+
+        $this->assertFalse(app(MarketplaceMonitoringSettingsService::class)->effective()['monitoring_enabled']);
+        $this->assertSame(['checked' => 0, 'failed' => 0, 'skipped' => 1], app(MarketplaceMonitoringService::class)->run());
+    }
+
+    public function test_push_event_channel_uses_existing_mobile_push_delivery_pipeline(): void
+    {
+        Queue::fake();
+        config()->set('mobile.push_enabled', true);
+        $owner = $this->responsibilityUser(EmployeeRole::Owner);
+        $responsible = $this->responsibilityUser(EmployeeRole::Staff);
+        $brand = ProductBrand::factory()->create();
+        $platform = MarketplacePlatform::factory()->create();
+        $product = Product::factory()->create(['brand_id' => $brand->id, 'brand' => $brand->name]);
+        $account = $this->account($platform, 'New', 'new');
+        $listing = $this->listing($product, $account);
+        app(ResponsibilityAssignmentService::class)->create($this->assignmentData([
+            'employee' => $responsible->employee, 'brand' => $brand, 'platform' => $platform, 'product' => $product, 'inventory' => null,
+        ], overrides: ['platformId' => $platform->id]), $owner);
+        $settings = app(MarketplaceMonitoringSettingsService::class);
+        $settings->save(array_replace($settings->effective(), ['event_channels' => ['push']]), $owner);
+
+        app(MarketplaceNewOrderService::class)->record($account, 'PUSH-ORDER-1', [['listing_id' => $listing->id, 'quantity' => 1]], 'api');
+
+        $notification = $responsible->notifications()->where('type', 'marketplace.new_order')->sole();
+        $this->assertTrue($notification->data['mobile_push_enabled']);
+        Queue::assertPushed(SendMobilePush::class, fn (SendMobilePush $job): bool => $job->userId === $responsible->id && $job->notificationId === $notification->id);
     }
 
     public function test_new_order_is_deduplicated_by_account_and_routes_by_responsibility(): void

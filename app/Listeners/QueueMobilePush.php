@@ -10,7 +10,10 @@ class QueueMobilePush
 {
     public function handle(NotificationSent $event): void
     {
-        if ($event->channel === 'database' && $event->notifiable instanceof User && config('mobile.push_enabled')) {
+        if ($event->channel === 'database'
+            && $event->notifiable instanceof User
+            && config('mobile.push_enabled')
+            && data_get($event->response, 'data.mobile_push_enabled', data_get($event->response, 'mobile_push_enabled', true)) !== false) {
             SendMobilePush::dispatch($event->notifiable->id, (string) $event->notification->id)->afterCommit();
         }
     }

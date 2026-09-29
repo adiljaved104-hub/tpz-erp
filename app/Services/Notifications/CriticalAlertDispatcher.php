@@ -24,16 +24,20 @@ class CriticalAlertDispatcher
 
         $id = $this->notificationId($recipient, $type, $eventKey);
         $inApp = $this->rules->channelEnabled($type, 'in_app') && ($channelOverride === null || in_array('in_app', $channelOverride, true));
+        $push = $this->rules->channelEnabled($type, 'in_app') && $channelOverride !== null && in_array('push', $channelOverride, true);
         $email = $this->rules->channelEnabled($type, 'email') && ($channelOverride === null || in_array('email', $channelOverride, true));
         $delivered = false;
 
-        if ($inApp) {
+        if ($inApp || $push) {
             if ($recipient->notifications()->whereKey($id)->exists()) {
                 return false;
             }
 
             try {
-                $recipient->notify(new CriticalAlertDatabaseNotification($id, $type, $payload));
+                $databasePayload = $channelOverride === null
+                    ? $payload
+                    : array_merge($payload, ['mobile_push_enabled' => $push]);
+                $recipient->notify(new CriticalAlertDatabaseNotification($id, $type, $databasePayload));
                 $delivered = true;
             } catch (QueryException $exception) {
                 if ($recipient->notifications()->whereKey($id)->exists()) {
@@ -49,7 +53,7 @@ class CriticalAlertDispatcher
             }
         }
 
-        if ($email && ($inApp || $this->rules->claimEmailDelivery($type, $eventKey, $recipient))) {
+        if ($email && ($inApp || $push || $this->rules->claimEmailDelivery($type, $eventKey, $recipient))) {
             $delivered = $this->queueEmail($recipient, $mailSubject, (string) ($payload['title'] ?? 'ERP alert'), (string) ($payload['reference'] ?? ''), (string) ($payload['message'] ?? ''), $payload['status'] ?? null, $url, $payload['target_type'] ?? null, isset($payload['target_id']) ? (int) $payload['target_id'] : null, $mailDetails, $type) || $delivered;
         }
 

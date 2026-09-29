@@ -84,14 +84,15 @@
 
         <x-filament::section heading="Monitoring & notifications">
             <form wire:submit="saveSettings" class="grid gap-4 md:grid-cols-3">
+                <label class="text-sm"><input type="checkbox" wire:model="settings.monitoring_enabled"> Enable Marketplace Watchdog monitoring</label>
                 <label class="text-sm">Monitoring interval (minutes)<input wire:model="settings.monitoring_interval_minutes" type="number" min="5" max="1440" class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
                 <label class="text-sm">Employee reminder (minutes)<input wire:model="settings.employee_reminder_minutes" type="number" min="15" max="10080" class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
                 <label class="text-sm">Escalation threshold (minutes)<input wire:model="settings.escalation_threshold_minutes" type="number" min="15" max="43200" class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
                 <label class="text-sm">Escalation recipients<select wire:model="settings.escalation_recipient_strategy" class="fi-input mt-1 w-full rounded-lg border-gray-300"><option value="manager_owner_admin">Matching Manager + Owner/Admin</option><option value="owner_admin">Owner/Admin only</option></select></label>
                 <label class="text-sm md:col-span-2">Management summary times<input wire:model="summaryTimes" class="fi-input mt-1 w-full rounded-lg border-gray-300" placeholder="09:00, 14:00, 19:00"><span class="text-xs text-gray-500">Comma-separated 24-hour times.</span></label>
                 <label class="text-sm"><input type="checkbox" wire:model="settings.acknowledgement_stops_reminders"> Acknowledgement stops employee reminders</label>
-                <fieldset class="md:col-span-2"><legend class="text-sm">Escalation channels</legend><div class="mt-1 flex gap-4"><label><input type="checkbox" wire:model="settings.escalation_channels" value="in_app"> In-app</label><label><input type="checkbox" wire:model="settings.escalation_channels" value="email"> Email</label></div></fieldset>
-                <fieldset><legend class="text-sm">Event channels</legend><div class="mt-1 flex gap-4"><label><input type="checkbox" wire:model="settings.event_channels" value="in_app"> In-app</label><label><input type="checkbox" wire:model="settings.event_channels" value="email"> Email</label></div></fieldset>
+                <fieldset class="md:col-span-2"><legend class="text-sm">Escalation channels</legend><div class="mt-1 flex flex-wrap gap-4"><label><input type="checkbox" wire:model="settings.escalation_channels" value="in_app"> In-app</label><label><input type="checkbox" wire:model="settings.escalation_channels" value="email"> Email</label><label><input type="checkbox" wire:model="settings.escalation_channels" value="push"> Push</label></div></fieldset>
+                <fieldset><legend class="text-sm">Event channels</legend><div class="mt-1 flex flex-wrap gap-4"><label><input type="checkbox" wire:model="settings.event_channels" value="in_app"> In-app</label><label><input type="checkbox" wire:model="settings.event_channels" value="email"> Email</label><label><input type="checkbox" wire:model="settings.event_channels" value="push"> Push</label></div></fieldset>
                 <div class="flex items-end"><x-filament::button type="submit" wire:loading.attr="disabled">Save Settings</x-filament::button></div>
             </form>
         </x-filament::section>

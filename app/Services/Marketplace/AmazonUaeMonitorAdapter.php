@@ -5,6 +5,7 @@ namespace App\Services\Marketplace;
 use App\Contracts\MarketplaceMonitorAdapter;
 use App\DTOs\Marketplace\MarketplaceObservation;
 use App\Enums\MarketplaceObservationState;
+use App\Models\MarketplaceConnection;
 use App\Models\ProductMarketplaceListing;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -13,37 +14,41 @@ use Throwable;
 
 class AmazonUaeMonitorAdapter implements MarketplaceMonitorAdapter
 {
-    public function supports(ProductMarketplaceListing $listing): bool
+    public function __construct(private readonly MarketplaceCredentialReferenceService $credentialReferences) {}
+
+    public function supports(ProductMarketplaceListing $listing, ?MarketplaceConnection $connection = null): bool
     {
-        return $listing->monitor_source === 'amazon_api';
+        return $connection?->driver === 'amazon_sp_api' || ($connection === null && $listing->monitor_source === 'amazon_api');
     }
 
-    public function observe(ProductMarketplaceListing $listing): MarketplaceObservation
+    public function observe(ProductMarketplaceListing $listing, ?MarketplaceConnection $connection = null): MarketplaceObservation
     {
-        if (! $this->configured()) {
-            return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, 'amazon_api', 'not_configured', 'Amazon UAE monitoring is not configured.');
+        $credentials = $connection === null ? (array) config('marketplace_monitoring.amazon', []) : $this->credentialReferences->credentials($connection);
+        $source = $connection?->driver ?? 'amazon_api';
+        if (! $this->configured($credentials)) {
+            return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, 'not_configured', 'Amazon UAE monitoring is not configured.', $listing->marketplace_account_id, $connection?->id);
         }
 
         if (blank($listing->marketplace_identifier)) {
-            return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, 'amazon_api', 'missing_identifier', 'The marketplace listing identifier is unavailable.');
+            return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, 'missing_identifier', 'The marketplace listing identifier is unavailable.', $listing->marketplace_account_id, $connection?->id);
         }
 
         try {
-            $accessToken = $this->accessToken();
+            $accessToken = $this->accessToken($credentials);
             if ($accessToken === null) {
-                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, 'amazon_api', 'authentication_failed', 'Amazon authorization is temporarily unavailable.');
+                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, 'authentication_failed', 'Amazon authorization is temporarily unavailable.', $listing->marketplace_account_id, $connection?->id);
             }
 
             $response = Http::acceptJson()
                 ->withHeaders(['x-amz-access-token' => $accessToken])
                 ->timeout(15)
                 ->get(
-                    rtrim((string) config('marketplace_monitoring.amazon.endpoint'), '/').'/products/pricing/v0/items/'.rawurlencode((string) $listing->marketplace_identifier).'/offers',
-                    ['MarketplaceId' => config('marketplace_monitoring.amazon.marketplace_id'), 'ItemCondition' => 'New', 'CustomerType' => 'Consumer'],
+                    rtrim((string) ($credentials['endpoint'] ?? ''), '/').'/products/pricing/v0/items/'.rawurlencode((string) $listing->marketplace_identifier).'/offers',
+                    ['MarketplaceId' => $credentials['marketplace_id'] ?? null, 'ItemCondition' => $listing->account?->product_condition === 'renewed' ? 'Used' : 'New', 'CustomerType' => 'Consumer'],
                 );
 
             if (! $response->successful()) {
-                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, 'amazon_api', 'api_error', 'Amazon marketplace data is temporarily unavailable.');
+                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, 'api_error', 'Amazon marketplace data is temporarily unavailable.', $listing->marketplace_account_id, $connection?->id);
             }
 
             $offers = data_get($response->json(), 'payload.Offers', []);
@@ -58,7 +63,7 @@ class AmazonUaeMonitorAdapter implements MarketplaceMonitorAdapter
 
             $featured = $winnerSellerIds->isEmpty()
                 ? MarketplaceObservationState::Unknown
-                : ($winnerSellerIds->contains((string) config('marketplace_monitoring.amazon.seller_id'))
+                : ($winnerSellerIds->contains((string) ($credentials['seller_id'] ?? ''))
                     ? MarketplaceObservationState::Yes
                     : MarketplaceObservationState::No);
 
@@ -68,34 +73,39 @@ class AmazonUaeMonitorAdapter implements MarketplaceMonitorAdapter
                 MarketplaceObservationState::Yes,
                 $featured,
                 CarbonImmutable::now(),
-                'amazon_api',
+                $source,
                 'ok',
+                null,
+                $listing->marketplace_account_id,
+                $connection?->id,
             );
         } catch (Throwable) {
-            return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, 'amazon_api', 'source_error', 'Amazon marketplace monitoring failed safely.');
+            return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, 'source_error', 'Amazon marketplace monitoring failed safely.', $listing->marketplace_account_id, $connection?->id);
         }
     }
 
-    private function configured(): bool
+    /** @param array<string, mixed> $credentials */
+    private function configured(array $credentials): bool
     {
-        return (bool) config('marketplace_monitoring.amazon.enabled')
+        return (bool) ($credentials['enabled'] ?? false)
             && collect(['endpoint', 'marketplace_id', 'seller_id', 'lwa_client_id', 'lwa_client_secret', 'refresh_token'])
-                ->every(fn (string $key): bool => filled(config("marketplace_monitoring.amazon.{$key}")));
+                ->every(fn (string $key): bool => filled($credentials[$key] ?? null));
     }
 
-    private function accessToken(): ?string
+    /** @param array<string, mixed> $credentials */
+    private function accessToken(array $credentials): ?string
     {
-        $cacheKey = 'marketplace-monitoring:amazon:lwa:'.hash('sha256', (string) config('marketplace_monitoring.amazon.lwa_client_id').':'.(string) config('marketplace_monitoring.amazon.seller_id'));
+        $cacheKey = 'marketplace-monitoring:amazon:lwa:'.hash('sha256', (string) ($credentials['lwa_client_id'] ?? '').':'.(string) ($credentials['seller_id'] ?? ''));
         $cached = Cache::get($cacheKey);
         if (is_string($cached) && $cached !== '') {
             return $cached;
         }
 
-        $response = Http::asForm()->timeout(10)->post((string) config('marketplace_monitoring.amazon.lwa_endpoint'), [
+        $response = Http::asForm()->timeout(10)->post((string) ($credentials['lwa_endpoint'] ?? 'https://api.amazon.com/auth/o2/token'), [
             'grant_type' => 'refresh_token',
-            'refresh_token' => config('marketplace_monitoring.amazon.refresh_token'),
-            'client_id' => config('marketplace_monitoring.amazon.lwa_client_id'),
-            'client_secret' => config('marketplace_monitoring.amazon.lwa_client_secret'),
+            'refresh_token' => $credentials['refresh_token'] ?? null,
+            'client_id' => $credentials['lwa_client_id'] ?? null,
+            'client_secret' => $credentials['lwa_client_secret'] ?? null,
         ]);
         if (! $response->successful() || blank($response->json('access_token'))) {
             return null;

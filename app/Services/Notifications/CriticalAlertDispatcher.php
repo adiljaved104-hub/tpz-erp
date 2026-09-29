@@ -16,15 +16,15 @@ class CriticalAlertDispatcher
     ) {}
 
     /** @param array<string, mixed> $payload */
-    public function send(User $recipient, string $type, string $eventKey, array $payload, string $mailSubject, ?string $url = null, array $mailDetails = []): bool
+    public function send(User $recipient, string $type, string $eventKey, array $payload, string $mailSubject, ?string $url = null, array $mailDetails = [], ?array $channelOverride = null): bool
     {
         if (! $this->activeUser($recipient) || ! $this->rules->enabled($type)) {
             return false;
         }
 
         $id = $this->notificationId($recipient, $type, $eventKey);
-        $inApp = $this->rules->channelEnabled($type, 'in_app');
-        $email = $this->rules->channelEnabled($type, 'email');
+        $inApp = $this->rules->channelEnabled($type, 'in_app') && ($channelOverride === null || in_array('in_app', $channelOverride, true));
+        $email = $this->rules->channelEnabled($type, 'email') && ($channelOverride === null || in_array('email', $channelOverride, true));
         $delivered = false;
 
         if ($inApp) {

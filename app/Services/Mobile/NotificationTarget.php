@@ -17,6 +17,7 @@ use App\Models\CustomerReturn;
 use App\Models\EmployeeWarning;
 use App\Models\HrNotice;
 use App\Models\MarketplaceOperationIncident;
+use App\Models\MarketplaceOrderEvent;
 use App\Models\Order;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
@@ -53,6 +54,7 @@ class NotificationTarget
             'conversation' => [Conversation::class, 'chat'], 'responsibility_assignment' => [ResponsibilityAssignment::class, 'responsibilities'],
             'product_inventory' => [ProductInventory::class, 'inventory'], 'stock_request' => [StockRequest::class, 'stock-requests'],
             'marketplace_operation_incident' => [MarketplaceOperationIncident::class, 'marketplace-operations'],
+            'marketplace_order_event' => [MarketplaceOrderEvent::class, 'marketplace-operations'],
             'hr_notice' => [HrNotice::class, 'hr/notices'], 'employee_warning' => [EmployeeWarning::class, 'hr/warnings'], default => [null, null],
         };
         if ($model === null || ! ($record = $model::query()->find((int) $id))) {
@@ -79,6 +81,8 @@ class NotificationTarget
             $record instanceof StockRequest => app(StockRequestService::class)->canView($user, $record),
             $record instanceof MarketplaceOperationIncident => $record->recipients()->where('user_id', $user->id)->exists()
                 || in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true),
+            $record instanceof MarketplaceOrderEvent => in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+                || $user->notifications()->where('data->target_type', 'marketplace_order_event')->where('data->target_id', $record->id)->exists(),
             default => false,
         };
 

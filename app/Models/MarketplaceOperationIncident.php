@@ -38,6 +38,11 @@ class MarketplaceOperationIncident extends Model
         return $this->belongsTo(MarketplacePlatform::class, 'marketplace_platform_id');
     }
 
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(MarketplaceAccount::class, 'marketplace_account_id');
+    }
+
     public function responsibility(): BelongsTo
     {
         return $this->belongsTo(ResponsibilityAssignment::class, 'responsibility_assignment_id');

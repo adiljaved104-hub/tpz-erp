@@ -17,6 +17,7 @@ use App\Enums\HrPermission;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\InventoryPermission;
 use App\Enums\InvoicePermission;
+use App\Enums\MarketplaceOperationsPermission;
 use App\Enums\MarketplaceReturnPermission;
 use App\Enums\NotificationRulePermission;
 use App\Enums\OfficeFinancePermission;
@@ -120,6 +121,7 @@ class AccessControlModuleRegistry
 
             $this->module('email_settings', 'Email Settings', 'administration', [EmailSettingsPermission::View], [EmailSettingsPermission::Manage], [EmailSettingsPermission::Test]),
             $this->module('notification_rules', 'Notification Rules', 'administration', [NotificationRulePermission::View], [NotificationRulePermission::Manage]),
+            $this->module('marketplace_operations', 'Marketplace Operations', 'administration', [MarketplaceOperationsPermission::View], [MarketplaceOperationsPermission::Manage], [], 'Owner-managed marketplace accounts, connections, monitoring, and notification schedules.'),
             $this->module('company_profile', 'Company Profile', 'administration', [CompanyProfilePermission::View], [CompanyProfilePermission::Manage]),
             $this->module('login_security', 'Login & Security', 'administration', [AuthSecurityPermission::View], [AuthSecurityPermission::Manage], [AuthSecurityPermission::ManageTwoFactor]),
             $this->module('backup_settings', 'Backup Settings', 'administration', [BackupSettingsPermission::View], [BackupSettingsPermission::Manage], [BackupSettingsPermission::Run, BackupSettingsPermission::Verify, BackupSettingsPermission::Download]),

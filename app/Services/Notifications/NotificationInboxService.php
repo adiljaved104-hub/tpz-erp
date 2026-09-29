@@ -234,7 +234,7 @@ class NotificationInboxService
                 'claim.needs_filing', 'return.awaiting_qc', 'leave.submitted', 'leave.approved', 'leave.rejected',
                 'warning.issued', 'notice.published', 'chat.mention', 'chat.direct_message',
                 'stock_request.created', 'stock_request.approved', 'stock_request.completed',
-                'marketplace.featured_offer_lost', 'marketplace.stock_exposure',
+                'marketplace.featured_offer_lost', 'marketplace.stock_exposure', 'marketplace.new_order',
             ])
             ->latest('created_at')
             ->value('id');

@@ -2,9 +2,17 @@
 
 namespace App\Filament\Pages;
 
-use App\Enums\EmployeeRole;
+use App\Enums\MarketplaceOperationsPermission;
+use App\Models\MarketplaceAccount;
+use App\Models\MarketplaceConnection;
+use App\Models\MarketplacePlatform;
+use App\Models\User;
+use App\Services\Authorization\MarketplaceOperationsAuthorization;
+use App\Services\Marketplace\MarketplaceIntegrationService;
+use App\Services\Marketplace\MarketplaceMonitoringSettingsService;
 use App\Services\Marketplace\MarketplaceOperationsSummaryService;
 use BackedEnum;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use UnitEnum;
 
@@ -22,18 +30,106 @@ class MarketplaceOperations extends Page
 
     protected string $view = 'filament.pages.marketplace-operations';
 
+    public array $settings = [];
+
+    public string $summaryTimes = '09:00, 14:00, 19:00';
+
+    public array $accountForm = ['marketplace_platform_id' => null, 'name' => '', 'code' => '', 'product_condition' => null, 'enabled' => true];
+
+    public array $connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver' => '', 'priority' => 100, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
+
+    public array $connectionSettings = [];
+
     public static function canAccess(): bool
     {
-        return in_array(auth()->user()?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
+        $user = auth()->user();
+
+        return $user instanceof User && app(MarketplaceOperationsAuthorization::class)->allows($user, MarketplaceOperationsPermission::View);
     }
 
-    public function mount(): void
+    public function mount(MarketplaceMonitoringSettingsService $settings): void
     {
         abort_unless(static::canAccess(), 403);
+        $this->settings = $settings->effective();
+        $this->summaryTimes = implode(', ', $this->settings['summary_times']);
+        $this->loadConnectionSettings();
+    }
+
+    public function saveSettings(MarketplaceMonitoringSettingsService $service): void
+    {
+        $this->settings['summary_times'] = preg_split('/\s*,\s*/', trim($this->summaryTimes)) ?: [];
+        $service->save($this->settings, $this->actor());
+        $this->settings = $service->effective();
+        $this->summaryTimes = implode(', ', $this->settings['summary_times']);
+        Notification::make()->success()->title('Marketplace monitoring settings saved')->send();
+    }
+
+    public function createAccount(MarketplaceIntegrationService $service): void
+    {
+        $service->saveAccount($this->accountForm, $this->actor());
+        $this->accountForm = ['marketplace_platform_id' => null, 'name' => '', 'code' => '', 'product_condition' => null, 'enabled' => true];
+        Notification::make()->success()->title('Marketplace account created')->send();
+    }
+
+    public function createConnection(MarketplaceIntegrationService $service): void
+    {
+        $service->saveConnection($this->connectionForm, $this->actor());
+        $this->connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver' => '', 'priority' => 100, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
+        $this->loadConnectionSettings();
+        Notification::make()->success()->title('Marketplace connection created')->send();
+    }
+
+    public function saveConnectionConfiguration(int $connectionId, MarketplaceIntegrationService $service): void
+    {
+        $connection = MarketplaceConnection::query()->with('capabilities')->findOrFail($connectionId);
+        $edit = $this->connectionSettings[$connectionId] ?? [];
+        $service->saveConnection([
+            'marketplace_account_id' => $connection->marketplace_account_id,
+            'name' => $connection->name,
+            'connection_type' => $connection->connection_type->value,
+            'driver' => $connection->driver,
+            'priority' => $edit['priority'] ?? $connection->priority,
+            'enabled' => $connection->enabled,
+            'credential_reference' => null,
+            'capabilities' => $edit['capabilities'] ?? [],
+        ], $this->actor(), $connection);
+        $this->loadConnectionSettings();
+        Notification::make()->success()->title('Connection priority and capabilities saved')->send();
+    }
+
+    public function toggleAccount(int $accountId, MarketplaceIntegrationService $service): void
+    {
+        $service->toggleAccount(MarketplaceAccount::query()->findOrFail($accountId), $this->actor());
+        Notification::make()->success()->title('Marketplace account status updated')->send();
+    }
+
+    public function toggleConnection(int $connectionId, MarketplaceIntegrationService $service): void
+    {
+        $service->toggleConnection(MarketplaceConnection::query()->findOrFail($connectionId), $this->actor());
+        Notification::make()->success()->title('Marketplace connection status updated')->send();
     }
 
     public function getViewData(): array
     {
-        return app(MarketplaceOperationsSummaryService::class)->summary();
+        return app(MarketplaceOperationsSummaryService::class)->summary() + [
+            'canManage' => app(MarketplaceOperationsAuthorization::class)->allows($this->actor(), MarketplaceOperationsPermission::Manage),
+            'platforms' => MarketplacePlatform::query()->active()->orderBy('name')->get(),
+            'accounts' => MarketplaceAccount::query()->with(['platform', 'connections.capabilities'])->orderBy('marketplace_platform_id')->orderBy('name')->get(),
+        ];
+    }
+
+    private function actor(): User
+    {
+        $user = auth()->user();
+        abort_unless($user instanceof User, 403);
+
+        return $user;
+    }
+
+    private function loadConnectionSettings(): void
+    {
+        $this->connectionSettings = MarketplaceConnection::query()->with('capabilities')->get()->mapWithKeys(fn (MarketplaceConnection $connection): array => [
+            $connection->id => ['priority' => $connection->priority, 'capabilities' => $connection->capabilities->pluck('capability.value')->all()],
+        ])->all();
     }
 }

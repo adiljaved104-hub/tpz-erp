@@ -16,10 +16,12 @@ final readonly class MarketplaceObservation
         public string $source,
         public ?string $sourceStatus = null,
         public ?string $safeError = null,
+        public ?int $accountId = null,
+        public ?int $connectionId = null,
     ) {}
 
-    public static function unavailable(int $listingId, int $platformId, string $source, string $status, ?string $safeError = null): self
+    public static function unavailable(int $listingId, int $platformId, string $source, string $status, ?string $safeError = null, ?int $accountId = null, ?int $connectionId = null): self
     {
-        return new self($listingId, $platformId, MarketplaceObservationState::Unknown, MarketplaceObservationState::Unknown, CarbonImmutable::now(), $source, $status, $safeError);
+        return new self($listingId, $platformId, MarketplaceObservationState::Unknown, MarketplaceObservationState::Unknown, CarbonImmutable::now(), $source, $status, $safeError, $accountId, $connectionId);
     }
 }

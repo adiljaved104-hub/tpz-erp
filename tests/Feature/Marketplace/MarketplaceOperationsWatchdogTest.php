@@ -25,6 +25,7 @@ use App\Services\Marketplace\AmazonUaeMonitorAdapter;
 use App\Services\Marketplace\MarketplaceIncidentReminderService;
 use App\Services\Marketplace\MarketplaceIncidentService;
 use App\Services\Marketplace\MarketplaceMonitoringService;
+use App\Services\Marketplace\MarketplaceMonitoringSettingsService;
 use App\Services\Marketplace\MarketplaceObservationService;
 use App\Services\Marketplace\MarketplaceStockExposureService;
 use App\Services\Notifications\EmailConfigurationService;
@@ -302,6 +303,29 @@ class MarketplaceOperationsWatchdogTest extends TestCase
             $this->assertSame(2, $context['responsible']->notifications()->where('type', 'marketplace.featured_offer_lost')->count());
             $this->assertSame(1, $context['owner']->notifications()->where('type', 'marketplace.featured_offer_lost')->count());
             $this->assertNotNull(MarketplaceOperationIncident::query()->where('incident_type', MarketplaceOperationIncident::FEATURED_OFFER_LOST)->sole()->escalated_at);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_hourly_reminder_and_configurable_escalation_threshold_are_applied(): void
+    {
+        CarbonImmutable::setTestNow('2026-09-27 08:00:00');
+        try {
+            $context = $this->context();
+            $settings = app(MarketplaceMonitoringSettingsService::class);
+            $settings->save(array_replace($settings->effective(), ['employee_reminder_minutes' => 60, 'escalation_threshold_minutes' => 180]), $context['owner']);
+            $context['listing']->forceFill(['featured_offer_state' => 'yes'])->save();
+            $this->observe($context['listing'], MarketplaceObservationState::Yes, MarketplaceObservationState::No);
+
+            CarbonImmutable::setTestNow('2026-09-27 09:00:00');
+            app(MarketplaceIncidentReminderService::class)->evaluate();
+            $this->assertSame(2, $context['responsible']->notifications()->where('type', 'marketplace.featured_offer_lost')->count());
+            $this->assertSame(0, $context['owner']->notifications()->where('type', 'marketplace.featured_offer_lost')->count());
+
+            CarbonImmutable::setTestNow('2026-09-27 11:00:00');
+            app(MarketplaceIncidentReminderService::class)->evaluate();
+            $this->assertSame(1, $context['owner']->notifications()->where('type', 'marketplace.featured_offer_lost')->count());
         } finally {
             CarbonImmutable::setTestNow();
         }

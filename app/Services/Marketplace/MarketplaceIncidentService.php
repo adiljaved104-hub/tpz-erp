@@ -20,6 +20,7 @@ class MarketplaceIncidentService
     public function __construct(
         private readonly MarketplaceResponsibilityResolver $responsibilities,
         private readonly CriticalAlertDispatcher $alerts,
+        private readonly MarketplaceMonitoringSettingsService $settings,
     ) {}
 
     public function openFeaturedOfferLost(ProductMarketplaceListing $listing): MarketplaceOperationIncident
@@ -78,7 +79,8 @@ class MarketplaceIncidentService
             try {
                 return MarketplaceOperationIncident::query()->create([
                     'incident_key' => (string) Str::uuid(), 'product_id' => $listing->product_id, 'listing_id' => $listing->id,
-                    'marketplace_platform_id' => $listing->marketplace_platform_id, 'responsibility_assignment_id' => $assignment?->id,
+                    'marketplace_platform_id' => $listing->marketplace_platform_id, 'marketplace_account_id' => $listing->marketplace_account_id,
+                    'responsibility_assignment_id' => $assignment?->id,
                     'responsible_employee_id' => $assignment?->employee_id, 'responsible_team_id' => $assignment?->employee?->team_id,
                     'incident_type' => $type, 'active_key' => $activeKey, 'exposed_listing_count' => $exposed,
                     'usable_quantity' => $usable, 'opened_at' => now(), 'last_evaluated_at' => now(),
@@ -121,7 +123,7 @@ class MarketplaceIncidentService
             'marketplace_operation_incident_id' => $incident->id, 'acknowledgment_required' => true,
         ];
         $eventKey = 'marketplace-incident:'.$incident->incident_key.':initial';
-        $sent = $this->alerts->send($user, $type, $eventKey, $payload, $title.' — '.$incident->product->sku, '/admin/marketplace-operations');
+        $sent = $this->alerts->send($user, $type, $eventKey, $payload, $title.' — '.$incident->product->sku, '/admin/marketplace-operations', [], $this->settings->effective()['event_channels']);
         $notificationId = $this->alerts->notificationId($user, $type, $eventKey);
         if ($sent || $user->notifications()->whereKey($notificationId)->exists()) {
             $recipient->forceFill(['initial_notification_id' => $notificationId, 'initial_notified_at' => now()])->save();

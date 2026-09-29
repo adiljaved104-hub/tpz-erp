@@ -5,10 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Validation\ValidationException;
 
 class ProductMarketplaceListing extends Model
 {
-    protected $fillable = ['product_id', 'marketplace_platform_id', 'marketplace_identifier', 'listing_sku', 'listing_title', 'monitor_enabled', 'monitor_source'];
+    protected $fillable = ['product_id', 'marketplace_platform_id', 'marketplace_account_id', 'marketplace_identifier', 'listing_sku', 'listing_title', 'direct_url', 'monitor_enabled', 'monitor_source'];
 
     protected function casts(): array
     {
@@ -19,6 +20,19 @@ class ProductMarketplaceListing extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::saving(function (self $listing): void {
+            if ($listing->marketplace_account_id === null) {
+                return;
+            }
+            $platformId = MarketplaceAccount::query()->whereKey($listing->marketplace_account_id)->value('marketplace_platform_id');
+            if ((int) $platformId !== (int) $listing->marketplace_platform_id) {
+                throw ValidationException::withMessages(['marketplace_account_id' => 'The marketplace account must belong to the selected platform.']);
+            }
+        });
+    }
+
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
@@ -27,6 +41,11 @@ class ProductMarketplaceListing extends Model
     public function platform(): BelongsTo
     {
         return $this->belongsTo(MarketplacePlatform::class, 'marketplace_platform_id');
+    }
+
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(MarketplaceAccount::class, 'marketplace_account_id');
     }
 
     public function observations(): HasMany

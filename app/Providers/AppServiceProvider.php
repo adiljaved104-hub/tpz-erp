@@ -29,6 +29,7 @@ use App\Enums\ExpensePermission;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\InventoryPermission;
 use App\Enums\InvoicePermission;
+use App\Enums\MarketplaceOperationsPermission;
 use App\Enums\MarketplaceReturnPermission;
 use App\Enums\NotificationRulePermission;
 use App\Enums\OrderPermission;
@@ -74,7 +75,11 @@ use App\Models\InventoryReservation;
 use App\Models\InvoiceSetting;
 use App\Models\LeaveRequest;
 use App\Models\LoginSecuritySetting;
+use App\Models\MarketplaceAccount;
+use App\Models\MarketplaceConnection;
+use App\Models\MarketplaceMonitoringSetting;
 use App\Models\MarketplaceOperationIncident;
+use App\Models\MarketplaceOrderEvent;
 use App\Models\MarketplacePlatform;
 use App\Models\MarketplaceReturnRemoval;
 use App\Models\MarketplaceReturnRemovalEvent;
@@ -188,6 +193,7 @@ use App\Services\Authorization\ExpenseAuthorization;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\InventoryLocationAuthorization;
 use App\Services\Authorization\InvoiceAuthorization;
+use App\Services\Authorization\MarketplaceOperationsAuthorization;
 use App\Services\Authorization\MarketplaceReturnAuthorization;
 use App\Services\Authorization\NotificationRuleAuthorization;
 use App\Services\Authorization\OrderAuthorization;
@@ -213,6 +219,7 @@ use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Hikvision\HikvisionAttendanceImporter;
 use App\Services\Marketplace\AmazonUaeMonitorAdapter;
+use App\Services\Marketplace\MarketplaceConnectionCapabilityResolver;
 use App\Services\Marketplace\MarketplaceMonitorManager;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\ProductIntelligence\LocalProductQueryInterpreter;
@@ -270,7 +277,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(NavigationPreferenceService::class);
         $this->app->singleton(MarketplaceMonitorManager::class, fn ($app): MarketplaceMonitorManager => new MarketplaceMonitorManager([
             $app->make(AmazonUaeMonitorAdapter::class),
-        ]));
+        ], $app->make(MarketplaceConnectionCapabilityResolver::class)));
         $this->app->scoped(NavigationManager::class, fn (): NavigationManager => new PersonalizedNavigationManager);
     }
 
@@ -452,6 +459,9 @@ class AppServiceProvider extends ServiceProvider
         foreach (NotificationRulePermission::cases() as $permission) {
             Gate::define($permission->value, fn (User $user): bool => app(NotificationRuleAuthorization::class)->allows($user, $permission));
         }
+        foreach (MarketplaceOperationsPermission::cases() as $permission) {
+            Gate::define($permission->value, fn (User $user): bool => app(MarketplaceOperationsAuthorization::class)->allows($user, $permission));
+        }
         foreach (AuthSecurityPermission::cases() as $permission) {
             Gate::define($permission->value, fn (User $user): bool => app(AuthSecurityAuthorization::class)->allows($user, $permission));
         }
@@ -517,6 +527,10 @@ class AppServiceProvider extends ServiceProvider
             'purchase_receipt' => PurchaseReceipt::class,
             'purchase_receipt_item' => PurchaseReceiptItem::class,
             'marketplace_platform' => MarketplacePlatform::class,
+            'marketplace_account' => MarketplaceAccount::class,
+            'marketplace_connection' => MarketplaceConnection::class,
+            'marketplace_order_event' => MarketplaceOrderEvent::class,
+            'marketplace_monitoring_setting' => MarketplaceMonitoringSetting::class,
             'responsibility_assignment' => ResponsibilityAssignment::class,
             'stock_transfer' => StockTransfer::class,
             'stock_transfer_item' => StockTransferItem::class,

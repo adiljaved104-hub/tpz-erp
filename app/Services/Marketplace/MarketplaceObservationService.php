@@ -19,6 +19,8 @@ class MarketplaceObservationService
             $previousFeatured = $locked->featured_offer_state;
             MarketplaceMonitorObservation::query()->create([
                 'listing_id' => $locked->id, 'source' => $observation->source,
+                'marketplace_account_id' => $observation->accountId ?? $locked->marketplace_account_id,
+                'marketplace_connection_id' => $observation->connectionId,
                 'listing_active_state' => $observation->listingActive->value, 'featured_offer_state' => $observation->featuredOfferHeld->value,
                 'observed_at' => $observation->observedAt, 'source_status' => $observation->sourceStatus,
                 'safe_error' => $this->safe($observation->safeError),

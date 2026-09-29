@@ -165,6 +165,7 @@ class EmployeePermissionCatalog
                 $this->item(PurchasePermission::Receive, 'Receive Purchases', true),
                 $this->item(PurchasePermission::Close, 'Close Purchases', true),
                 $this->item(PurchasePermission::ViewReceipts, 'View GRNs'),
+                $this->item(PurchasePermission::CorrectReceipt, 'Correct Posted GRN / Purchase Receipt', true),
                 $this->item(PurchasePermission::Export, 'Export Purchases'),
                 $this->item(PurchasePermission::QuickReceive, 'Quick Stock Purchase', true),
             ],

@@ -48,6 +48,33 @@ class WeightedAverageCostCalculator
         return $this->fromScaledInteger(bcmul($this->toScaledInteger($averageCost), (string) $quantity, 0));
     }
 
+    public function reverseWeightedAverage(int $existingQuantity, ?string $existingAverage, int $outboundQuantity, string $outboundUnitCost): ?string
+    {
+        if ($existingQuantity <= 0 || $outboundQuantity <= 0 || $outboundQuantity > $existingQuantity) {
+            throw new InventoryInvariantException('Receipt correction quantities are invalid for inventory valuation.');
+        }
+
+        if ($existingAverage === null) {
+            throw new InventoryInvariantException('Valued inventory cannot have a null average cost.');
+        }
+
+        if ($outboundQuantity === $existingQuantity) {
+            return null;
+        }
+
+        $remainingValue = bcsub(
+            bcmul($this->toScaledInteger($existingAverage), (string) $existingQuantity, 0),
+            bcmul($this->toScaledInteger($outboundUnitCost), (string) $outboundQuantity, 0),
+            0,
+        );
+
+        if (bccomp($remainingValue, '0', 0) < 0) {
+            throw new InventoryInvariantException('The receipt cost cannot be reversed safely from the current inventory valuation.');
+        }
+
+        return $this->fromScaledInteger($this->divideHalfUp($remainingValue, (string) ($existingQuantity - $outboundQuantity)));
+    }
+
     public function normalize(string $decimal): string
     {
         return $this->fromScaledInteger($this->toScaledInteger($decimal));

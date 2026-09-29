@@ -109,6 +109,7 @@ use App\Models\ProductInventory;
 use App\Models\PublicHoliday;
 use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
+use App\Models\PurchaseReceiptCorrection;
 use App\Models\PurchaseReceiptItem;
 use App\Models\Quotation;
 use App\Models\QuotationEmailDelivery;
@@ -525,6 +526,7 @@ class AppServiceProvider extends ServiceProvider
             'order_status_event' => OrderStatusEvent::class,
             'purchase' => Purchase::class,
             'purchase_receipt' => PurchaseReceipt::class,
+            'purchase_receipt_correction' => PurchaseReceiptCorrection::class,
             'purchase_receipt_item' => PurchaseReceiptItem::class,
             'marketplace_platform' => MarketplacePlatform::class,
             'marketplace_account' => MarketplaceAccount::class,

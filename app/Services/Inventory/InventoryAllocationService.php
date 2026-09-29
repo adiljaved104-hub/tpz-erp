@@ -15,6 +15,8 @@ use App\Models\InventoryReservation;
 use App\Models\OrderItem;
 use App\Models\ProductInventory;
 use App\Models\PurchaseReceiptAllocationLine;
+use App\Models\PurchaseReceiptCorrection;
+use App\Models\PurchaseReceiptCorrectionAllocationLine;
 use App\Models\PurchaseReceiptItem;
 use App\Models\Team;
 use App\Models\User;
@@ -151,6 +153,73 @@ class InventoryAllocationService
             'purchase_receipt_item_id' => $item->id, 'account_id' => $account->id,
             'quantity' => $quantity, 'allocation_method' => $method,
         ]);
+    }
+
+    /** @return array<int, array{account_id:int,quantity:int}> */
+    public function reverseReceiptCorrection(PurchaseReceiptCorrection $correction, ProductInventory $inventory, User $actor): array
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Receipt allocation correction requires an active transaction.');
+        }
+
+        $remaining = -$correction->adjustment_quantity;
+        $plan = [];
+        $sourceLines = PurchaseReceiptAllocationLine::query()
+            ->where('purchase_receipt_item_id', $correction->purchase_receipt_item_id)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($sourceLines as $sourceLine) {
+            if ($remaining === 0) {
+                break;
+            }
+
+            $alreadyReversed = (int) PurchaseReceiptCorrectionAllocationLine::query()
+                ->where('purchase_receipt_allocation_line_id', $sourceLine->id)
+                ->sum('quantity');
+            $sourceRemaining = $sourceLine->quantity - $alreadyReversed;
+            if ($sourceRemaining < 1) {
+                continue;
+            }
+
+            $account = InventoryAllocationAccount::query()->findOrFail($sourceLine->account_id);
+            $balance = $this->balance($account, $inventory, true);
+            $quantity = min($remaining, $sourceRemaining, $balance->availableQuantity());
+            if ($quantity > 0) {
+                $plan[] = compact('sourceLine', 'account', 'balance', 'quantity');
+                $remaining -= $quantity;
+            }
+        }
+
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('The original received stock has already been reserved or consumed. Resolve the stock usage before correcting this GRN.');
+        }
+
+        $details = [];
+        foreach ($plan as $entry) {
+            $entry['balance']->decrement('allocated_quantity', $entry['quantity']);
+            PurchaseReceiptCorrectionAllocationLine::query()->create([
+                'purchase_receipt_correction_id' => $correction->id,
+                'purchase_receipt_allocation_line_id' => $entry['sourceLine']->id,
+                'account_id' => $entry['account']->id,
+                'quantity' => $entry['quantity'],
+                'created_at' => now(),
+            ]);
+            $this->event(
+                'grn_correction_reversal',
+                $inventory,
+                $entry['quantity'],
+                $actor,
+                'Purchase receipt allocation correction',
+                $correction,
+                $entry['account'],
+                metadata: ['original_allocation_line_id' => $entry['sourceLine']->id],
+            );
+            $details[] = ['account_id' => $entry['account']->id, 'quantity' => $entry['quantity']];
+        }
+
+        return $details;
     }
 
     public function reconcile(ProductInventory $inventory, InventoryAllocationAccount $target, int $quantity, User $actor, string $reason): void
@@ -671,7 +740,9 @@ class InventoryAllocationService
             'from_account_id' => $from?->id, 'to_account_id' => $to?->id, 'quantity' => $quantity,
             'source_type' => $source?->getMorphClass(), 'source_id' => $source?->getKey(),
             'order_id' => $source instanceof InventoryReservation ? $source->orderItem?->order_id : ($source instanceof OrderItem ? $source->order_id : null),
-            'purchase_receipt_id' => $source instanceof PurchaseReceiptItem ? $source->purchase_receipt_id : null,
+            'purchase_receipt_id' => $source instanceof PurchaseReceiptItem
+                ? $source->purchase_receipt_id
+                : ($source instanceof PurchaseReceiptCorrection ? $source->purchase_receipt_id : null),
             'performed_by_user_id' => $actor?->id, 'reason' => $reason, 'metadata' => $metadata ?: null, 'created_at' => now(),
         ]);
     }

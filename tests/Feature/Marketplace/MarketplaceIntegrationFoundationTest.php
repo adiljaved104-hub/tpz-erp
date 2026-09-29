@@ -29,6 +29,7 @@ use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\SendQueuedNotifications;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Tests\Support\ResponsibilityTestFoundation;
@@ -122,6 +123,9 @@ class MarketplaceIntegrationFoundationTest extends TestCase
         $service = app(MarketplaceMonitoringSettingsService::class);
         $this->assertSame(['09:00', '14:00', '19:00'], $service->effective()['summary_times']);
         $this->assertSame(120, $service->effective()['escalation_threshold_minutes']);
+        $this->assertSame(['in_app', 'email', 'push'], $service->effective()['event_channels']);
+        $this->assertSame(['in_app', 'email', 'push'], $service->effective()['escalation_channels']);
+        $this->assertSame(['email'], $service->effective()['summary_channels']);
 
         $service->save(array_replace($service->effective(), [
             'summary_times' => ['08:30', '17:15'],
@@ -130,18 +134,71 @@ class MarketplaceIntegrationFoundationTest extends TestCase
             'escalation_recipient_strategy' => 'manager_owner_admin',
             'escalation_channels' => ['in_app', 'push'],
             'event_channels' => ['email', 'push'],
+            'summary_channels' => ['in_app'],
         ]), $owner);
         $effective = $service->effective();
         $this->assertSame(['08:30', '17:15'], $effective['summary_times']);
         $this->assertSame(180, $effective['escalation_threshold_minutes']);
         $this->assertSame(['in_app', 'push'], $effective['escalation_channels']);
         $this->assertSame(['email', 'push'], $effective['event_channels']);
+        $this->assertSame(['in_app'], $effective['summary_channels']);
         CarbonImmutable::setTestNow('2026-09-28 08:30:00');
         try {
             $this->assertTrue($service->summaryDueNow());
         } finally {
             CarbonImmutable::setTestNow();
         }
+    }
+
+    public function test_summary_channels_are_independent_and_push_uses_existing_mobile_pipeline(): void
+    {
+        Queue::fake();
+        config()->set('mobile.push_enabled', true);
+        $owner = $this->responsibilityUser(EmployeeRole::Owner);
+        $admin = $this->responsibilityUser(EmployeeRole::Admin);
+        $settings = app(MarketplaceMonitoringSettingsService::class);
+        $settings->save(array_replace($settings->effective(), [
+            'event_channels' => ['email'],
+            'escalation_channels' => ['in_app'],
+            'summary_channels' => ['in_app', 'push'],
+        ]), $owner);
+
+        $this->artisan('marketplace:send-summary')->assertSuccessful();
+        $this->artisan('marketplace:send-summary')->assertSuccessful();
+
+        $this->assertSame(1, $owner->notifications()->where('type', 'marketplace.daily_summary')->count());
+        $this->assertSame(1, $admin->notifications()->where('type', 'marketplace.daily_summary')->count());
+        Queue::assertPushed(SendMobilePush::class, 2);
+        Queue::assertNotPushed(SendQueuedNotifications::class);
+    }
+
+    public function test_owner_connection_ui_uses_friendly_labels_without_exposing_credential_reference(): void
+    {
+        $owner = $this->responsibilityUser(EmployeeRole::Owner);
+        $platform = MarketplacePlatform::factory()->create();
+        $account = $this->account($platform, 'New', 'new');
+        MarketplaceConnection::query()->create([
+            'marketplace_account_id' => $account->id,
+            'name' => 'Amazon Production',
+            'connection_type' => MarketplaceConnectionType::Api,
+            'driver' => 'amazon_sp_api',
+            'priority' => 10,
+            'enabled' => true,
+            'health_status' => 'healthy',
+            'credential_reference' => 'amazon-production-secret-reference',
+            'last_health_checked_at' => now(),
+        ]);
+
+        $this->actingAs($owner)->get(MarketplaceOperations::getUrl())
+            ->assertOk()
+            ->assertSee('Connection method')
+            ->assertSee('Amazon SP-API')
+            ->assertSee('Primary')
+            ->assertSee('Credentials')
+            ->assertSee('Configured')
+            ->assertSee('Last health check')
+            ->assertDontSee('amazon-production-secret-reference')
+            ->assertDontSee('Credential reference');
     }
 
     public function test_owner_can_disable_monitoring_from_marketplace_operations_settings(): void

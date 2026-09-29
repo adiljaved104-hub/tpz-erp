@@ -33,12 +33,36 @@
                     <div class="mt-3 grid gap-2 md:grid-cols-2">
                         @forelse ($account->connections as $connection)
                             <div class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-800">
-                                <div class="flex justify-between gap-2"><span>{{ $connection->name }} · {{ $connection->connection_type->value }}</span><span>Priority {{ $connection->priority }}</span></div>
-                                <div class="mt-1 text-xs text-gray-500">{{ $connection->capabilities->pluck('capability.value')->join(', ') ?: 'No capabilities' }} · Health: {{ $connection->health_status }}</div>
-                                <div class="mt-1 text-xs">Credential reference: {{ $connection->getRawOriginal('credential_reference') ? 'Configured' : 'Not configured' }}</div>
+                                @php
+                                    $fallbackPosition = $loop->first ? 'Primary' : 'Fallback '.($loop->iteration - 1);
+                                    $healthLabel = match ($connection->health_status) {
+                                        'healthy' => 'Healthy',
+                                        'connected' => 'Connected',
+                                        'error' => 'Error',
+                                        'unavailable' => 'Unavailable',
+                                        default => 'Unknown',
+                                    };
+                                    $healthColor = match ($connection->health_status) {
+                                        'healthy', 'connected' => 'success',
+                                        'error', 'unavailable' => 'danger',
+                                        default => 'gray',
+                                    };
+                                @endphp
+                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <strong>{{ $connection->name }}</strong>
+                                    <div class="flex flex-wrap gap-2"><x-filament::badge :color="$connection->enabled ? 'success' : 'gray'">{{ $connection->enabled ? 'Enabled' : 'Disabled' }}</x-filament::badge><x-filament::badge :color="$healthColor">{{ $healthLabel }}</x-filament::badge></div>
+                                </div>
+                                <dl class="mt-2 grid gap-1 text-xs text-gray-600 dark:text-gray-300 sm:grid-cols-2">
+                                    <div><dt class="font-medium">Connection method</dt><dd>{{ str($connection->connection_type->value)->title() }}</dd></div>
+                                    <div><dt class="font-medium">Position</dt><dd>{{ $fallbackPosition }} <span class="text-gray-400">(priority {{ $connection->priority }})</span></dd></div>
+                                    <div><dt class="font-medium">Credentials</dt><dd>{{ $connection->getRawOriginal('credential_reference') ? 'Configured' : 'Not configured' }}</dd></div>
+                                    <div><dt class="font-medium">Last health check</dt><dd>{{ $connection->last_health_checked_at?->format('d M Y, h:i A') ?? 'Not checked yet' }}</dd></div>
+                                    <div class="sm:col-span-2"><dt class="font-medium">Capabilities</dt><dd>{{ $connection->capabilities->pluck('capability.value')->map(fn ($capability) => str($capability)->replace('_', ' ')->title())->join(', ') ?: 'No capabilities configured' }}</dd></div>
+                                </dl>
                                 @if($canManage)
                                     <form wire:submit="saveConnectionConfiguration({{ $connection->id }})" class="mt-2 space-y-2 border-t border-gray-200 pt-2 dark:border-gray-700">
-                                        <label class="text-xs">Priority <input type="number" min="1" max="65535" wire:model="connectionSettings.{{ $connection->id }}.priority" class="fi-input ml-1 w-24 rounded-lg border-gray-300"></label>
+                                        <label class="text-xs">Fallback position<select wire:model.live="connectionSettings.{{ $connection->id }}.priority_position" class="fi-input ml-1 rounded-lg border-gray-300"><option value="primary">Primary</option><option value="fallback_1">Fallback 1</option><option value="fallback_2">Fallback 2</option><option value="custom">Advanced / custom priority</option></select></label>
+                                        @if(($connectionSettings[$connection->id]['priority_position'] ?? null) === 'custom')<label class="text-xs">Custom priority <input type="number" min="1" max="65535" wire:model="connectionSettings.{{ $connection->id }}.priority" class="fi-input ml-1 w-24 rounded-lg border-gray-300"></label>@endif
                                         <div class="flex flex-wrap gap-2">@foreach(['featured_offer','orders','listing_status','stock_status','direct_product_check','product_search','event_webhook'] as $capability)<label class="text-xs"><input type="checkbox" wire:model="connectionSettings.{{ $connection->id }}.capabilities" value="{{ $capability }}"> {{ str($capability)->replace('_',' ')->title() }}</label>@endforeach</div>
                                         <x-filament::button type="submit" size="xs">Save Connection</x-filament::button>
                                     </form>
@@ -68,14 +92,16 @@
                 </form>
             </x-filament::section>
 
-            <x-filament::section heading="Add connection" description="Credential references point to encrypted/server-backed configuration. Secret values are never displayed.">
+            <x-filament::section heading="Add connection" description="Credentials are configured through secure server-backed configuration. Secret values are never displayed.">
                 <form wire:submit="createConnection" class="grid gap-3 sm:grid-cols-2">
                     <label class="text-sm">Account<select wire:model="connectionForm.marketplace_account_id" required class="fi-input mt-1 w-full rounded-lg border-gray-300"><option value="">Select</option>@foreach($accounts as $account)<option value="{{ $account->id }}">{{ $account->platform->name }} · {{ $account->name }}</option>@endforeach</select></label>
                     <label class="text-sm">Name<input wire:model="connectionForm.name" required class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
-                    <label class="text-sm">Type<select wire:model="connectionForm.connection_type" class="fi-input mt-1 w-full rounded-lg border-gray-300">@foreach(['api','browser','email','feed'] as $type)<option value="{{ $type }}">{{ str($type)->title() }}</option>@endforeach</select></label>
-                    <label class="text-sm">Driver<input wire:model="connectionForm.driver" required class="fi-input mt-1 w-full rounded-lg border-gray-300" placeholder="amazon_sp_api"></label>
-                    <label class="text-sm">Priority<input wire:model="connectionForm.priority" type="number" min="1" max="65535" required class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
-                    <label class="text-sm">Credential reference<input wire:model="connectionForm.credential_reference" autocomplete="off" class="fi-input mt-1 w-full rounded-lg border-gray-300" placeholder="amazon_default"></label>
+                    <label class="text-sm">Connection method<select wire:model="connectionForm.connection_type" class="fi-input mt-1 w-full rounded-lg border-gray-300">@foreach(['api','browser','email','feed'] as $type)<option value="{{ $type }}">{{ str($type)->title() }}</option>@endforeach</select></label>
+                    <label class="text-sm">Integration<select wire:model.live="connectionForm.driver_option" class="fi-input mt-1 w-full rounded-lg border-gray-300"><option value="amazon_sp_api">Amazon SP-API</option><option value="generic_api">Generic API</option><option value="browser_monitor">Browser Monitoring</option><option value="order_email">Order Email</option><option value="feed">Feed</option><option value="custom">Other / custom driver</option></select></label>
+                    @if(($connectionForm['driver_option'] ?? null) === 'custom')<label class="text-sm">Custom driver<input wire:model="connectionForm.driver" required class="fi-input mt-1 w-full rounded-lg border-gray-300" placeholder="Custom integration driver"></label>@endif
+                    <label class="text-sm">Fallback position<select wire:model.live="connectionForm.priority_position" class="fi-input mt-1 w-full rounded-lg border-gray-300"><option value="primary">Primary</option><option value="fallback_1">Fallback 1</option><option value="fallback_2">Fallback 2</option><option value="custom">Advanced / custom priority</option></select></label>
+                    @if(($connectionForm['priority_position'] ?? null) === 'custom')<label class="text-sm">Custom priority<input wire:model="connectionForm.priority" type="number" min="1" max="65535" required class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>@endif
+                    <p class="text-xs text-gray-500 sm:col-span-2">Credentials are configured securely on the server. Secret values are never displayed here.</p>
                     <fieldset class="sm:col-span-2"><legend class="text-sm">Capabilities</legend><div class="mt-1 flex flex-wrap gap-3">@foreach(['featured_offer','orders','listing_status','stock_status','direct_product_check','product_search','event_webhook'] as $capability)<label class="text-sm"><input type="checkbox" wire:model="connectionForm.capabilities" value="{{ $capability }}"> {{ str($capability)->replace('_',' ')->title() }}</label>@endforeach</div></fieldset>
                     <x-filament::button type="submit" wire:loading.attr="disabled">Create Connection</x-filament::button>
                 </form>
@@ -93,6 +119,7 @@
                 <label class="text-sm"><input type="checkbox" wire:model="settings.acknowledgement_stops_reminders"> Acknowledgement stops employee reminders</label>
                 <fieldset class="md:col-span-2"><legend class="text-sm">Escalation channels</legend><div class="mt-1 flex flex-wrap gap-4"><label><input type="checkbox" wire:model="settings.escalation_channels" value="in_app"> In-app</label><label><input type="checkbox" wire:model="settings.escalation_channels" value="email"> Email</label><label><input type="checkbox" wire:model="settings.escalation_channels" value="push"> Push</label></div></fieldset>
                 <fieldset><legend class="text-sm">Event channels</legend><div class="mt-1 flex flex-wrap gap-4"><label><input type="checkbox" wire:model="settings.event_channels" value="in_app"> In-app</label><label><input type="checkbox" wire:model="settings.event_channels" value="email"> Email</label><label><input type="checkbox" wire:model="settings.event_channels" value="push"> Push</label></div></fieldset>
+                <fieldset class="md:col-span-2"><legend class="text-sm">Management summary channels</legend><div class="mt-1 flex flex-wrap gap-4"><label><input type="checkbox" wire:model="settings.summary_channels" value="email"> Email</label><label><input type="checkbox" wire:model="settings.summary_channels" value="in_app"> In-app</label><label><input type="checkbox" wire:model="settings.summary_channels" value="push"> Push</label></div></fieldset>
                 <div class="flex items-end"><x-filament::button type="submit" wire:loading.attr="disabled">Save Settings</x-filament::button></div>
             </form>
         </x-filament::section>

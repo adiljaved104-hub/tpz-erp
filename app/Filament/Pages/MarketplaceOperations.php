@@ -36,7 +36,7 @@ class MarketplaceOperations extends Page
 
     public array $accountForm = ['marketplace_platform_id' => null, 'name' => '', 'code' => '', 'product_condition' => null, 'enabled' => true];
 
-    public array $connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver' => '', 'priority' => 100, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
+    public array $connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
 
     public array $connectionSettings = [];
 
@@ -73,8 +73,12 @@ class MarketplaceOperations extends Page
 
     public function createConnection(MarketplaceIntegrationService $service): void
     {
-        $service->saveConnection($this->connectionForm, $this->actor());
-        $this->connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver' => '', 'priority' => 100, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
+        $data = $this->connectionForm;
+        $data['driver'] = $data['driver_option'] === 'custom' ? trim((string) $data['driver']) : $data['driver_option'];
+        $data['priority'] = $this->priorityFromPosition((string) $data['priority_position'], (int) $data['priority']);
+        unset($data['driver_option'], $data['priority_position']);
+        $service->saveConnection($data, $this->actor());
+        $this->connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
         $this->loadConnectionSettings();
         Notification::make()->success()->title('Marketplace connection created')->send();
     }
@@ -88,7 +92,7 @@ class MarketplaceOperations extends Page
             'name' => $connection->name,
             'connection_type' => $connection->connection_type->value,
             'driver' => $connection->driver,
-            'priority' => $edit['priority'] ?? $connection->priority,
+            'priority' => $this->priorityFromPosition((string) ($edit['priority_position'] ?? 'custom'), (int) ($edit['priority'] ?? $connection->priority)),
             'enabled' => $connection->enabled,
             'credential_reference' => null,
             'capabilities' => $edit['capabilities'] ?? [],
@@ -129,7 +133,27 @@ class MarketplaceOperations extends Page
     private function loadConnectionSettings(): void
     {
         $this->connectionSettings = MarketplaceConnection::query()->with('capabilities')->get()->mapWithKeys(fn (MarketplaceConnection $connection): array => [
-            $connection->id => ['priority' => $connection->priority, 'capabilities' => $connection->capabilities->pluck('capability.value')->all()],
+            $connection->id => ['priority_position' => $this->positionFromPriority($connection->priority), 'priority' => $connection->priority, 'capabilities' => $connection->capabilities->pluck('capability.value')->all()],
         ])->all();
+    }
+
+    private function priorityFromPosition(string $position, int $custom): int
+    {
+        return match ($position) {
+            'primary' => 10,
+            'fallback_1' => 20,
+            'fallback_2' => 30,
+            default => max(1, min(65535, $custom)),
+        };
+    }
+
+    private function positionFromPriority(int $priority): string
+    {
+        return match ($priority) {
+            10 => 'primary',
+            20 => 'fallback_1',
+            30 => 'fallback_2',
+            default => 'custom',
+        };
     }
 }

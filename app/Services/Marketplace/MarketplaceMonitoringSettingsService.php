@@ -26,9 +26,10 @@ class MarketplaceMonitoringSettingsService
             'acknowledgement_stops_reminders' => true,
             'escalation_threshold_minutes' => 120,
             'escalation_recipient_strategy' => 'manager_owner_admin',
-            'escalation_channels' => ['in_app', 'email'],
+            'escalation_channels' => ['in_app', 'email', 'push'],
             'summary_times' => ['09:00', '14:00', '19:00'],
-            'event_channels' => ['in_app', 'email'],
+            'summary_channels' => ['email'],
+            'event_channels' => ['in_app', 'email', 'push'],
         ];
         try {
             if (! Schema::hasTable('marketplace_monitoring_settings')) {
@@ -54,8 +55,12 @@ class MarketplaceMonitoringSettingsService
         if ($channels->isEmpty()) {
             throw ValidationException::withMessages(['escalationChannels' => 'Enable at least one escalation channel.']);
         }
+        $summaryChannels = collect($data['summary_channels'] ?? [])->intersect(['in_app', 'email', 'push'])->unique()->values();
+        if ($summaryChannels->isEmpty()) {
+            throw ValidationException::withMessages(['summaryChannels' => 'Enable at least one management summary channel.']);
+        }
 
-        return DB::transaction(function () use ($data, $actor, $summaryTimes, $channels): MarketplaceMonitoringSetting {
+        return DB::transaction(function () use ($data, $actor, $summaryTimes, $channels, $summaryChannels): MarketplaceMonitoringSetting {
             $setting = MarketplaceMonitoringSetting::query()->lockForUpdate()->find(1) ?? new MarketplaceMonitoringSetting(['id' => 1]);
             $before = $setting->exists ? $setting->toArray() : [];
             $setting->forceFill([
@@ -68,7 +73,8 @@ class MarketplaceMonitoringSettingsService
                 'escalation_recipient_strategy' => in_array($data['escalation_recipient_strategy'] ?? null, ['manager_owner_admin', 'owner_admin'], true) ? $data['escalation_recipient_strategy'] : 'manager_owner_admin',
                 'escalation_channels' => $channels->all(),
                 'summary_times' => $summaryTimes->all(),
-                'event_channels' => collect($data['event_channels'] ?? ['in_app', 'email'])->intersect(['in_app', 'email', 'push'])->unique()->values()->all(),
+                'summary_channels' => $summaryChannels->all(),
+                'event_channels' => collect($data['event_channels'] ?? ['in_app', 'email', 'push'])->intersect(['in_app', 'email', 'push'])->unique()->values()->all(),
                 'updated_by_user_id' => $actor->id,
             ])->save();
             $this->activity->log('marketplace_monitoring.settings_updated', $actor, $setting, ['before' => $before, 'after' => $setting->fresh()->toArray()]);

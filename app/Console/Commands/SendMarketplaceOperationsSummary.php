@@ -6,7 +6,6 @@ use App\Services\Marketplace\MarketplaceIncidentService;
 use App\Services\Marketplace\MarketplaceMonitoringSettingsService;
 use App\Services\Marketplace\MarketplaceOperationsSummaryService;
 use App\Services\Notifications\CriticalAlertDispatcher;
-use App\Services\Notifications\NotificationRuleService;
 use Illuminate\Console\Command;
 
 class SendMarketplaceOperationsSummary extends Command
@@ -15,12 +14,9 @@ class SendMarketplaceOperationsSummary extends Command
 
     protected $description = 'Send the scheduled Owner/Admin marketplace operations summary';
 
-    public function handle(MarketplaceOperationsSummaryService $summary, MarketplaceIncidentService $incidents, MarketplaceMonitoringSettingsService $settings, CriticalAlertDispatcher $alerts, NotificationRuleService $rules): int
+    public function handle(MarketplaceOperationsSummaryService $summary, MarketplaceIncidentService $incidents, MarketplaceMonitoringSettingsService $settings, CriticalAlertDispatcher $alerts): int
     {
         if ($this->option('scheduled') && ! $settings->summaryDueNow()) {
-            return self::SUCCESS;
-        }
-        if (! $rules->channelEnabled('marketplace.daily_summary', 'email')) {
             return self::SUCCESS;
         }
         $data = $summary->summary();
@@ -38,7 +34,7 @@ class SendMarketplaceOperationsSummary extends Command
                 'message' => 'Daily operational monitoring summary.',
                 'reference' => $slot,
                 'status' => 'Summary',
-            ], 'Marketplace Operations Daily Summary', '/admin/marketplace-operations', $details);
+            ], 'Marketplace Operations Daily Summary', '/admin/marketplace-operations', $details, $settings->effective()['summary_channels']);
         }
 
         return self::SUCCESS;

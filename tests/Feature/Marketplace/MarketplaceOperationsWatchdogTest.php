@@ -363,6 +363,8 @@ class MarketplaceOperationsWatchdogTest extends TestCase
         $this->artisan('marketplace:send-summary')->assertSuccessful();
         Queue::assertPushed(SendQueuedNotifications::class, 2);
         $this->assertDatabaseCount('notification_rule_deliveries', 2);
+        $this->assertSame(0, $owner->notifications()->where('type', 'marketplace.daily_summary')->count());
+        $this->assertSame(0, $admin->notifications()->where('type', 'marketplace.daily_summary')->count());
 
         $events = collect(app(Schedule::class)->events());
         $monitor = $events->first(fn ($event): bool => str_contains($event->command, 'marketplace:monitor'));

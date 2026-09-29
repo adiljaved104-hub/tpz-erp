@@ -32,13 +32,48 @@ class PurchaseReceiptCorrection extends Model
         static::deleting(fn (): never => throw new ImmutablePurchaseException('Purchase Receipt corrections are immutable.'));
     }
 
-    public function purchase(): BelongsTo { return $this->belongsTo(Purchase::class); }
-    public function receipt(): BelongsTo { return $this->belongsTo(PurchaseReceipt::class, 'purchase_receipt_id'); }
-    public function receiptItem(): BelongsTo { return $this->belongsTo(PurchaseReceiptItem::class, 'purchase_receipt_item_id'); }
-    public function purchaseItem(): BelongsTo { return $this->belongsTo(PurchaseItem::class); }
-    public function product(): BelongsTo { return $this->belongsTo(Product::class); }
-    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
-    public function performedBy(): BelongsTo { return $this->belongsTo(User::class, 'performed_by_user_id'); }
-    public function allocationLines(): HasMany { return $this->hasMany(PurchaseReceiptCorrectionAllocationLine::class); }
-    public function movements(): MorphMany { return $this->morphMany(StockMovement::class, 'source'); }
+    public function purchase(): BelongsTo
+    {
+        return $this->belongsTo(Purchase::class);
+    }
+
+    public function receipt(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseReceipt::class, 'purchase_receipt_id');
+    }
+
+    public function receiptItem(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseReceiptItem::class, 'purchase_receipt_item_id');
+    }
+
+    public function purchaseItem(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseItem::class);
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
+    }
+
+    public function performedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'performed_by_user_id');
+    }
+
+    public function allocationLines(): HasMany
+    {
+        return $this->hasMany(PurchaseReceiptCorrectionAllocationLine::class);
+    }
+
+    public function movements(): MorphMany
+    {
+        return $this->morphMany(StockMovement::class, 'source');
+    }
 }

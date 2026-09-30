@@ -181,6 +181,64 @@ class QuickStockPurchaseUiTest extends TestCase
         );
     }
 
+    public function test_received_cost_precedes_catalog_cost_and_catalog_fills_only_missing_history(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        $received = Product::factory()->create(['cost_price' => '1450.0000']);
+        $catalog = Product::factory()->create(['cost_price' => '1450.0000']);
+        $unknown = Product::factory()->create(['cost_price' => null]);
+        $this->receivedCost($owner, $warehouse, $received, '1500.0000');
+
+        $this->actingAs($owner);
+        $component = Livewire::test(QuickStockPurchase::class)->fillForm(['warehouse_id' => $warehouse->id]);
+        $lineKey = array_key_first($component->instance()->getSchema('content')->getRawState()['items']);
+
+        $component->set("data.items.{$lineKey}.product_id", (string) $received->id)
+            ->assertSee('Latest Purchase Cost')
+            ->assertSee('AED 1,500.00');
+        $line = $component->instance()->getSchema('content')->getRawState()['items'][$lineKey];
+        $this->assertSame('1500.0000', $line['unit_cost']);
+        $this->assertFalse((bool) $line['unit_cost_touched']);
+        $this->assertArrayHasKey('suggested_cost_source', $line, implode(', ', array_keys($line)));
+
+        $component->set("data.items.{$lineKey}.product_id", (string) $catalog->id);
+        $line = $component->instance()->getSchema('content')->getRawState()['items'][$lineKey];
+        $this->assertSame('Catalog Cost', $line['suggested_cost_source']);
+        $this->assertSame('1450.0000', $line['unit_cost']);
+        $this->assertNull($line['latest_received_cost']);
+
+        $component->set("data.items.{$lineKey}.product_id", (string) $unknown->id);
+        $line = $component->instance()->getSchema('content')->getRawState()['items'][$lineKey];
+        $this->assertNull($line['unit_cost']);
+        $this->assertNull($line['suggested_cost_source']);
+    }
+
+    public function test_manual_cost_survives_context_refresh_and_admin_cannot_see_catalog_cost(): void
+    {
+        $warehouse = Warehouse::factory()->create();
+        $otherWarehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create(['cost_price' => '1450.0000']);
+        $this->actingAs($this->user(EmployeeRole::Owner));
+        $component = Livewire::test(QuickStockPurchase::class)->fillForm(['warehouse_id' => $warehouse->id]);
+        $lineKey = array_key_first($component->instance()->getSchema('content')->getRawState()['items']);
+        $component->set("data.items.{$lineKey}.product_id", (string) $product->id)
+            ->set("data.items.{$lineKey}.unit_cost", '1300.0000')
+            ->set('data.warehouse_id', (string) $otherWarehouse->id);
+        $line = $component->instance()->getSchema('content')->getRawState()['items'][$lineKey];
+        $this->assertSame('1300.0000', $line['unit_cost']);
+        $this->assertTrue((bool) $line['unit_cost_touched']);
+
+        $this->actingAs($this->user(EmployeeRole::Admin));
+        $admin = Livewire::test(QuickStockPurchase::class)->fillForm(['warehouse_id' => $warehouse->id]);
+        $adminLineKey = array_key_first($admin->instance()->getSchema('content')->getRawState()['items']);
+        $admin->set("data.items.{$adminLineKey}.product_id", (string) $product->id)
+            ->assertDontSee('AED 1,450.00')
+            ->assertDontSee('Catalog Cost');
+        $adminLine = $admin->instance()->getSchema('content')->getRawState()['items'][$adminLineKey];
+        $this->assertNull($adminLine['unit_cost']);
+    }
+
     private function receivedCost(User $actor, Warehouse $warehouse, Product $product, string $cost): void
     {
         $purchase = Purchase::factory()->create([

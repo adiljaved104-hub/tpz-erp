@@ -47,6 +47,7 @@ class CreateResponsibilityAssignment extends CreateRecord
                 platformIds: $scope['platform_ids'],
                 warehouseId: $scope['warehouse_id'],
                 condition: $scope['condition'],
+                assignStockByDefault: (bool) ($data['assign_stock_by_default'] ?? false),
             ), auth()->user());
 
             $this->createdAssignmentCount = $created->count();
@@ -69,6 +70,7 @@ class CreateResponsibilityAssignment extends CreateRecord
             categoryId: $scope['category_id'],
             warehouseId: $scope['warehouse_id'],
             condition: $scope['condition'],
+            assignStockByDefault: (bool) ($data['assign_stock_by_default'] ?? false),
         ), auth()->user());
     }
 

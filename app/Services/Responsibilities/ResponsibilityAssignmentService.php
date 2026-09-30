@@ -9,6 +9,7 @@ use App\DTOs\Responsibilities\TransferResponsibilityAssignmentData;
 use App\Enums\ProductStatus;
 use App\Enums\ResponsibilityAssignmentMode;
 use App\Enums\ResponsibilityAssignmentStatus;
+use App\Enums\ResponsibilityPermission;
 use App\Exceptions\DuplicateActiveResponsibilityException;
 use App\Exceptions\InvalidResponsibilityScopeException;
 use App\Models\Employee;
@@ -28,6 +29,7 @@ use App\Models\ResponsibilityAssignmentWarehouse;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\ActivityLogger;
+use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\ReferenceSequenceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -42,7 +44,38 @@ class ResponsibilityAssignmentService
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
         private readonly ResponsibilityAllocationService $allocations,
+        private readonly ResponsibilityAuthorization $authorization,
     ) {}
+
+    public function setStockDefault(ResponsibilityAssignment $assignment, bool $enabled, string $reason, User $actor): ResponsibilityAssignment
+    {
+        $this->authorization->authorize($actor, ResponsibilityPermission::Assign);
+        if (trim($reason) === '' || mb_strlen($reason) > 2000) {
+            throw ValidationException::withMessages(['reason' => 'A reason is required and may not exceed 2000 characters.']);
+        }
+
+        return DB::transaction(function () use ($assignment, $enabled, $reason, $actor): ResponsibilityAssignment {
+            $assignment = ResponsibilityAssignment::query()->lockForUpdate()->findOrFail($assignment->id);
+            $this->assertActive($assignment);
+            $assignment->load(['brandScope', 'categoryScope', 'productScope']);
+            if ($enabled && $assignment->brandScope === null && $assignment->categoryScope === null && $assignment->productScope === null) {
+                throw ValidationException::withMessages(['enabled' => 'Default stock assignment requires a Brand, Category, or Product scope.']);
+            }
+            $before = $assignment->assign_stock_by_default;
+            if ($before !== $enabled) {
+                $assignment->forceFill(['assign_stock_by_default' => $enabled])->save();
+                $this->activity->log('responsibility.stock_default_changed', $actor, $assignment, [
+                    'assignment_id' => $assignment->id,
+                    'employee_id' => $assignment->employee_id,
+                    'previous' => $before,
+                    'current' => $enabled,
+                    'reason' => trim($reason),
+                ]);
+            }
+
+            return $assignment;
+        });
+    }
 
     public function create(CreateResponsibilityAssignmentData $data, User $actor): ResponsibilityAssignment
     {
@@ -107,6 +140,7 @@ class ResponsibilityAssignmentService
                 reason: $data->reason,
                 notes: $data->notes,
                 idempotencyKey: $data->idempotencyKey,
+                assignStockByDefault: $data->assignStockByDefault,
             );
             $this->writeScopes($assignment, $prepared['scope'], $data->assignedQuantity);
             $this->activity->log('responsibility.created', $actor, $assignment, $this->safeProperties($assignment, $prepared['scope'], $data->assignedQuantity, $data->reason));
@@ -149,7 +183,7 @@ class ResponsibilityAssignmentService
 
             $this->end($source, ResponsibilityAssignmentStatus::Transferred, $actor);
             $this->assertFingerprintAvailable($fingerprint, lock: true);
-            $successor = $this->createHeader($reference, $employee, $source->assignment_mode, $fingerprint, now()->toDateTimeString(), $actor, $data->reason, $source->notes, $data->idempotencyKey, $source->id);
+            $successor = $this->createHeader($reference, $employee, $source->assignment_mode, $fingerprint, now()->toDateTimeString(), $actor, $data->reason, $source->notes, $data->idempotencyKey, $source->id, $source->assign_stock_by_default);
             $this->writeScopes($successor, $scope, $quantity);
             $this->activity->log('responsibility.transferred', $actor, $successor, [
                 ...$this->safeProperties($successor, $scope, $quantity, $data->reason),
@@ -187,7 +221,7 @@ class ResponsibilityAssignmentService
             $employee = $source->employee;
 
             $this->end($source, ResponsibilityAssignmentStatus::Superseded, $actor);
-            $successor = $this->createHeader($reference, $employee, ResponsibilityAssignmentMode::Quantity, $fingerprint, now()->toDateTimeString(), $actor, $data->reason, $source->notes, $data->idempotencyKey, $source->id);
+            $successor = $this->createHeader($reference, $employee, ResponsibilityAssignmentMode::Quantity, $fingerprint, now()->toDateTimeString(), $actor, $data->reason, $source->notes, $data->idempotencyKey, $source->id, $source->assign_stock_by_default);
             $this->writeScopes($successor, $scope, $data->quantity);
             $this->activity->log('responsibility.quantity_changed', $actor, $successor, [
                 ...$this->safeProperties($successor, $scope, $data->quantity, $data->reason),
@@ -297,6 +331,10 @@ class ResponsibilityAssignmentService
         $warehouse = $data->warehouseId === null ? null : Warehouse::query()->where('status', true)->find($data->warehouseId);
         $condition = $data->condition;
 
+        if ($data->assignStockByDefault && ($data->mode !== ResponsibilityAssignmentMode::Scope || ($brand === null && $category === null && $product === null))) {
+            throw ValidationException::withMessages(['assign_stock_by_default' => 'Default stock assignment requires a Brand, Category, or Product scope. Platform-only responsibilities cannot own stock by default.']);
+        }
+
         if ($data->warehouseId !== null && $warehouse === null) {
             throw ValidationException::withMessages(['warehouse_id' => 'Select an active Warehouse.']);
         }
@@ -334,7 +372,7 @@ class ResponsibilityAssignmentService
         return $employee;
     }
 
-    private function createHeader(string $reference, Employee $employee, ResponsibilityAssignmentMode $mode, string $fingerprint, string $effectiveAt, User $actor, string $reason, ?string $notes, string $idempotencyKey, ?int $predecessorId = null): ResponsibilityAssignment
+    private function createHeader(string $reference, Employee $employee, ResponsibilityAssignmentMode $mode, string $fingerprint, string $effectiveAt, User $actor, string $reason, ?string $notes, string $idempotencyKey, ?int $predecessorId = null, bool $assignStockByDefault = false): ResponsibilityAssignment
     {
         return ResponsibilityAssignment::query()->create([
             'reference' => $reference,
@@ -349,6 +387,7 @@ class ResponsibilityAssignmentService
             'assigned_by_user_id' => $actor->id,
             'ended_by_user_id' => null,
             'predecessor_assignment_id' => $predecessorId,
+            'assign_stock_by_default' => $assignStockByDefault,
             'idempotency_key' => $idempotencyKey,
             'reason' => trim($reason),
             'notes' => $notes === null ? null : trim($notes),
@@ -431,6 +470,7 @@ class ResponsibilityAssignmentService
             'warehouse_id' => $scope['warehouse']?->id ?? $scope['inventory']?->warehouse_id,
             'product_condition' => $scope['condition']?->value,
             'assigned_quantity' => $quantity,
+            'assign_stock_by_default' => $assignment->assign_stock_by_default,
             'status' => $assignment->status->value,
             'effective_at' => $assignment->effective_at->toIso8601String(),
             'reason' => $reason,

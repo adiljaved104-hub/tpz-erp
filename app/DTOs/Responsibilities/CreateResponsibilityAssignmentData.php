@@ -22,5 +22,6 @@ readonly class CreateResponsibilityAssignmentData
         public ?int $categoryId = null,
         public ?int $warehouseId = null,
         public ?ProductCondition $condition = null,
+        public bool $assignStockByDefault = false,
     ) {}
 }

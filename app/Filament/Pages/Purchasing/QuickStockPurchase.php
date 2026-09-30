@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Purchasing;
 
 use App\Actions\Purchases\QuickStockPurchase as QuickStockPurchaseAction;
 use App\DTOs\Purchases\PurchaseItemData;
+use App\DTOs\Purchases\PurchaseProductContext;
 use App\DTOs\Purchases\QuickStockPurchaseData;
 use App\Enums\InventoryAllocationMode;
 use App\Enums\InventoryItemType;
@@ -157,6 +158,8 @@ class QuickStockPurchase extends Page
                         ->afterStateUpdated(function ($state, Get $get, Set $set, QuickStockPurchase $livewire): void {
                             $set('stock_context', null);
                             $set('latest_received_cost', null);
+                            $set('suggested_cost', null);
+                            $set('suggested_cost_source', null);
 
                             $productId = (int) $state;
                             $warehouseId = (int) ($livewire->data['warehouse_id'] ?? 0);
@@ -167,26 +170,32 @@ class QuickStockPurchase extends Page
 
                             $context = self::contexts($warehouseId, [$productId])[$productId] ?? null;
                             $latestCost = self::normalizeLatestCost($context?->latestReceivedCost);
+                            [$suggestedCost, $source] = self::suggestedCost($context);
                             $set('stock_context', $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}");
                             $set('latest_received_cost', $latestCost);
+                            $set('suggested_cost', $suggestedCost);
+                            $set('suggested_cost_source', $source);
 
-                            if (! $get->boolean('unit_cost_touched') && blank($get->string('unit_cost', isNullable: true)) && $latestCost !== null) {
-                                $set('unit_cost', $latestCost);
-                                $set('unit_cost_suggested', true);
+                            if (! $get->boolean('unit_cost_touched')) {
+                                $set('unit_cost', $suggestedCost);
+                                $set('unit_cost_suggested', $suggestedCost !== null);
+                                $set('unit_cost_touched', false);
                             }
                         }),
                     TextInput::make('ordered_quantity')->label('Quantity')->integer()->minValue(1)->default(1)->required()->live(onBlur: true),
                     TextInput::make('unit_cost')->label('Unit Cost')->prefix('AED')->required()->rule('regex:/^\d{1,11}(?:\.\d{1,4})?$/')->live(onBlur: true)
                         ->helperText(fn (Get $get): ?string => self::costAdvisory($get))
                         ->afterStateUpdated(fn (Set $set): mixed => $set('unit_cost_touched', true)),
-                    Placeholder::make('latest_received_cost_display')->label('Latest Purchase Cost')
-                        ->content(fn (Get $get): string => ($cost = $get->string('latest_received_cost', isNullable: true)) === null
-                            ? 'No received purchase cost'
+                    Placeholder::make('latest_received_cost_display')->label(fn (Get $get): string => $get->string('suggested_cost_source', isNullable: true) ?? 'Latest Purchase Cost')
+                        ->content(fn (Get $get): string => ($cost = $get->string('suggested_cost', isNullable: true)) === null
+                            ? 'No suggested cost'
                             : AedMoney::format($cost))
                         ->suffixAction(self::historyAction()),
                     Placeholder::make('stock_context_display')->label('Current Stock')->content(fn (Get $get): string => $get->string('stock_context', isNullable: true) ?? 'Select a Product'),
                     Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get)),
                     Hidden::make('latest_received_cost')->dehydrated(false),
+                    Hidden::make('suggested_cost')->dehydrated(false),
+                    Hidden::make('suggested_cost_source')->dehydrated(false),
                     Hidden::make('stock_context')->dehydrated(false),
                     Hidden::make('unit_cost_touched')->default(false)->dehydrated(false),
                     Hidden::make('unit_cost_suggested')->default(false)->dehydrated(false),
@@ -194,7 +203,7 @@ class QuickStockPurchase extends Page
                     TableColumn::make('Product')->markAsRequired()->width('30%'),
                     TableColumn::make('Quantity')->markAsRequired()->width('9%'),
                     TableColumn::make('Unit Cost')->markAsRequired()->width('14%'),
-                    TableColumn::make('Latest Purchase Cost')->width('14%'),
+                    TableColumn::make('Suggested Cost')->width('14%'),
                     TableColumn::make('Current Stock')->width('22%'),
                     TableColumn::make('Line Total')->width('11%'),
                 ])->compact()->reorderable(false)->minItems(1)->defaultItems(1)->addActionLabel('Add Product')->columnSpanFull(),
@@ -309,14 +318,16 @@ class QuickStockPurchase extends Page
         return app(PurchaseProductContextService::class)->forQuickStockPurchase($user, $warehouseId, $ids);
     }
 
-    private static function newLine(int $id, $context): array
+    private static function newLine(int $id, ?PurchaseProductContext $context): array
     {
         $latestCost = self::normalizeLatestCost($context?->latestReceivedCost);
+        [$suggestedCost, $source] = self::suggestedCost($context);
 
         return [
-            'product_id' => $id, 'ordered_quantity' => 1, 'unit_cost' => $latestCost,
-            'unit_cost_touched' => false, 'unit_cost_suggested' => $latestCost !== null,
+            'product_id' => $id, 'ordered_quantity' => 1, 'unit_cost' => $suggestedCost,
+            'unit_cost_touched' => false, 'unit_cost_suggested' => $suggestedCost !== null,
             'latest_received_cost' => $latestCost,
+            'suggested_cost' => $suggestedCost, 'suggested_cost_source' => $source,
             'stock_context' => $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}",
         ];
     }
@@ -337,17 +348,19 @@ class QuickStockPurchase extends Page
             $productId = (int) ($line['product_id'] ?? 0);
             $context = $contexts[$productId] ?? null;
             $latestCost = self::normalizeLatestCost($context?->latestReceivedCost);
-            $manualCost = filled($line['unit_cost'] ?? null) || (bool) ($line['unit_cost_touched'] ?? false);
+            [$suggestedCost, $source] = self::suggestedCost($context);
             $lines[$key] = [
                 ...$line,
                 'ordered_quantity' => (int) ($line['ordered_quantity'] ?? 1),
                 'latest_received_cost' => $latestCost,
+                'suggested_cost' => $suggestedCost,
+                'suggested_cost_source' => $source,
                 'stock_context' => $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}",
             ];
 
-            if (! $manualCost && $latestCost !== null) {
-                $lines[$key]['unit_cost'] = $latestCost;
-                $lines[$key]['unit_cost_suggested'] = true;
+            if (! (bool) ($line['unit_cost_touched'] ?? false)) {
+                $lines[$key]['unit_cost'] = $suggestedCost;
+                $lines[$key]['unit_cost_suggested'] = $suggestedCost !== null;
             }
         }
 
@@ -357,6 +370,20 @@ class QuickStockPurchase extends Page
     private static function normalizeLatestCost(?string $cost): ?string
     {
         return $cost === null ? null : bcadd($cost, '0', 4);
+    }
+
+    /** @return array{?string, ?string} */
+    private static function suggestedCost(?PurchaseProductContext $context): array
+    {
+        if (($cost = self::normalizeLatestCost($context?->latestReceivedCost)) !== null) {
+            return [$cost, 'Latest Purchase Cost'];
+        }
+
+        if (($cost = self::normalizeLatestCost($context?->productCostPrice)) !== null) {
+            return [$cost, 'Catalog Cost'];
+        }
+
+        return [null, null];
     }
 
     private static function historyAction(): Action

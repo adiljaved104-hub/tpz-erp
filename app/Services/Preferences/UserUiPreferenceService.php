@@ -17,11 +17,14 @@ class UserUiPreferenceService
 
     public const NAVIGATION_GROUP_ORDER = 'navigation.group_order';
 
+    public const INVENTORY_ALERTS = 'notifications.inventory_alerts';
+
     private const ALLOWED_KEYS = [
         self::MY_INVENTORY_COLUMNS,
         self::MY_INVENTORY_COLLAPSED_SECTIONS,
         self::NAVIGATION_HIDDEN_ITEMS,
         self::NAVIGATION_GROUP_ORDER,
+        self::INVENTORY_ALERTS,
     ];
 
     /** @return array<int, string> */

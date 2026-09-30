@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Models\User;
+use App\Services\Notifications\InventoryAlertPreferenceService;
 use App\Services\Notifications\NotificationInboxService;
 use Filament\Notifications\Notification as FilamentNotification;
 use Filament\Pages\Page;
@@ -27,6 +28,8 @@ class Notifications extends Page
     #[Url]
     public string $filter = 'all';
 
+    public bool $receiveInventoryAlerts = true;
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -48,6 +51,19 @@ class Notifications extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+        $this->receiveInventoryAlerts = app(InventoryAlertPreferenceService::class)->enabled($this->user());
+    }
+
+    public function canManageInventoryAlerts(): bool
+    {
+        return app(InventoryAlertPreferenceService::class)->canManage($this->user());
+    }
+
+    public function saveInventoryAlertPreference(): void
+    {
+        $this->validate(['receiveInventoryAlerts' => ['required', 'boolean']]);
+        app(InventoryAlertPreferenceService::class)->set($this->user(), $this->receiveInventoryAlerts);
+        FilamentNotification::make()->success()->title('Inventory alert preference saved')->send();
     }
 
     public function setFilter(string $filter): void

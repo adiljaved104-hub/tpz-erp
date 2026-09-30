@@ -26,8 +26,11 @@ use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryAllocationReservationLine;
 use App\Models\InventoryReservation;
 use App\Models\Product;
+use App\Models\ProductBrand;
 use App\Models\ProductInventory;
 use App\Models\PurchaseReceiptAllocationLine;
+use App\Models\ResponsibilityAssignment;
+use App\Models\ResponsibilityAssignmentBrand;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
@@ -264,21 +267,25 @@ class InventoryAdjustmentTest extends TestCase
         $this->assertSame(4, $inventory->refresh()->available_quantity);
     }
 
-    public function test_positive_new_delivery_choice_redirects_to_quick_purchase_without_posting(): void
+    public function test_positive_new_delivery_choice_keeps_drafts_and_exposes_quick_purchase_without_posting(): void
     {
         [$owner] = $this->receivedPurchase();
         $inventory = ProductInventory::query()->sole();
         $component = Livewire::actingAs($owner)->test(StockAdjustments::class)
             ->assertSee('Reserved');
-        $component->set('data.lines', [[
-            'inventory_id' => $inventory->id,
+        $component->set("drafts.{$inventory->id}", [
+            'selected' => true,
             'type' => 'saleable_increase',
             'quantity' => 1,
             'reason' => 'A new supplier delivery arrived today.',
             'is_new_purchase' => 'yes',
             'idempotency_key' => (string) Str::uuid(),
-        ]])->call('saveAll')
-            ->assertRedirect(QuickStockPurchase::getUrl(['product_id' => $inventory->product_id, 'warehouse_id' => $inventory->warehouse_id]));
+        ])->assertSee('Open Quick Stock Purchase')
+            ->call('saveAll')
+            ->assertHasNoErrors()
+            ->assertSee('Open Quick Stock Purchase');
+
+        $this->assertSame('yes', $component->get("drafts.{$inventory->id}.is_new_purchase"));
 
         $this->assertSame(4, $inventory->refresh()->available_quantity);
         $this->assertDatabaseCount('inventory_adjustments', 0);
@@ -291,9 +298,10 @@ class InventoryAdjustmentTest extends TestCase
 
         $adjustmentPage = Livewire::actingAs($owner)->withQueryParams(['receipt_item_id' => $item->id])
             ->test(StockAdjustments::class);
-        $line = collect($adjustmentPage->instance()->getSchema('content')->getRawState()['lines'])->first();
-        $this->assertSame($item->id, (int) $line['receipt_item_id']);
-        $this->assertSame($inventory->id, (int) $line['inventory_id']);
+        $adjustmentPage->assertSee('Linked GRN')->assertSee($inventory->product->sku);
+        $this->assertSame($item->id, $adjustmentPage->instance()->linkedReceiptItemId);
+        $this->assertSame($inventory->id, $adjustmentPage->instance()->linkedInventoryId);
+        $this->assertSame($item->id, (int) $adjustmentPage->instance()->drafts[$inventory->id]['receipt_item_id']);
 
         $purchasePage = Livewire::actingAs($owner)->withQueryParams([
             'product_id' => $inventory->product_id,
@@ -309,25 +317,84 @@ class InventoryAdjustmentTest extends TestCase
         [$owner] = $this->receivedPurchase();
         $inventory = ProductInventory::query()->sole();
         $accountId = PurchaseReceiptAllocationLine::query()->sole()->account_id;
+        $other = ProductInventory::factory()->create([
+            'product_id' => Product::factory(), 'warehouse_id' => $inventory->warehouse_id,
+            'available_quantity' => 2, 'reserved_quantity' => 0, 'average_cost' => '20.0000',
+        ]);
+        app(InventoryAllocationService::class)->ensureShadowCoverage($other, $owner);
 
-        Livewire::actingAs($owner)->test(StockAdjustments::class)
-            ->set('data.lines', [
-                [
-                    'inventory_id' => $inventory->id, 'type' => 'saleable_increase', 'quantity' => 1,
-                    'reason' => 'Physical count is one unit higher.', 'is_new_purchase' => 'no',
-                    'allocation_account_id' => $accountId, 'idempotency_key' => (string) Str::uuid(),
-                ],
-                [
-                    'inventory_id' => $inventory->id, 'type' => 'saleable_decrease', 'quantity' => 1,
-                    'reason' => 'Another unit was missing from the count.', 'idempotency_key' => (string) Str::uuid(),
-                ],
+        $component = Livewire::actingAs($owner)->test(StockAdjustments::class)
+            ->set("drafts.{$inventory->id}", [
+                'selected' => true, 'type' => 'saleable_increase', 'quantity' => 1,
+                'reason' => 'Physical count is one unit higher.', 'is_new_purchase' => 'no',
+                'allocation_account_id' => $accountId, 'idempotency_key' => (string) Str::uuid(),
             ])
-            ->call('saveAll')
-            ->assertHasNoErrors()
-            ->assertNotified('2 stock adjustment(s) posted');
+            ->set("drafts.{$other->id}", [
+                'selected' => true, 'type' => 'saleable_decrease', 'quantity' => 1,
+                'reason' => 'Another unit was missing from the count.', 'idempotency_key' => (string) Str::uuid(),
+            ]);
+        $component->call('saveAll')
+            ->assertHasNoErrors();
 
         $this->assertDatabaseCount('inventory_adjustments', 2);
+        $component->assertNotified('2 stock adjustment(s) posted');
         $this->assertSame(1, InventoryAdjustment::query()->distinct()->count('batch_key'));
+        $this->assertSame(5, $inventory->refresh()->available_quantity);
+        $this->assertSame(1, $other->refresh()->available_quantity);
+    }
+
+    public function test_grid_loads_scoped_rows_and_true_stock_and_holder_values(): void
+    {
+        [$owner] = $this->receivedPurchase();
+        $inventory = ProductInventory::query()->sole();
+        $otherBrand = ProductBrand::factory()->create(['name' => 'Dell', 'normalized_name' => 'dell']);
+        $other = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['brand' => 'Dell', 'brand_id' => $otherBrand->id])->id,
+            'warehouse_id' => $inventory->warehouse_id,
+            'available_quantity' => 9, 'damaged_quantity' => 2, 'reserved_quantity' => 1,
+        ]);
+        $manager = $this->user(EmployeeRole::Manager);
+        $assignment = ResponsibilityAssignment::factory()->create(['employee_id' => $manager->employee->id]);
+        ResponsibilityAssignmentBrand::query()->create([
+            'assignment_id' => $assignment->id, 'product_brand_id' => $inventory->product->brand_id,
+        ]);
+
+        $scoped = Livewire::actingAs($manager)->test(StockAdjustments::class);
+        $this->assertTrue($scoped->instance()->rows()->getCollection()->contains('id', $inventory->id));
+        $this->assertFalse($scoped->instance()->rows()->getCollection()->contains('id', $other->id));
+        $scoped->assertSee($inventory->product->sku)->assertSee('Reserved');
+
+        $admin = $this->user(EmployeeRole::Admin);
+        $all = Livewire::actingAs($admin)->test(StockAdjustments::class);
+        $this->assertTrue($all->instance()->rows()->getCollection()->contains('id', $other->id));
+        $all->assertSee($other->product->sku)->assertSee('9')->assertSee('2')->assertSee('1');
+        $this->assertContains($owner->employee->name.' (4)', $all->instance()->rows()->getCollection()
+            ->firstWhere('id', $inventory->id)->holder_labels);
+    }
+
+    public function test_grid_keeps_edits_as_drafts_and_rejects_an_invalid_batch_without_posting(): void
+    {
+        [$owner] = $this->receivedPurchase();
+        $inventory = ProductInventory::query()->sole();
+        $other = ProductInventory::factory()->create([
+            'product_id' => Product::factory(), 'warehouse_id' => $inventory->warehouse_id,
+            'available_quantity' => 2, 'reserved_quantity' => 0,
+        ]);
+        app(InventoryAllocationService::class)->ensureShadowCoverage($other, $owner);
+
+        $component = Livewire::actingAs($owner)->test(StockAdjustments::class)
+            ->set("drafts.{$inventory->id}", [
+                'selected' => true, 'type' => 'mark_damaged', 'quantity' => 1,
+                'reason' => 'Physical count found damage.',
+            ])
+            ->set("drafts.{$other->id}", [
+                'selected' => true, 'type' => 'saleable_decrease', 'quantity' => 99,
+                'reason' => 'Physical count found missing units.',
+            ]);
+        $this->assertDatabaseCount('inventory_adjustments', 0);
+        $this->assertSame(4, $inventory->refresh()->available_quantity);
+        $component->call('saveAll')->assertHasErrors(["drafts.{$other->id}"]);
+        $this->assertDatabaseCount('inventory_adjustments', 0);
         $this->assertSame(4, $inventory->refresh()->available_quantity);
     }
 
@@ -355,6 +422,14 @@ class InventoryAdjustmentTest extends TestCase
     {
         $owner = $this->user(EmployeeRole::Owner);
         $product = Product::factory()->create();
+        $assignment = ResponsibilityAssignment::factory()->create([
+            'employee_id' => $owner->employee->id,
+            'assign_stock_by_default' => true,
+        ]);
+        ResponsibilityAssignmentBrand::query()->create([
+            'assignment_id' => $assignment->id,
+            'product_brand_id' => $product->brand_id,
+        ]);
         $purchase = app(CreatePurchase::class)->handle(new CreatePurchaseData(
             Supplier::factory()->create()->id,
             Warehouse::query()->where('code', 'MAIN')->sole()->id,

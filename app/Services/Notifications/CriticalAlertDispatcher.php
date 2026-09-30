@@ -18,6 +18,11 @@ class CriticalAlertDispatcher
     /** @param array<string, mixed> $payload */
     public function send(User $recipient, string $type, string $eventKey, array $payload, string $mailSubject, ?string $url = null, array $mailDetails = [], ?array $channelOverride = null): bool
     {
+        if (in_array($type, ['inventory.low_stock', 'inventory.out_of_stock'], true)
+            && ! app(InventoryAlertPreferenceService::class)->enabled($recipient)) {
+            return false;
+        }
+
         if (! $this->activeUser($recipient) || ! $this->rules->enabled($type)) {
             return false;
         }

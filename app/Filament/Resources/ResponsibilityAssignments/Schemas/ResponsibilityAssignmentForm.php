@@ -13,6 +13,7 @@ use App\Models\ProductCategory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\Warehouse;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
@@ -86,6 +87,10 @@ class ResponsibilityAssignmentForm
                             }
                         }),
                     Hidden::make('assignment_mode')->default(ResponsibilityAssignmentMode::Scope->value),
+                    Checkbox::make('assign_stock_by_default')->label('Assign stock by default')
+                        ->helperText('Matching future purchase receipts go to this employee. Existing stock stays with its current holder.')
+                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'product', 'product_platform', 'category', 'category_platform'], true))
+                        ->default(false),
                     DateTimePicker::make('effective_at')->required()->default(now())->maxDate(now()),
                 ]),
             ]),

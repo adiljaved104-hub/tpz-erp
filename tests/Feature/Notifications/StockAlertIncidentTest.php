@@ -3,6 +3,7 @@
 namespace Tests\Feature\Notifications;
 
 use App\Enums\EmployeeRole;
+use App\Filament\Pages\Notifications;
 use App\Models\ActivityLog;
 use App\Models\InventoryAllocationBalance;
 use App\Models\MarketplacePlatform;
@@ -17,10 +18,12 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Observers\ProductInventoryObserver;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Notifications\StockAlertIncidentService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Livewire\Livewire;
 use Tests\Support\ResponsibilityTestFoundation;
 use Tests\TestCase;
 
@@ -28,6 +31,44 @@ class StockAlertIncidentTest extends TestCase
 {
     use RefreshDatabase;
     use ResponsibilityTestFoundation;
+
+    public function test_management_inventory_alert_switch_is_per_user_and_preserves_detection(): void
+    {
+        $owner = $this->mobileUser(EmployeeRole::Owner);
+        $mutedAdmin = $this->mobileUser(EmployeeRole::Admin);
+        $otherAdmin = $this->mobileUser(EmployeeRole::Admin);
+        $inventory = ProductInventory::factory()->create(['available_quantity' => 5, 'reserved_quantity' => 0]);
+
+        Livewire::actingAs($mutedAdmin)->test(Notifications::class)
+            ->assertSee('Receive Inventory Alerts')
+            ->set('receiveInventoryAlerts', false)
+            ->call('saveInventoryAlertPreference')
+            ->assertHasNoErrors();
+        $this->assertDatabaseHas('activity_logs', [
+            'actor_user_id' => $mutedAdmin->id,
+            'event' => 'notifications.inventory_alert_preference_changed',
+        ]);
+
+        $this->transition($inventory, 2);
+        $this->assertSame(1, StockAlertIncident::query()->where('alert_type', StockAlertIncident::LOW_STOCK)->count());
+        $this->assertSame(0, $mutedAdmin->notifications()->where('type', 'inventory.low_stock')->count());
+        $this->assertSame(1, $owner->notifications()->where('type', 'inventory.low_stock')->count());
+        $this->assertSame(1, $otherAdmin->notifications()->where('type', 'inventory.low_stock')->count());
+
+        $this->transition($inventory, 0);
+        $this->assertSame(1, StockAlertIncident::query()->where('alert_type', StockAlertIncident::OUT_OF_STOCK)->count());
+        $this->assertSame(0, $mutedAdmin->notifications()->where('type', 'inventory.out_of_stock')->count());
+        $this->assertSame(1, $owner->notifications()->where('type', 'inventory.out_of_stock')->count());
+        $this->assertSame(1, $otherAdmin->notifications()->where('type', 'inventory.out_of_stock')->count());
+
+        Livewire::actingAs($mutedAdmin)->test(Notifications::class)
+            ->assertSet('receiveInventoryAlerts', false)
+            ->set('receiveInventoryAlerts', true)
+            ->call('saveInventoryAlertPreference')
+            ->assertHasNoErrors();
+        app(StockAlertIncidentService::class)->reconcile($inventory);
+        $this->assertSame(1, $mutedAdmin->notifications()->where('type', 'inventory.out_of_stock')->count());
+    }
 
     public function test_platform_responsibility_routes_main_warehouse_low_stock_without_allocation_or_duplicates(): void
     {

@@ -32,7 +32,6 @@ use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryAllocationEvent;
 use App\Models\InventoryAllocationReservationLine;
-use App\Models\InventoryAllocationRule;
 use App\Models\InventoryAllocationSetting;
 use App\Models\InventoryReservation;
 use App\Models\Product;
@@ -389,13 +388,16 @@ class InventoryAllocationLedgerTest extends TestCase
 
         [$owner2, $purchase2] = $this->approvedPurchase(2, '40.0000', $owner);
         $line2 = $purchase2->items->firstOrFail();
-        InventoryAllocationSetting::query()->whereKey(1)->update(['default_policy' => InventoryAllocationPolicy::Automatic->value]);
-        InventoryAllocationRule::query()->create(['name' => 'Product owner', 'target_account_id' => $account->id,
-            'product_id' => $line2->product_id, 'priority' => 1, 'status' => true, 'created_by_user_id' => $owner->id]);
+        $assignment = ResponsibilityAssignment::factory()->create([
+            'employee_id' => $owner->employee->id,
+            'assigned_by_user_id' => $owner->id,
+            'assign_stock_by_default' => true,
+        ]);
+        ResponsibilityAssignmentProduct::query()->create(['assignment_id' => $assignment->id, 'product_id' => $line2->product_id]);
         app(PurchaseReceivingService::class)->receive($purchase2, new ReceivePurchaseData(
             [new PurchaseReceiptItemData($line2->id, 2, 0, 0)], now()->toDateTimeString(), (string) Str::uuid()
         ), $owner2);
-        $this->assertDatabaseHas('purchase_receipt_allocation_lines', ['account_id' => $account->id, 'quantity' => 2, 'allocation_method' => 'automatic_rule']);
+        $this->assertDatabaseHas('purchase_receipt_allocation_lines', ['account_id' => $account->id, 'quantity' => 2, 'allocation_method' => 'responsibility_default']);
 
         InventoryAllocationSetting::query()->whereKey(1)->update([
             'enforcement_mode' => InventoryAllocationMode::Strict->value,
@@ -407,9 +409,9 @@ class InventoryAllocationLedgerTest extends TestCase
             app(PurchaseReceivingService::class)->receive($purchase3, new ReceivePurchaseData(
                 [new PurchaseReceiptItemData($line3->id, 1, 0, 0)], now()->toDateTimeString(), (string) Str::uuid()
             ), $owner3);
-            $this->fail('Strict mode must reject a GRN when automatic allocation is disabled.');
+            $this->fail('A GRN without a default stock responsibility must be rejected.');
         } catch (ValidationException $exception) {
-            $this->assertStringContainsString('No automatic allocation', $exception->getMessage());
+            $this->assertStringContainsString('No default stock responsibility', $exception->getMessage());
             $this->assertSame(0, $line3->refresh()->received_quantity);
         }
     }

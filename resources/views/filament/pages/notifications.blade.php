@@ -9,6 +9,23 @@
         }
     </style>
     <div class="space-y-4">
+        @if ($this->canManageInventoryAlerts())
+            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
+                <div>
+                    <p class="text-sm font-semibold text-gray-950 dark:text-white">Receive Inventory Alerts</p>
+                    <p class="text-xs text-gray-500">Low Stock and Out of Stock alerts for your account.</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <x-filament::input.wrapper>
+                        <x-filament::input.select wire:model="receiveInventoryAlerts" aria-label="Receive Inventory Alerts">
+                            <option value="1">On</option>
+                            <option value="0">Off</option>
+                        </x-filament::input.select>
+                    </x-filament::input.wrapper>
+                    <x-filament::button size="sm" wire:click="saveInventoryAlertPreference">Save</x-filament::button>
+                </div>
+            </div>
+        @endif
         <div class="flex flex-wrap items-center justify-between gap-3">
             <x-filament::tabs label="Notification filters" contained>
                 @foreach (['all' => ['All', $allCount], 'unread' => ['Unread', $unreadCount], 'read' => ['Read', $readCount]] as $value => [$label, $count])

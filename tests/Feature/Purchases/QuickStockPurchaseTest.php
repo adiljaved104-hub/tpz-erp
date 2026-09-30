@@ -18,6 +18,8 @@ use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
+use App\Models\ResponsibilityAssignment;
+use App\Models\ResponsibilityAssignmentBrand;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
@@ -38,6 +40,7 @@ class QuickStockPurchaseTest extends TestCase
         $owner = $this->user(EmployeeRole::Owner);
         $warehouse = Warehouse::factory()->create();
         $product = Product::factory()->create(['selling_price' => '999.00']);
+        $this->defaultHolder($product, $owner);
         ProductInventory::factory()->create([
             'product_id' => $product->id, 'warehouse_id' => $warehouse->id,
             'available_quantity' => 8, 'reserved_quantity' => 2, 'damaged_quantity' => 2, 'average_cost' => '1500.0000',
@@ -70,6 +73,7 @@ class QuickStockPurchaseTest extends TestCase
         $admin = $this->user(EmployeeRole::Admin);
         $warehouse = Warehouse::factory()->create();
         $products = Product::factory()->count(20)->create();
+        $this->defaultHolder($products->first(), $admin);
         $items = $products->map(fn (Product $product): PurchaseItemData => new PurchaseItemData($product->id, 1, '25.0000'))->all();
 
         $result = app(QuickStockPurchase::class)->handle($this->data($warehouse, $items, Supplier::factory()->create()->id), $admin);
@@ -115,12 +119,14 @@ class QuickStockPurchaseTest extends TestCase
         ]);
     }
 
-    public function test_no_explicit_allocation_uses_system_unallocated_in_shadow_mode(): void
+    public function test_no_explicit_allocation_uses_responsibility_default_in_shadow_mode(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
         $handler = $this->user(EmployeeRole::Manager)->employee;
         $warehouse = Warehouse::factory()->create();
         $product = Product::factory()->create();
+        $holder = $this->user(EmployeeRole::Manager);
+        $this->defaultHolder($product, $holder);
 
         app(QuickStockPurchase::class)->handle(new QuickStockPurchaseData(
             warehouseId: $warehouse->id,
@@ -131,8 +137,8 @@ class QuickStockPurchaseTest extends TestCase
         ), $owner);
 
         $inventory = ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->sole();
-        $system = app(InventoryAllocationService::class)->systemAccount();
-        $this->assertSame(3, InventoryAllocationBalance::query()->where('account_id', $system->id)->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+        $account = app(InventoryAllocationService::class)->employeeAccount($holder->employee->id);
+        $this->assertSame(3, InventoryAllocationBalance::query()->where('account_id', $account->id)->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
         $this->assertDatabaseMissing('inventory_allocation_balances', [
             'account_id' => app(InventoryAllocationService::class)->employeeAccount($handler->id)->id,
             'product_inventory_id' => $inventory->id,
@@ -144,6 +150,7 @@ class QuickStockPurchaseTest extends TestCase
         $owner = $this->user(EmployeeRole::Owner);
         $warehouse = Warehouse::factory()->create();
         $product = Product::factory()->create();
+        $this->defaultHolder($product, $owner);
         $data = $this->data($warehouse, [new PurchaseItemData($product->id, 2, '50.0000')]);
         $first = app(QuickStockPurchase::class)->handle($data, $owner);
         $second = app(QuickStockPurchase::class)->handle($data, $owner);
@@ -229,6 +236,7 @@ class QuickStockPurchaseTest extends TestCase
         $staff = $this->user(EmployeeRole::Staff);
         $warehouse = Warehouse::factory()->create();
         $product = Product::factory()->create();
+        $this->defaultHolder($product, $staff);
         $this->app->bind(PurchasePermissionResolver::class, fn () => new class implements PurchasePermissionResolver
         {
             public function allows(User $user, PurchasePermission $permission, ?Purchase $purchase = null): bool
@@ -249,6 +257,18 @@ class QuickStockPurchaseTest extends TestCase
         Employee::factory()->for($user)->role($role)->create();
 
         return $user->refresh();
+    }
+
+    private function defaultHolder(Product $product, User $holder): void
+    {
+        $assignment = ResponsibilityAssignment::factory()->create([
+            'employee_id' => $holder->employee->id,
+            'assign_stock_by_default' => true,
+        ]);
+        ResponsibilityAssignmentBrand::query()->create([
+            'assignment_id' => $assignment->id,
+            'product_brand_id' => $product->brand_id,
+        ]);
     }
 
     /** @param array<int, PurchaseItemData> $items */

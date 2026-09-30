@@ -27,6 +27,7 @@ class ResponsibilityAssignment extends Model
             'status' => ResponsibilityAssignmentStatus::class,
             'effective_at' => 'immutable_datetime',
             'ended_at' => 'immutable_datetime',
+            'assign_stock_by_default' => 'boolean',
         ];
     }
 

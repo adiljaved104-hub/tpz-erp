@@ -136,6 +136,7 @@ class BulkResponsibilityAssignmentService
                 categoryId: $data->categoryId,
                 warehouseId: $data->scopeType === 'warehouse' ? $data->warehouseId : null,
                 condition: $data->condition,
+                assignStockByDefault: $data->assignStockByDefault,
             );
         });
 

@@ -17,10 +17,12 @@ use App\Models\ResponsibilityAssignment;
 use App\Models\User;
 use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
+use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -38,6 +40,7 @@ class ResponsibilityAssignmentsTable
             TextColumn::make('reference')->searchable()->sortable(),
             TextColumn::make('employee.name')->label('Employee')->searchable()->sortable()->description(fn (ResponsibilityAssignment $record): ?string => $record->employee?->employee_id),
             TextColumn::make('team_name_at_assignment')->label('Team')->placeholder('—'),
+            TextColumn::make('assign_stock_by_default')->label('Default Stock')->formatStateUsing(fn (bool $state): string => $state ? 'Yes' : 'No')->badge(),
             TextColumn::make('brandScope.brand.name')->label('Brand')->placeholder('—'),
             TextColumn::make('categoryScope.category.name')->label('Category')->placeholder('—'),
             TextColumn::make('conditionScope.product_condition')->label('Condition')->formatStateUsing(fn ($state): string => $state?->label() ?? '—')->placeholder('—'),
@@ -66,7 +69,18 @@ class ResponsibilityAssignmentsTable
             SelectFilter::make('employee_id')->relationship('employee', 'name')->searchable()->preload(),
         ])->recordActions([
             ViewAction::make()->label('View History'),
-            Action::make('transfer')->requiresConfirmation()->authorize(fn (ResponsibilityAssignment $record): bool => auth()->user()->can('transfer', $record))
+            Action::make('setStockDefault')->label('Set Default Stock')->requiresConfirmation()
+                ->visible(fn (ResponsibilityAssignment $record): bool => $record->status === ResponsibilityAssignmentStatus::Active)
+                ->authorize(fn (): bool => ($user = auth()->user()) instanceof User
+                    && app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::Assign))
+                ->schema([
+                    Checkbox::make('enabled')->label('Assign stock by default')->default(fn (ResponsibilityAssignment $record): bool => $record->assign_stock_by_default),
+                    Textarea::make('reason')->required()->maxLength(2000),
+                ])
+                ->action(fn (ResponsibilityAssignment $record, array $data) => app(ResponsibilityAssignmentService::class)->setStockDefault($record, (bool) $data['enabled'], $data['reason'], auth()->user())),
+            Action::make('transfer')->label('Transfer Responsibility')->requiresConfirmation()
+                ->modalDescription('Future receipts follow the new default holder. Existing allocated stock remains with its current holder until transferred through the stock request workflow.')
+                ->authorize(fn (ResponsibilityAssignment $record): bool => auth()->user()->can('transfer', $record))
                 ->visible(fn (ResponsibilityAssignment $record): bool => $record->status === ResponsibilityAssignmentStatus::Active)
                 ->schema([
                     Select::make('employee_id')->label('Transfer To')->required()->searchable()->options(fn (): array => Employee::query()->where('status', true)->whereNotNull('user_id')->orderBy('name')->pluck('name', 'id')->all()),

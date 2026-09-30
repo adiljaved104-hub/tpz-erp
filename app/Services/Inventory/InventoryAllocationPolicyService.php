@@ -5,9 +5,9 @@ namespace App\Services\Inventory;
 use App\Enums\InventoryAllocationMode;
 use App\Enums\InventoryAllocationPolicy;
 use App\Models\InventoryAllocationAccount;
-use App\Models\InventoryAllocationRule;
 use App\Models\InventoryAllocationSetting;
 use App\Models\ProductInventory;
+use App\Models\ResponsibilityAssignment;
 use Illuminate\Validation\ValidationException;
 
 class InventoryAllocationPolicyService
@@ -33,8 +33,6 @@ class InventoryAllocationPolicyService
 
     public function receiptAccount(ProductInventory $inventory, ?int $selectedAccountId): array
     {
-        $policy = $this->policy();
-
         if ($selectedAccountId !== null) {
             $account = InventoryAllocationAccount::query()->where('status', true)->findOrFail($selectedAccountId);
             if ($this->mode() === InventoryAllocationMode::Strict && $account->is_system) {
@@ -44,34 +42,52 @@ class InventoryAllocationPolicyService
             return [$account, 'grn_selected'];
         }
 
-        if ($policy === InventoryAllocationPolicy::AskAtGrn) {
-            throw ValidationException::withMessages(['items' => 'Select an allocation account for each accepted GRN line.']);
+        return $this->defaultResponsibilityAccount($inventory);
+    }
+
+    /** @return array{InventoryAllocationAccount, string} */
+    private function defaultResponsibilityAccount(ProductInventory $inventory): array
+    {
+        $inventory->loadMissing(['product.marketplaceListings', 'warehouse']);
+        $product = $inventory->product;
+        $platformIds = $product->marketplaceListings->pluck('marketplace_platform_id')->map(fn ($id): int => (int) $id);
+        if ($inventory->warehouse?->marketplace_platform_id !== null) {
+            $platformIds->push((int) $inventory->warehouse->marketplace_platform_id);
         }
-        if ($policy === InventoryAllocationPolicy::Automatic) {
-            $product = $inventory->product;
-            $rule = InventoryAllocationRule::query()->where('status', true)
-                ->where(fn ($query) => $query->whereNull('product_id')->orWhere('product_id', $product->id))
-                ->where(fn ($query) => $query->whereNull('product_brand_id')->orWhere('product_brand_id', $product->brand_id))
-                ->where(fn ($query) => $query->whereNull('product_category_id')->orWhere('product_category_id', $product->category_id))
-                ->where(fn ($query) => $query->whereNull('warehouse_id')->orWhere('warehouse_id', $inventory->warehouse_id))
-                ->with('targetAccount')->orderBy('priority')->orderBy('id')->first();
-            if ($rule !== null && $rule->targetAccount?->status
-                && ! ($this->mode() === InventoryAllocationMode::Strict && $rule->targetAccount->is_system)) {
-                return [$rule->targetAccount, 'automatic_rule'];
-            }
+        $platformIds = $platformIds->unique()->all();
+
+        $matches = ResponsibilityAssignment::query()->active()->where('assign_stock_by_default', true)
+            ->whereHas('employee', fn ($query) => $query->where('status', true)->whereNotNull('user_id'))
+            ->where(function ($query) use ($product): void {
+                $query->whereHas('productScope', fn ($scope) => $scope->where('product_id', $product->id))
+                    ->orWhereHas('brandScope', fn ($scope) => $scope->where('product_brand_id', $product->brand_id ?? 0))
+                    ->orWhereHas('categoryScope', fn ($scope) => $scope->where('product_category_id', $product->category_id ?? 0));
+            })
+            ->where(fn ($query) => $query->whereDoesntHave('platformScope')
+                ->orWhereHas('platformScope', fn ($scope) => $scope->whereIn('marketplace_platform_id', $platformIds)))
+            ->where(fn ($query) => $query->whereDoesntHave('warehouseScope')
+                ->orWhereHas('warehouseScope', fn ($scope) => $scope->where('warehouse_id', $inventory->warehouse_id)))
+            ->where(fn ($query) => $query->whereDoesntHave('conditionScope')
+                ->orWhereHas('conditionScope', fn ($scope) => $scope->where('product_condition', $product->condition?->value)))
+            ->with('employee:id,name,status,user_id')->get();
+        $holders = $matches->unique('employee_id')->values();
+
+        if ($holders->isEmpty()) {
+            throw ValidationException::withMessages(['items' => 'No default stock responsibility is configured for this product. Configure Responsibility before receiving this stock.']);
+        }
+        if ($holders->count() > 1) {
+            throw ValidationException::withMessages(['items' => 'Multiple default stock responsibilities match this product. Resolve the Responsibility conflict before receiving stock.']);
         }
 
-        if ($this->mode() === InventoryAllocationMode::Strict) {
-            $message = $policy === InventoryAllocationPolicy::Automatic
-                ? 'No explicit allocation rule matched this GRN line. Correct the rules or use Ask at GRN.'
-                : 'Strict allocation cannot finalize a GRN with No automatic allocation. Select Ask at GRN or configure an explicit rule.';
-            throw ValidationException::withMessages(['items' => $message]);
-        }
-
-        $system = InventoryAllocationAccount::query()->firstOrCreate(['identity_key' => 'system'], [
-            'type' => 'system', 'name' => 'System / Unallocated', 'is_system' => true, 'status' => true,
+        $employee = $holders->first()->employee;
+        $account = InventoryAllocationAccount::query()->firstOrCreate(['identity_key' => "employee:{$employee->id}"], [
+            'employee_id' => $employee->id, 'type' => 'employee', 'name' => $employee->name,
+            'is_system' => false, 'status' => true,
         ]);
+        if (! $account->status) {
+            throw ValidationException::withMessages(['items' => 'The default stock holder has an inactive allocation account. Resolve it before receiving stock.']);
+        }
 
-        return [$system, $policy === InventoryAllocationPolicy::Automatic ? 'automatic_unmatched' : 'no_automatic'];
+        return [$account, 'responsibility_default'];
     }
 }

@@ -115,7 +115,12 @@ class ResponsibilityProductScopeService
                             ->from('responsibility_assignment_platforms as inventory_platform_scope')
                             ->join('warehouses as inventory_platform_warehouse', 'inventory_platform_warehouse.marketplace_platform_id', '=', 'inventory_platform_scope.marketplace_platform_id')
                             ->whereColumn('inventory_platform_scope.assignment_id', 'inventory_ra.id')
-                            ->whereColumn('inventory_platform_warehouse.id', "{$inventoryAlias}.warehouse_id"));
+                            ->whereColumn('inventory_platform_warehouse.id', "{$inventoryAlias}.warehouse_id"))
+                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                            ->from('responsibility_assignment_platforms as inventory_listing_platform')
+                            ->join('product_marketplace_listings as inventory_listing', 'inventory_listing.marketplace_platform_id', '=', 'inventory_listing_platform.marketplace_platform_id')
+                            ->whereColumn('inventory_listing_platform.assignment_id', 'inventory_ra.id')
+                            ->whereColumn('inventory_listing.product_id', "{$inventoryAlias}.product_id"));
                 })
                 ->where(function (Builder $condition) use ($inventoryAlias): void {
                     $condition->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')

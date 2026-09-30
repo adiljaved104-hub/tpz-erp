@@ -24,6 +24,7 @@ use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Branding\ApplicationBranding;
 use App\Services\Notifications\EmailConfigurationService;
+use App\Services\Notifications\InventoryAlertPreferenceService;
 use App\Services\Notifications\NotificationRuleService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
@@ -93,6 +94,12 @@ class CriticalAlertMailNotification extends Notification implements ShouldBeEncr
 
     public function shouldSend(object $notifiable, string $channel): bool
     {
+        if ($notifiable instanceof User
+            && in_array($this->ruleEventKey, ['inventory.low_stock', 'inventory.out_of_stock'], true)
+            && ! app(InventoryAlertPreferenceService::class)->enabled($notifiable)) {
+            return false;
+        }
+
         if ($this->ruleEventKey !== null && ! app(NotificationRuleService::class)->channelEnabled($this->ruleEventKey, 'email')) {
             return false;
         }

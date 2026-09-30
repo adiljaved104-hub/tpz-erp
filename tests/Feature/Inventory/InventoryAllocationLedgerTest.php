@@ -757,7 +757,16 @@ class InventoryAllocationLedgerTest extends TestCase
         Livewire::test(InventoryAllocations::class)
             ->assertOk()
             ->assertSee('Stock Allocation Settings')
+            ->assertSee('Allocation Balances')
+            ->assertSee('Assign stock by default')
+            ->assertDontSee('Automatic Stock Rules')
+            ->assertDontSee('Create Rule')
             ->assertSee('Immutable Allocation Events');
+        $page = new \ReflectionClass(InventoryAllocations::class);
+        $this->assertFalse($page->hasMethod('createRule'));
+        $this->assertFalse($page->hasMethod('selectRuleAccount'));
+        $this->assertFalse($page->hasMethod('selectRuleProduct'));
+        $this->assertFalse($page->hasProperty('ruleName'));
         $this->actingAs($admin);
         $this->assertTrue(InventoryAllocations::canAccess());
         $this->actingAs($staff);

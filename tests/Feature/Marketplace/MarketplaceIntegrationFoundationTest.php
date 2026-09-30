@@ -174,6 +174,11 @@ class MarketplaceIntegrationFoundationTest extends TestCase
 
     public function test_owner_connection_ui_uses_friendly_labels_without_exposing_credential_reference(): void
     {
+        config()->set('marketplace_credentials.references.amazon-production-secret-reference', [
+            'enabled' => true, 'endpoint' => 'https://example.test', 'marketplace_id' => 'fake-market',
+            'seller_id' => 'fake-seller', 'lwa_client_id' => 'fake-client',
+            'lwa_client_secret' => 'fake-secret', 'refresh_token' => 'fake-refresh',
+        ]);
         $owner = $this->responsibilityUser(EmployeeRole::Owner);
         $platform = MarketplacePlatform::factory()->create();
         $account = $this->account($platform, 'New', 'new');

@@ -8,6 +8,7 @@ use App\Models\MarketplaceConnection;
 use App\Models\MarketplacePlatform;
 use App\Models\User;
 use App\Services\Authorization\MarketplaceOperationsAuthorization;
+use App\Services\Marketplace\MarketplaceCredentialReferenceService;
 use App\Services\Marketplace\MarketplaceIntegrationService;
 use App\Services\Marketplace\MarketplaceMonitoringSettingsService;
 use App\Services\Marketplace\MarketplaceOperationsSummaryService;
@@ -36,7 +37,7 @@ class MarketplaceOperations extends Page
 
     public array $accountForm = ['marketplace_platform_id' => null, 'name' => '', 'code' => '', 'product_condition' => null, 'enabled' => true];
 
-    public array $connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
+    public array $connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => false, 'credential_reference' => '', 'capabilities' => []];
 
     public array $connectionSettings = [];
 
@@ -75,10 +76,13 @@ class MarketplaceOperations extends Page
     {
         $data = $this->connectionForm;
         $data['driver'] = $data['driver_option'] === 'custom' ? trim((string) $data['driver']) : $data['driver_option'];
+        if (in_array($data['driver'], ['sharafdg_browser', 'microless_browser'], true)) {
+            $data['connection_type'] = 'browser';
+        }
         $data['priority'] = $this->priorityFromPosition((string) $data['priority_position'], (int) $data['priority']);
         unset($data['driver_option'], $data['priority_position']);
         $service->saveConnection($data, $this->actor());
-        $this->connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
+        $this->connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => false, 'credential_reference' => '', 'capabilities' => []];
         $this->loadConnectionSettings();
         Notification::make()->success()->title('Marketplace connection created')->send();
     }
@@ -120,6 +124,24 @@ class MarketplaceOperations extends Page
             'platforms' => MarketplacePlatform::query()->active()->orderBy('name')->get(),
             'accounts' => MarketplaceAccount::query()->with(['platform', 'connections.capabilities'])->orderBy('marketplace_platform_id')->orderBy('name')->get(),
         ];
+    }
+
+    public function credentialsConfigured(MarketplaceConnection $connection): bool
+    {
+        if (in_array($connection->driver, ['sharafdg_browser', 'microless_browser'], true)) {
+            return (bool) config('marketplace_monitoring.browser_worker.enabled') && filled(config('marketplace_monitoring.browser_worker.url'));
+        }
+        $credentials = app(MarketplaceCredentialReferenceService::class)->credentials($connection);
+        $required = match ($connection->driver) {
+            'amazon_sp_api' => ['endpoint', 'marketplace_id', 'seller_id', 'lwa_client_id', 'lwa_client_secret', 'refresh_token'],
+            'noon_api' => ['key_id', 'project_code', 'private_key'],
+            'carrefour_maf_api' => [],
+            default => null,
+        };
+
+        return $required === null
+            ? filled($connection->getRawOriginal('credential_reference'))
+            : (bool) ($credentials['enabled'] ?? false) && collect($required)->every(fn (string $key): bool => filled($credentials[$key] ?? null));
     }
 
     private function actor(): User

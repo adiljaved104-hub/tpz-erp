@@ -17,4 +17,9 @@ return [
         'refresh_token' => env('AMAZON_SPAPI_REFRESH_TOKEN'),
         'lwa_endpoint' => 'https://api.amazon.com/auth/o2/token',
     ],
+    'browser_worker' => [
+        'enabled' => (bool) env('MARKETPLACE_BROWSER_WORKER_ENABLED', false),
+        'url' => env('MARKETPLACE_BROWSER_WORKER_URL'),
+        'timeout' => (int) env('MARKETPLACE_BROWSER_WORKER_TIMEOUT', 12),
+    ],
 ];

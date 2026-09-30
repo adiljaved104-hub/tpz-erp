@@ -34,9 +34,9 @@ class AmazonUaeMonitorAdapter implements MarketplaceMonitorAdapter
         }
 
         try {
-            $accessToken = $this->accessToken($credentials);
+            [$accessToken, $authStatus] = $this->accessToken($credentials);
             if ($accessToken === null) {
-                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, 'authentication_failed', 'Amazon authorization is temporarily unavailable.', $listing->marketplace_account_id, $connection?->id);
+                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, $authStatus, 'Amazon authorization is temporarily unavailable.', $listing->marketplace_account_id, $connection?->id);
             }
 
             $response = Http::acceptJson()
@@ -48,12 +48,18 @@ class AmazonUaeMonitorAdapter implements MarketplaceMonitorAdapter
                 );
 
             if (! $response->successful()) {
-                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, 'api_error', 'Amazon marketplace data is temporarily unavailable.', $listing->marketplace_account_id, $connection?->id);
+                $status = match (true) {
+                    in_array($response->status(), [401, 403], true) => 'authentication_failed',
+                    $response->status() === 429 => 'rate_limited',
+                    default => 'api_error',
+                };
+
+                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, $status, 'Amazon marketplace data is temporarily unavailable.', $listing->marketplace_account_id, $connection?->id);
             }
 
-            $offers = data_get($response->json(), 'payload.Offers', []);
-            if (! is_array($offers)) {
-                $offers = [];
+            $offers = data_get($response->json(), 'payload.Offers');
+            if (! is_array($offers) || ! array_is_list($offers)) {
+                return MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $source, 'source_error', 'Amazon response format is unavailable.', $listing->marketplace_account_id, $connection?->id);
             }
             $winnerSellerIds = collect($offers)
                 ->filter(fn (mixed $offer): bool => is_array($offer) && (bool) ($offer['IsBuyBoxWinner'] ?? false))
@@ -93,12 +99,13 @@ class AmazonUaeMonitorAdapter implements MarketplaceMonitorAdapter
     }
 
     /** @param array<string, mixed> $credentials */
-    private function accessToken(array $credentials): ?string
+    /** @return array{?string, string} */
+    private function accessToken(array $credentials): array
     {
         $cacheKey = 'marketplace-monitoring:amazon:lwa:'.hash('sha256', (string) ($credentials['lwa_client_id'] ?? '').':'.(string) ($credentials['seller_id'] ?? ''));
         $cached = Cache::get($cacheKey);
         if (is_string($cached) && $cached !== '') {
-            return $cached;
+            return [$cached, 'ok'];
         }
 
         $response = Http::asForm()->timeout(10)->post((string) ($credentials['lwa_endpoint'] ?? 'https://api.amazon.com/auth/o2/token'), [
@@ -107,13 +114,16 @@ class AmazonUaeMonitorAdapter implements MarketplaceMonitorAdapter
             'client_id' => $credentials['lwa_client_id'] ?? null,
             'client_secret' => $credentials['lwa_client_secret'] ?? null,
         ]);
-        if (! $response->successful() || blank($response->json('access_token'))) {
-            return null;
+        if (! $response->successful()) {
+            return [null, $response->status() === 429 ? 'rate_limited' : 'authentication_failed'];
+        }
+        if (blank($response->json('access_token'))) {
+            return [null, 'authentication_failed'];
         }
 
         $token = (string) $response->json('access_token');
         Cache::put($cacheKey, $token, now()->addSeconds(max(1, (int) $response->json('expires_in', 3600) - 60)));
 
-        return $token;
+        return [$token, 'ok'];
     }
 }

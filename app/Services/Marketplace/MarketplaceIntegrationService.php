@@ -61,13 +61,38 @@ class MarketplaceIntegrationService
         }
 
         $capabilities = array_values(array_unique(array_map(fn ($capability): string => $capability instanceof MarketplaceConnectionCapability ? $capability->value : (string) $capability, $validated['capabilities'])));
+        $allowed = match ($validated['driver']) {
+            'amazon_sp_api' => ['featured_offer', 'listing_status'],
+            'noon_api', 'carrefour_maf_api' => ['listing_status', 'stock_status'],
+            'sharafdg_browser', 'microless_browser' => ['featured_offer', 'listing_status', 'stock_status', 'direct_product_check', 'product_search'],
+            default => null,
+        };
+        if ($allowed !== null && array_diff($capabilities, $allowed) !== []) {
+            throw ValidationException::withMessages(['capabilities' => 'Select only capabilities supported by this integration.']);
+        }
+        $requiredType = match ($validated['driver']) {
+            'amazon_sp_api', 'noon_api', 'carrefour_maf_api' => MarketplaceConnectionType::Api,
+            'sharafdg_browser', 'microless_browser' => MarketplaceConnectionType::Browser,
+            default => null,
+        };
+        if ($requiredType !== null && $validated['connection_type'] !== $requiredType->value && $validated['connection_type'] !== $requiredType) {
+            throw ValidationException::withMessages(['connection_type' => 'The connection method does not match this integration.']);
+        }
 
         return DB::transaction(function () use ($validated, $capabilities, $actor, $connection): MarketplaceConnection {
             $target = $connection?->exists ? MarketplaceConnection::query()->lockForUpdate()->findOrFail($connection->id) : new MarketplaceConnection;
-            $before = $target->exists ? $target->withoutRelations()->toArray() : [];
+            $before = $target->exists ? $target->withoutRelations()->makeHidden('credential_reference')->toArray() : [];
             $credentials = trim((string) ($validated['credential_reference'] ?? ''));
             unset($validated['capabilities'], $validated['credential_reference']);
             $target->fill($validated);
+            if (! $target->exists && $credentials === '') {
+                $credentials = match ($target->driver) {
+                    'amazon_sp_api' => 'amazon_default',
+                    'noon_api' => 'noon_default',
+                    'carrefour_maf_api' => 'carrefour_default',
+                    default => '',
+                };
+            }
             if ($credentials !== '') {
                 $target->credential_reference = $credentials;
             }

@@ -7,6 +7,7 @@ use App\DTOs\Marketplace\MarketplaceObservation;
 use App\Enums\MarketplaceConnectionCapability;
 use App\Enums\MarketplaceObservationState;
 use App\Models\ProductMarketplaceListing;
+use Throwable;
 
 class MarketplaceMonitorManager
 {
@@ -18,18 +19,30 @@ class MarketplaceMonitorManager
         $listing->loadMissing('account');
         if ($listing->account !== null) {
             $lastUnknown = null;
-            foreach ($this->capabilities->connections($listing->account, MarketplaceConnectionCapability::FeaturedOffer) as $connection) {
+            $connections = collect([MarketplaceConnectionCapability::FeaturedOffer, MarketplaceConnectionCapability::ListingStatus, MarketplaceConnectionCapability::StockStatus])
+                ->flatMap(fn (MarketplaceConnectionCapability $capability) => $this->capabilities->connections($listing->account, $capability))
+                ->unique('id')->sortBy([['priority', 'asc'], ['id', 'asc']]);
+            foreach ($connections as $connection) {
                 foreach ($this->adapters as $adapter) {
                     if (! $adapter->supports($listing, $connection)) {
                         continue;
                     }
-                    $observation = $adapter->observe($listing, $connection);
+                    try {
+                        $observation = $adapter->observe($listing, $connection);
+                    } catch (Throwable) {
+                        $observation = MarketplaceObservation::unavailable($listing->id, $listing->marketplace_platform_id, $connection->driver, 'source_error', 'Marketplace source check failed safely.', $listing->marketplace_account_id, $connection->id);
+                    }
+                    $healthy = $observation->listingActive !== MarketplaceObservationState::Unknown
+                        || $observation->stockAvailable !== MarketplaceObservationState::Unknown
+                        || $observation->featuredOfferHeld !== MarketplaceObservationState::Unknown;
                     $connection->forceFill([
-                        'health_status' => $observation->featuredOfferHeld === MarketplaceObservationState::Unknown ? 'unavailable' : 'healthy',
+                        'health_status' => $healthy ? 'healthy' : 'unavailable',
                         'last_health_checked_at' => now(),
-                        'last_healthy_at' => $observation->featuredOfferHeld === MarketplaceObservationState::Unknown ? $connection->last_healthy_at : now(),
+                        'last_healthy_at' => $healthy ? now() : $connection->last_healthy_at,
                     ])->save();
-                    if ($observation->featuredOfferHeld !== MarketplaceObservationState::Unknown) {
+                    $needsFeatured = $connection->capabilities()->where('enabled', true)
+                        ->where('capability', MarketplaceConnectionCapability::FeaturedOffer->value)->exists();
+                    if ($healthy && (! $needsFeatured || $observation->featuredOfferHeld !== MarketplaceObservationState::Unknown)) {
                         return $observation;
                     }
                     $lastUnknown = $observation;

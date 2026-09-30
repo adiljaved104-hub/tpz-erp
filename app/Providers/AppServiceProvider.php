@@ -226,8 +226,11 @@ use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Hikvision\HikvisionAttendanceImporter;
 use App\Services\Marketplace\AmazonUaeMonitorAdapter;
+use App\Services\Marketplace\BrowserMarketplaceMonitorAdapter;
+use App\Services\Marketplace\CarrefourMafMonitorAdapter;
 use App\Services\Marketplace\MarketplaceConnectionCapabilityResolver;
 use App\Services\Marketplace\MarketplaceMonitorManager;
+use App\Services\Marketplace\NoonUaeMonitorAdapter;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\ProductIntelligence\LocalProductQueryInterpreter;
 use App\Services\Reports\Providers\CoreReportProvider;
@@ -284,6 +287,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(NavigationPreferenceService::class);
         $this->app->singleton(MarketplaceMonitorManager::class, fn ($app): MarketplaceMonitorManager => new MarketplaceMonitorManager([
             $app->make(AmazonUaeMonitorAdapter::class),
+            $app->make(NoonUaeMonitorAdapter::class),
+            $app->make(CarrefourMafMonitorAdapter::class),
+            $app->make(BrowserMarketplaceMonitorAdapter::class),
         ], $app->make(MarketplaceConnectionCapabilityResolver::class)));
         $this->app->scoped(NavigationManager::class, fn (): NavigationManager => new PersonalizedNavigationManager);
     }

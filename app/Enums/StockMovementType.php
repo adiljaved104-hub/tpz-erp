@@ -11,6 +11,7 @@ enum StockMovementType: string
     case RestoreDamaged = 'restore_damaged';
     case PurchaseReceipt = 'purchase_receipt';
     case PurchaseReceiptCorrection = 'purchase_receipt_correction';
+    case InventoryAdjustment = 'inventory_adjustment';
     case QuotationSourcingReceipt = 'quotation_sourcing_receipt';
     case OrderFulfillment = 'order_fulfillment';
     case TransferDispatch = 'transfer_dispatch';
@@ -41,6 +42,7 @@ enum StockMovementType: string
             self::RestoreDamaged => 'Restored from Damaged',
             self::PurchaseReceipt => 'Goods Receipt (GRN)',
             self::PurchaseReceiptCorrection => 'Purchase Receipt Correction',
+            self::InventoryAdjustment => 'Inventory Adjustment',
             self::QuotationSourcingReceipt => 'Quotation Sourcing Receipt',
             self::OrderFulfillment => 'Order Fulfilment',
             self::TransferDispatch => 'Transfer Dispatch',

@@ -71,6 +71,7 @@ use App\Models\EmployeeLoanRepayment;
 use App\Models\EmployeeWarning;
 use App\Models\Expense;
 use App\Models\HrNotice;
+use App\Models\InventoryAdjustment;
 use App\Models\InventoryReservation;
 use App\Models\InvoiceSetting;
 use App\Models\LeaveRequest;
@@ -513,6 +514,7 @@ class AppServiceProvider extends ServiceProvider
             'stock_request' => StockRequest::class,
             'opening_stock' => OpeningStockEntry::class,
             'inventory_reservation' => InventoryReservation::class,
+            'inventory_adjustment' => InventoryAdjustment::class,
             'order' => Order::class,
             'order_setting' => OrderSetting::class,
             'order_amendment' => OrderAmendment::class,

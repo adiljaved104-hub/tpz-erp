@@ -20,6 +20,9 @@ use App\Exceptions\InactiveInventorySubjectException;
 use App\Exceptions\InsufficientInventoryException;
 use App\Exceptions\InventoryInvariantException;
 use App\Models\Component;
+use App\Models\InventoryAdjustment;
+use App\Models\InventoryAllocationAccount;
+use App\Models\InventoryAllocationReservationLine;
 use App\Models\InventoryReservation;
 use App\Models\OpeningStockEntry;
 use App\Models\OrderFulfillment;
@@ -29,7 +32,6 @@ use App\Models\OrderItemUpgradeSelection;
 use App\Models\OrderUpgradeExecution;
 use App\Models\Product;
 use App\Models\ProductInventory;
-use App\Models\PurchaseReceiptCorrection;
 use App\Models\PurchaseReceiptItem;
 use App\Models\QuotationSourcingPosting;
 use App\Models\StockMovement;
@@ -396,61 +398,43 @@ class InventoryService
         );
     }
 
-    public function correctPurchaseReceipt(PurchaseReceiptCorrection $correction, User $actor, string $movementReference): StockMovement
+    public function postAdjustmentPhysical(InventoryAdjustment $adjustment, ProductInventory $inventory, User $actor): StockMovement
     {
         if (DB::transactionLevel() === 0) {
-            throw new InventoryInvariantException('Purchase receipt correction requires an active transaction.');
+            throw new InventoryInvariantException('Inventory adjustment requires an active transaction.');
         }
-
-        if ($existing = StockMovement::query()->where('idempotency_key', $correction->idempotency_key)->first()) {
-            if ($existing->source_type !== $correction->getMorphClass() || $existing->source_id !== $correction->id) {
-                throw new DuplicateInventoryPostingException('The correction idempotency key belongs to another inventory operation.');
-            }
-
-            return $existing;
+        if ($adjustment->available_delta < 0 && $inventory->sellableQuantity() < -$adjustment->available_delta) {
+            throw new InventoryInvariantException('Stock already fulfilled or consumed cannot be removed by an inventory adjustment.');
         }
-
-        $quantity = -$correction->adjustment_quantity;
-        $inventoryId = ProductInventory::query()
-            ->where('product_id', $correction->product_id)
-            ->where('warehouse_id', $correction->warehouse_id)
-            ->value('id');
-        if ($inventoryId === null) {
-            throw new InventoryInvariantException('The original receipt inventory balance no longer exists.');
-        }
-        $inventory = $this->balances->lock($inventoryId);
-
-        if ($quantity < 1 || $inventory->sellableQuantity() < $quantity) {
-            throw new InventoryInvariantException('The original received stock has already been reserved or consumed. Resolve the stock usage before correcting this GRN.');
+        if ($adjustment->damaged_delta < 0 && $inventory->damaged_quantity < -$adjustment->damaged_delta) {
+            throw new InventoryInvariantException('Damaged stock is lower than the requested adjustment.');
         }
 
         $before = $this->snapshot($inventory);
-        $newAverage = $this->costs->reverseWeightedAverage(
-            $inventory->totalOnHand(),
-            $inventory->average_cost,
-            $quantity,
-            $correction->inventory_unit_cost,
-        );
+        $newAvailable = $inventory->available_quantity + $adjustment->available_delta;
+        $newDamaged = $inventory->damaged_quantity + $adjustment->damaged_delta;
+        $average = $inventory->average_cost;
+        if ($newAvailable + $newDamaged + $inventory->marketplace_non_sellable_quantity + $inventory->qc_pending_quantity === 0) {
+            $average = null;
+        } elseif ($average === null) {
+            $average = $adjustment->reference_unit_cost;
+            if ($average === null) {
+                throw new InventoryInvariantException('A valuation unit cost is required when adding stock to an empty inventory balance.');
+            }
+        }
         $inventory->forceFill([
-            'available_quantity' => $inventory->available_quantity - $quantity,
-            'average_cost' => $newAverage,
+            'available_quantity' => $newAvailable,
+            'damaged_quantity' => $newDamaged,
+            'average_cost' => $average,
         ])->save();
 
         return $this->createMovement(
-            $inventory,
-            $actor,
-            $movementReference,
-            $correction->movement_group,
-            StockMovementType::PurchaseReceiptCorrection,
-            $quantity,
-            -$quantity,
-            0,
-            0,
-            $before,
-            $correction,
-            'Purchase receipt quantity correction',
-            $correction->idempotency_key,
-            $correction->inventory_unit_cost,
+            $inventory, $actor, $adjustment->movement_reference, $adjustment->movement_group,
+            StockMovementType::InventoryAdjustment,
+            max(abs($adjustment->available_delta), abs($adjustment->damaged_delta)),
+            $adjustment->available_delta, 0, $adjustment->damaged_delta,
+            $before, $adjustment, $adjustment->reason, $adjustment->idempotency_key,
+            $before['average'] ?? $adjustment->reference_unit_cost,
         );
     }
 
@@ -681,6 +665,61 @@ class InventoryService
             'quantity' => $reservation->quantity,
             'reason_recorded' => true,
         ]);
+    }
+
+    /** @param array<int, string> $movementReferences */
+    public function releaseForAdjustment(ProductInventory $inventory, InventoryAllocationAccount $account, int $quantity, InventoryAdjustment $adjustment, User $actor, array &$movementReferences): void
+    {
+        if (DB::transactionLevel() === 0 || $quantity < 1) {
+            throw new InventoryInvariantException('Adjustment reservation release requires an active transaction and positive quantity.');
+        }
+        $remaining = $quantity;
+        $lines = InventoryAllocationReservationLine::query()
+            ->where('account_id', $account->id)
+            ->where('status', 'reserved')
+            ->whereHas('reservation', fn ($query) => $query->where('product_inventory_id', $inventory->id)
+                ->where('status', InventoryReservationStatus::Active->value))
+            ->orderBy('id')->lockForUpdate()->get();
+        foreach ($lines as $line) {
+            if ($remaining === 0) {
+                break;
+            }
+            $reservation = InventoryReservation::query()->lockForUpdate()->findOrFail($line->inventory_reservation_id);
+            $take = min($remaining, $line->quantity, $reservation->quantity);
+            if ($take < 1 || $inventory->reserved_quantity < $take || $movementReferences === []) {
+                throw new InventoryInvariantException('Reserved inventory cannot satisfy the adjustment release. Retry the adjustment.');
+            }
+            $before = $this->snapshot($inventory);
+            $this->allocationLedger->releaseReservationAccountQuantity($reservation, $account, $take, $actor, $adjustment);
+            $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity - $take])->save();
+            $newQuantity = $reservation->quantity - $take;
+            $attributes = $newQuantity > 0 ? ['quantity' => $newQuantity] : [
+                'status' => InventoryReservationStatus::Released,
+                'release_idempotency_key' => (string) Str::uuid(),
+                'released_by_user_id' => $actor->id,
+                'released_at' => now(),
+            ];
+            $reservation->forceFill($attributes)->save();
+            $movement = $this->createMovement(
+                $inventory, $actor, array_shift($movementReferences), $adjustment->movement_group,
+                $reservation->reservation_kind === InventoryReservationKind::UpgradeComponent
+                    ? StockMovementType::UpgradeComponentReservationRelease : StockMovementType::ReservationRelease,
+                $take, 0, -$take, 0, $before, $reservation,
+                'Unfulfilled reservation released for inventory adjustment '.$adjustment->reference,
+                (string) Str::uuid(),
+            );
+            $this->activity->log('inventory.reservation_released', $actor, $reservation, [
+                'reservation_reference' => $reservation->reference,
+                'movement_reference' => $movement->reference,
+                'inventory_adjustment_id' => $adjustment->id,
+                'quantity' => $take,
+                'reason_recorded' => true,
+            ]);
+            $remaining -= $take;
+        }
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('Unfulfilled reservation attribution cannot satisfy the adjustment release.');
+        }
     }
 
     /**

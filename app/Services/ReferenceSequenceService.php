@@ -54,11 +54,9 @@ class ReferenceSequenceService
         return "GRN-{$year}-".str_pad((string) $this->next("purchase_receipt:{$year}"), 6, '0', STR_PAD_LEFT);
     }
 
-    public function nextPurchaseReceiptCorrectionReference(?int $year = null): string
+    public function nextInventoryAdjustmentReference(): string
     {
-        $year ??= (int) now()->format('Y');
-
-        return "GRC-{$year}-".str_pad((string) $this->next("purchase_receipt_correction:{$year}"), 6, '0', STR_PAD_LEFT);
+        return 'ADJ-'.str_pad((string) $this->next('inventory_adjustment'), 6, '0', STR_PAD_LEFT);
     }
 
     public function nextResponsibilityAssignmentReference(): string

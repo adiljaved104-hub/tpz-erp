@@ -13,6 +13,7 @@ enum InventoryPermission: string
     case ReleaseReservation = 'inventory.release_reservation';
     case MarkDamaged = 'inventory.mark_damaged';
     case RestoreDamaged = 'inventory.restore_damaged';
+    case AdjustStock = 'inventory.adjust_stock';
     case ViewMovements = 'inventory.view_movements';
     case Export = 'inventory.export';
     case ViewAllocations = 'inventory.view_allocations';

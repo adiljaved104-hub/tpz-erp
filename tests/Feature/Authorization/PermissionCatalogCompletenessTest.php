@@ -19,6 +19,7 @@ use App\Enums\HrPermission;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\InventoryPermission;
 use App\Enums\InvoicePermission;
+use App\Enums\MarketplaceOperationsPermission;
 use App\Enums\MarketplaceReturnPermission;
 use App\Enums\NotificationRulePermission;
 use App\Enums\OfficeFinancePermission;
@@ -58,7 +59,8 @@ class PermissionCatalogCompletenessTest extends TestCase
             OfficeFinancePermission::class, BackupSettingsPermission::class,
             ProductPermission::class, InventoryPermission::class, ResponsibilityPermission::class,
             InventoryLocationPermission::class, StockTransferPermission::class, CustomerReturnPermission::class,
-            MarketplaceReturnPermission::class, DamagedStockPermission::class, SafetClaimPermission::class,
+            MarketplaceReturnPermission::class, MarketplaceOperationsPermission::class,
+            DamagedStockPermission::class, SafetClaimPermission::class,
             WarrantyRepairPermission::class, ComplaintPermission::class,
             TaskPermission::class, ChatPermission::class, HrPermission::class, PerformancePermission::class,
             EmailSettingsPermission::class, NotificationRulePermission::class,

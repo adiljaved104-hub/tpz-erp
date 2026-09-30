@@ -71,13 +71,22 @@ class QuickStockPurchase extends Page
     {
         abort_unless(static::canAccess(), 403);
         $employee = auth()->user()?->employee;
+        $warehouseId = (int) request()->query('warehouse_id', 0);
+        $productId = (int) request()->query('product_id', 0);
+        $warehouse = $warehouseId > 0 ? Warehouse::query()->active()->find($warehouseId) : null;
+        $product = $productId > 0 ? Product::query()->where('status', 'active')->find($productId) : null;
+        $item = ['ordered_quantity' => 1, 'unit_cost_touched' => false];
+        if ($warehouse !== null && $product !== null) {
+            $item['product_id'] = $product->id;
+        }
         $this->getSchema('content')->fill([
             'idempotency_key' => (string) Str::uuid(),
             'purchase_date' => now()->toDateString(),
             'handled_by_employee_id' => $employee?->status ? $employee->id : null,
             'shipping_total' => '0.00',
             'other_charges_total' => '0.00',
-            'items' => [['ordered_quantity' => 1, 'unit_cost_touched' => false]],
+            'warehouse_id' => $warehouse?->id,
+            'items' => [$item],
         ]);
     }
 

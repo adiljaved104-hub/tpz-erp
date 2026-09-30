@@ -35,6 +35,7 @@ class RoleBasedInventoryPermissionResolver implements InventoryPermissionResolve
                 InventoryPermission::ReleaseReservation,
                 InventoryPermission::MarkDamaged,
                 InventoryPermission::RestoreDamaged,
+                InventoryPermission::AdjustStock,
                 InventoryPermission::ViewMovements,
                 InventoryPermission::ViewAllocations,
                 InventoryPermission::ManageAllocations,

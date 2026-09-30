@@ -222,6 +222,7 @@ class EmployeePermissionCatalog
                 $this->item(InventoryPermission::Reserve, 'Reserve Inventory', true),
                 $this->item(InventoryPermission::ReleaseReservation, 'Release Reservations', true),
                 $this->item(InventoryPermission::MarkDamaged, 'Move Stock to Damaged', true),
+                $this->item(InventoryPermission::AdjustStock, 'Post Inventory Adjustments', true),
                 $this->item(InventoryPermission::RestoreDamaged, 'Restore Damaged Stock', true),
                 $this->item(InventoryPermission::ViewMovements, 'View Stock Movements'),
                 $this->item(InventoryPermission::Export, 'Export Inventory'),

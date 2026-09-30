@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PurchaseReceipts\Schemas;
 
 use App\Enums\PurchasePermission;
+use App\Models\InventoryAdjustment;
 use App\Models\PurchaseReceipt;
 use App\Models\User;
 use App\Services\Authorization\PurchaseAuthorization;
@@ -22,17 +23,13 @@ class PurchaseReceiptInfolist
 
         $itemEntries = [
             TextEntry::make('product.name')->label('Product'),
-            TextEntry::make('accepted_quantity')->label('Original Received'),
-            TextEntry::make('prior_corrections')->label('Prior Corrections'),
-            TextEntry::make('effective_received')->label('Effective Received'),
+            TextEntry::make('accepted_quantity')->label('Posted Accepted Quantity'),
             TextEntry::make('damaged_quantity')->label('Damaged Qty'),
             TextEntry::make('rejected_quantity')->label('Rejected Qty'),
         ];
         $itemColumns = [
             TableColumn::make('Product'),
-            TableColumn::make('Original Received'),
-            TableColumn::make('Prior Corrections'),
-            TableColumn::make('Effective Received'),
+            TableColumn::make('Posted Accepted Quantity'),
             TableColumn::make('Damaged Qty'),
             TableColumn::make('Rejected Qty'),
         ];
@@ -62,8 +59,8 @@ class PurchaseReceiptInfolist
                     ->extraAttributes(['style' => 'overflow-x:auto;'])
                     ->columnSpanFull(),
             ])->columns(2),
-            Section::make('Correction History')
-                ->description('Immutable corrections to originally posted accepted quantities.')
+            Section::make('Legacy GRN Correction History')
+                ->description('Historical GRN corrections recorded before the separate Stock Adjustment workflow.')
                 ->schema([
                     RepeatableEntry::make('corrections')
                         ->label('Corrections')
@@ -94,6 +91,31 @@ class PurchaseReceiptInfolist
                         ->columnSpanFull(),
                 ])
                 ->visible(fn (PurchaseReceipt $record): bool => $record->corrections()->exists()),
+            Section::make('Linked Stock Adjustments')
+                ->description('Inventory changes linked for audit. These do not change the posted GRN or Purchase received quantities.')
+                ->schema([
+                    RepeatableEntry::make('linked_adjustments')->label('Adjustments')
+                        ->state(fn (PurchaseReceipt $record): Collection => InventoryAdjustment::query()
+                            ->with(['product:id,sku,name', 'performedBy:id,name'])
+                            ->where('purchase_receipt_id', $record->id)->orderByDesc('performed_at')->get())
+                        ->schema([
+                            TextEntry::make('reference')->label('Adjustment'),
+                            TextEntry::make('product.sku')->label('SKU'),
+                            TextEntry::make('available_delta')->label('Saleable Change')
+                                ->formatStateUsing(fn (int $state): string => sprintf('%+d', $state)),
+                            TextEntry::make('damaged_delta')->label('Damaged Change')
+                                ->formatStateUsing(fn (int $state): string => sprintf('%+d', $state)),
+                            TextEntry::make('reason')->label('Reason'),
+                            TextEntry::make('performedBy.name')->label('Adjusted By'),
+                            TextEntry::make('performed_at')->label('Adjusted At')->dateTime('d M Y, h:i A', config('app.timezone')),
+                        ])
+                        ->table([
+                            TableColumn::make('Adjustment'), TableColumn::make('SKU'),
+                            TableColumn::make('Saleable Change'), TableColumn::make('Damaged Change'),
+                            TableColumn::make('Reason'), TableColumn::make('Adjusted By'), TableColumn::make('Adjusted At'),
+                        ])->extraAttributes(['style' => 'overflow-x:auto;'])->columnSpanFull(),
+                ])
+                ->visible(fn (PurchaseReceipt $record): bool => InventoryAdjustment::query()->where('purchase_receipt_id', $record->id)->exists()),
         ]);
     }
 
@@ -114,14 +136,8 @@ class PurchaseReceiptInfolist
 
         return $receipt->items()
             ->select($columns)
-            ->withSum('corrections as prior_corrections_total', 'adjustment_quantity')
             ->with('product:id,name')
-            ->get()
-            ->each(function ($item): void {
-                $priorCorrections = (int) $item->prior_corrections_total;
-                $item->setAttribute('prior_corrections', $priorCorrections);
-                $item->setAttribute('effective_received', $item->accepted_quantity + $priorCorrections);
-            });
+            ->get();
     }
 
     private static function financial(?PurchaseReceipt $receipt): bool

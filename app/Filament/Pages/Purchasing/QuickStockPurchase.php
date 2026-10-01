@@ -256,10 +256,23 @@ class QuickStockPurchase extends Page
                 notes: $state['notes'] ?? null,
             ), auth()->user());
         } catch (ValidationException $exception) {
-            throw $exception;
+            $message = collect($exception->errors())->flatten()->filter()->first()
+                ?? 'Review the purchase details and try again.';
+
+            Notification::make()
+                ->danger()
+                ->title('Quick Stock Purchase was not posted')
+                ->body($message)
+                ->send();
+
+            return;
         } catch (Throwable $exception) {
             report($exception);
-            Notification::make()->danger()->title('Quick Stock Purchase was not posted')->body($exception->getMessage())->send();
+            Notification::make()
+                ->danger()
+                ->title('Quick Stock Purchase was not posted')
+                ->body('No stock was received. Please review the purchase details and try again.')
+                ->send();
 
             return;
         }

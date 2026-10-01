@@ -14,7 +14,12 @@ final class ApplicationSecurityPolicy
 
     public const int LOGIN_LOCKOUT_MINUTES = 30;
 
-    public const int WEB_INACTIVITY_MINUTES = 15;
+    public const int WEB_INACTIVITY_MINUTES = 120;
+
+    public static function webInactivityMinutes(): int
+    {
+        return max(1, (int) config('session.lifetime', self::WEB_INACTIVITY_MINUTES));
+    }
 
     public static function passwordRule(): Password
     {

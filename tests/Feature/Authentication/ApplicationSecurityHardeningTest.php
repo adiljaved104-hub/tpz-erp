@@ -154,7 +154,7 @@ class ApplicationSecurityHardeningTest extends TestCase
             ->get('/_test/security-session', fn () => response()->json(['ok' => true]));
 
         $this->actingAs($user)
-            ->withSession(['auth_security.last_activity_at' => now()->subMinutes(16)->timestamp])
+            ->withSession(['auth_security.last_activity_at' => now()->subMinutes(121)->timestamp])
             ->getJson('/_test/security-session')
             ->assertUnauthorized()
             ->assertJsonPath('code', 'session_inactive');
@@ -164,7 +164,7 @@ class ApplicationSecurityHardeningTest extends TestCase
             ->getJson('/api/mobile/v1/auth/me')
             ->assertOk();
 
-        $this->assertSame(15, config('session.lifetime'));
+        $this->assertSame(120, config('session.lifetime'));
     }
 
     public function test_expired_password_returns_machine_readable_mobile_response_without_revoking_token(): void
@@ -193,7 +193,7 @@ class ApplicationSecurityHardeningTest extends TestCase
             ->assertSee('Application Security Policy')
             ->assertSee('12 characters')
             ->assertSee('10 attempts / 30 minutes')
-            ->assertSee('15 minutes');
+            ->assertSee('120 minutes');
     }
 
     private function user(EmployeeRole $role): User

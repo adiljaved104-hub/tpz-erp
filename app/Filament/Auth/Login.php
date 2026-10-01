@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\LoginBrandingService;
 use App\Services\Security\LoginAttemptService;
 use App\Services\Security\PasswordAgeService;
+use App\Services\Security\WebInactivityService;
 use Filament\Actions\Action;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
 use Filament\Auth\MultiFactor\Contracts\HasBeforeChallengeHook;
@@ -113,7 +114,7 @@ class Login extends \Filament\Auth\Pages\Login
 
         $attempts->clear($identifier, $ipAddress);
         session()->regenerate();
-        session()->put('auth_security.last_activity_at', now()->timestamp);
+        session()->put(WebInactivityService::SESSION_KEY, now()->timestamp);
 
         return app(LoginResponseContract::class);
     }

@@ -32,7 +32,7 @@ return [
     |
     */
 
-    'lifetime' => ApplicationSecurityPolicy::WEB_INACTIVITY_MINUTES,
+    'lifetime' => (int) env('WEB_IDLE_TIMEOUT', ApplicationSecurityPolicy::WEB_INACTIVITY_MINUTES),
 
     'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
 

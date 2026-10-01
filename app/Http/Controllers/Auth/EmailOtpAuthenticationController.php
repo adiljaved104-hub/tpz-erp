@@ -11,6 +11,7 @@ use App\Services\AuthenticationOtpService;
 use App\Services\LoginBrandingService;
 use App\Services\Security\MfaPolicy;
 use App\Services\Security\PasswordAgeService;
+use App\Services\Security\WebInactivityService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -94,7 +95,7 @@ class EmailOtpAuthenticationController extends Controller
         $request->session()->forget('auth_otp.login_challenge');
         $request->session()->forget('url.intended');
         $request->session()->regenerate();
-        $request->session()->put('auth_security.last_activity_at', now()->timestamp);
+        $request->session()->put(WebInactivityService::SESSION_KEY, now()->timestamp);
 
         return redirect()->to(filament()->getPanel('admin')->getUrl());
     }

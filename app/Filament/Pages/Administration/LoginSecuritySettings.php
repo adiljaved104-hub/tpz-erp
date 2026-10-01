@@ -121,7 +121,7 @@ class LoginSecuritySettings extends Page
                 'passwordMaxAgeDays' => ApplicationSecurityPolicy::PASSWORD_MAX_AGE_DAYS,
                 'loginMaxAttempts' => ApplicationSecurityPolicy::LOGIN_MAX_ATTEMPTS,
                 'lockoutMinutes' => ApplicationSecurityPolicy::LOGIN_LOCKOUT_MINUTES,
-                'webInactivityMinutes' => ApplicationSecurityPolicy::WEB_INACTIVITY_MINUTES,
+                'webInactivityMinutes' => ApplicationSecurityPolicy::webInactivityMinutes(),
             ],
         ];
     }

@@ -6,15 +6,20 @@ use App\Enums\EmployeeRole;
 use App\Enums\InventoryItemType;
 use App\Filament\Pages\Purchasing\QuickStockPurchase;
 use App\Models\Employee;
+use App\Models\InventoryAllocationBalance;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Purchase;
 use App\Models\PurchaseItem;
 use App\Models\PurchaseReceipt;
 use App\Models\PurchaseReceiptItem;
+use App\Models\ResponsibilityAssignment;
+use App\Models\ResponsibilityAssignmentBrand;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Inventory\InventoryAllocationService;
 use Filament\Forms\Components\Select;
+use Filament\Notifications\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -239,6 +244,108 @@ class QuickStockPurchaseUiTest extends TestCase
         $this->assertNull($adminLine['unit_cost']);
     }
 
+    public function test_final_confirm_posts_a_valid_purchase_once_and_shows_success(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $holder = $this->user(EmployeeRole::Manager);
+        $warehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create();
+        $this->defaultStockResponsibility($holder, $product);
+        $this->actingAs($owner);
+
+        $component = Livewire::test(QuickStockPurchase::class);
+        $idempotencyKey = $component->instance()->getSchema('content')->getRawState()['idempotency_key'];
+        $data = $this->postingData($warehouse, $product, $idempotencyKey);
+
+        $component->fillForm($data)
+            ->mountAction('post')
+            ->callMountedAction()
+            ->assertNotified('Stock received successfully');
+
+        $this->assertDatabaseCount('purchase_receipts', 1);
+        $this->assertDatabaseCount('stock_movements', 1);
+        $this->assertSame(2, ProductInventory::query()->sole()->available_quantity);
+
+        Livewire::test(QuickStockPurchase::class)
+            ->fillForm($data)
+            ->mountAction('post')
+            ->callMountedAction()
+            ->assertNotified('Existing Quick Stock Purchase opened');
+
+        $this->assertDatabaseCount('purchase_receipts', 1);
+        $this->assertDatabaseCount('stock_movements', 1);
+        $this->assertSame(2, ProductInventory::query()->sole()->available_quantity);
+    }
+
+    public function test_final_confirm_surfaces_missing_default_responsibility_without_posting(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create();
+        $this->actingAs($owner);
+
+        $component = Livewire::test(QuickStockPurchase::class)
+            ->fillForm($this->postingData($warehouse, $product))
+            ->mountAction('post')
+            ->callMountedAction()
+            ->assertNotified(Notification::make()
+                ->danger()
+                ->title('Quick Stock Purchase was not posted')
+                ->body('No default stock responsibility is configured for this product. Configure Responsibility before receiving this stock.'));
+
+        $this->assertDatabaseCount('purchase_receipts', 0);
+        $this->assertDatabaseCount('product_inventories', 0);
+        $this->assertSame($product->id, (int) collect($component->instance()->getSchema('content')->getRawState()['items'])->first()['product_id']);
+    }
+
+    public function test_final_confirm_surfaces_multiple_default_responsibilities_without_posting(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create();
+        $this->defaultStockResponsibility($this->user(EmployeeRole::Manager), $product);
+        $this->defaultStockResponsibility($this->user(EmployeeRole::Manager), $product);
+        $this->actingAs($owner);
+
+        Livewire::test(QuickStockPurchase::class)
+            ->fillForm($this->postingData($warehouse, $product))
+            ->mountAction('post')
+            ->callMountedAction()
+            ->assertNotified(Notification::make()
+                ->danger()
+                ->title('Quick Stock Purchase was not posted')
+                ->body('Multiple default stock responsibilities match this product. Resolve the Responsibility conflict before receiving stock.'));
+
+        $this->assertDatabaseCount('purchase_receipts', 0);
+        $this->assertDatabaseCount('product_inventories', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_final_confirm_accepts_an_explicit_active_allocation_account(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $holder = $this->user(EmployeeRole::Manager);
+        $warehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create();
+        $account = app(InventoryAllocationService::class)->employeeAccount($holder->employee->id);
+        $this->actingAs($owner);
+
+        Livewire::test(QuickStockPurchase::class)
+            ->fillForm([
+                ...$this->postingData($warehouse, $product),
+                'allocation_account_id' => $account->id,
+            ])
+            ->mountAction('post')
+            ->callMountedAction()
+            ->assertNotified('Stock received successfully');
+
+        $inventory = ProductInventory::query()->sole();
+        $this->assertSame(2, (int) InventoryAllocationBalance::query()
+            ->where('account_id', $account->id)
+            ->where('product_inventory_id', $inventory->id)
+            ->value('allocated_quantity'));
+    }
+
     private function receivedCost(User $actor, Warehouse $warehouse, Product $product, string $cost): void
     {
         $purchase = Purchase::factory()->create([
@@ -269,6 +376,35 @@ class QuickStockPurchaseUiTest extends TestCase
             'quantity_received' => 1,
             'inventory_unit_cost' => $cost,
             'posting_key' => (string) Str::uuid(),
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function postingData(Warehouse $warehouse, Product $product, ?string $idempotencyKey = null): array
+    {
+        return [
+            'warehouse_id' => $warehouse->id,
+            'purchase_date' => now()->toDateString(),
+            'idempotency_key' => $idempotencyKey ?? (string) Str::uuid(),
+            'shipping_total' => '0.00',
+            'other_charges_total' => '0.00',
+            'items' => [[
+                'product_id' => $product->id,
+                'ordered_quantity' => 2,
+                'unit_cost' => '100.0000',
+            ]],
+        ];
+    }
+
+    private function defaultStockResponsibility(User $holder, Product $product): void
+    {
+        $assignment = ResponsibilityAssignment::factory()->create([
+            'employee_id' => $holder->employee->id,
+            'assign_stock_by_default' => true,
+        ]);
+        ResponsibilityAssignmentBrand::query()->create([
+            'assignment_id' => $assignment->id,
+            'product_brand_id' => $product->brand_id,
         ]);
     }
 

@@ -18,4 +18,9 @@ class InventoryAllocationReservationLine extends Model
     {
         return $this->belongsTo(InventoryReservation::class, 'inventory_reservation_id');
     }
+
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(InventoryAllocationAccount::class, 'account_id');
+    }
 }

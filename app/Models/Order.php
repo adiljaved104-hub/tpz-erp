@@ -139,4 +139,9 @@ class Order extends Model
     {
         return $this->hasMany(WarrantyRepair::class);
     }
+
+    public function taxInvoices(): HasMany
+    {
+        return $this->hasMany(TaxInvoice::class, 'source_order_id');
+    }
 }

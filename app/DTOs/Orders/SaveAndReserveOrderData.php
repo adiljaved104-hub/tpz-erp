@@ -20,5 +20,6 @@ final readonly class SaveAndReserveOrderData
         public ?string $deliveryType = null,
         public ?string $courierName = null,
         public ?string $trackingNumber = null,
+        public ?string $customerAddress = null,
     ) {}
 }

@@ -44,7 +44,7 @@ class WebSalesReadService
     {
         $fields = [
             'orders.id', 'orders.reference', 'orders.source', 'orders.web_sales_channel', 'orders.status',
-            'orders.warehouse_id', 'orders.customer_name', 'orders.customer_phone', 'orders.delivery_type',
+            'orders.warehouse_id', 'orders.customer_name', 'orders.customer_phone', 'orders.customer_address', 'orders.delivery_type',
             'orders.courier_name', 'orders.tracking_number', 'orders.order_date', 'orders.handled_by_employee_id',
             'orders.notes', 'orders.created_by_user_id', 'orders.reserved_at', 'orders.cancelled_at',
             'orders.delivered_at', 'orders.cancellation_reason', 'orders.created_at', 'orders.updated_at',

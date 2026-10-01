@@ -11,6 +11,8 @@ use App\Models\SalesConfiguration;
 use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Services\DefaultWarehouseService;
+use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\WebSalesReadService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Support\AedMoney;
@@ -31,16 +33,24 @@ class WebSalesOrderForm
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Customer')->description('Main Warehouse and the logged-in Sales Employee are selected automatically.')->schema([
+            Section::make('Customer & Sale')->description('Search a previous Web Sales customer, or enter a new customer. Main Warehouse and the logged-in Sales Employee are selected automatically.')->schema([
+                Select::make('existing_customer_order_id')->label('Find Existing Customer')->placeholder('Search by customer name or phone')
+                    ->searchable()->dehydrated(false)->searchPrompt('Type at least 2 characters.')
+                    ->getSearchResultsUsing(fn (string $search): array => self::customerOptions($search))
+                    ->getOptionLabelUsing(fn ($value): ?string => self::customerLabel((int) $value))
+                    ->live()->afterStateUpdated(fn ($state, Set $set) => self::customerSelected($state, $set))
+                    ->helperText('Selecting a result copies its latest saved details into this sale. The customer master is not changed.')
+                    ->columnSpanFull(),
                 TextInput::make('customer_name')->label('Customer Name')->required()->maxLength(255),
                 TextInput::make('customer_phone')->label('WhatsApp / Phone')->required()->maxLength(40)
                     ->placeholder('+971 50 123 4567')->live(onBlur: true)
                     ->afterStateUpdated(fn ($state, Get $get, Set $set) => self::suggestCustomer($state, $get, $set)),
                 Select::make('web_sales_channel')->label('Channel')->options(WebSalesChannel::class)
                     ->default(WebSalesChannel::WhatsApp->value)->required()->native(false),
+                Textarea::make('customer_address')->label('Address')->required()->rows(3)->maxLength(2000)->columnSpanFull(),
                 Hidden::make('idempotency_key')->default(fn (): string => (string) str()->uuid()),
-            ])->columns(2)->compact(),
-            Section::make('Products')->schema([
+            ])->columns(['default' => 1, 'md' => 2])->compact(),
+            Section::make('Products')->description('Choose the exact allocation holder(s) whose stock will be reserved for each line.')->schema([
                 Repeater::make('items')->schema([
                     Select::make('product_id')->label('Product')->placeholder('Search by SKU or product name')
                         ->searchable()->searchPrompt('Type at least 2 characters to search available products.')
@@ -54,6 +64,16 @@ class WebSalesOrderForm
                     TextInput::make('selling_price')->label('Selling Price')->prefix('AED')->required()
                         ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->live(onBlur: true),
                     Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get)),
+                    Repeater::make('allocation_sources')->label('Stock Source / Consume From')
+                        ->helperText('Reserved stock is unavailable. Add rows to split this sale line across authorized Employee, Team, or System sources.')
+                        ->schema([
+                            Select::make('account_id')->label('Allocation Holder')
+                                ->options(fn (Get $get): array => self::allocationSourceOptions((int) $get('../../product_id')))
+                                ->required()->searchable()->disableOptionsWhenSelectedInSiblingRepeaterItems(),
+                            TextInput::make('quantity')->label('Consume Qty')->numeric()->integer()->minValue(1)->required(),
+                        ])->columns(2)->defaultItems(0)
+                        ->required(fn (Get $get): bool => self::allocationSourceOptions((int) $get('product_id')) !== [])
+                        ->addActionLabel('Split Across Another Source')->columnSpanFull(),
                     Toggle::make('upgraded_configuration')->label('Upgraded Configuration')->live()
                         ->afterStateUpdated(function ($state, Set $set): void {
                             if (! $state) {
@@ -77,7 +97,7 @@ class WebSalesOrderForm
                         ->content(fn (Get $get): string => self::upgradeSummary((int) $get('sales_configuration_id'), (int) $get('upgrade_recipe_id')))
                         ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration')),
                     Hidden::make('stock_context')->dehydrated(false),
-                ])->columns(4)->compact()->reorderable(false)->minItems(1)->defaultItems(1)->addActionLabel('Add Product / Configuration')->columnSpanFull(),
+                ])->columns(['default' => 1, 'md' => 2, 'xl' => 4])->compact()->reorderable(false)->minItems(1)->defaultItems(1)->addActionLabel('Add Product / Configuration')->columnSpanFull(),
             ])->compact(),
             Section::make('Delivery')->schema([
                 Select::make('delivery_type')->label('Delivery')->options(WebSalesDeliveryType::class)
@@ -95,6 +115,11 @@ class WebSalesOrderForm
                     ->visible(fn (Get $get): bool => self::deliveryValue($get('delivery_type')) === WebSalesDeliveryType::Courier->value),
                 Textarea::make('notes')->maxLength(5000)->rows(2)->columnSpanFull(),
             ])->columns(3)->compact(),
+            Section::make('Summary & Actions')->schema([
+                Placeholder::make('summary_items')->label('Product Lines')->content(fn (Get $get): int => count((array) $get('items'))),
+                Placeholder::make('summary_quantity')->label('Total Quantity')->content(fn (Get $get): int => self::totalQuantity((array) $get('items'))),
+                Placeholder::make('summary_total')->label('Sale Total')->content(fn (Get $get): string => AedMoney::format(self::saleTotal((array) $get('items')))),
+            ])->columns(['default' => 1, 'md' => 3])->compact(),
         ]);
     }
 
@@ -137,6 +162,7 @@ class WebSalesOrderForm
         $set('stock_context', "Available: {$sellable}");
         $set('sales_configuration_id', null);
         $set('upgrade_recipe_id', null);
+        $set('allocation_sources', []);
         if ($product->selling_price !== null) {
             $set('selling_price', $product->selling_price);
         }
@@ -170,10 +196,75 @@ class WebSalesOrderForm
             return;
         }
         $normalized = (str_starts_with(trim((string) $state), '+') ? '+' : '').preg_replace('/\D+/', '', (string) $state);
-        $order = app(WebSalesReadService::class)->scoped(auth()->user())->where('customer_phone', $normalized)->latest('id')->first(['customer_name']);
+        $order = app(WebSalesReadService::class)->scoped(auth()->user())->where('customer_phone', $normalized)->latest('id')->first(['customer_name', 'customer_address']);
         if ($order?->customer_name) {
             $set('customer_name', $order->customer_name);
+            $set('customer_address', $order->customer_address);
         }
+    }
+
+    /** @return array<int, string> */
+    private static function customerOptions(string $search): array
+    {
+        $user = auth()->user();
+
+        return $user instanceof User ? app(WebSalesCustomerLookupService::class)->options($user, $search) : [];
+    }
+
+    private static function customerLabel(int $orderId): ?string
+    {
+        $user = auth()->user();
+        $details = $user instanceof User ? app(WebSalesCustomerLookupService::class)->details($user, $orderId) : null;
+
+        return $details === null ? null : $details['name'].' · '.$details['phone'];
+    }
+
+    private static function customerSelected(mixed $state, Set $set): void
+    {
+        $user = auth()->user();
+        $details = $user instanceof User && filled($state)
+            ? app(WebSalesCustomerLookupService::class)->details($user, (int) $state)
+            : null;
+        if ($details === null) {
+            return;
+        }
+
+        $set('customer_name', $details['name']);
+        $set('customer_phone', $details['phone']);
+        $set('customer_address', $details['address']);
+    }
+
+    /** @return array<int, string> */
+    private static function allocationSourceOptions(int $productId): array
+    {
+        $user = auth()->user();
+        if (! $user instanceof User || $productId < 1) {
+            return [];
+        }
+
+        return app(InventoryAllocationService::class)->orderSourceOptions(
+            $productId,
+            app(DefaultWarehouseService::class)->operationalDefault()->id,
+            $user,
+        );
+    }
+
+    /** @param array<int|string, array<string, mixed>> $items */
+    private static function totalQuantity(array $items): int
+    {
+        return collect($items)->sum(fn (array $item): int => max(0, (int) ($item['quantity'] ?? 0)));
+    }
+
+    /** @param array<int|string, array<string, mixed>> $items */
+    private static function saleTotal(array $items): string
+    {
+        return collect($items)->reduce(function (string $total, array $item): string {
+            if (! is_numeric($item['selling_price'] ?? null)) {
+                return $total;
+            }
+
+            return bcadd($total, bcmul((string) max(0, (int) ($item['quantity'] ?? 0)), (string) $item['selling_price'], 2), 2);
+        }, '0.00');
     }
 
     private static function lineTotal(Get $get): string

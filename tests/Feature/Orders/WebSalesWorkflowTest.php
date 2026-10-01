@@ -220,7 +220,7 @@ class WebSalesWorkflowTest extends TestCase
             ->assertSee('Customer Name')->assertSee('WhatsApp / Phone')->assertSee('Save & Confirm')
             ->assertDontSee('Warehouse Select')->assertDontSee('Handled By')->assertDontSee('Cost Price')
             ->fillForm([
-                'customer_name' => 'Web Customer', 'customer_phone' => '+971 50 111 2233',
+                'customer_name' => 'Web Customer', 'customer_phone' => '+971 50 111 2233', 'customer_address' => 'Dubai, UAE',
                 'web_sales_channel' => 'whatsapp', 'delivery_type' => 'courier', 'courier_name' => 'Aramex',
                 'items' => [['product_id' => $product->id, 'quantity' => 1, 'selling_price' => '1500.00']],
             ])->call('create')->assertHasNoFormErrors();

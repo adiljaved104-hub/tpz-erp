@@ -122,6 +122,9 @@ class TaxInvoiceResource extends Resource
                             if (filled($prefill['customer_name'])) {
                                 $set('customer_name', $prefill['customer_name']);
                             }
+                            if (filled($prefill['customer_address'])) {
+                                $set('customer_address', $prefill['customer_address']);
+                            }
                             $set('items', $prefill['items']);
                         }),
                     Placeholder::make('source_order_context')

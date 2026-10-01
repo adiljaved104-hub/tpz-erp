@@ -96,7 +96,7 @@ class OrderService
             $order->order_date = $validated['order_date'];
             $order->handled_by_employee_id = $validated['handled_by_employee_id'];
             $order->notes = $validated['notes'];
-            foreach (['web_sales_channel', 'customer_name', 'customer_phone', 'delivery_type', 'courier_name', 'tracking_number'] as $field) {
+            foreach (['web_sales_channel', 'customer_name', 'customer_phone', 'customer_address', 'delivery_type', 'courier_name', 'tracking_number'] as $field) {
                 $order->{$field} = $validated[$field];
             }
             foreach (['subtotal', 'discount_total', 'vat_total', 'grand_total'] as $field) {
@@ -327,6 +327,7 @@ class OrderService
             'external_identity_hash' => $validated['external_identity_hash'],
             'customer_name' => $validated['customer_name'],
             'customer_phone' => $validated['customer_phone'],
+            'customer_address' => $validated['customer_address'],
             'delivery_type' => $validated['delivery_type'],
             'courier_name' => $validated['courier_name'],
             'tracking_number' => $validated['tracking_number'],
@@ -517,6 +518,7 @@ class OrderService
                     'external_identity_hash' => $validated['external_identity_hash'],
                     'customer_name' => $validated['customer_name'],
                     'customer_phone' => $validated['customer_phone'],
+                    'customer_address' => $validated['customer_address'],
                     'delivery_type' => $validated['delivery_type'],
                     'courier_name' => $validated['courier_name'],
                     'tracking_number' => $validated['tracking_number'],
@@ -964,6 +966,7 @@ class OrderService
             'web_sales_channel' => $data->webSalesChannel,
             'customer_name' => $data->customerName === null ? null : trim($data->customerName),
             'customer_phone' => $data->customerPhone === null ? null : trim($data->customerPhone),
+            'customer_address' => $data->customerAddress === null ? null : trim($data->customerAddress),
             'delivery_type' => $data->deliveryType,
             'courier_name' => $data->courierName === null ? null : trim($data->courierName),
             'tracking_number' => $data->trackingNumber === null ? null : trim($data->trackingNumber),
@@ -980,6 +983,7 @@ class OrderService
             'web_sales_channel' => ['nullable', 'in:website,whatsapp,walk_in,other'],
             'customer_name' => ['nullable', 'required_with:web_sales_channel', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'required_with:web_sales_channel', 'string', 'max:40', 'regex:/^\+?[0-9][0-9\s().-]{5,39}$/'],
+            'customer_address' => ['nullable', 'string', 'max:2000'],
             'delivery_type' => ['nullable', 'required_with:web_sales_channel', 'in:courier,shop_pickup'],
             'courier_name' => ['nullable', 'required_if:delivery_type,courier', 'string', 'max:100'],
             'tracking_number' => ['nullable', 'string', 'max:100'],

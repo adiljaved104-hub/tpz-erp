@@ -28,12 +28,57 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Tests\TestCase;
 
 class WebSalesWorkflowV2Test extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_web_sale_can_be_created_with_blank_address_and_detail_renders(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $owner);
+        $account = $allocations->employeeAccount($owner->employee->id);
+        $allocations->reconcile($inventory, $account, 1, $owner, 'Blank-address sale source');
+        $this->actingAs($owner);
+
+        Livewire::test(CreateWebSalesOrder::class)
+            ->fillForm([
+                'customer_name' => 'Customer without address', 'customer_phone' => '+971501112233',
+                'customer_address' => '', 'web_sales_channel' => 'whatsapp',
+                'delivery_type' => 'shop_pickup',
+                'items' => [[
+                    'product_id' => $product->id, 'quantity' => 1, 'selling_price' => '1500.00',
+                    'allocation_sources' => [['account_id' => $account->id, 'quantity' => 1]],
+                ]],
+            ])->call('create')->assertHasNoFormErrors();
+
+        $order = Order::query()->webSales()->sole();
+        $this->assertNull($order->customer_address);
+        Livewire::test(ViewWebSalesOrder::class, ['record' => $order->id])->assertOk();
+
+        try {
+            app(WebSalesTaxInvoiceService::class)->generateOrFind($order, $owner);
+            $this->fail('Tax Invoice address validation should remain in place.');
+        } catch (ValidationException $exception) {
+            $this->assertSame('Add the customer address to this Web Sale before generating its Tax Invoice.', $exception->errors()['invoice'][0]);
+        }
+        $this->assertDatabaseCount('tax_invoices', 0);
+    }
+
+    public function test_web_sale_service_accepts_null_address(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        app(InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
+
+        $order = app(WebSalesService::class)->createConfirmed($this->data($product, null, address: null), $owner);
+
+        $this->assertNull($order->customer_address);
+        $this->assertSame(1, $inventory->refresh()->reserved_quantity);
+    }
 
     public function test_existing_customer_search_prefills_snapshots_without_updating_previous_sale(): void
     {
@@ -189,7 +234,7 @@ class WebSalesWorkflowV2Test extends TestCase
     }
 
     /** @param array<int, int>|null $sources */
-    private function data(Product $product, ?array $sources, int $quantity = 1, string $address = 'Dubai, UAE'): WebSalesOrderData
+    private function data(Product $product, ?array $sources, int $quantity = 1, ?string $address = 'Dubai, UAE'): WebSalesOrderData
     {
         return new WebSalesOrderData(
             customerName: 'Test Customer', customerPhone: '+971501234567', channel: WebSalesChannel::WhatsApp,

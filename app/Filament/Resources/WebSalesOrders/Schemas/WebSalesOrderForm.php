@@ -47,7 +47,7 @@ class WebSalesOrderForm
                     ->afterStateUpdated(fn ($state, Get $get, Set $set) => self::suggestCustomer($state, $get, $set)),
                 Select::make('web_sales_channel')->label('Channel')->options(WebSalesChannel::class)
                     ->default(WebSalesChannel::WhatsApp->value)->required()->native(false),
-                Textarea::make('customer_address')->label('Address')->required()->rows(3)->maxLength(2000)->columnSpanFull(),
+                Textarea::make('customer_address')->label('Address')->rows(3)->maxLength(2000)->columnSpanFull(),
                 Hidden::make('idempotency_key')->default(fn (): string => (string) str()->uuid()),
             ])->columns(['default' => 1, 'md' => 2])->compact(),
             Section::make('Products')->description('Choose the exact allocation holder(s) whose stock will be reserved for each line.')->schema([

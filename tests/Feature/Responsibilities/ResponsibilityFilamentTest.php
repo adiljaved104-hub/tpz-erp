@@ -13,6 +13,8 @@ use App\Filament\Resources\ResponsibilityAssignments\Pages\ListResponsibilityAss
 use App\Filament\Resources\ResponsibilityAssignments\ResponsibilityAssignmentResource;
 use App\Models\InventoryResponsibilityQuantity;
 use App\Models\ResponsibilityAssignment;
+use App\Models\ResponsibilityAssignmentBrand;
+use App\Models\ResponsibilityAssignmentWarehouse;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -23,6 +25,29 @@ class ResponsibilityFilamentTest extends TestCase
 {
     use RefreshDatabase;
     use ResponsibilityTestFoundation;
+
+    public function test_stock_default_action_requires_reason_reports_ineligible_scope_and_confirms_success(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $assignment = $this->assignment($f['owner'], $f['employee']->id);
+        ResponsibilityAssignmentWarehouse::query()->create(['assignment_id' => $assignment->id, 'warehouse_id' => $f['inventory']->warehouse_id]);
+        $this->actingAs($f['owner']);
+        Livewire::test(ListResponsibilityAssignments::class)
+            ->callTableAction('setStockDefault', $assignment, ['enabled' => true, 'reason' => ''])
+            ->assertHasTableActionErrors(['reason' => 'required']);
+        Livewire::test(ListResponsibilityAssignments::class)
+            ->callTableAction('setStockDefault', $assignment, ['enabled' => true, 'reason' => 'Future stock'])
+            ->assertHasTableActionErrors(['enabled'])
+            ->assertNotified('Default stock assignment was not changed');
+        $this->assertFalse($assignment->refresh()->assign_stock_by_default);
+
+        $valid = $this->assignment($f['owner'], $f['employee']->id);
+        ResponsibilityAssignmentBrand::query()->create(['assignment_id' => $valid->id, 'product_brand_id' => $f['brand']->id]);
+        Livewire::test(ListResponsibilityAssignments::class)
+            ->callTableAction('setStockDefault', $valid, ['enabled' => true, 'reason' => 'Future stock'])
+            ->assertHasNoTableActionErrors()->assertNotified('Default stock assignment updated');
+        $this->assertTrue($valid->refresh()->assign_stock_by_default);
+    }
 
     public function test_direct_page_access_and_navigation_follow_server_side_permissions(): void
     {

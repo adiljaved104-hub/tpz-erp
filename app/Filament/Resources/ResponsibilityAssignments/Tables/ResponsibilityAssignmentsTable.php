@@ -26,11 +26,13 @@ use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ResponsibilityAssignmentsTable
 {
@@ -70,6 +72,7 @@ class ResponsibilityAssignmentsTable
         ])->recordActions([
             ViewAction::make()->label('View History'),
             Action::make('setStockDefault')->label('Set Default Stock')->requiresConfirmation()
+                ->modalDescription('Controls future receipts only. A Brand, Category, or Product scope is required; warehouse visibility alone does not assign stock ownership.')
                 ->visible(fn (ResponsibilityAssignment $record): bool => $record->status === ResponsibilityAssignmentStatus::Active)
                 ->authorize(fn (): bool => ($user = auth()->user()) instanceof User
                     && app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::Assign))
@@ -77,7 +80,18 @@ class ResponsibilityAssignmentsTable
                     Checkbox::make('enabled')->label('Assign stock by default')->default(fn (ResponsibilityAssignment $record): bool => $record->assign_stock_by_default),
                     Textarea::make('reason')->required()->maxLength(2000),
                 ])
-                ->action(fn (ResponsibilityAssignment $record, array $data) => app(ResponsibilityAssignmentService::class)->setStockDefault($record, (bool) $data['enabled'], $data['reason'], auth()->user())),
+                ->action(function (ResponsibilityAssignment $record, array $data, $livewire): void {
+                    try {
+                        app(ResponsibilityAssignmentService::class)->setStockDefault($record, (bool) $data['enabled'], $data['reason'], auth()->user());
+                    } catch (ValidationException $exception) {
+                        Notification::make()->danger()->title('Default stock assignment was not changed')
+                            ->body(collect($exception->errors())->flatten()->join(' '))->send();
+                        $path = $livewire->getSchema($livewire->getMountedActionSchemaName())->getStatePath();
+                        throw ValidationException::withMessages(collect($exception->errors())
+                            ->mapWithKeys(fn (array $messages, string $key): array => ["{$path}.{$key}" => $messages])->all());
+                    }
+                    Notification::make()->success()->title('Default stock assignment updated')->send();
+                }),
             Action::make('transfer')->label('Transfer Responsibility')->requiresConfirmation()
                 ->modalDescription('Future receipts follow the new default holder. Existing allocated stock remains with its current holder until transferred through the stock request workflow.')
                 ->authorize(fn (ResponsibilityAssignment $record): bool => auth()->user()->can('transfer', $record))

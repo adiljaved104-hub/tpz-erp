@@ -36,6 +36,40 @@ class WebSalesWorkflowV2Test extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_item_layout_and_compact_selected_labels_preserve_detailed_search_and_multiple_rows(): void
+    {
+        [$owner, , $product] = $this->foundation();
+        $product->update([
+            'name' => 'Lenovo Demo Book 14-inch Business Laptop with LongTitleSearchMarker and extensive marketplace specifications',
+            'accounting_title_override' => 'Lenovo Demo Book 14 16GB/512GB',
+        ]);
+        $this->actingAs($owner);
+        $page = Livewire::test(CreateWebSalesOrder::class)->fillForm(['items' => [
+            ['product_id' => $product->id, 'quantity' => 1, 'selling_price' => '1500.00'],
+            ['product_id' => $product->id, 'quantity' => 2, 'selling_price' => '1500.00'],
+        ]])->assertOk();
+        $fields = collect($page->instance()->form->getFlatFields(withHidden: true));
+        $products = $fields->filter(fn ($field): bool => $field->getName() === 'product_id');
+        $this->assertCount(2, $products);
+        foreach ($products as $field) {
+            $this->assertSame($product->sku.' · Lenovo Demo Book 14 16GB/512GB', $field->getOptionLabel());
+            $this->assertArrayHasKey($product->id, $field->getSearchResults('LongTitleSearchMarker'));
+            $this->assertSame(6, $field->getColumnSpan('lg'));
+            $this->assertSame(6, $field->getColumnSpan('md'));
+            $this->assertSame(1, $field->getColumnSpan('default'));
+        }
+        $items = $fields->first(fn ($field): bool => $field->getName() === 'items');
+        $this->assertSame(12, $items->getColumns('lg'));
+        $this->assertSame(6, $items->getColumns('md'));
+        $this->assertSame(1, $items->getColumns('default'));
+        $price = $fields->first(fn ($field): bool => $field->getName() === 'selling_price');
+        $this->assertSame(2, $price->getColumnSpan('lg'));
+        $source = $fields->first(fn ($field): bool => $field->getName() === 'allocation_sources');
+        $this->assertSame('full', $source->getColumnSpan('default'));
+        $this->assertSame(1, $source->getColumns('default'));
+        $page->assertSee('AED 1,500.00')->assertSee('AED 3,000.00');
+    }
+
     public function test_web_sale_can_be_created_with_blank_address_and_detail_renders(): void
     {
         [$owner, , $product, $inventory] = $this->foundation();

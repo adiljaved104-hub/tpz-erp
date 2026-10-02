@@ -120,7 +120,20 @@ class ResponsibilityProductScopeService
                             ->from('responsibility_assignment_platforms as inventory_listing_platform')
                             ->join('product_marketplace_listings as inventory_listing', 'inventory_listing.marketplace_platform_id', '=', 'inventory_listing_platform.marketplace_platform_id')
                             ->whereColumn('inventory_listing_platform.assignment_id', 'inventory_ra.id')
-                            ->whereColumn('inventory_listing.product_id', "{$inventoryAlias}.product_id"));
+                            ->whereColumn('inventory_listing.product_id', "{$inventoryAlias}.product_id"))
+                        ->orWhere(function (Builder $physical) use ($inventoryAlias): void {
+                            $physical->whereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                                ->from('warehouses as inventory_physical_warehouse')
+                                ->whereColumn('inventory_physical_warehouse.id', "{$inventoryAlias}.warehouse_id")
+                                ->whereNull('inventory_physical_warehouse.marketplace_platform_id'))
+                                ->where(function (Builder $bounded): void {
+                                    $bounded->whereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_products as inventory_physical_product')->whereColumn('inventory_physical_product.assignment_id', 'inventory_ra.id'))
+                                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as inventory_physical_brand')->whereColumn('inventory_physical_brand.assignment_id', 'inventory_ra.id'))
+                                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as inventory_physical_category')->whereColumn('inventory_physical_category.assignment_id', 'inventory_ra.id'))
+                                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as inventory_physical_condition')->whereColumn('inventory_physical_condition.assignment_id', 'inventory_ra.id'))
+                                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as inventory_physical_quantity')->whereColumn('inventory_physical_quantity.assignment_id', 'inventory_ra.id'));
+                                });
+                        });
                 })
                 ->where(function (Builder $condition) use ($inventoryAlias): void {
                     $condition->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')

@@ -15,6 +15,7 @@ use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\WebSalesReadService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
+use App\Services\Products\ProductTitleService;
 use App\Support\AedMoney;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
@@ -57,13 +58,13 @@ class WebSalesOrderForm
                         ->noSearchResultsMessage('No sellable products found in Main Warehouse.')
                         ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
                         ->getOptionLabelUsing(fn ($value): ?string => self::productLabel((int) $value))
-                        ->required()->live()
+                        ->required()->live()->columnSpan(['default' => 1, 'md' => 6, 'lg' => 6])
                         ->afterStateUpdated(fn ($state, Set $set) => self::productChanged($state, $set))
                         ->helperText(fn (Get $get): string => 'Only products with available sellable Main Warehouse stock are shown.'.($get('stock_context') ? ' '.$get('stock_context') : '')),
-                    TextInput::make('quantity')->numeric()->integer()->minValue(1)->default(1)->required()->live(onBlur: true),
+                    TextInput::make('quantity')->numeric()->integer()->minValue(1)->default(1)->required()->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),
                     TextInput::make('selling_price')->label('Selling Price')->prefix('AED')->required()
-                        ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->live(onBlur: true),
-                    Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get)),
+                        ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),
+                    Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get))->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),
                     Repeater::make('allocation_sources')->label('Stock Source / Consume From')
                         ->helperText('Reserved stock is unavailable. Add rows to split this sale line across authorized Employee, Team, or System sources.')
                         ->schema([
@@ -71,17 +72,17 @@ class WebSalesOrderForm
                                 ->options(fn (Get $get): array => self::allocationSourceOptions((int) $get('../../product_id')))
                                 ->required()->searchable()->disableOptionsWhenSelectedInSiblingRepeaterItems(),
                             TextInput::make('quantity')->label('Consume Qty')->numeric()->integer()->minValue(1)->required(),
-                        ])->columns(2)->defaultItems(0)
+                        ])->columns(['default' => 1, 'md' => 2])->defaultItems(0)
                         ->required(fn (Get $get): bool => self::allocationSourceOptions((int) $get('product_id')) !== [])
                         ->addActionLabel('Split Across Another Source')->columnSpanFull(),
-                    Toggle::make('upgraded_configuration')->label('Upgraded Configuration')->live()
+                    Toggle::make('upgraded_configuration')->label('Upgraded Configuration')->live()->columnSpanFull()
                         ->afterStateUpdated(function ($state, Set $set): void {
                             if (! $state) {
                                 $set('sales_configuration_id', null);
                                 $set('upgrade_recipe_id', null);
                             }
                         }),
-                    Select::make('sales_configuration_id')->label('Valid Configuration')->searchable()->live()
+                    Select::make('sales_configuration_id')->label('Valid Configuration')->searchable()->live()->columnSpan(['default' => 1, 'md' => 3, 'lg' => 4])
                         ->getSearchResultsUsing(fn (string $search, Get $get): array => self::configurationOptions((int) $get('product_id'), $search))
                         ->getOptionLabelUsing(fn ($value): ?string => SalesConfiguration::query()->whereKey((int) $value)->value('display_name'))
                         ->required(fn (Get $get): bool => (bool) $get('upgraded_configuration'))
@@ -89,16 +90,16 @@ class WebSalesOrderForm
                         ->afterStateUpdated(function ($state, Set $set): void {
                             $set('upgrade_recipe_id', array_key_first(self::recipeOptions((int) $state)));
                         }),
-                    Select::make('upgrade_recipe_id')->label('Build Method')
+                    Select::make('upgrade_recipe_id')->label('Build Method')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 4])
                         ->options(fn (Get $get): array => self::recipeOptions((int) $get('sales_configuration_id')))
                         ->required(fn (Get $get): bool => (bool) $get('upgraded_configuration'))
                         ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration')),
-                    Placeholder::make('upgrade_summary')->label('Configuration')
+                    Placeholder::make('upgrade_summary')->label('Configuration')->columnSpan(['default' => 1, 'md' => 6, 'lg' => 4])
                         ->content(fn (Get $get): string => self::upgradeSummary((int) $get('sales_configuration_id'), (int) $get('upgrade_recipe_id')))
                         ->visible(fn (Get $get): bool => (bool) $get('upgraded_configuration')),
                     Hidden::make('stock_context')->dehydrated(false),
-                ])->columns(['default' => 1, 'md' => 2, 'xl' => 4])->compact()->reorderable(false)->minItems(1)->defaultItems(1)->addActionLabel('Add Product / Configuration')->columnSpanFull(),
-            ])->compact(),
+                ])->columns(['default' => 1, 'md' => 6, 'lg' => 12])->compact()->reorderable(false)->minItems(1)->defaultItems(1)->addActionLabel('Add Product / Configuration')->columnSpanFull(),
+            ])->compact()->columnSpanFull(),
             Section::make('Delivery')->schema([
                 Select::make('delivery_type')->label('Delivery')->options(WebSalesDeliveryType::class)
                     ->default(WebSalesDeliveryType::Courier->value)->required()->native(false)->live()
@@ -145,7 +146,16 @@ class WebSalesOrderForm
 
     private static function productLabel(int $id): ?string
     {
-        return self::productOptions((string) (Product::query()->products()->find($id, ['id', 'sku'])?->sku ?? ''))[$id] ?? null;
+        $product = Product::query()->products()->find($id, [
+            'id', 'sku', 'name', 'accounting_title_override', 'brand', 'brand_id', 'category', 'category_id',
+            'model', 'processor_class', 'processor', 'processor_model', 'processor_generation',
+            'ram', 'storage', 'graphics', 'touch_screen', 'is_convertible_360', 'color',
+        ]);
+        if ($product === null || ! array_key_exists($id, self::productOptions($product->sku))) {
+            return null;
+        }
+
+        return $product->sku.' · '.app(ProductTitleService::class)->accounting($product);
     }
 
     private static function productChanged(mixed $state, Set $set): void

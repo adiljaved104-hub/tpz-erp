@@ -31,7 +31,7 @@ class MyWorkDashboardTest extends TestCase
         $this->task($owner, $other->employee->id, 'Other employee Task');
         $this->actingAs($staff);
         $this->assertTrue(MyWork::shouldRegisterNavigation());
-        $this->get(MyWork::getUrl())->assertOk()->assertSee($mine->reference)->assertSee('My persistent Task')->assertDontSee('Other employee Task')->assertDontSee('Team Work')->assertDontSee('Unassigned');
+        $this->get(MyWork::getUrl())->assertOk()->assertSee('My Tasks')->assertSee('Due Soon')->assertSee($mine->reference)->assertSee('My persistent Task')->assertDontSee('Other employee Task')->assertDontSee('Team Work')->assertDontSee('Unassigned');
     }
 
     public function test_owner_my_work_is_personal_and_team_and_unassigned_are_separate(): void
@@ -82,7 +82,7 @@ class MyWorkDashboardTest extends TestCase
     {
         $staff = $this->user(EmployeeRole::Staff);
         $this->actingAs($staff);
-        Livewire::test(MyWork::class)->assertSee('You have no pending work right now.');
+        Livewire::test(MyWork::class)->assertSee('No tasks match this view.')->assertSee('Clear the filters or check back when work is assigned.');
         $staff->employee->update(['status' => false]);
         $this->assertFalse(MyWork::canAccess());
         $unlinked = User::factory()->create();

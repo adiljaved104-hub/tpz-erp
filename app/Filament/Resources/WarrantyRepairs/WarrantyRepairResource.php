@@ -52,7 +52,7 @@ class WarrantyRepairResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedWrenchScrewdriver;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Service';
+    protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
     protected static ?string $navigationLabel = 'Warranty / Service';
 

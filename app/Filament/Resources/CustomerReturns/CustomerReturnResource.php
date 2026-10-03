@@ -26,7 +26,7 @@ class CustomerReturnResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowUturnLeft;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Sales';
+    protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
     protected static ?string $navigationLabel = 'Returns';
 

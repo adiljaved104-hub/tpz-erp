@@ -20,7 +20,7 @@ class MarketplaceOperations extends Page
 {
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-signal';
 
-    protected static string|UnitEnum|null $navigationGroup = 'Sales';
+    protected static string|UnitEnum|null $navigationGroup = 'Marketplace';
 
     protected static ?string $navigationLabel = 'Marketplace Operations';
 

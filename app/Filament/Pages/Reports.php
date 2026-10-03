@@ -20,7 +20,7 @@ class Reports extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentChartBar;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Analytics';
+    protected static string|\UnitEnum|null $navigationGroup = 'Reports';
 
     protected static ?int $navigationSort = 1;
 

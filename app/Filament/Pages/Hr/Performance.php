@@ -23,7 +23,7 @@ class Performance extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'People & HR';
 
     protected static ?string $navigationLabel = 'Performance';
 

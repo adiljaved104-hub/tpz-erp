@@ -60,7 +60,7 @@ class NavigationPreferenceService
         $positions = array_flip($order);
 
         return $filtered->sortBy(fn (NavigationGroup $group, int $index): array => [
-            $positions[$this->groupKey($group->getLabel())] ?? PHP_INT_MAX,
+            $this->savedGroupPosition($group->getLabel(), $positions),
             $index,
         ])->values()->all();
     }
@@ -82,7 +82,7 @@ class NavigationPreferenceService
                 'items' => $this->itemDefinitions(collect($group->getItems()), $label, '', $hidden),
             ];
         })->values()
-            ->sortBy(fn (array $group, int $index): array => [$positions[$group['key']] ?? PHP_INT_MAX, $index])
+            ->sortBy(fn (array $group, int $index): array => [$this->savedGroupPosition($group['label'], $positions), $index])
             ->values()->all();
     }
 
@@ -126,7 +126,7 @@ class NavigationPreferenceService
     {
         $item = clone $item;
         $key = $this->itemKey($item, $group, $parent);
-        if (! $this->isProtected($item) && in_array($key, $hidden, true)) {
+        if (! $this->isProtected($item) && $this->itemIsHidden($item, $group, $parent, $hidden)) {
             return null;
         }
 
@@ -151,7 +151,7 @@ class NavigationPreferenceService
                 'key' => $key,
                 'label' => $item->getLabel(),
                 'parent' => $parent === '' ? null : $parent,
-                'hidden' => in_array($key, $hidden, true),
+                'hidden' => $this->itemIsHidden($item, $group, $parent, $hidden),
                 'protected' => $this->isProtected($item),
             ]];
 
@@ -169,6 +169,54 @@ class NavigationPreferenceService
         $path = (string) (parse_url((string) $item->getUrl(), PHP_URL_PATH) ?? '');
 
         return 'item:'.hash('sha256', implode('|', [$group, $parent, $item->getLabel(), trim($path, '/')]));
+    }
+
+    /** Keep existing custom-navigation choices working when default groups or labels are reorganized. */
+    private function itemIsHidden(NavigationItem $item, string $group, string $parent, array $hidden): bool
+    {
+        $labels = [$item->getLabel()];
+        $path = trim((string) (parse_url((string) $item->getUrl(), PHP_URL_PATH) ?? ''), '/');
+        $labels = [...$labels, ...match ($path) {
+            'admin/web-sales-orders' => ['Orders'],
+            'admin/web-sales-dashboard' => ['Dashboard'],
+            'admin/orders' => ['Orders'],
+            default => [],
+        }];
+        $groups = array_unique([$group, ...$this->legacyGroupLabels($group)]);
+
+        foreach ($groups as $candidateGroup) {
+            foreach ($labels as $label) {
+                $candidate = 'item:'.hash('sha256', implode('|', [$candidateGroup, $parent, $label, $path]));
+                if (in_array($candidate, $hidden, true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, int> $positions */
+    private function savedGroupPosition(?string $label, array $positions): int
+    {
+        $keys = [$this->groupKey($label), ...array_map($this->groupKey(...), $this->legacyGroupLabels((string) $label))];
+        $saved = array_values(array_filter(array_map(fn (string $key): ?int => $positions[$key] ?? null, $keys), fn (?int $position): bool => $position !== null));
+
+        return $saved === [] ? PHP_INT_MAX : min($saved);
+    }
+
+    /** @return array<int, string> */
+    private function legacyGroupLabels(string $label): array
+    {
+        return match ($label) {
+            'Workspace' => ['Work', 'Account'],
+            'Products & Catalog' => ['Catalog'],
+            'Marketplace' => ['Sales'],
+            'Returns & Service' => ['Returns', 'Service', 'Sales'],
+            'People & HR' => ['People', 'HR'],
+            'Reports' => ['Analytics', 'Purchasing', 'Inventory'],
+            default => [],
+        };
     }
 
     private function isProtected(NavigationItem $item): bool

@@ -29,7 +29,7 @@ class LeaveManagement extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendarDays;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'People & HR';
 
     protected static ?string $navigationLabel = 'Leave';
 

@@ -33,6 +33,10 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->sidebarFullyCollapsibleOnDesktop()
+            ->navigationGroups([
+                'Workspace', 'Sales', 'Purchasing', 'Inventory', 'Products & Catalog', 'Marketplace',
+                'Returns & Service', 'People & HR', 'Finance', 'Reports', 'Administration',
+            ])
             ->assets([
                 Css::make('access-control', resource_path('css/filament/access-control.css')),
             ])

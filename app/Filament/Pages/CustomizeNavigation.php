@@ -16,7 +16,7 @@ class CustomizeNavigation extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedAdjustmentsHorizontal;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Account';
+    protected static string|\UnitEnum|null $navigationGroup = 'Workspace';
 
     protected static ?string $navigationLabel = 'Customize Navigation';
 

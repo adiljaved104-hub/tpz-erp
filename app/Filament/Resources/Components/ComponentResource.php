@@ -41,7 +41,7 @@ class ComponentResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCpuChip;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Catalog';
+    protected static string|\UnitEnum|null $navigationGroup = 'Products & Catalog';
 
     protected static ?string $navigationLabel = 'Upgrade Components';
 

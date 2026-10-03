@@ -18,9 +18,9 @@ class WebSalesDashboard extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBarSquare;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Web Sales';
+    protected static string|\UnitEnum|null $navigationGroup = 'Sales';
 
-    protected static ?string $navigationLabel = 'Dashboard';
+    protected static ?string $navigationLabel = 'Web Sales Dashboard';
 
     protected static ?int $navigationSort = 2;
 

@@ -29,6 +29,8 @@ class MyWork extends Page
 
     protected static ?string $navigationLabel = 'My Work';
 
+    protected static string|\UnitEnum|null $navigationGroup = 'Workspace';
+
     protected static ?string $title = 'My Work';
 
     protected static ?int $navigationSort = -100;

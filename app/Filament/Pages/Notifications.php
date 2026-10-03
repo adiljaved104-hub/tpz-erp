@@ -19,7 +19,7 @@ class Notifications extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedBell;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Work';
+    protected static string|\UnitEnum|null $navigationGroup = 'Workspace';
 
     protected static ?string $navigationLabel = 'Notifications';
 

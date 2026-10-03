@@ -26,9 +26,9 @@ class WebSalesOrderResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedShoppingCart;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Web Sales';
+    protected static string|\UnitEnum|null $navigationGroup = 'Sales';
 
-    protected static ?string $navigationLabel = 'Orders';
+    protected static ?string $navigationLabel = 'Web Sales Orders';
 
     protected static ?string $modelLabel = 'Web Sale';
 

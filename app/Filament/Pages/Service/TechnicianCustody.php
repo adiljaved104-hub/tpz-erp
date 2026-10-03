@@ -20,7 +20,7 @@ class TechnicianCustody extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedWrench;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Service';
+    protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
     protected static ?string $navigationLabel = 'Technician Custody';
 

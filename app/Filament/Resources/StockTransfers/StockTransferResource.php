@@ -26,6 +26,8 @@ class StockTransferResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
+    protected static ?int $navigationSort = 5;
+
     protected static ?string $navigationLabel = 'Stock Transfers';
 
     protected static ?string $recordTitleAttribute = 'reference';

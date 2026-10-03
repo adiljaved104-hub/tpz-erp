@@ -27,7 +27,9 @@ class EmployeeResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
-    protected static string|\UnitEnum|null $navigationGroup = 'People & HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'People';
+
+    protected static ?int $navigationSort = 1;
 
     public static function form(Schema $schema): Schema
     {

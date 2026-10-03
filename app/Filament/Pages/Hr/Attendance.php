@@ -30,7 +30,9 @@ class Attendance extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedClock;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'People & HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'HR';
+
+    protected static ?int $navigationSort = 1;
 
     protected static ?string $navigationLabel = 'Attendance';
 

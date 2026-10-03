@@ -54,7 +54,9 @@ class TaxInvoiceResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Sales';
 
-    protected static ?string $navigationLabel = 'Invoices';
+    protected static ?int $navigationSort = 4;
+
+    protected static ?string $navigationLabel = 'Tax Invoices';
 
     protected static ?string $recordTitleAttribute = 'invoice_number';
 

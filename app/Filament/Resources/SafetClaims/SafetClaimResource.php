@@ -26,7 +26,9 @@ class SafetClaimResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
-    protected static ?string $navigationLabel = 'Claims';
+    protected static ?int $navigationSort = 3;
+
+    protected static ?string $navigationLabel = 'Claims / Safe-T';
 
     protected static ?string $modelLabel = 'Claim';
 

@@ -39,6 +39,8 @@ class InventoryAllocations extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Administration';
 
+    protected static ?int $navigationSort = 1;
+
     protected static ?string $navigationLabel = 'Inventory Allocations';
 
     public string $enforcementMode = '';

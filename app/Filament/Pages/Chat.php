@@ -50,7 +50,7 @@ class Chat extends Page
 
     protected static ?string $title = 'Chat';
 
-    protected static ?int $navigationSort = -90;
+    protected static ?int $navigationSort = 3;
 
     protected Width|string|null $maxContentWidth = Width::Full;
 

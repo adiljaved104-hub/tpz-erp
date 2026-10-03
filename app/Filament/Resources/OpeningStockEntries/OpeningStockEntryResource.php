@@ -28,6 +28,8 @@ class OpeningStockEntryResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Administration';
 
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $navigationLabel = 'Opening Stock';
 
     public static function getEloquentQuery(): Builder

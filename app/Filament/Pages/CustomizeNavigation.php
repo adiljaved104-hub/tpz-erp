@@ -22,7 +22,7 @@ class CustomizeNavigation extends Page
 
     protected static ?string $slug = 'customize-navigation';
 
-    protected static ?int $navigationSort = 90;
+    protected static ?int $navigationSort = 5;
 
     public static function canAccess(): bool
     {

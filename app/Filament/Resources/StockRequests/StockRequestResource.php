@@ -28,6 +28,8 @@ class StockRequestResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
+    protected static ?int $navigationSort = 4;
+
     protected static ?string $navigationLabel = 'Stock Requests';
 
     protected static ?string $recordTitleAttribute = 'reference';

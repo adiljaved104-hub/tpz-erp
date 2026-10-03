@@ -29,6 +29,8 @@ class PurchaseResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Purchasing';
 
+    protected static ?int $navigationSort = 1;
+
     public static function getEloquentQuery(): Builder
     {
         $user = auth()->user();

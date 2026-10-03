@@ -37,7 +37,9 @@ class SalesConfigurationResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedWrenchScrewdriver;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Products & Catalog';
+    protected static string|\UnitEnum|null $navigationGroup = 'Products';
+
+    protected static ?int $navigationSort = 3;
 
     protected static ?string $navigationLabel = 'Sales Configurations';
 

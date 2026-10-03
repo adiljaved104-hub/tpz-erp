@@ -10,5 +10,5 @@ class StockAdjustments extends StockAdjustmentGridPage
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 8;
 }

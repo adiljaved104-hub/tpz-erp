@@ -22,7 +22,9 @@ class SupplierResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingOffice;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Products & Catalog';
+    protected static string|\UnitEnum|null $navigationGroup = 'Purchasing';
+
+    protected static ?int $navigationSort = 4;
 
     protected static ?string $recordTitleAttribute = 'name';
 

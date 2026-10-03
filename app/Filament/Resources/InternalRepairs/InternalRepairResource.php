@@ -42,6 +42,8 @@ class InternalRepairResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
+    protected static ?int $navigationSort = 5;
+
     protected static ?string $navigationLabel = 'Internal Repairs';
 
     protected static ?string $modelLabel = 'Internal Repair';

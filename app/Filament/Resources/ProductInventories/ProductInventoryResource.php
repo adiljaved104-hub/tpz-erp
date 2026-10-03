@@ -27,6 +27,8 @@ class ProductInventoryResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
+    protected static ?int $navigationSort = 3;
+
     protected static ?string $navigationLabel = 'Location Balances';
 
     protected static ?string $modelLabel = 'Inventory Balance';

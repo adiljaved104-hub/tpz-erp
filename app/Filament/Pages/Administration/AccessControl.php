@@ -35,6 +35,8 @@ class AccessControl extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Administration';
 
+    protected static ?int $navigationSort = 4;
+
     protected static ?string $navigationLabel = 'Access Control';
 
     protected static ?string $title = 'Employee Access Control';

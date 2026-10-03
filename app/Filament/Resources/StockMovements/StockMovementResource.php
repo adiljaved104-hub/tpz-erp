@@ -24,6 +24,8 @@ class StockMovementResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Reports';
 
+    protected static ?int $navigationSort = 3;
+
     protected static ?string $navigationLabel = 'Stock Movements';
 
     public static function getEloquentQuery(): Builder

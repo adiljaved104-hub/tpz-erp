@@ -54,6 +54,8 @@ class WarrantyRepairResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
+    protected static ?int $navigationSort = 4;
+
     protected static ?string $navigationLabel = 'Warranty / Service';
 
     protected static ?string $recordTitleAttribute = 'reference';

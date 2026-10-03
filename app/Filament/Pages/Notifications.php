@@ -21,6 +21,8 @@ class Notifications extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Workspace';
 
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $navigationLabel = 'Notifications';
 
     protected static ?string $title = 'Notifications';

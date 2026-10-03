@@ -33,7 +33,7 @@ class MyWork extends Page
 
     protected static ?string $title = 'My Work';
 
-    protected static ?int $navigationSort = -100;
+    protected static ?int $navigationSort = 1;
 
     #[Url]
     public string $viewMode = 'mine';

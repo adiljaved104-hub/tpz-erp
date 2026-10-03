@@ -26,7 +26,7 @@ class MarketplaceOperations extends Page
 
     protected static ?string $title = 'Marketplace Operations';
 
-    protected static ?int $navigationSort = 45;
+    protected static ?int $navigationSort = 1;
 
     protected string $view = 'filament.pages.marketplace-operations';
 

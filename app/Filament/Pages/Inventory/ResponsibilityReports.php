@@ -17,6 +17,8 @@ class ResponsibilityReports extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Reports';
 
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $navigationLabel = 'Responsibility Reports';
 
     public static function canAccess(): bool

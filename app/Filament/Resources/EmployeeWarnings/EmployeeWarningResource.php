@@ -37,7 +37,9 @@ class EmployeeWarningResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedExclamationTriangle;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'People & HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'HR';
+
+    protected static ?int $navigationSort = 5;
 
     protected static ?string $navigationLabel = 'Warnings';
 

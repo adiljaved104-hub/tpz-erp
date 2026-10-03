@@ -36,7 +36,7 @@ class WebSalesOrderResource extends Resource
 
     protected static ?string $slug = 'web-sales/orders';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 2;
 
     public static function canViewAny(): bool
     {

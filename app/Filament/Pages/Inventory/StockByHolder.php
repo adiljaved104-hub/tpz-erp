@@ -24,11 +24,11 @@ class StockByHolder extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
-    protected static ?string $navigationLabel = 'Stock by Holder';
+    protected static ?string $navigationLabel = 'Stock Ownership';
 
     protected static ?string $title = 'Stock by Holder';
 
-    protected static ?int $navigationSort = 8;
+    protected static ?int $navigationSort = 9;
 
     #[Url]
     public string $holderId = '';

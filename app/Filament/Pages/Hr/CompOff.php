@@ -22,7 +22,9 @@ class CompOff extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowPathRoundedSquare;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'People & HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'HR';
+
+    protected static ?int $navigationSort = 3;
 
     protected static ?string $navigationLabel = 'Comp Off';
 

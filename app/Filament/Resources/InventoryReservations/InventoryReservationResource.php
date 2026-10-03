@@ -24,6 +24,8 @@ class InventoryReservationResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Reports';
 
+    protected static ?int $navigationSort = 4;
+
     protected static ?string $navigationLabel = 'Reservations';
 
     public static function getEloquentQuery(): Builder

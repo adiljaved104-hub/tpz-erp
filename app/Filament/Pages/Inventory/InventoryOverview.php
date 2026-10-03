@@ -34,6 +34,8 @@ class InventoryOverview extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $navigationLabel = 'Inventory Overview';
 
     protected static ?string $title = 'Inventory Overview by Location';

@@ -24,6 +24,8 @@ class MarketplaceReturnRemovalResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $navigationLabel = 'Marketplace Removals';
 
     protected static ?string $recordTitleAttribute = 'reference';

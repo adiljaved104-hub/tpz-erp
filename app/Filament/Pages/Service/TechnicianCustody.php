@@ -22,6 +22,8 @@ class TechnicianCustody extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
+    protected static ?int $navigationSort = 6;
+
     protected static ?string $navigationLabel = 'Technician Custody';
 
     protected static ?string $title = 'Technician Custody Overview';

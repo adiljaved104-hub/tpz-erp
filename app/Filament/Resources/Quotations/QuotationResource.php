@@ -64,6 +64,8 @@ class QuotationResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Sales';
 
+    protected static ?int $navigationSort = 3;
+
     protected static ?string $recordTitleAttribute = 'reference';
 
     protected static ?string $navigationLabel = 'Quotations';

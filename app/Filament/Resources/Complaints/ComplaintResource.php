@@ -45,6 +45,8 @@ class ComplaintResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
+    protected static ?int $navigationSort = 7;
+
     protected static ?string $recordTitleAttribute = 'reference';
 
     public static function canViewAny(): bool

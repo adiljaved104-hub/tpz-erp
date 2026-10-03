@@ -28,6 +28,8 @@ class TaskResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Workspace';
 
+    protected static ?int $navigationSort = 4;
+
     protected static ?string $recordTitleAttribute = 'reference';
 
     public static function form(Schema $schema): Schema

@@ -44,7 +44,9 @@ class HrNoticeResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedMegaphone;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'People & HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'HR';
+
+    protected static ?int $navigationSort = 4;
 
     protected static ?string $navigationLabel = 'Notices';
 

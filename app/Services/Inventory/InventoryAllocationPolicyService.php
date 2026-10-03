@@ -4,14 +4,18 @@ namespace App\Services\Inventory;
 
 use App\Enums\InventoryAllocationMode;
 use App\Enums\InventoryAllocationPolicy;
+use App\Enums\ResponsibilityAssignmentMode;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationSetting;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
+use App\Services\Responsibilities\ResponsibilityScopeConflictEvaluator;
 use Illuminate\Validation\ValidationException;
 
 class InventoryAllocationPolicyService
 {
+    public function __construct(private readonly ResponsibilityScopeConflictEvaluator $scopeConflicts) {}
+
     public function settings(): InventoryAllocationSetting
     {
         return InventoryAllocationSetting::query()->firstOrCreate(['singleton_key' => 'inventory_allocation'], [
@@ -48,28 +52,25 @@ class InventoryAllocationPolicyService
     /** @return array{InventoryAllocationAccount, string} */
     private function defaultResponsibilityAccount(ProductInventory $inventory): array
     {
-        $inventory->loadMissing(['product.marketplaceListings', 'warehouse']);
+        $inventory->loadMissing(['product', 'warehouse']);
         $product = $inventory->product;
-        $platformIds = $product->marketplaceListings->pluck('marketplace_platform_id')->map(fn ($id): int => (int) $id);
-        if ($inventory->warehouse?->marketplace_platform_id !== null) {
-            $platformIds->push((int) $inventory->warehouse->marketplace_platform_id);
-        }
-        $platformIds = $platformIds->unique()->all();
 
         $matches = ResponsibilityAssignment::query()->active()->where('assign_stock_by_default', true)
+            ->where('assignment_mode', ResponsibilityAssignmentMode::Scope->value)
             ->whereHas('employee', fn ($query) => $query->where('status', true)->whereNotNull('user_id'))
             ->where(function ($query) use ($product): void {
                 $query->whereHas('productScope', fn ($scope) => $scope->where('product_id', $product->id))
                     ->orWhereHas('brandScope', fn ($scope) => $scope->where('product_brand_id', $product->brand_id ?? 0))
                     ->orWhereHas('categoryScope', fn ($scope) => $scope->where('product_category_id', $product->category_id ?? 0));
             })
-            ->where(fn ($query) => $query->whereDoesntHave('platformScope')
-                ->orWhereHas('platformScope', fn ($scope) => $scope->whereIn('marketplace_platform_id', $platformIds)))
             ->where(fn ($query) => $query->whereDoesntHave('warehouseScope')
                 ->orWhereHas('warehouseScope', fn ($scope) => $scope->where('warehouse_id', $inventory->warehouse_id)))
             ->where(fn ($query) => $query->whereDoesntHave('conditionScope')
                 ->orWhereHas('conditionScope', fn ($scope) => $scope->where('product_condition', $product->condition?->value)))
-            ->with('employee:id,name,status,user_id')->get();
+            ->with(['employee:id,name,status,user_id', 'productScope', 'brandScope', 'categoryScope', 'conditionScope', 'warehouseScope'])
+            ->get()
+            ->filter(fn (ResponsibilityAssignment $assignment): bool => $this->scopeConflicts->matchesDefaultStockForInventory($assignment, $inventory))
+            ->values();
         $holders = $matches->unique('employee_id')->values();
 
         if ($holders->isEmpty()) {

@@ -46,7 +46,33 @@ class ResponsibilityFilamentTest extends TestCase
         Livewire::test(ListResponsibilityAssignments::class)
             ->callTableAction('setStockDefault', $valid, ['enabled' => true, 'reason' => 'Future stock'])
             ->assertHasNoTableActionErrors()->assertNotified('Default stock assignment updated');
-        $this->assertTrue($valid->refresh()->assign_stock_by_default);
+        $this->assertSame(ResponsibilityAssignmentStatus::Superseded, $valid->refresh()->status);
+        $this->assertTrue($valid->successors()->firstOrFail()->assign_stock_by_default);
+    }
+
+    public function test_scope_change_action_is_visible_to_authorized_management(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $assignment = $this->assignment($f['owner'], $f['employee']->id);
+
+        $this->actingAs($f['owner']);
+        Livewire::test(ListResponsibilityAssignments::class)
+            ->callTableAction('changeScope', $assignment, [
+                'employee_id' => $assignment->employee_id,
+                'brand_id' => $f['brand']->id,
+                'product_id' => null,
+                'category_id' => null,
+                'condition' => null,
+                'warehouse_id' => null,
+                'platform_id' => $f['platform']->id,
+                'assign_stock_by_default' => false,
+                'reason' => 'Add marketplace platform scope',
+            ])
+            ->assertHasNoTableActionErrors()
+            ->assertNotified('Responsibility changed');
+
+        $this->assertSame(ResponsibilityAssignmentStatus::Superseded, $assignment->refresh()->status);
+        $this->assertSame($f['platform']->id, $assignment->successors()->firstOrFail()->platformScope->marketplace_platform_id);
     }
 
     public function test_direct_page_access_and_navigation_follow_server_side_permissions(): void

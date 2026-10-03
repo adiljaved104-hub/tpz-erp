@@ -245,12 +245,11 @@ class ResponsibilityAssignmentService
 
         try {
             $candidate = $this->createDataFromChange($data);
-            $this->validatedScope($candidate);
-            $this->activeEmployee($candidate->employeeId);
+            $this->prepareCreate($candidate, [$source->id]);
 
-            return $this->scopeConflicts->preview($candidate, [$source->id]);
-        } catch (ValidationException|InvalidResponsibilityScopeException $exception) {
-            return collect($exception instanceof ValidationException ? $exception->errors() : ['scope' => [$exception->getMessage()]])->flatten()->join(' ');
+            return 'SAFE — No conflicting active Responsibility was found.';
+        } catch (ValidationException|InvalidResponsibilityScopeException|DuplicateActiveResponsibilityException $exception) {
+            return 'Cannot continue — '.collect($exception instanceof ValidationException ? $exception->errors() : ['scope' => [$exception->getMessage()]])->flatten()->join(' ');
         }
     }
 
@@ -532,13 +531,16 @@ class ResponsibilityAssignmentService
         if ($brand !== null && $product !== null && $product->brand_id !== $brand->id) {
             throw ValidationException::withMessages(['product_id' => 'The selected Product does not belong to the selected Brand.']);
         }
+        if ($category !== null && $product !== null && $product->category_id !== $category->id) {
+            throw ValidationException::withMessages(['product_id' => 'The selected Product does not belong to the selected Category.']);
+        }
 
         if ($data->mode === ResponsibilityAssignmentMode::Scope) {
-            if ($inventory !== null || $data->assignedQuantity !== null || ($brand === null && $category === null && $platform === null && $product === null && $warehouse === null && $condition === null)
-                || ($product !== null && ($brand !== null || $category !== null || $warehouse !== null || $condition !== null))
-                || ($condition !== null && $brand !== null && $category !== null)
-                || ($warehouse !== null && ($brand !== null || $category !== null || $product !== null))) {
-                throw new InvalidResponsibilityScopeException('Scope assignments require Brand, Category, Platform, Product, Warehouse, or Condition dimensions and cannot contain quantity.');
+            if ($inventory !== null || $data->assignedQuantity !== null) {
+                throw new InvalidResponsibilityScopeException('Scope responsibilities cannot include inventory quantity. Use the separate Quantity Responsibility workflow.');
+            }
+            if ($brand === null && $category === null && $platform === null && $product === null && $warehouse === null && $condition === null) {
+                throw new InvalidResponsibilityScopeException('Select at least one Product, Brand, Category, Condition, Warehouse, or Platform.');
             }
         } elseif ($inventory === null || $data->assignedQuantity === null || $data->assignedQuantity < 1 || $brand !== null || $category !== null || $product !== null || $warehouse !== null || $condition !== null) {
             throw new InvalidResponsibilityScopeException('Quantity assignments require exactly one Product Inventory and a positive quantity.');

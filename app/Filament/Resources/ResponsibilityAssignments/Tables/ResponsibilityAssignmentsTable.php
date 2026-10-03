@@ -16,6 +16,8 @@ use App\Enums\ProductStatus;
 use App\Enums\ResponsibilityAssignmentMode;
 use App\Enums\ResponsibilityAssignmentStatus;
 use App\Enums\ResponsibilityPermission;
+use App\Exceptions\DuplicateActiveResponsibilityException;
+use App\Exceptions\InvalidResponsibilityScopeException;
 use App\Models\Employee;
 use App\Models\MarketplacePlatform;
 use App\Models\Product;
@@ -133,7 +135,7 @@ class ResponsibilityAssignmentsTable
                         ->options(fn (): array => MarketplacePlatform::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
                     Checkbox::make('assign_stock_by_default')->label('Assign stock by default')->live()->default($record->assign_stock_by_default)
                         ->helperText('Controls future receipt ownership only. Existing Allocation Balances are not changed.'),
-                    Placeholder::make('scope_conflict_preview')->label('Preflight Summary')->content(function (Get $get) use ($record): string {
+                    Placeholder::make('scope')->label('Preflight Summary')->content(function (Get $get) use ($record): string {
                         return app(ResponsibilityAssignmentService::class)->previewScopeChange($record, self::scopeChangeData([
                             'employee_id' => $get('employee_id'), 'brand_id' => $get('brand_id'), 'product_id' => $get('product_id'),
                             'category_id' => $get('category_id'), 'condition' => $get('condition'), 'warehouse_id' => $get('warehouse_id'),
@@ -145,11 +147,14 @@ class ResponsibilityAssignmentsTable
                 ->action(function (ResponsibilityAssignment $record, array $data, $livewire): void {
                     try {
                         app(ChangeResponsibilityScope::class)->handle($record, self::scopeChangeData($data), auth()->user());
-                    } catch (ValidationException $exception) {
+                    } catch (ValidationException|InvalidResponsibilityScopeException|DuplicateActiveResponsibilityException $exception) {
+                        $errors = $exception instanceof ValidationException
+                            ? $exception->errors()
+                            : ['scope' => [$exception->getMessage()]];
                         Notification::make()->danger()->title('Responsibility was not changed')
-                            ->body(collect($exception->errors())->flatten()->join(' '))->send();
+                            ->body(collect($errors)->flatten()->join(' '))->send();
                         $path = $livewire->getSchema($livewire->getMountedActionSchemaName())->getStatePath();
-                        throw ValidationException::withMessages(collect($exception->errors())
+                        throw ValidationException::withMessages(collect($errors)
                             ->mapWithKeys(fn (array $messages, string $key): array => ["{$path}.{$key}" => $messages])->all());
                     }
                     Notification::make()->success()->title('Responsibility changed')->body('The previous assignment is preserved in history. Existing stock ownership was not moved.')->send();

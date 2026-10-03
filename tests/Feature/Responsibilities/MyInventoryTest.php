@@ -361,7 +361,10 @@ class MyInventoryTest extends TestCase
 
         $ownerFoundation = $f;
         $ownerFoundation['employee'] = $f['owner']->employee;
-        $this->assignProduct($ownerFoundation, $f['product']);
+        // Use a separate scope: new cross-employee overlapping assignments are rejected.
+        $ownerProduct = Product::factory()->create();
+        ProductInventory::factory()->create(['product_id' => $ownerProduct->id, 'warehouse_id' => $f['inventory']->warehouse_id]);
+        $this->assignProduct($ownerFoundation, $ownerProduct);
         $ownerRow = app(ResponsibilityReadService::class)->myInventory($f['owner'])->sole();
         $this->assertObjectHasProperty('latest_purchase_cost', $ownerRow);
     }
@@ -517,11 +520,11 @@ class MyInventoryTest extends TestCase
     {
         $first = $this->responsibilityFoundation(0);
         $other = $this->responsibilityUser(EmployeeRole::Staff);
-        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($first), $first['owner']);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($first, overrides: ['platformId' => $first['platform']->id]), $first['owner']);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData([
             'employee' => $other->employee,
             'brand' => $first['brand'],
-        ]), $first['owner']);
+        ], overrides: ['platformId' => MarketplacePlatform::factory()->create()->id]), $first['owner']);
         $account = app(InventoryAllocationService::class)->employeeAccount($first['employee']->id);
 
         app(QuickStockPurchase::class)->handle(new QuickStockPurchaseData(

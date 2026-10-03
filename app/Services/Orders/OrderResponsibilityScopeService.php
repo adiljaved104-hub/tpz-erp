@@ -299,6 +299,8 @@ class OrderResponsibilityScopeService
                 });
             });
 
+        $this->matchingRequiredScopes($query, $productColumn, $brandColumn, $categoryColumn, $warehouseColumn, warehouseIsColumn: true);
+
         return $query;
     }
 
@@ -375,6 +377,8 @@ class OrderResponsibilityScopeService
                 });
             });
 
+        $this->matchingRequiredScopes($query, $productColumn, $brandColumn, $categoryColumn, $warehouseId, warehouseIsColumn: false);
+
         return $query;
     }
 
@@ -418,5 +422,31 @@ class OrderResponsibilityScopeService
                         ->whereColumn('order_dimension_condition_match.assignment_id', 'order_ra.id')
                         ->whereColumn('order_dimension_condition_match.product_condition', $conditionColumn));
             });
+    }
+
+    private function matchingRequiredScopes(QueryBuilder $query, string $productColumn, string $brandColumn, string $categoryColumn, string|int $warehouse, bool $warehouseIsColumn): void
+    {
+        foreach ([
+            'products' => ['product_id', $productColumn],
+            'brands' => ['product_brand_id', $brandColumn],
+            'categories' => ['product_category_id', $categoryColumn],
+            'warehouses' => ['warehouse_id', $warehouse],
+        ] as $dimension => [$scopeColumn, $value]) {
+            $table = 'responsibility_assignment_'.$dimension;
+            $alias = 'order_required_'.$dimension;
+            $query->where(function (QueryBuilder $required) use ($table, $alias, $scopeColumn, $value, $dimension, $warehouseIsColumn): void {
+                $required->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')->from($table.' as '.$alias.'_none')
+                    ->whereColumn($alias.'_none.assignment_id', 'order_ra.id'))
+                    ->orWhereExists(function (QueryBuilder $scope) use ($table, $alias, $scopeColumn, $value, $dimension, $warehouseIsColumn): void {
+                        $scope->selectRaw('1')->from($table.' as '.$alias.'_match')
+                            ->whereColumn($alias.'_match.assignment_id', 'order_ra.id');
+                        if ($dimension === 'warehouses' && ! $warehouseIsColumn) {
+                            $scope->where($alias.'_match.'.$scopeColumn, $value);
+                        } else {
+                            $scope->whereColumn($alias.'_match.'.$scopeColumn, $value);
+                        }
+                    });
+            });
+        }
     }
 }

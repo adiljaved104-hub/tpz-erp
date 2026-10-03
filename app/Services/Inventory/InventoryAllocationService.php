@@ -358,6 +358,10 @@ class InventoryAllocationService
         $quantitiesByAccountId = array_filter($quantitiesByAccountId, fn (int $quantity): bool => $quantity > 0);
         ksort($quantitiesByAccountId);
 
+        if ($manualOrderSelection) {
+            $this->assertOrderSources($inventory, $quantitiesByAccountId, $reservation->quantity, $actor, 'items');
+        }
+
         if (array_sum($quantitiesByAccountId) !== $reservation->quantity) {
             throw ValidationException::withMessages(['execution' => 'Approved stock sources do not match the required reservation quantity.']);
         }

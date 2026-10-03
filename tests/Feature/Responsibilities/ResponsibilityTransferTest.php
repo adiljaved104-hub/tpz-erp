@@ -141,16 +141,16 @@ class ResponsibilityTransferTest extends TestCase
         ], 'Move to HP product'), $f['owner']);
     }
 
-    public function test_warehouse_change_detects_overlap_and_platform_change_is_checked(): void
+    public function test_specific_warehouse_brand_change_detects_overlap(): void
     {
         $f = $this->responsibilityFoundation();
         $other = $this->responsibilityUser(EmployeeRole::Staff);
         $sourceWarehouse = Warehouse::factory()->create(['status' => true, 'name' => 'Secondary']);
-        $source = app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['brandId' => null, 'warehouseId' => $sourceWarehouse->id]), $f['owner']);
-        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $other->employee->id, 'brandId' => null, 'warehouseId' => $f['inventory']->warehouse_id]), $f['owner']);
+        $source = app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['warehouseId' => $sourceWarehouse->id]), $f['owner']);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $other->employee->id, 'warehouseId' => $f['inventory']->warehouse_id]), $f['owner']);
 
         try {
-            app(ChangeResponsibilityScope::class)->handle($source, $this->changeData($source->employee_id, ['warehouseId' => $f['inventory']->warehouse_id], 'Change warehouse'), $f['owner']);
+            app(ChangeResponsibilityScope::class)->handle($source, $this->changeData($source->employee_id, ['brandId' => $f['brand']->id, 'warehouseId' => $f['inventory']->warehouse_id], 'Change warehouse'), $f['owner']);
             $this->fail('The conflicting warehouse scope must be rejected.');
         } catch (ValidationException $exception) {
             $this->assertStringContainsString($other->employee->name, collect($exception->errors())->flatten()->implode(' '));

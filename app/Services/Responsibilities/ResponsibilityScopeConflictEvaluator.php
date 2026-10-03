@@ -40,6 +40,8 @@ class ResponsibilityScopeConflictEvaluator
             $operational = $checkOperational
                 && $proposed->mode->value === 'scope'
                 && $assignment->assignment_mode->value === 'scope'
+                && ! $this->isWarehouseOnly($candidate)
+                && ! $this->isWarehouseOnly($existing)
                 && $this->intersects($candidate, $existing, includePlatform: true);
             $defaultStock = $proposed->assignStockByDefault
                 && $assignment->assign_stock_by_default
@@ -191,6 +193,17 @@ class ResponsibilityScopeConflictEvaluator
         }
 
         return true;
+    }
+
+    /** Warehouse-wide visibility is shared, not exclusive product accountability. */
+    private function isWarehouseOnly(array $scope): bool
+    {
+        return $scope['warehouse_id'] !== null
+            && $scope['product_id'] === null
+            && $scope['brand_id'] === null
+            && $scope['category_id'] === null
+            && $scope['condition'] === null
+            && $scope['platform_id'] === null;
     }
 
     private function productMatches(Product $product, array $scope): bool

@@ -8,6 +8,7 @@ use App\DTOs\Orders\OrderUpgradePlan;
 use App\DTOs\Orders\PreparedOrderReservation;
 use App\DTOs\Orders\PreparedPlainOrderReferences;
 use App\DTOs\Orders\SaveAndReserveOrderData;
+use App\Enums\EmployeeRole;
 use App\Enums\OrderPermission;
 use App\Enums\OrderSource;
 use App\Enums\OrderStatus;
@@ -957,7 +958,7 @@ class OrderService
         ], $data->items);
         $externalNumber = $data->externalOrderNumber === null ? null : trim($data->externalOrderNumber);
         $externalHash = $this->externalIdentity->hash($data->platformId, $externalNumber);
-        $handledBy = $data->handledByEmployeeId ?? $actor->employee?->id;
+        $handledBy = $data->handledByEmployeeId ?? $existing?->handled_by_employee_id ?? $actor->employee?->id;
         $validated = Validator::make([
             'warehouse_id' => $data->warehouseId,
             'marketplace_platform_id' => $data->platformId,
@@ -1023,6 +1024,10 @@ class OrderService
             }
             if ($employee?->status !== true) {
                 $validator->errors()->add('handled_by_employee_id', 'Handled By must be an active Employee.');
+            }
+            if (! in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+                && $handledBy !== ($existing?->handled_by_employee_id ?? $actor->employee?->id)) {
+                $validator->errors()->add('handled_by_employee_id', 'The selling employee must remain the original handler. Only Owner/Admin may assign another handler.');
             }
             foreach ($data->items as $index => $item) {
                 if (! $this->responsibilities->canAccessProduct($actor, $item->productId, $data->platformId, $data->warehouseId)) {

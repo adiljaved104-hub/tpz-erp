@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Orders\Schemas;
 
+use App\Enums\EmployeeRole;
 use App\Enums\OrderPermission;
 use App\Enums\ProductMatchContext;
 use App\Models\Employee;
@@ -59,6 +60,8 @@ class OrderForm
                     ->label('Handled By')
                     ->options(fn (): array => Employee::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())
                     ->default(fn (): ?int => auth()->user()?->employee?->id)
+                    ->disabled(fn (): bool => ! in_array(auth()->user()?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true))
+                    ->dehydrated()
                     ->required()->searchable(),
                 Hidden::make('idempotency_key')->default(fn (): string => (string) str()->uuid()),
             ])->columns(2)->compact(),

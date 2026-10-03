@@ -42,6 +42,8 @@ class ResponsibilityScopeConflictEvaluator
                 && $assignment->assignment_mode->value === 'scope'
                 && ! $this->isWarehouseOnly($candidate)
                 && ! $this->isWarehouseOnly($existing)
+                && ! $this->isPlatformOnly($candidate)
+                && ! $this->isPlatformOnly($existing)
                 && $this->intersects($candidate, $existing, includePlatform: true);
             $defaultStock = $proposed->assignStockByDefault
                 && $assignment->assign_stock_by_default
@@ -204,6 +206,17 @@ class ResponsibilityScopeConflictEvaluator
             && $scope['category_id'] === null
             && $scope['condition'] === null
             && $scope['platform_id'] === null;
+    }
+
+    /** Platform-wide operational access is shared, not exclusive product accountability. */
+    private function isPlatformOnly(array $scope): bool
+    {
+        return $scope['platform_id'] !== null
+            && $scope['product_id'] === null
+            && $scope['brand_id'] === null
+            && $scope['category_id'] === null
+            && $scope['condition'] === null
+            && $scope['warehouse_id'] === null;
     }
 
     private function productMatches(Product $product, array $scope): bool

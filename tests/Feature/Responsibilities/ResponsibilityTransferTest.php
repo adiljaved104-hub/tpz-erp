@@ -172,16 +172,16 @@ class ResponsibilityTransferTest extends TestCase
         $this->assertSame($before, [$f['inventory']->refresh()->available_quantity, $f['inventory']->reserved_quantity, InventoryAllocationBalance::query()->count()]);
     }
 
-    public function test_platform_change_conflicts_with_the_current_platform_holder(): void
+    public function test_specific_brand_platform_change_conflicts_with_the_current_product_scope_holder(): void
     {
         $f = $this->responsibilityFoundation();
         $other = $this->responsibilityUser(EmployeeRole::Staff);
         $noon = MarketplacePlatform::factory()->create(['name' => 'Noon', 'normalized_name' => 'noon', 'code' => 'noon']);
-        $source = app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['brandId' => null, 'platformId' => $noon->id]), $f['owner']);
-        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $other->employee->id, 'brandId' => null, 'platformId' => $f['platform']->id]), $f['owner']);
+        $source = app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['platformId' => $noon->id]), $f['owner']);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $other->employee->id, 'platformId' => $f['platform']->id]), $f['owner']);
 
         try {
-            app(ChangeResponsibilityScope::class)->handle($source, $this->changeData($source->employee_id, ['platformId' => $f['platform']->id], 'Transfer platform'), $f['owner']);
+            app(ChangeResponsibilityScope::class)->handle($source, $this->changeData($source->employee_id, ['brandId' => $f['brand']->id, 'platformId' => $f['platform']->id], 'Transfer platform'), $f['owner']);
             $this->fail('The existing platform holder must be reported.');
         } catch (ValidationException $exception) {
             $this->assertStringContainsString($other->employee->name, collect($exception->errors())->flatten()->implode(' '));
@@ -190,7 +190,7 @@ class ResponsibilityTransferTest extends TestCase
         $this->assertSame(ResponsibilityAssignmentStatus::Active, $source->refresh()->status);
     }
 
-    public function test_conflict_results_include_every_holder_independent_of_assignment_order(): void
+    public function test_specific_category_conflict_results_include_every_holder_independent_of_assignment_order(): void
     {
         $f = $this->responsibilityFoundation();
         $dell = ProductBrand::factory()->create(['name' => 'Dell', 'normalized_name' => 'dell']);
@@ -201,8 +201,8 @@ class ResponsibilityTransferTest extends TestCase
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $dellHolder->employee->id, 'brandId' => $dell->id, 'platformId' => $f['platform']->id]), $f['owner']);
 
         try {
-            app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $proposedHolder->employee->id, 'brandId' => null, 'platformId' => $f['platform']->id]), $f['owner']);
-            $this->fail('A broad platform scope must conflict with both current holders.');
+            app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $proposedHolder->employee->id, 'brandId' => null, 'categoryId' => $f['product']->category_id, 'platformId' => $f['platform']->id]), $f['owner']);
+            $this->fail('A specific Category + Platform scope must conflict with both matching brand holders.');
         } catch (ValidationException $exception) {
             $messages = collect($exception->errors())->flatten()->implode(' ');
             $this->assertStringContainsString($hpHolder->employee->name, $messages);

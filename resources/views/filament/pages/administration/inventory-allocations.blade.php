@@ -1,4 +1,8 @@
 <x-filament-panels::page>
+    <x-filament::section>
+        <p class="text-sm text-gray-600 dark:text-gray-300">Allocation Balances are the source of truth for current stock ownership. Responsibility controls operational scope; it does not make warehouse stock belong to an employee.</p>
+        <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Automatic ownership for eligible future receipts is configured in Responsibilities with “Assign stock by default”. This page is for allocation management and reconciliation.</p>
+    </x-filament::section>
     @if ($canManageSettings || $canReconcile)
         <div class="grid gap-6 xl:grid-cols-2">
             @if ($canManageSettings)

@@ -70,8 +70,13 @@ class EmployeePolicy
         return $this->canAffect($user, $employee, PeoplePermission::EmployeeUnlinkUser);
     }
 
-    public function changeRole(User $user, Employee $employee): bool
+    public function changeRole(User $user, Employee $employee, ?EmployeeRole $role = null): bool
     {
+        // A permission override may delegate ordinary role management, never Owner authority.
+        if ($role === EmployeeRole::Owner && ! $this->isOwner($user)) {
+            return false;
+        }
+
         return $this->canAffect($user, $employee, PeoplePermission::EmployeeChangeRole);
     }
 
@@ -110,7 +115,7 @@ class EmployeePolicy
 
     private function isOwner(User $user): bool
     {
-        return $this->isActive($user) && $user->employee->role === EmployeeRole::Owner;
+        return $user->employee()->where('status', true)->where('role', EmployeeRole::Owner->value)->exists();
     }
 
     private function isAdmin(User $user): bool

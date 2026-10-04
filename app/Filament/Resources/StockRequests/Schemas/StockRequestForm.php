@@ -47,7 +47,7 @@ class StockRequestForm
                     ->helperText('Explain why the stock is required. Creating this request does not move or reserve stock.'),
             ]),
             Section::make('Products')->description('Sources are calculated automatically. System / Unassigned stock is shown separately and requires Owner/Admin approval.')->schema([
-                Repeater::make('items')->minItems(1)->maxItems(100)->defaultItems(1)->addActionLabel('Add Product')->columns(3)->schema([
+                Repeater::make('items')->minItems(1)->maxItems(100)->defaultItems(1)->addActionLabel('Add Product')->columns(['default' => 1, 'md' => 12])->schema([
                     Select::make('product_inventory_id')->label('Product / Warehouse')->required()->distinct()->searchable()->live()
                         ->getSearchResultsUsing(fn (string $search): array => app(StockRequestService::class)->searchInventories(auth()->user(), $search)
                             ->mapWithKeys(fn (ProductInventory $inventory): array => [$inventory->id => app(StockRequestService::class)->inventoryLabel($inventory)])->all())
@@ -55,8 +55,8 @@ class StockRequestForm
                             $inventory = ProductInventory::query()->with(['product', 'warehouse'])->find($value);
 
                             return $inventory === null ? null : app(StockRequestService::class)->inventoryLabel($inventory);
-                        })->columnSpan(2),
-                    TextInput::make('quantity')->numeric()->integer()->minValue(1)->required()->default(1),
+                        })->wrapOptionLabels()->columnSpan(['default' => 1, 'md' => 10]),
+                    TextInput::make('quantity')->numeric()->integer()->minValue(1)->required()->default(1)->columnSpan(['default' => 1, 'md' => 2]),
                     Placeholder::make('source_availability')->label('Proposed Available Sources')->content(function (Get $get): string {
                         $inventoryId = (int) $get('product_inventory_id');
                         if ($inventoryId < 1) {

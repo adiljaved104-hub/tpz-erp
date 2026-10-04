@@ -141,11 +141,7 @@ class WarehouseResponsibilityTest extends TestCase
         }
 
         $rows = app(ResponsibilityReadService::class)->myInventory($f['employee']->user);
-        $this->assertCount(1, $rows);
-        $this->assertSame($f['inventory']->id, $rows->sole()->inventory_id);
-        $this->assertSame(['Amazon UAE'], $rows->sole()->platforms);
-        $this->assertStringContainsString('Warehouse:', $rows->sole()->visibility_reasons[0]);
-        $this->assertObjectNotHasProperty('latest_purchase_cost', $rows->sole());
+        $this->assertCount(0, $rows, 'Warehouse responsibility and System stock reservation do not establish employee ownership.');
     }
 
     public function test_warehouse_sale_uses_shared_stock_without_consuming_another_employee_allocation(): void

@@ -106,6 +106,9 @@ class StockRequestExecutionTest extends TestCase
         $this->assertSame(['employee', 'team', 'system'], $sources->pluck('source_type')->all());
         $this->assertSame(3, InventoryAllocationReservationLine::query()->where('inventory_reservation_id', $reservation->id)->where('status', 'reserved')->count());
         $this->assertSame(3, $execution->lines()->where('inventory_reservation_id', $reservation->id)->sum('quantity'));
+        $this->assertSame(0, (int) InventoryAllocationBalance::query()
+            ->where('account_id', $allocations->employeeAccount($f['owner']->employee->id)->id)
+            ->where('product_inventory_id', $f['inventory']->id)->sum('allocated_quantity'), 'For Order execution must not create general requester ownership.');
 
         app(OrderService::class)->cancel($order, new CancelOrderData('Request no longer needed', (string) Str::uuid()), $f['owner']);
         $this->assertSame(3, InventoryAllocationReservationLine::query()->where('inventory_reservation_id', $reservation->id)->where('status', 'released')->count());

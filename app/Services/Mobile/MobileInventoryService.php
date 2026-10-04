@@ -74,7 +74,7 @@ class MobileInventoryService
             default => null,
         };
         $page = $query->orderBy('p.name')->orderBy('pi.id')->paginate($input['per_page'] ?? 25);
-        $own = app(ResponsibilityReadService::class)->myInventory($user, $page->getCollection()->pluck('product_id')->all())->keyBy('inventory_id');
+        $own = app(ResponsibilityReadService::class)->myInventory($user, $page->getCollection()->pluck('product_id')->all(), ownedOnly: false)->keyBy('inventory_id');
         $damaged = app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View);
         $page->through(function ($row) use ($own, $damaged, $status): array {
             $allocation = $own->get($row->inventory_id);

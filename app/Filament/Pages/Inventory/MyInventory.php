@@ -5,6 +5,7 @@ namespace App\Filament\Pages\Inventory;
 use App\Enums\ResponsibilityPermission;
 use App\Models\User;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\MyInventoryColumnRegistry;
 use App\Services\Preferences\UserUiPreferenceService;
 use App\Services\Responsibilities\ResponsibilityReadService;
@@ -66,6 +67,9 @@ class MyInventory extends Page
     {
         abort_unless(static::canAccess(), 403);
         $this->visibleColumns = app(MyInventoryColumnRegistry::class)->resolve(auth()->user());
+        if (app(EmployeeOwnedInventoryReadService::class)->isEmployeeView(auth()->user())) {
+            $this->visibleColumns = array_values(array_diff($this->visibleColumns, ['other_allocated', 'system_unallocated']));
+        }
         $this->collapsedSections = app(UserUiPreferenceService::class)->get(
             auth()->user(),
             UserUiPreferenceService::MY_INVENTORY_COLLAPSED_SECTIONS,
@@ -78,6 +82,11 @@ class MyInventory extends Page
         $allRows = $service->myInventory(auth()->user());
         $filteredRows = $this->filterRows($allRows);
         $inventoryRows = $this->paginateRows($filteredRows);
+        $columnDefinitions = app(MyInventoryColumnRegistry::class)->columns();
+        if (app(EmployeeOwnedInventoryReadService::class)->isEmployeeView(auth()->user())) {
+            $columnDefinitions = array_diff_key($columnDefinitions, array_flip(['other_allocated', 'system_unallocated']));
+            $this->visibleColumns = array_values(array_intersect($this->visibleColumns, array_keys($columnDefinitions)));
+        }
 
         return [
             'inventoryRows' => $inventoryRows,
@@ -90,7 +99,8 @@ class MyInventory extends Page
                 'out' => $allRows->where('stock_status', 'out_of_stock')->count(),
             ],
             'filterOptions' => $this->filterOptions($allRows),
-            'columnDefinitions' => app(MyInventoryColumnRegistry::class)->columns(),
+            'columnDefinitions' => $columnDefinitions,
+            'employeeOwnedView' => app(EmployeeOwnedInventoryReadService::class)->isEmployeeView(auth()->user()),
         ];
     }
 

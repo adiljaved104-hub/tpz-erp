@@ -16,12 +16,14 @@ class InventoryLocationOverviewService
     public function __construct(
         private readonly InventoryAuthorization $authorization,
         private readonly ResponsibilityProductScopeService $responsibilities,
+        private readonly EmployeeOwnedInventoryReadService $ownership,
     ) {}
 
     /** @return Collection<int, array<string, mixed>> */
     public function forUser(User $user, bool $includeFinancial = true): Collection
     {
         $financial = $includeFinancial && $this->authorization->allows($user, InventoryPermission::ViewFinancials);
+        $employeeView = $this->ownership->isEmployeeView($user);
         $columns = [
             'id', 'product_id', 'warehouse_id', 'available_quantity', 'reserved_quantity', 'damaged_quantity',
             'marketplace_non_sellable_quantity', 'qc_pending_quantity',
@@ -40,11 +42,12 @@ class InventoryLocationOverviewService
             ])
             ->orderBy('product_id')
             ->orderBy('warehouse_id');
-        $this->responsibilities->applyInventories($inventoryQuery->getQuery(), 'product_inventories', $user);
+        $this->ownership->apply($inventoryQuery->getQuery(), 'product_inventories.id', $user);
         $inventories = $inventoryQuery->get();
+        $balances = $employeeView ? $this->ownership->metrics($user, $inventories->pluck('id')) : collect();
 
         $transit = collect();
-        if (Schema::hasTable('stock_transfer_items')) {
+        if (! $employeeView && Schema::hasTable('stock_transfer_items')) {
             $columns = ['stock_transfer_items.product_id', 'stock_transfer_items.dispatched_quantity', 'stock_transfer_items.received_quantity', 'stock_transfer_items.returned_quantity', 'stock_transfer_items.lost_quantity'];
             if ($financial) {
                 $columns[] = 'stock_transfer_items.dispatch_unit_cost';
@@ -54,7 +57,7 @@ class InventoryLocationOverviewService
                 ->where('stock_transfers.status', 'dispatched')->get($columns)->groupBy('product_id');
         }
         $returnTransit = collect();
-        if (Schema::hasTable('marketplace_return_removal_items')) {
+        if (! $employeeView && Schema::hasTable('marketplace_return_removal_items')) {
             $returnColumns = ['marketplace_return_removal_items.product_id', 'marketplace_return_removal_items.dispatched_quantity', 'marketplace_return_removal_items.received_quantity'];
             if ($financial) {
                 $returnColumns[] = 'marketplace_return_removal_items.unit_cost';
@@ -64,14 +67,15 @@ class InventoryLocationOverviewService
                 ->where('marketplace_return_removals.status', 'dispatched')->get($returnColumns)->groupBy('product_id');
         }
 
-        return $inventories->groupBy('product_id')->map(function (Collection $rows) use ($financial, $transit, $returnTransit): array {
+        return $inventories->groupBy('product_id')->map(function (Collection $rows) use ($employeeView, $balances, $financial, $transit, $returnTransit): array {
             $product = $rows->first()->product;
-            $locations = $rows->map(function (ProductInventory $inventory) use ($financial): array {
-                $available = (int) $inventory->available_quantity;
-                $reserved = (int) $inventory->reserved_quantity;
-                $damaged = (int) $inventory->damaged_quantity;
-                $marketplaceNonSellable = (int) $inventory->marketplace_non_sellable_quantity;
-                $qcPending = (int) $inventory->qc_pending_quantity;
+            $locations = $rows->map(function (ProductInventory $inventory) use ($employeeView, $balances, $financial): array {
+                $balance = $balances->get($inventory->id);
+                $available = (int) ($employeeView ? $balance?->allocated_quantity : $inventory->available_quantity);
+                $reserved = (int) ($employeeView ? $balance?->reserved_quantity : $inventory->reserved_quantity);
+                $damaged = $employeeView ? 0 : (int) $inventory->damaged_quantity;
+                $marketplaceNonSellable = $employeeView ? 0 : (int) $inventory->marketplace_non_sellable_quantity;
+                $qcPending = $employeeView ? 0 : (int) $inventory->qc_pending_quantity;
                 $location = [
                     'name' => $inventory->warehouse->name,
                     'code' => $inventory->warehouse->code,

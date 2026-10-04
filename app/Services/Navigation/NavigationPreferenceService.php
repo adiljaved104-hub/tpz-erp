@@ -196,6 +196,7 @@ class NavigationPreferenceService
         $labels = [...$labels, ...match ($item->getLabel()) {
             'Tax Invoices' => ['Invoices'],
             'Stock Ownership' => ['Stock by Holder'],
+            'Stock by Location' => ['Location Balances'],
             'Customer Returns' => ['Returns'],
             'Claims / Safe-T' => ['Claims'],
             'HR Settings' => ['Settings'],

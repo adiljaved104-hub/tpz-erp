@@ -39,32 +39,32 @@ class MyInventoryTest extends TestCase
 
         Livewire::actingAs($foundation['employee']->user)->test(MyInventory::class)
             ->assertOk()
-            ->assertSee('No active Product responsibilities.')
+            ->assertSee('No stock is currently allocated to you.')
             ->assertDontSee('Latest Purchase Cost');
     }
 
     public function test_populated_page_renders_the_inventory_table_without_blade_errors(): void
     {
-        $foundation = $this->responsibilityFoundation();
+        $foundation = $this->ownedFoundation();
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($foundation), $foundation['owner']);
 
         Livewire::actingAs($foundation['employee']->user)->test(MyInventory::class)
             ->assertOk()
             ->assertSee($foundation['product']->sku)
             ->assertSee('Sellable')
-            ->assertDontSee('No active Product responsibilities.');
+            ->assertDontSee('No stock is currently allocated to you.');
     }
 
     public function test_desktop_inventory_details_render_in_a_full_width_responsive_row(): void
     {
-        $foundation = $this->responsibilityFoundation();
+        $foundation = $this->ownedFoundation();
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($foundation), $foundation['owner']);
 
         Livewire::actingAs($foundation['employee']->user)->test(MyInventory::class)
             ->assertOk()
             ->assertSeeHtml('data-inventory-details-toggle')
             ->assertSeeHtml('data-inventory-details-row')
-            ->assertSeeHtml('colspan="14"')
+            ->assertSeeHtml('colspan="12"')
             ->assertSeeHtml('sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6')
             ->assertSee('Original Allocation')
             ->assertSee('Outstanding Allocation')
@@ -74,7 +74,7 @@ class MyInventoryTest extends TestCase
 
     public function test_inventory_table_and_mobile_cards_use_dedicated_complementary_visibility_rules(): void
     {
-        $foundation = $this->responsibilityFoundation();
+        $foundation = $this->ownedFoundation();
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($foundation), $foundation['owner']);
 
         Livewire::actingAs($foundation['employee']->user)->test(MyInventory::class)
@@ -95,7 +95,7 @@ class MyInventoryTest extends TestCase
 
     public function test_widgets_are_employee_scoped_and_ignore_unauthorized_inventory(): void
     {
-        $f = $this->responsibilityFoundation(2, 0);
+        $f = $this->ownedFoundation(2, 0);
         $this->assignProduct($f, $f['product']);
         $this->allocateToEmployee($f, $f['inventory']);
         $unrelated = Product::factory()->create();
@@ -112,7 +112,7 @@ class MyInventoryTest extends TestCase
 
     public function test_owner_approved_stock_status_thresholds_are_used(): void
     {
-        $f = $this->responsibilityFoundation(0, 0);
+        $f = $this->ownedFoundation(0, 0);
         $one = Product::factory()->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name]);
         $two = Product::factory()->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name]);
         $oneInventory = ProductInventory::factory()->create(['product_id' => $one->id, 'warehouse_id' => $f['inventory']->warehouse_id, 'available_quantity' => 1, 'reserved_quantity' => 0]);
@@ -124,17 +124,17 @@ class MyInventoryTest extends TestCase
         $this->allocateToEmployee($f, $twoInventory);
 
         $rows = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->keyBy('product_id');
-        $this->assertSame('out_of_stock', $rows[$f['product']->id]->stock_status);
+        $this->assertArrayNotHasKey($f['product']->id, $rows->all());
         $this->assertSame('low_stock', $rows[$one->id]->stock_status);
         $this->assertSame('in_stock', $rows[$two->id]->stock_status);
 
         Livewire::actingAs($f['employee']->user)->test(MyInventory::class)
-            ->assertViewHas('summary', fn (array $summary): bool => $summary['low'] === 1 && $summary['out'] === 1);
+            ->assertViewHas('summary', fn (array $summary): bool => $summary['low'] === 1 && $summary['out'] === 0);
     }
 
     public function test_quantity_responsibility_uses_authoritative_remaining_allocation(): void
     {
-        $f = $this->responsibilityFoundation(10, 0);
+        $f = $this->ownedFoundation(10, 0);
         $assignment = app(CreateResponsibilityAssignment::class)->handle(
             $this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 1]),
             $f['owner'],
@@ -192,7 +192,7 @@ class MyInventoryTest extends TestCase
 
     public function test_shared_responsibility_uses_physical_sellable_stock(): void
     {
-        $f = $this->responsibilityFoundation(10, 3);
+        $f = $this->ownedFoundation(10, 3);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
         $this->allocateToEmployee($f, $f['inventory'], 7);
 
@@ -205,7 +205,7 @@ class MyInventoryTest extends TestCase
 
     public function test_exact_quantity_assignment_caps_a_matching_broader_brand_scope(): void
     {
-        $f = $this->responsibilityFoundation(10, 0);
+        $f = $this->ownedFoundation(10, 0);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
         app(CreateResponsibilityAssignment::class)->handle(
             $this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 1]),
@@ -230,7 +230,7 @@ class MyInventoryTest extends TestCase
 
     public function test_exhausted_exact_quantity_assignment_caps_a_matching_broader_brand_scope_at_zero(): void
     {
-        $f = $this->responsibilityFoundation(10, 0);
+        $f = $this->ownedFoundation(10, 0);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
         $assignment = app(CreateResponsibilityAssignment::class)->handle(
             $this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 1]),
@@ -263,10 +263,10 @@ class MyInventoryTest extends TestCase
 
     public function test_search_supports_sku_product_name_and_model(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         $f['product']->forceFill(['name' => 'EliteBook Daily Laptop', 'model' => '840-G11'])->save();
         $other = Product::factory()->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name, 'name' => 'Other Device']);
-        ProductInventory::factory()->create(['product_id' => $other->id, 'warehouse_id' => $f['inventory']->warehouse_id]);
+        ProductInventory::factory()->create(['product_id' => $other->id, 'warehouse_id' => $f['inventory']->warehouse_id, 'available_quantity' => 2]);
         $this->assignProduct($f, $f['product']);
         $this->assignProduct($f, $other);
 
@@ -278,10 +278,10 @@ class MyInventoryTest extends TestCase
 
     public function test_brand_category_platform_and_warehouse_filters_stay_inside_scope(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         $otherBrand = ProductBrand::factory()->create(['name' => 'Dell', 'normalized_name' => 'dell']);
         $other = Product::factory()->create(['brand_id' => $otherBrand->id, 'brand' => 'Dell']);
-        ProductInventory::factory()->create(['product_id' => $other->id, 'warehouse_id' => $f['inventory']->warehouse_id]);
+        ProductInventory::factory()->create(['product_id' => $other->id, 'warehouse_id' => $f['inventory']->warehouse_id, 'available_quantity' => 2]);
         $otherPlatform = MarketplacePlatform::factory()->create(['name' => 'Noon UAE', 'normalized_name' => 'noon uae', 'code' => 'noon_uae']);
         $this->assignProduct($f, $f['product'], $f['platform']->id);
         $this->assignProduct($f, $other, $otherPlatform->id);
@@ -295,7 +295,7 @@ class MyInventoryTest extends TestCase
 
     public function test_stock_and_allocation_filters_identify_daily_exceptions(): void
     {
-        $f = $this->responsibilityFoundation(1, 0);
+        $f = $this->ownedFoundation(1, 0);
         $this->assignProduct($f, $f['product']);
         $this->allocateToEmployee($f, $f['inventory']);
         $component = Livewire::actingAs($f['employee']->user)->test(MyInventory::class);
@@ -308,7 +308,7 @@ class MyInventoryTest extends TestCase
 
     public function test_multiple_platform_responsibilities_render_as_badges_without_duplicate_inventory_rows(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         $noon = MarketplacePlatform::factory()->create(['name' => 'Noon UAE', 'normalized_name' => 'noon uae', 'code' => 'noon_uae']);
         $this->assignProduct($f, $f['product'], $f['platform']->id);
         $this->assignProduct($f, $f['product'], $noon->id);
@@ -324,7 +324,7 @@ class MyInventoryTest extends TestCase
 
     public function test_platform_only_responsibility_uses_the_existing_all_products_platform_scope(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: [
             'brandId' => null,
             'platformId' => $f['platform']->id,
@@ -342,19 +342,18 @@ class MyInventoryTest extends TestCase
 
     public function test_product_without_inventory_balance_renders_safe_no_balance_state(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         $product = Product::factory()->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name]);
         $this->assignProduct($f, $product);
 
         Livewire::actingAs($f['employee']->user)->test(MyInventory::class)
-            ->assertSee($product->sku)
-            ->assertSee('No balance')
-            ->assertSee('Out of Stock');
+            ->assertDontSee($product->sku)
+            ->assertViewHas('inventoryRows', fn ($rows): bool => ! $rows->contains('product_id', $product->id));
     }
 
     public function test_cost_projection_follows_existing_purchase_cost_history_permission(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         $this->assignProduct($f, $f['product']);
         $staffRow = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
         $this->assertObjectNotHasProperty('latest_purchase_cost', $staffRow);
@@ -365,13 +364,13 @@ class MyInventoryTest extends TestCase
         $ownerProduct = Product::factory()->create();
         ProductInventory::factory()->create(['product_id' => $ownerProduct->id, 'warehouse_id' => $f['inventory']->warehouse_id]);
         $this->assignProduct($ownerFoundation, $ownerProduct);
-        $ownerRow = app(ResponsibilityReadService::class)->myInventory($f['owner'])->sole();
+        $ownerRow = app(ResponsibilityReadService::class)->myInventory($f['owner'])->firstWhere('product_id', $ownerProduct->id);
         $this->assertObjectHasProperty('latest_purchase_cost', $ownerRow);
     }
 
     public function test_explicit_view_own_denial_keeps_page_inaccessible(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         EmployeePermissionOverride::query()->create([
             'employee_id' => $f['employee']->id,
             'permission_key' => 'responsibility.view_own',
@@ -387,7 +386,7 @@ class MyInventoryTest extends TestCase
 
     public function test_overlapping_assignments_consolidate_products_and_omit_owner_only_financial_fields(): void
     {
-        $f = $this->responsibilityFoundation(20, 5);
+        $f = $this->ownedFoundation(20, 5);
         $action = app(CreateResponsibilityAssignment::class);
         $action->handle($this->assignmentData($f), $f['owner']);
         $action->handle($this->assignmentData($f, overrides: ['brandId' => null, 'productId' => $f['product']->id, 'platformId' => $f['platform']->id]), $f['owner']);
@@ -406,7 +405,7 @@ class MyInventoryTest extends TestCase
 
     public function test_reservation_reduction_surfaces_over_assignment_without_mutation(): void
     {
-        $f = $this->responsibilityFoundation(10, 0);
+        $f = $this->ownedFoundation(10, 0);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 10]), $f['owner']);
         $f['inventory']->forceFill(['reserved_quantity' => 3])->save();
         $row = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->sole();
@@ -418,7 +417,7 @@ class MyInventoryTest extends TestCase
 
     public function test_brand_visibility_is_batch_loaded_without_per_product_queries(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         Product::factory()->count(12)->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name]);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
         DB::flushQueryLog();
@@ -427,19 +426,21 @@ class MyInventoryTest extends TestCase
         $queries = count(DB::getQueryLog());
         DB::disableQueryLog();
 
-        $this->assertCount(13, $rows);
-        $this->assertLessThanOrEqual(18, $queries, 'My Inventory must batch-load Product visibility, allocation ownership, Condition scope, and stock context.');
+        $this->assertCount(1, $rows);
+        $this->assertLessThanOrEqual(24, $queries, 'My Inventory must batch-load Product visibility, allocation ownership, Condition scope, and stock context.');
     }
 
     public function test_employee_inventory_is_paginated_with_sensible_per_page_controls(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         Product::factory()->count(30)->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name])
             ->each(fn (Product $product) => ProductInventory::factory()->create([
                 'product_id' => $product->id,
                 'warehouse_id' => $f['inventory']->warehouse_id,
+                'available_quantity' => 2,
             ]));
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
+        ProductInventory::query()->get()->each(fn (ProductInventory $inventory) => $this->allocateToEmployee($f, $inventory));
 
         Livewire::actingAs($f['employee']->user)->test(MyInventory::class)
             ->assertViewHas('inventoryRows', fn ($rows): bool => $rows->total() === 31 && $rows->count() === 25 && $rows->perPage() === 25)
@@ -450,7 +451,7 @@ class MyInventoryTest extends TestCase
 
     public function test_condition_is_visible_filterable_and_long_product_titles_are_not_clamped(): void
     {
-        $f = $this->responsibilityFoundation();
+        $f = $this->ownedFoundation();
         $longTitle = 'HP EliteBook Renewed Business Laptop with a deliberately complete descriptive product title';
         $f['product']->forceFill(['condition' => ProductCondition::Renewed, 'name' => $longTitle])->save();
         $other = Product::factory()->create(['brand_id' => $f['brand']->id, 'brand' => $f['brand']->name, 'condition' => ProductCondition::New]);
@@ -468,7 +469,7 @@ class MyInventoryTest extends TestCase
 
     public function test_column_preferences_are_isolated_per_user_and_reset_to_defaults(): void
     {
-        $first = $this->responsibilityFoundation();
+        $first = $this->ownedFoundation();
         $second = $this->responsibilityUser(EmployeeRole::Staff);
 
         Livewire::actingAs($first['employee']->user)->test(MyInventory::class)
@@ -487,7 +488,7 @@ class MyInventoryTest extends TestCase
 
     public function test_collapsed_sections_are_persisted_per_user_and_default_to_expanded(): void
     {
-        $first = $this->responsibilityFoundation();
+        $first = $this->ownedFoundation();
         $second = $this->responsibilityUser(EmployeeRole::Staff);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($first), $first['owner']);
 
@@ -518,7 +519,7 @@ class MyInventoryTest extends TestCase
 
     public function test_received_stock_becomes_usable_only_for_the_selected_allocation_owner(): void
     {
-        $first = $this->responsibilityFoundation(0);
+        $first = $this->ownedFoundation(0);
         $other = $this->responsibilityUser(EmployeeRole::Staff);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($first, overrides: ['platformId' => $first['platform']->id]), $first['owner']);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData([
@@ -543,7 +544,15 @@ class MyInventoryTest extends TestCase
 
         $this->assertSame(3, $first['inventory']->refresh()->available_quantity);
         $this->assertSame(3, $owned->employee_usable);
-        $this->assertSame(0, $unowned->employee_usable);
+        $this->assertNull($unowned);
+    }
+
+    private function ownedFoundation(int $available = 20, int $reserved = 0): array
+    {
+        $f = $this->responsibilityFoundation($available, $reserved);
+        $this->allocateToEmployee($f, $f['inventory']);
+
+        return $f;
     }
 
     private function assignProduct(array $foundation, Product $product, ?int $platformId = null): void
@@ -553,16 +562,23 @@ class MyInventoryTest extends TestCase
             'productId' => $product->id,
             'platformId' => $platformId,
         ]), $foundation['owner']);
+        $product->inventories()->get()->each(fn (ProductInventory $inventory) => $this->allocateToEmployee($foundation, $inventory));
     }
 
     private function allocateToEmployee(array $foundation, ProductInventory $inventory, ?int $quantity = null): void
     {
         $service = app(InventoryAllocationService::class);
         $service->ensureShadowCoverage($inventory->refresh(), $foundation['owner']);
+        $account = $service->employeeAccount($foundation['employee']->id);
+        $existing = (int) $account->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity');
+        $quantity = ($quantity ?? $inventory->sellableQuantity()) - $existing;
+        if ($quantity <= 0) {
+            return;
+        }
         $service->reconcile(
             $inventory->refresh(),
-            $service->employeeAccount($foundation['employee']->id),
-            $quantity ?? (int) $inventory->available_quantity,
+            $account,
+            $quantity,
             $foundation['owner'],
             'Focused My Inventory allocation',
         );

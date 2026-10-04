@@ -10,7 +10,7 @@ use App\Filament\Resources\ProductInventories\Tables\ProductInventoriesTable;
 use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\PurchaseAuthorization;
-use App\Services\Inventory\InventoryReadService;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Purchases\PurchaseCostHistoryService;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -29,9 +29,11 @@ class ProductInventoryResource extends Resource
 
     protected static ?int $navigationSort = 3;
 
-    protected static ?string $navigationLabel = 'Location Balances';
+    protected static ?string $navigationLabel = 'Stock by Location';
 
     protected static ?string $modelLabel = 'Inventory Balance';
+
+    protected static ?string $pluralModelLabel = 'Stock by Location';
 
     public static function getEloquentQuery(): Builder
     {
@@ -41,7 +43,7 @@ class ProductInventoryResource extends Resource
             return parent::getEloquentQuery()->whereRaw('1 = 0');
         }
 
-        $query = app(InventoryReadService::class)->inventories($user);
+        $query = app(EmployeeOwnedInventoryReadService::class)->inventories($user);
 
         if (app(PurchaseAuthorization::class)->allows($user, PurchasePermission::ViewCostHistory)) {
             app(PurchaseCostHistoryService::class)->addLatestCostSelect($query, 'product_inventories.product_id', $user);

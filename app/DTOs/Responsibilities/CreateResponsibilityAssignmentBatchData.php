@@ -9,6 +9,7 @@ readonly class CreateResponsibilityAssignmentBatchData
     /**
      * @param  array<int, int>  $scopeIds
      * @param  array<int, int>  $platformIds
+     * @param  array<int, int>  $categoryIds
      */
     public function __construct(
         public int $employeeId,
@@ -24,5 +25,6 @@ readonly class CreateResponsibilityAssignmentBatchData
         public ?int $warehouseId = null,
         public ?ProductCondition $condition = null,
         public bool $assignStockByDefault = false,
+        public array $categoryIds = [],
     ) {}
 }

@@ -11,6 +11,7 @@ use App\Filament\Pages\Inventory\InventoryOverview;
 use App\Filament\Resources\ProductInventories\Pages\ListProductInventories;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Models\Employee;
+use App\Models\InventoryAllocationBalance;
 use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductInventory;
@@ -23,6 +24,7 @@ use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Dashboard\DashboardInventoryIntelligenceService;
 use App\Services\Dashboard\ErpDashboardService;
 use App\Services\Inventory\InventoryAllocationPolicyService;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryReadService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -46,6 +48,9 @@ class LocationBalancesVisibilityTest extends TestCase
         $out = ProductInventory::factory()->create(['warehouse_id' => $warehouse->id, 'available_quantity' => 1, 'reserved_quantity' => 1]);
         $normal = ProductInventory::factory()->create(['warehouse_id' => $warehouse->id, 'available_quantity' => 10, 'reserved_quantity' => 0]);
         $hidden = ProductInventory::factory()->create(['warehouse_id' => $other->id, 'available_quantity' => 1, 'reserved_quantity' => 0]);
+        foreach ([$low, $out, $normal] as $inventory) {
+            $this->ownedBalance($staff, $inventory);
+        }
         $this->allow($owner, $staff, InventoryPermission::View->value);
         $this->allow($owner, $staff, InventoryPermission::ViewLocationBalances->value);
         $this->allow($owner, $staff, InventoryLocationPermission::View->value);
@@ -64,7 +69,7 @@ class LocationBalancesVisibilityTest extends TestCase
         $this->assertArrayNotHasKey('average_cost', $columns);
         $this->assertArrayNotHasKey('inventory_value', $columns);
         $this->assertFalse($assignment->refresh()->assign_stock_by_default);
-        $this->assertDatabaseCount('inventory_allocation_balances', 0);
+        $this->assertDatabaseCount('inventory_allocation_balances', 3);
         try {
             app(InventoryAllocationPolicyService::class)->receiptAccount($low, null);
             $this->fail('Warehouse visibility must not select a receipt owner.');
@@ -123,6 +128,7 @@ class LocationBalancesVisibilityTest extends TestCase
             'assignment_id' => $assignment->id,
             'product_brand_id' => $insideBrand->id,
         ]);
+        $this->ownedBalance($staff, $insideInventory);
         $this->allow($owner, $staff, InventoryPermission::View->value);
         $this->allow($owner, $staff, InventoryPermission::ViewLocationBalances->value);
         $this->allow($owner, $staff, InventoryLocationPermission::View->value);
@@ -148,12 +154,14 @@ class LocationBalancesVisibilityTest extends TestCase
         $inventory = ProductInventory::factory()->create([
             'product_id' => $product->id,
             'warehouse_id' => Warehouse::factory()->create()->id,
+            'available_quantity' => 2,
         ]);
         $assignment = ResponsibilityAssignment::factory()->create(['employee_id' => $staff->employee->id]);
         ResponsibilityAssignmentBrand::query()->create([
             'assignment_id' => $assignment->id,
             'product_brand_id' => $brand->id,
         ]);
+        $this->ownedBalance($staff, $inventory);
         $this->app->bind(InventoryPermissionResolver::class, fn () => new class implements InventoryPermissionResolver
         {
             public function allows(User $user, InventoryPermission $permission, ?ProductInventory $inventory = null): bool
@@ -210,6 +218,15 @@ class LocationBalancesVisibilityTest extends TestCase
         $this->actingAs($admin);
         $this->assertCount(2, ProductInventoryResource::getEloquentQuery()->get());
         $this->assertArrayNotHasKey('average_cost', app(InventoryReadService::class)->inventories($admin)->firstOrFail()->getAttributes());
+    }
+
+    private function ownedBalance(User $user, ProductInventory $inventory): void
+    {
+        InventoryAllocationBalance::query()->create([
+            'account_id' => app(InventoryAllocationService::class)->employeeAccount($user->employee->id)->id,
+            'product_inventory_id' => $inventory->id, 'allocated_quantity' => $inventory->available_quantity,
+            'reserved_quantity' => $inventory->reserved_quantity,
+        ]);
     }
 
     private function allow(User $owner, User $employee, string $permission): void

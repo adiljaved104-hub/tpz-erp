@@ -15,25 +15,34 @@
 
         <form wire:submit="submit" class="space-y-4">
             <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
-                <table class="w-full min-w-[1050px] divide-y divide-gray-200 text-sm dark:divide-white/10">
+                <table class="w-full min-w-[640px] divide-y divide-gray-200 text-sm dark:divide-white/10">
                     <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-white/5 dark:text-gray-300">
-                        <tr><th class="px-3 py-2">Select</th><th class="px-3 py-2">Product / SKU</th><th class="px-3 py-2">Warehouse</th><th class="px-3 py-2">My Stock</th><th class="px-3 py-2">Reserved</th><th class="px-3 py-2">Available From Others</th><th class="px-3 py-2">Stock Holder / Handled By</th><th class="px-3 py-2">Request Qty</th><th class="px-3 py-2">Request Status</th></tr>
+                        <tr><th class="px-3 py-2">Select</th><th class="px-3 py-2">Product / SKU</th><th class="px-3 py-2">Warehouse</th><th class="px-3 py-2">Request Qty</th></tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                         @forelse ($rows as $row)
                             <tr wire:key="request-stock-{{ $row->id }}" class="align-top">
                                 <td class="px-3 py-3"><input type="checkbox" wire:model.live="selected.{{ $row->id }}" aria-label="Select {{ $row->product->sku }}" class="rounded border-gray-300" /></td>
-                                <td class="px-3 py-3"><div class="font-semibold">{{ $row->product->name }}</div><div class="text-xs text-gray-500">{{ $row->product->sku }} · {{ $row->product->brandRelation?->name ?? 'No brand' }}</div></td>
+                                <td class="min-w-72 px-3 py-3"><div class="whitespace-normal break-words font-semibold">{{ $row->product->name }}</div><div class="text-xs text-gray-500">{{ $row->product->sku }} · {{ $row->product->brandRelation?->name ?? 'No brand' }}</div></td>
                                 <td class="px-3 py-3">{{ $row->warehouse?->name }}</td>
-                                <td class="px-3 py-3">{{ $row->my_stock }}</td>
-                                <td class="px-3 py-3">{{ $row->reserved_quantity }}</td>
-                                <td class="px-3 py-3 font-semibold">{{ $row->available_from_others }}</td>
-                                <td class="px-3 py-3 text-xs">@forelse ($row->holder_labels as $holderLabel)<div>{{ $holderLabel }}</div>@empty<span class="text-gray-500">No allocation holder</span>@endforelse</td>
                                 <td class="px-3 py-3"><x-filament::input.wrapper><x-filament::input type="number" min="0" max="{{ $row->requestable }}" step="1" wire:model.blur="quantities.{{ $row->id }}" aria-label="Request quantity for {{ $row->product->sku }}" /></x-filament::input.wrapper>@error('quantities.'.$row->id)<div class="mt-1 text-xs text-danger-600">{{ $message }}</div>@enderror</td>
-                                <td class="px-3 py-3">@if ($row->request_status)<a class="text-primary-600 hover:underline" href="{{ \App\Filament\Resources\StockRequests\StockRequestResource::getUrl('view', ['record' => $row->request_status->request_id]) }}">{{ $row->request_status->reference }} · {{ str_replace('_', ' ', $row->request_status->status) }}</a>@else<span class="text-gray-500">No request</span>@endif</td>
+                            </tr>
+                            <tr wire:key="request-stock-sources-{{ $row->id }}" data-stock-request-sources>
+                                <td colspan="4" class="px-3 pb-4">
+                                    <x-filament::section heading="Available Sources / Approval Status" compact>
+                                        <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                            <div><dt class="text-xs text-gray-500">My Stock</dt><dd>{{ $row->my_stock }}</dd></div>
+                                            <div><dt class="text-xs text-gray-500">Reserved</dt><dd>{{ $row->reserved_quantity }}</dd></div>
+                                            <div><dt class="text-xs text-gray-500">Available From Others</dt><dd>{{ $row->available_from_others }}</dd></div>
+                                            <div><dt class="text-xs text-gray-500">Stock Holder / Handled By</dt><dd>@forelse ($row->holder_labels as $holderLabel)<div>{{ $holderLabel }}</div>@empty No allocation holder @endforelse</dd></div>
+                                            <div><dt class="text-xs text-gray-500">Request Status</dt><dd>@if ($row->request_status)<a class="text-primary-600 hover:underline" href="{{ \App\Filament\Resources\StockRequests\StockRequestResource::getUrl('view', ['record' => $row->request_status->request_id]) }}">{{ $row->request_status->reference }} · {{ str_replace('_', ' ', $row->request_status->status) }}</a>@else No request @endif</dd></div>
+                                            <div><dt class="text-xs text-gray-500">Approval Route</dt><dd>Allocation Holder; System / Unassigned requires Owner/Admin</dd></div>
+                                        </dl>
+                                    </x-filament::section>
+                                </td>
                             </tr>
                         @empty
-                            <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">No stock rows match your Responsibility scope and filters.</td></tr>
+                            <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">No stock rows match your Responsibility scope and filters.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

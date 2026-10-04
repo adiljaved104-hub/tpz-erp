@@ -6,6 +6,7 @@ use App\Enums\InventoryPermission;
 use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -15,6 +16,8 @@ class ProductInventoryInfolist
 {
     public static function configure(Schema $schema): Schema
     {
+        $owned = app(EmployeeOwnedInventoryReadService::class)->isEmployeeView(auth()->user());
+
         return $schema->components([
             Section::make('Inventory Quantities')
                 ->description('Available includes Reserved. Sellable is Available minus Reserved.')
@@ -22,10 +25,10 @@ class ProductInventoryInfolist
                     TextEntry::make('product.name')->label('Product'),
                     TextEntry::make('product.sku')->label('SKU'),
                     TextEntry::make('warehouse.name')->label('Warehouse'),
-                    TextEntry::make('available_quantity')->label('Available'),
-                    TextEntry::make('reserved_quantity')->label('Reserved'),
+                    TextEntry::make('available_quantity')->label($owned ? 'My Total Held' : 'Available'),
+                    TextEntry::make('reserved_quantity')->label($owned ? 'My Reserved' : 'Reserved'),
                     TextEntry::make('sellable_quantity')->label('Sellable')->state(fn (ProductInventory $record): int => $record->sellableQuantity()),
-                    TextEntry::make('damaged_quantity')->label('Damaged'),
+                    ...($owned ? [] : [TextEntry::make('damaged_quantity')->label('Damaged')]),
                     TextEntry::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand()),
                     ...(self::canViewFinancials() ? [
                         TextEntry::make('average_cost')->label('Average Cost')->money('AED', decimalPlaces: 2)->placeholder('No cost history'),

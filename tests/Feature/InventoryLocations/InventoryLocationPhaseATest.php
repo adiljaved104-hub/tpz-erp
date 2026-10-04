@@ -10,6 +10,7 @@ use App\Enums\InventoryLocationType;
 use App\Filament\Pages\Administration\AccessControl;
 use App\Filament\Pages\Inventory\InventoryOverview;
 use App\Models\Employee;
+use App\Models\InventoryAllocationBalance;
 use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductInventory;
@@ -18,6 +19,7 @@ use App\Models\ResponsibilityAssignmentProduct;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\InventoryLocationAuthorization;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -133,20 +135,24 @@ class InventoryLocationPhaseATest extends TestCase
             $queries[] = strtolower($query->sql);
         });
 
+        InventoryAllocationBalance::query()->create([
+            'account_id' => app(InventoryAllocationService::class)->employeeAccount($manager->employee->id)->id,
+            'product_inventory_id' => $inventory->id, 'allocated_quantity' => 4, 'reserved_quantity' => 1,
+        ]);
         $row = app(InventoryLocationOverviewService::class)->forUser($manager)->first();
 
-        $this->assertSame(10, $row['available']);
-        $this->assertSame(3, $row['reserved']);
-        $this->assertSame(7, $row['sellable']);
-        $this->assertSame(2, $row['damaged']);
-        $this->assertSame(12, $row['total_on_hand']);
+        $this->assertSame(4, $row['available']);
+        $this->assertSame(1, $row['reserved']);
+        $this->assertSame(3, $row['sellable']);
+        $this->assertSame(0, $row['damaged']);
+        $this->assertSame(4, $row['total_on_hand']);
         $this->assertArrayNotHasKey('inventory_value', $row);
         $inventoryQuery = collect($queries)->first(fn (string $sql): bool => str_contains($sql, 'from "product_inventories"'));
         $this->assertNotNull($inventoryQuery);
         $this->assertStringNotContainsString('average_cost', $inventoryQuery);
         $this->assertSame(0, $row['return_in_transit']);
         $this->assertSame(0, app(InventoryLocationOverviewService::class)->summaryForUser($manager)['return_in_transit']);
-        Livewire::actingAs($manager)->test(InventoryOverview::class)->assertOk()->assertSee('Return-to-Company In Transit');
+        Livewire::actingAs($manager)->test(InventoryOverview::class)->assertOk()->assertDontSee('Return-to-Company In Transit');
 
         $owner = $this->user(EmployeeRole::Owner);
         $ownerRow = app(InventoryLocationOverviewService::class)->forUser($owner)->first();
@@ -161,7 +167,7 @@ class InventoryLocationPhaseATest extends TestCase
 
         Livewire::actingAs($manager)
             ->test(InventoryOverview::class)
-            ->assertSee('No inventory is available in your authorized Responsibility scope.')
+            ->assertSee('No stock is currently allocated to you.')
             ->assertDontSee('No inventory balances exist yet.');
     }
 

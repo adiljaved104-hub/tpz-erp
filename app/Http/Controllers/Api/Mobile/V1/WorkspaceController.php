@@ -62,7 +62,7 @@ class WorkspaceController extends Controller
 
         if ($this->orderScope->requiresScope($user)) {
             $items = $this->responsibilities
-                ->myInventory($user)
+                ->myInventory($user, ownedOnly: false)
                 ->unique('product_id')
                 ->take(100)
                 ->map(fn (object $row): array => $this->item(

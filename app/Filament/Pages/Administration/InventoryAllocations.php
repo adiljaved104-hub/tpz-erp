@@ -18,7 +18,7 @@ use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\InventoryAllocationPolicyService;
 use App\Services\Inventory\InventoryAllocationService;
-use App\Services\Responsibilities\ResponsibilityReadService;
+use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -240,7 +240,7 @@ class InventoryAllocations extends Page
     {
         $actor = auth()->user();
         $global = $this->globalAdministrationAllowed();
-        $inventoryIds = $global ? null : app(ResponsibilityReadService::class)->myInventory($actor)->pluck('inventory_id')->filter()->values();
+        $inventoryIds = $global ? null : app(ResponsibilityProductScopeService::class)->inventoryIds($actor);
         $balances = InventoryAllocationBalance::query()->with(['account.employee', 'account.team', 'inventory.product', 'inventory.warehouse']);
         $events = InventoryAllocationEvent::query()->with(['inventory.product', 'inventory.warehouse', 'fromAccount.employee', 'fromAccount.team', 'toAccount.employee', 'toAccount.team', 'actor']);
         if ($inventoryIds !== null) {

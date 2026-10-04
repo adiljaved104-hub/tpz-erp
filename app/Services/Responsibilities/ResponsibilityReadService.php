@@ -10,6 +10,7 @@ use App\Models\ResponsibilityAssignment;
 use App\Models\User;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -23,6 +24,7 @@ class ResponsibilityReadService
         private readonly ResponsibilityAllocationService $allocations,
         private readonly ResponsibilityCapacityService $capacity,
         private readonly InventoryAllocationService $inventoryAllocations,
+        private readonly EmployeeOwnedInventoryReadService $ownership,
     ) {}
 
     public function assignmentsFor(User $user): Builder
@@ -66,7 +68,7 @@ class ResponsibilityReadService
     }
 
     /** @return Collection<int, object> */
-    public function myInventory(User $user, ?array $productIdsFilter = null): Collection
+    public function myInventory(User $user, ?array $productIdsFilter = null, bool $ownedOnly = true): Collection
     {
         $employeeId = $user->employee?->id;
 
@@ -170,7 +172,7 @@ class ResponsibilityReadService
             }
         }
 
-        if ($productReasons === [] && $inventoryReasons === []) {
+        if (! $ownedOnly && $productReasons === [] && $inventoryReasons === []) {
             return collect();
         }
 
@@ -179,7 +181,14 @@ class ResponsibilityReadService
             ->leftJoin('product_categories as c', 'c.id', '=', 'p.category_id')
             ->leftJoin('product_inventories as pi', 'pi.product_id', '=', 'p.id')
             ->leftJoin('warehouses as w', 'w.id', '=', 'pi.warehouse_id')
-            ->where(function ($visible) use ($productReasons, $inventoryReasons): void {
+            ->select(['p.id as product_id', 'p.name', 'p.sku', 'p.model', 'p.condition', 'b.name as brand', 'c.name as category', 'pi.id as inventory_id', 'w.id as warehouse_id', 'w.name as warehouse', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity']);
+
+        $employeeView = $ownedOnly && $this->ownership->isEmployeeView($user);
+        if ($ownedOnly) {
+            $this->ownership->apply($rowsQuery, 'pi.id', $user);
+        } else {
+            // Operational mobile lookups retain Responsibility eligibility, including zero-owned stock.
+            $rowsQuery->where(function ($visible) use ($productReasons, $inventoryReasons): void {
                 if ($productReasons !== []) {
                     $visible->whereIn('p.id', array_keys($productReasons));
                 }
@@ -187,8 +196,8 @@ class ResponsibilityReadService
                     $method = $productReasons === [] ? 'whereIn' : 'orWhereIn';
                     $visible->{$method}('pi.id', array_keys($inventoryReasons));
                 }
-            })
-            ->select(['p.id as product_id', 'p.name', 'p.sku', 'p.model', 'p.condition', 'b.name as brand', 'c.name as category', 'pi.id as inventory_id', 'w.id as warehouse_id', 'w.name as warehouse', 'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity']);
+            });
+        }
 
         if ($this->purchaseAuthorization->allows($user, PurchasePermission::ViewCostHistory)) {
             $latestCost = DB::table('purchase_receipt_items as latest_pri')
@@ -207,10 +216,18 @@ class ResponsibilityReadService
         }
         $rows = $rowsQuery->get();
         $allocationMetrics = $this->inventoryAllocations->employeeMetrics($employeeId, $rows->pluck('inventory_id'));
+        $ownedBalances = $employeeView ? $this->ownership->metrics($user, $rows->pluck('inventory_id')) : collect();
         $capacity = collect(array_keys($ownQuantities))
             ->mapWithKeys(fn (int $inventoryId): array => [$inventoryId => $this->capacity->summary($inventoryId)]);
 
-        return $rows->map(function (object $row) use ($productReasons, $platforms, $inventoryReasons, $inventoryPlatforms, $ownQuantities, $ownRemaining, $capacity, $allocationMetrics): object {
+        return $rows->map(function (object $row) use ($ownedOnly, $employeeView, $ownedBalances, $productReasons, $platforms, $inventoryReasons, $inventoryPlatforms, $ownQuantities, $ownRemaining, $capacity, $allocationMetrics): object {
+            $ownedBalance = $ownedBalances->get($row->inventory_id);
+            if ($employeeView) {
+                $row->available_quantity = $ownedBalance?->allocated_quantity ?? 0;
+                $row->reserved_quantity = $ownedBalance?->reserved_quantity ?? 0;
+                $row->damaged_quantity = null; // Physical damaged stock has no employee balance attribution.
+            }
+            $row->employee_owned_view = $employeeView;
             $row->available = (int) ($row->available_quantity ?? 0);
             $row->condition_label = ProductCondition::tryFrom((string) $row->condition)?->label() ?? '—';
             $row->reserved = (int) ($row->reserved_quantity ?? 0);
@@ -221,15 +238,15 @@ class ResponsibilityReadService
             $row->remaining_allocation = (int) ($ownRemaining[$row->inventory_id] ?? 0);
             $row->is_quantity_limited = $row->assigned_quantity > 0;
             $allocation = $allocationMetrics->get($row->inventory_id);
-            $row->my_reserved = (int) ($allocation?->reserved ?? 0);
-            $row->my_allocated = (int) ($allocation?->allocated ?? 0);
+            $row->my_reserved = (int) ($employeeView ? $ownedBalance?->reserved_quantity : $allocation?->reserved);
+            $row->my_allocated = (int) ($employeeView ? $ownedBalance?->allocated_quantity : $allocation?->allocated);
             $row->my_available = max(0, $row->my_allocated - $row->my_reserved);
-            $row->other_allocated = (int) ($allocation?->other_allocated ?? 0);
-            $row->system_unallocated = (int) ($allocation?->system_unallocated ?? 0);
-            $row->allocation_reconciliation_gap = $row->available - (int) ($allocation?->ledger_allocated ?? 0);
+            $row->other_allocated = $employeeView ? null : (int) ($allocation?->other_allocated ?? 0);
+            $row->system_unallocated = $employeeView ? null : (int) ($allocation?->system_unallocated ?? 0);
+            $row->allocation_reconciliation_gap = $employeeView ? null : $row->available - (int) ($allocation?->ledger_allocated ?? 0);
             $row->employee_usable = max(0, $row->is_quantity_limited
                 ? min($row->my_available, $row->remaining_allocation)
-                : $row->my_available);
+                : ($ownedOnly && ! $employeeView ? $row->sellable : $row->my_available));
             $row->stock_status = match (true) {
                 $row->employee_usable === 0 => 'out_of_stock',
                 $row->employee_usable < 2 => 'low_stock',
@@ -244,6 +261,9 @@ class ResponsibilityReadService
                 ...($productReasons[$row->product_id] ?? []),
                 ...($inventoryReasons[$row->inventory_id] ?? []),
             ]));
+            if ($row->visibility_reasons === []) {
+                $row->visibility_reasons = [$employeeView ? 'Employee allocation ownership' : 'Company inventory'];
+            }
             $row->platforms = array_values(array_unique([
                 ...($platforms[$row->product_id] ?? []),
                 ...($inventoryPlatforms[$row->inventory_id] ?? []),

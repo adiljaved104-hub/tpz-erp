@@ -6,6 +6,7 @@ use App\Enums\InventoryPermission;
 use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 
 class ProductInventoryPolicy
@@ -24,6 +25,8 @@ class ProductInventoryPolicy
     public function view(User $user, ProductInventory $inventory): bool
     {
         return $this->viewAny($user)
+            && (! app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user)
+                || app(EmployeeOwnedInventoryReadService::class)->inventoryIds($user)->where('product_inventory_id', $inventory->id)->exists())
             && $this->responsibilities->canAccessInventory($user, (int) $inventory->getKey());
     }
 

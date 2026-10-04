@@ -6,6 +6,7 @@ use App\Enums\InventoryLocationPermission;
 use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\InventoryLocationAuthorization;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -65,6 +66,7 @@ class InventoryOverview extends Page
         return [
             'products' => $this->paginateProducts($filteredProducts),
             'summary' => $service->summaryForProducts($allProducts),
+            'employeeOwnedView' => app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user),
             'filterOptions' => $this->filterOptions($allProducts),
             'hasAuthorizedInventory' => $allProducts->isNotEmpty(),
             'hasCompanyInventory' => ProductInventory::query()->exists(),

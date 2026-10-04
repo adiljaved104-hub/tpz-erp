@@ -37,7 +37,7 @@ class BulkResponsibilityAssignmentService
         $scopeField = match ($data->scopeType) {
             'brand' => 'brand_ids',
             'product' => 'product_ids',
-            'category' => 'category_id',
+            'category' => 'category_ids',
             'platform' => 'platform_ids',
             'warehouse' => 'warehouse_id',
             'condition' => 'condition',
@@ -65,14 +65,19 @@ class BulkResponsibilityAssignmentService
         if ($platformIds !== [] && MarketplacePlatform::query()->active()->whereKey($platformIds)->count() !== count($platformIds)) {
             throw ValidationException::withMessages(['platform_ids' => 'Every selected Platform must be active.']);
         }
-        if ($data->categoryId !== null && ! ProductCategory::query()->active()->whereKey($data->categoryId)->exists()) {
-            throw ValidationException::withMessages(['category_id' => 'Select an active Category.']);
+        $categoryIds = array_values(array_unique(array_map('intval', $data->categoryIds)));
+        if ($categoryIds === [] && $data->categoryId !== null) {
+            $categoryIds = [$data->categoryId];
         }
-        if ($data->categoryId !== null && ! in_array($data->scopeType, ['brand', 'category'], true)) {
+        if (count($categoryIds) > 100 || in_array(0, $categoryIds, true)
+            || ($categoryIds !== [] && ProductCategory::query()->active()->whereKey($categoryIds)->count() !== count($categoryIds))) {
+            throw ValidationException::withMessages(['category_ids' => 'Every selected Category must be active. Select at most 100 Categories.']);
+        }
+        if ($categoryIds !== [] && ! in_array($data->scopeType, ['brand', 'category'], true)) {
             throw ValidationException::withMessages(['scope_type' => 'Category intersections support Brand scopes only.']);
         }
-        if ($data->scopeType === 'category' && $data->categoryId === null) {
-            throw ValidationException::withMessages(['category_id' => 'Select an active Category.']);
+        if ($data->scopeType === 'category' && $categoryIds === []) {
+            throw ValidationException::withMessages(['category_ids' => 'Select at least one active Category.']);
         }
         $warehouse = $data->warehouseId === null ? null : Warehouse::query()->where('status', true)->find($data->warehouseId);
         if ($data->scopeType === 'warehouse' && $warehouse === null) {
@@ -85,7 +90,7 @@ class BulkResponsibilityAssignmentService
             throw ValidationException::withMessages(['condition' => 'Select a Product Condition.']);
         }
 
-        $combinationCount = max(1, count($ids)) * max(1, count($platformIds));
+        $combinationCount = max(1, count($ids)) * max(1, count($platformIds)) * max(1, count($categoryIds));
         if ($combinationCount > 100) {
             throw ValidationException::withMessages([
                 $scopeField => 'A bulk Responsibility submission may create at most 100 exact assignments.',
@@ -105,18 +110,23 @@ class BulkResponsibilityAssignmentService
         $scopeIds = in_array($data->scopeType, ['brand', 'product'], true) ? $ids : [null];
         $platforms = $platformIds === [] ? [null] : $platformIds;
         $singlePlatform = count($platforms) === 1;
-        $exact = collect($scopeIds)->crossJoin($platforms)->map(function (array $combination) use ($data, $singlePlatform): CreateResponsibilityAssignmentData {
-            [$id, $platformId] = $combination;
+        $singleCategory = count($categoryIds) <= 1;
+        $categories = $categoryIds === [] ? [null] : $categoryIds;
+        $exact = collect($scopeIds)->crossJoin($platforms, $categories)->map(function (array $combination) use ($data, $singlePlatform, $singleCategory): CreateResponsibilityAssignmentData {
+            [$id, $platformId, $categoryId] = $combination;
             $keyScope = $id ?? $data->scopeType;
             if ($data->condition !== null) {
                 $keyScope .= ':condition:'.$data->condition->value;
             }
-            if ($singlePlatform && in_array($data->scopeType, ['category', 'platform'], true)) {
+            if ($singlePlatform && $singleCategory && in_array($data->scopeType, ['category', 'platform'], true)) {
                 $idempotencyKey = $data->idempotencyKey;
             } else {
                 $keySeed = "responsibility-batch:{$data->idempotencyKey}:{$data->scopeType}:{$keyScope}";
                 if (! $singlePlatform) {
                     $keySeed .= ':platform:'.($platformId ?? 'none');
+                }
+                if (! $singleCategory) {
+                    $keySeed .= ':category:'.$categoryId;
                 }
                 $idempotencyKey = Uuid::uuid5(Uuid::NAMESPACE_URL, $keySeed)->toString();
             }
@@ -133,7 +143,7 @@ class BulkResponsibilityAssignmentService
                 reason: $data->reason,
                 notes: $data->notes,
                 idempotencyKey: $idempotencyKey,
-                categoryId: $data->categoryId,
+                categoryId: $categoryId,
                 warehouseId: $data->scopeType === 'warehouse' ? $data->warehouseId : null,
                 condition: $data->condition,
                 assignStockByDefault: $data->assignStockByDefault,

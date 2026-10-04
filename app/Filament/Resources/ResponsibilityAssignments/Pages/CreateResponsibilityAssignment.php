@@ -48,6 +48,7 @@ class CreateResponsibilityAssignment extends CreateRecord
                 warehouseId: $scope['warehouse_id'],
                 condition: $scope['condition'],
                 assignStockByDefault: (bool) ($data['assign_stock_by_default'] ?? false),
+                categoryIds: $scope['category_ids'],
             ), auth()->user());
 
             $this->createdAssignmentCount = $created->count();
@@ -100,6 +101,8 @@ class CreateResponsibilityAssignment extends CreateRecord
             'mode' => $mode,
             'brand_ids' => in_array($type, ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true) ? array_values(array_unique(array_map('intval', $data['brand_ids'] ?? []))) : [],
             'category_id' => in_array($type, ['category', 'category_platform', 'category_brand', 'category_brand_platform', 'condition_category', 'condition_category_platform'], true) && filled($data['category_id'] ?? null) ? (int) $data['category_id'] : null,
+            'category_ids' => in_array($type, ['category', 'category_platform', 'category_brand', 'category_brand_platform', 'condition_category', 'condition_category_platform'], true)
+                ? array_values(array_unique(array_map('intval', $data['category_ids'] ?? (filled($data['category_id'] ?? null) ? [$data['category_id']] : [])))) : [],
             'platform_id' => $type === 'quantity_platform' && filled($data['platform_id'] ?? null) ? (int) $data['platform_id'] : ($platformIds[0] ?? null),
             'platform_ids' => $platformIds,
             'product_ids' => in_array($type, ['product', 'product_platform'], true) ? array_values(array_unique(array_map('intval', $data['product_ids'] ?? []))) : [],

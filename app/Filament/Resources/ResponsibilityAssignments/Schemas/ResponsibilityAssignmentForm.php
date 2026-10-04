@@ -69,7 +69,7 @@ class ResponsibilityAssignmentForm
                                 $set('brand_ids', []);
                             }
                             if (! in_array($state, ['category', 'category_platform', 'category_brand', 'category_brand_platform', 'condition_category', 'condition_category_platform'], true)) {
-                                $set('category_id', null);
+                                $set('category_ids', []);
                             }
                             if (! in_array($state, ['warehouse', 'warehouse_platform', 'warehouse_condition', 'warehouse_condition_platform'], true)) {
                                 $set('warehouse_id', null);
@@ -100,13 +100,13 @@ class ResponsibilityAssignmentForm
                     DateTimePicker::make('effective_at')->required()->default(now())->maxDate(now()),
                 ]),
             ]),
-            Section::make('Exact Scope')->description('Each selected Brand/Product and Platform combination creates one exact assignment. Category and Condition scopes remain dynamic as Products are added.')->schema([
+            Section::make('Exact Scope')->description('Each selected Brand/Product, Category and Platform combination creates one exact assignment. Category and Condition scopes remain dynamic as Products are added.')->schema([
                 Grid::make(['default' => 1, 'lg' => 2])->schema([
                     Select::make('brand_ids')->label('Brands')->multiple()->searchable()->nullable()
                         ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true))
                         ->required(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true))
                         ->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
-                    Select::make('category_id')->label('Category')->searchable()->nullable()
+                    Select::make('category_ids')->label('Categories')->multiple()->searchable()->nullable()
                         ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['category', 'category_platform', 'category_brand', 'category_brand_platform', 'condition_category', 'condition_category_platform'], true))
                         ->required(fn (Get $get): bool => in_array($get('scope_type'), ['category', 'category_platform', 'category_brand', 'category_brand_platform', 'condition_category', 'condition_category_platform'], true))
                         ->options(fn (): array => ProductCategory::query()->active()->orderBy('name')->pluck('name', 'id')->all()),

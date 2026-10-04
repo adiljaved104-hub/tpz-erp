@@ -24,11 +24,11 @@ class StockRequestInfolist
                 TextEntry::make('reason')->columnSpanFull(),
             ]),
             Section::make('Requested Products')->schema([
-                RepeatableEntry::make('items')->hiddenLabel()->columns(4)->schema([
-                    TextEntry::make('sku')->label('SKU'),
-                    TextEntry::make('product_name')->label('Product'),
-                    TextEntry::make('warehouse_name')->label('Warehouse'),
-                    TextEntry::make('quantity')->label('Requested Qty'),
+                RepeatableEntry::make('items')->hiddenLabel()->columns(['default' => 1, 'md' => 12])->schema([
+                    TextEntry::make('sku')->label('SKU')->columnSpanFull(),
+                    TextEntry::make('product_name')->label('Product')->columnSpan(['default' => 1, 'md' => 8]),
+                    TextEntry::make('warehouse_name')->label('Warehouse')->columnSpan(['default' => 1, 'md' => 2]),
+                    TextEntry::make('quantity')->label('Requested Qty')->columnSpan(['default' => 1, 'md' => 2]),
                     RepeatableEntry::make('sourceLines')->label('Available Sources / Approval Status')->schema([
                         TextEntry::make('source_label')->label('Source'),
                         TextEntry::make('proposed_quantity')->label('Proposed Qty'),

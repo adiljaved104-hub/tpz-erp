@@ -15,6 +15,12 @@
             'marketplace_non_sellable' => ['label' => 'Marketplace Non-Sellable', 'icon' => 'heroicon-o-no-symbol', 'accent' => 'slate'],
             'qc_pending' => ['label' => 'QC Pending', 'icon' => 'heroicon-o-magnifying-glass-circle', 'accent' => 'orange'],
         ];
+        if ($employeeOwnedView) {
+            $inventorySummaryCards = [
+                'total_company_stock' => ['label' => 'My Total Held', 'icon' => 'heroicon-o-cube', 'accent' => 'blue'],
+                'on_location' => ['label' => 'My Stock by Location', 'icon' => 'heroicon-o-building-storefront', 'accent' => 'emerald'],
+            ];
+        }
     @endphp
     <div class="space-y-4">
         <div class="inventory-summary-grid" data-testid="inventory-summary-grid">
@@ -23,7 +29,7 @@
             @endforeach
         </div>
 
-        <x-filament::section heading="Find Inventory" description="Filter the company inventory visible in your authorized scope.">
+        <x-filament::section heading="Find Inventory" :description="$employeeOwnedView ? 'Filter stock allocated to your employee account.' : 'Filter the company inventory visible in your authorized scope.'">
             <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <label class="min-w-0 md:col-span-2 xl:col-span-4"><span class="mb-1.5 block text-sm font-medium">Search</span><x-filament::input.wrapper prefix-icon="heroicon-m-magnifying-glass"><x-filament::input wire:model.live.debounce.250ms="search" type="search" placeholder="Search by SKU or product name" /></x-filament::input.wrapper></label>
                 <label class="min-w-0"><span class="mb-1.5 block text-sm font-medium">Warehouse / Location</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="warehouse"><option value="">All Locations</option>@foreach ($filterOptions['warehouses'] as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
@@ -38,7 +44,7 @@
                 <x-slot name="heading"><span class="line-clamp-2" title="{{ $row['product']->name }}">{{ $row['product']->sku }} · {{ \Illuminate\Support\Str::limit($row['product']->name, 72) }}</span></x-slot>
 
                 <div class="inventory-product-metrics mb-4" data-testid="inventory-product-metrics">
-                    @foreach (['total_owned' => 'Total Owned', 'available' => 'Available', 'reserved' => 'Reserved', 'sellable' => 'Sellable', 'damaged' => 'Damaged', 'marketplace_non_sellable' => 'Marketplace Non-Sellable', 'qc_pending' => 'QC Pending', 'in_transit' => 'Normal In Transit', 'return_in_transit' => 'Return-to-Company In Transit'] as $key => $label)
+                    @foreach (collect(['total_owned' => 'Total Owned', 'available' => 'Available', 'reserved' => 'Reserved', 'sellable' => 'Sellable', 'damaged' => 'Damaged', 'marketplace_non_sellable' => 'Marketplace Non-Sellable', 'qc_pending' => 'QC Pending', 'in_transit' => 'Normal In Transit', 'return_in_transit' => 'Return-to-Company In Transit'])->filter(fn ($label, $key) => ! $employeeOwnedView || in_array($key, ['total_owned', 'available', 'reserved', 'sellable'], true)) as $key => $label)
                         <div class="min-w-0 rounded-lg bg-gray-50 px-3 py-2 dark:bg-white/5"><div class="truncate text-xs text-gray-500" title="{{ $label }}">{{ $label }}</div><div class="font-semibold">{{ number_format($row[$key]) }}</div></div>
                     @endforeach
                     @isset($row['total_inventory_value'])
@@ -51,7 +57,7 @@
                     <div class="mt-3 max-w-full overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-white/10">
                             <thead><tr>
-                                @foreach (['Location', 'Type', 'Platform / Tag', 'Available', 'Reserved', 'Sellable', 'Damaged', 'Marketplace Non-Sellable', 'QC Pending', 'Location Total Owned'] as $heading)
+                                @foreach (array_merge(['Location', 'Type', 'Platform / Tag', 'Available', 'Reserved', 'Sellable'], $employeeOwnedView ? [] : ['Damaged', 'Marketplace Non-Sellable', 'QC Pending'], ['Location Total Owned']) as $heading)
                                     <th class="whitespace-nowrap px-3 py-2 text-left">{{ $heading }}</th>
                                 @endforeach
                                 @if ($row['locations']->first() && array_key_exists('average_cost', $row['locations']->first()))
@@ -65,7 +71,7 @@
                                         <td class="whitespace-nowrap px-3 py-2">{{ $location['name'] }} ({{ $location['code'] }}) @unless($location['active'])<span class="text-xs text-gray-500">Inactive</span>@endunless</td>
                                         <td class="whitespace-nowrap px-3 py-2">{{ $location['type'] }}</td>
                                         <td class="whitespace-nowrap px-3 py-2">{{ collect([$location['platform'], $location['fulfillment_tag']])->filter()->join(' · ') ?: '—' }}</td>
-                                        @foreach (['available', 'reserved', 'sellable', 'damaged', 'marketplace_non_sellable', 'qc_pending', 'location_total_owned'] as $key)<td class="px-3 py-2 text-right">{{ number_format($location[$key]) }}</td>@endforeach
+                                        @foreach (array_merge(['available', 'reserved', 'sellable'], $employeeOwnedView ? [] : ['damaged', 'marketplace_non_sellable', 'qc_pending'], ['location_total_owned']) as $key)<td class="px-3 py-2 text-right">{{ number_format($location[$key]) }}</td>@endforeach
                                         @isset($location['average_cost'])
                                             <td class="whitespace-nowrap px-3 py-2 text-right">AED {{ number_format((float) ($location['average_cost'] ?? 0), 2) }}</td>
                                             <td class="whitespace-nowrap px-3 py-2 text-right">AED {{ number_format((float) $location['inventory_value'], 2) }}</td>
@@ -81,7 +87,7 @@
             <x-filament::section>
                 {{ $hasAuthorizedInventory
                     ? 'No inventory matches the current search and filters.'
-                    : ($hasCompanyInventory ? 'No inventory is available in your authorized Responsibility scope.' : 'No inventory balances exist yet.') }}
+                    : ($employeeOwnedView ? 'No stock is currently allocated to you.' : 'No inventory balances exist yet.') }}
             </x-filament::section>
         @endforelse
 

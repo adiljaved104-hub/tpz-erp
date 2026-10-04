@@ -42,11 +42,13 @@ class ResponsibilityScopeConflictEvaluator
                 && $assignment->assignment_mode->value === 'scope'
                 && ! $this->isWarehouseOnly($candidate)
                 && ! $this->isWarehouseOnly($existing)
-                && ! $this->isPlatformOnly($candidate)
-                && ! $this->isPlatformOnly($existing)
+                && ! $this->isSharedOperationalScope($candidate)
+                && ! $this->isSharedOperationalScope($existing)
                 && $this->intersects($candidate, $existing, includePlatform: true);
             $defaultStock = $proposed->assignStockByDefault
                 && $assignment->assign_stock_by_default
+                && ! $this->isSharedOperationalScope($candidate)
+                && ! $this->isSharedOperationalScope($existing)
                 && $this->defaultStockScopesIntersect($candidate, $existing);
 
             if (! $operational && ! $defaultStock) {
@@ -105,7 +107,7 @@ class ResponsibilityScopeConflictEvaluator
             return false;
         }
 
-        $assignment->loadMissing(['productScope', 'brandScope', 'categoryScope', 'conditionScope', 'warehouseScope']);
+        $assignment->loadMissing(['productScope', 'brandScope', 'categoryScope', 'conditionScope', 'warehouseScope', 'platformScope']);
         $inventory->loadMissing('product');
         $product = $inventory->product;
 
@@ -114,6 +116,9 @@ class ResponsibilityScopeConflictEvaluator
         }
 
         $scope = $this->fromAssignment($assignment);
+        if ($this->isSharedOperationalScope($scope)) {
+            return false;
+        }
         if (! $this->valuesOverlap($scope['condition'], $product->condition?->value)
             || ! $this->valuesOverlap($scope['warehouse_id'], $inventory->warehouse_id)) {
             return false;
@@ -123,6 +128,15 @@ class ResponsibilityScopeConflictEvaluator
             && ($scope['product_id'] === null || (int) $scope['product_id'] === (int) $product->id)
             && ($scope['brand_id'] === null || (int) $scope['brand_id'] === (int) $product->brand_id)
             && ($scope['category_id'] === null || (int) $scope['category_id'] === (int) $product->category_id);
+    }
+
+    public function canAssignStockByDefault(CreateResponsibilityAssignmentData $data): bool
+    {
+        $scope = $this->fromData($data);
+
+        return $data->mode->value === 'scope'
+            && $this->physicalSources($scope) !== []
+            && ! $this->isSharedOperationalScope($scope);
     }
 
     private function fromData(CreateResponsibilityAssignmentData $data): array
@@ -206,6 +220,16 @@ class ResponsibilityScopeConflictEvaluator
             && $scope['category_id'] === null
             && $scope['condition'] === null
             && $scope['platform_id'] === null;
+    }
+
+    /** Shared platform/category accountability never establishes receipt ownership. */
+    private function isSharedOperationalScope(array $scope): bool
+    {
+        return $this->isPlatformOnly($scope)
+            || ($scope['platform_id'] !== null
+                && $scope['category_id'] !== null
+                && $scope['brand_id'] === null
+                && $scope['product_id'] === null);
     }
 
     /** Platform-wide operational access is shared, not exclusive product accountability. */

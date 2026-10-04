@@ -190,7 +190,7 @@ class ResponsibilityTransferTest extends TestCase
         $this->assertSame(ResponsibilityAssignmentStatus::Active, $source->refresh()->status);
     }
 
-    public function test_specific_category_conflict_results_include_every_holder_independent_of_assignment_order(): void
+    public function test_exclusive_category_without_platform_conflicts_include_every_holder_independent_of_assignment_order(): void
     {
         $f = $this->responsibilityFoundation();
         $dell = ProductBrand::factory()->create(['name' => 'Dell', 'normalized_name' => 'dell']);
@@ -201,8 +201,8 @@ class ResponsibilityTransferTest extends TestCase
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $dellHolder->employee->id, 'brandId' => $dell->id, 'platformId' => $f['platform']->id]), $f['owner']);
 
         try {
-            app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $proposedHolder->employee->id, 'brandId' => null, 'categoryId' => $f['product']->category_id, 'platformId' => $f['platform']->id]), $f['owner']);
-            $this->fail('A specific Category + Platform scope must conflict with both matching brand holders.');
+            app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $proposedHolder->employee->id, 'brandId' => null, 'categoryId' => $f['product']->category_id]), $f['owner']);
+            $this->fail('An exclusive Category-only scope must conflict with both matching brand holders.');
         } catch (ValidationException $exception) {
             $messages = collect($exception->errors())->flatten()->implode(' ');
             $this->assertStringContainsString($hpHolder->employee->name, $messages);

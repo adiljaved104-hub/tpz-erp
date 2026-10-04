@@ -67,7 +67,7 @@ class InventoryAllocationPolicyService
                 ->orWhereHas('warehouseScope', fn ($scope) => $scope->where('warehouse_id', $inventory->warehouse_id)))
             ->where(fn ($query) => $query->whereDoesntHave('conditionScope')
                 ->orWhereHas('conditionScope', fn ($scope) => $scope->where('product_condition', $product->condition?->value)))
-            ->with(['employee:id,name,status,user_id', 'productScope', 'brandScope', 'categoryScope', 'conditionScope', 'warehouseScope'])
+            ->with(['employee:id,name,status,user_id', 'productScope', 'brandScope', 'categoryScope', 'conditionScope', 'warehouseScope', 'platformScope'])
             ->get()
             ->filter(fn (ResponsibilityAssignment $assignment): bool => $this->scopeConflicts->matchesDefaultStockForInventory($assignment, $inventory))
             ->values();

@@ -520,8 +520,8 @@ class ResponsibilityAssignmentService
         $warehouse = $data->warehouseId === null ? null : Warehouse::query()->where('status', true)->find($data->warehouseId);
         $condition = $data->condition;
 
-        if ($data->assignStockByDefault && ($data->mode !== ResponsibilityAssignmentMode::Scope || ($brand === null && $category === null && $product === null))) {
-            throw ValidationException::withMessages(['assign_stock_by_default' => 'Default stock assignment requires a Brand, Category, or Product scope. Platform-only responsibilities cannot own stock by default.']);
+        if ($data->assignStockByDefault && ! $this->scopeConflicts->canAssignStockByDefault($data)) {
+            throw ValidationException::withMessages(['assign_stock_by_default' => 'Default stock assignment requires a Brand, Category, or Product scope. Shared Platform-only and Platform + Category responsibilities cannot own stock by default.']);
         }
 
         if ($data->warehouseId !== null && $warehouse === null) {

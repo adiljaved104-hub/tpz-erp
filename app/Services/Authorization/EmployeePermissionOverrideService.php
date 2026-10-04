@@ -5,6 +5,7 @@ namespace App\Services\Authorization;
 use App\Contracts\EmployeePermissionOverrideResolver;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
+use App\Enums\PeoplePermission;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\User;
@@ -83,6 +84,12 @@ class EmployeePermissionOverrideService
 
         if ($definition === null) {
             throw ValidationException::withMessages(['permission' => 'This permission is not managed by this screen.']);
+        }
+
+        // This is the role-transition capability. Other employee permissions retain their rules.
+        if ($permissionKey === PeoplePermission::EmployeeChangeRole->value
+            && ! $actor->employee()->where('status', true)->where('role', EmployeeRole::Owner->value)->exists()) {
+            throw new AuthorizationException('Only the Owner may change role-management access.');
         }
 
         if ($definition['financial'] && $actor->employee?->role !== EmployeeRole::Owner) {

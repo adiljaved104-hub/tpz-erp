@@ -10,6 +10,7 @@ use App\Models\HrAcknowledgment;
 use App\Models\HrNotice;
 use App\Models\Team;
 use App\Models\WarningCategory;
+use App\Services\Authorization\EmployeeDirectoryScopeService;
 use App\Services\Authorization\HrRecordAuthorization;
 use App\Services\Hr\EmployeeWarningService;
 use App\Services\Hr\HrNoticeService;
@@ -77,8 +78,7 @@ class HrController extends MobileController
         return match ($section) {
             'employees' => $user->can('viewAny', Employee::class)
                 ? Employee::query()->select(['id', 'employee_id', 'name', 'designation', 'team_id', 'role', 'status'])
-                    ->when($user->employee?->role === EmployeeRole::Manager,
-                        fn ($q) => $user->employee->team_id === null ? $q->whereKey($user->employee->id) : $q->where('team_id', $user->employee->team_id))
+                    ->tap(fn ($query) => app(EmployeeDirectoryScopeService::class)->apply($query, $user))
                 : Employee::query()->select(['id', 'employee_id', 'name', 'designation', 'team_id', 'role', 'status'])->whereKey($user->employee?->id),
             'teams' => $user->can('viewAny', Team::class) ? Team::query()->select(['id', 'name', 'description', 'status'])
                 ->when($user->employee?->role === EmployeeRole::Manager,

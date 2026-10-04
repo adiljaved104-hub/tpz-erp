@@ -31,7 +31,7 @@ class ProductInventoryResource extends Resource
 
     protected static ?string $navigationLabel = 'Stock by Location';
 
-    protected static ?string $modelLabel = 'Inventory Balance';
+    protected static ?string $modelLabel = 'Stock Location';
 
     protected static ?string $pluralModelLabel = 'Stock by Location';
 

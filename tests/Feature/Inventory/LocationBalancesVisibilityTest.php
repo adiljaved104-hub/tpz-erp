@@ -146,7 +146,7 @@ class LocationBalancesVisibilityTest extends TestCase
             ->assertDontSee($outside->sku);
     }
 
-    public function test_record_policy_uses_page_permissions_then_the_same_responsibility_scope_as_the_resource_query(): void
+    public function test_record_policy_uses_page_permissions_and_employee_ownership(): void
     {
         $staff = $this->user(EmployeeRole::Staff);
         $brand = ProductBrand::factory()->create();

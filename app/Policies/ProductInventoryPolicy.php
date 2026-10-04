@@ -24,10 +24,16 @@ class ProductInventoryPolicy
 
     public function view(User $user, ProductInventory $inventory): bool
     {
-        return $this->viewAny($user)
-            && (! app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user)
-                || app(EmployeeOwnedInventoryReadService::class)->inventoryIds($user)->where('product_inventory_id', $inventory->id)->exists())
-            && $this->responsibilities->canAccessInventory($user, (int) $inventory->getKey());
+        if (! $this->viewAny($user)) {
+            return false;
+        }
+
+        $ownership = app(EmployeeOwnedInventoryReadService::class);
+        if ($ownership->isEmployeeView($user)) {
+            return $ownership->inventoryIds($user)->where('product_inventory_id', $inventory->id)->exists();
+        }
+
+        return $this->responsibilities->canAccessInventory($user, (int) $inventory->getKey());
     }
 
     public function create(User $user): bool

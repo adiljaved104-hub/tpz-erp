@@ -3,6 +3,8 @@
 namespace Tests\Feature\Inventory;
 
 use App\Actions\Responsibilities\CreateResponsibilityAssignment;
+use App\Actions\Responsibilities\DeactivateResponsibilityAssignment;
+use App\DTOs\Responsibilities\DeactivateResponsibilityAssignmentData;
 use App\DTOs\StockRequests\CreateStockRequestData;
 use App\DTOs\StockRequests\StockRequestItemData;
 use App\Enums\EmployeePermissionEffect;
@@ -17,14 +19,17 @@ use App\Enums\StockRequestSourceStatus;
 use App\Filament\Pages\Inventory\InventoryOverview;
 use App\Filament\Pages\Inventory\MyInventory;
 use App\Filament\Resources\ProductInventories\Pages\ListProductInventories;
+use App\Filament\Resources\ProductInventories\Pages\ViewProductInventory;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Filament\Resources\StockRequests\Pages\CreateStockRequestGrid;
 use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryReservation;
 use App\Models\ProductInventory;
+use App\Models\ResponsibilityAssignment;
 use App\Models\Team;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
+use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryLocationOverviewService;
@@ -36,6 +41,7 @@ use App\Services\Preferences\UserUiPreferenceService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -96,6 +102,38 @@ class EmployeeOwnedInventoryTest extends TestCase
         Livewire::test(InventoryOverview::class)->assertDontSee('Damaged')->assertDontSee('QC Pending')->assertDontSee('In Transit');
         Livewire::test(ListProductInventories::class)->assertTableColumnStateSet('available_quantity', 2, $f['inventory'])
             ->assertTableColumnDoesNotExist('damaged_quantity')->assertTableColumnDoesNotExist('average_cost');
+    }
+
+    #[DataProvider('scopedRoles')]
+    public function test_owned_record_remains_viewable_after_responsibility_ends_without_granting_operational_authority(EmployeeRole $role): void
+    {
+        $f = $this->foundation($role, 8);
+        $user = $f['employee']->user;
+        $allocation = app(InventoryAllocationService::class);
+        $allocation->reconcile($f['inventory'], $allocation->employeeAccount($f['employee']->id), 2, $f['owner'], 'Explicit employee ownership');
+        $unowned = ProductInventory::factory()->create(['available_quantity' => 4]);
+        app(EmployeePermissionOverrideService::class)->change($f['employee'], InventoryPermission::Reserve->value, EmployeePermissionEffect::Allow, 'Verify operational scope is still enforced', $f['owner']);
+        $assignment = ResponsibilityAssignment::query()->active()->where('employee_id', $f['employee']->id)->sole();
+        app(DeactivateResponsibilityAssignment::class)->handle($assignment, new DeactivateResponsibilityAssignmentData('Responsibility changed; ownership remains'), $f['owner']);
+
+        $this->assertSame(0, ResponsibilityAssignment::query()->active()->where('employee_id', $f['employee']->id)->count());
+        $this->assertTrue($user->can('view', $f['inventory']));
+        $this->assertFalse($user->can('view', $unowned));
+        Livewire::actingAs($user)->test(ListProductInventories::class)->assertCountTableRecords(1)
+            ->assertCanSeeTableRecords([$f['inventory']])->assertCanNotSeeTableRecords([$unowned]);
+        Livewire::test(ViewProductInventory::class, ['record' => $f['inventory']->id])->assertOk()
+            ->assertSee($f['product']->sku)->assertDontSee('Inventory Balance')->assertDontSee('Location Balances');
+        try {
+            Livewire::test(ViewProductInventory::class, ['record' => $unowned->id]);
+            $this->fail('A non-owned record must not resolve through the view page.');
+        } catch (ModelNotFoundException $exception) {
+            $this->assertSame(ProductInventory::class, $exception->getModel());
+        }
+        $this->assertOwnedQuantity($user, $f['inventory'], 2);
+        $authorization = app(InventoryAuthorization::class);
+        $this->assertTrue($authorization->allows($user, InventoryPermission::Reserve));
+        $this->assertFalse($authorization->allows($user, InventoryPermission::Reserve, $f['inventory']));
+        $this->assertSame([], app(StockRequestService::class)->searchInventories($user, $f['product']->sku)->modelKeys());
     }
 
     public function test_owned_stock_is_summarized_across_main_and_marketplace_locations_without_team_ownership_inference(): void
@@ -167,7 +205,9 @@ class EmployeeOwnedInventoryTest extends TestCase
     {
         $owner = $this->responsibilityUser(EmployeeRole::Owner);
         $this->actingAs($owner);
+        $this->assertSame('Stock Location', ProductInventoryResource::getModelLabel());
         $this->assertSame('Stock by Location', ProductInventoryResource::getPluralModelLabel());
+        $this->assertSame('Stock by Location', ProductInventoryResource::getNavigationLabel());
         $path = trim(parse_url(ProductInventoryResource::getUrl(), PHP_URL_PATH), '/');
         $legacyKey = 'item:'.hash('sha256', implode('|', ['Inventory', '', 'Location Balances', $path]));
         app(UserUiPreferenceService::class)->put($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS, [$legacyKey]);

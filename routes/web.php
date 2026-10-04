@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/admin/reports/download/{report}/{format}', ReportsExportController::class)
     ->where('format', 'xlsx|csv|pdf')
-    ->middleware('auth')
+    ->middleware(['auth', EnforceWebSecurityPolicy::class])
     ->name('reports.export');
 
 Route::get('/', function () {
@@ -49,7 +49,7 @@ Route::get('/invoice/verify/{token}', PublicTaxInvoiceVerificationController::cl
     ->name('invoice.verify');
 
 Route::get('/admin/tax-invoices/{invoice}/pdf', TaxInvoicePdfController::class)
-    ->middleware('auth')->name('tax-invoices.pdf');
+    ->middleware(['auth', EnforceWebSecurityPolicy::class])->name('tax-invoices.pdf');
 
 Route::get('/admin/quotations/{quotation}/pdf', QuotationPdfController::class)
-    ->middleware('auth')->name('quotations.pdf');
+    ->middleware(['auth', EnforceWebSecurityPolicy::class])->name('quotations.pdf');

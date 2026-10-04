@@ -4,7 +4,6 @@ namespace App\Services\Search;
 
 use App\Contracts\GlobalSearchProvider;
 use App\DTOs\GlobalSearchResult;
-use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\PeoplePermission;
 use App\Enums\ProductPermission;
@@ -14,6 +13,7 @@ use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\Suppliers\SupplierResource;
 use App\Filament\Resources\Warehouses\WarehouseResource;
 use App\Models\User;
+use App\Services\Authorization\EmployeeDirectoryScopeService;
 use App\Services\Authorization\InventoryLocationAuthorization;
 use App\Services\Authorization\PeopleAuthorization;
 use App\Services\Authorization\ProductAuthorization;
@@ -60,9 +60,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         }
         $query = DB::table('employees')->leftJoin('teams', 'teams.id', '=', 'employees.team_id')
             ->select(['employees.id', 'employees.employee_id', 'employees.name', 'employees.role', 'employees.status', 'teams.name as team_name']);
-        if ($user->employee?->role === EmployeeRole::Manager) {
-            $query->where('employees.team_id', $user->employee->team_id);
-        }
+        app(EmployeeDirectoryScopeService::class)->apply($query, $user);
         SearchQuery::match($query, ['employees.employee_id', 'employees.name'], $term);
         SearchQuery::rank($query, 'employees.employee_id', $term);
         SearchQuery::rank($query, 'employees.name', $term);

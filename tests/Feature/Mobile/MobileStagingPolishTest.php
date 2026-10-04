@@ -87,6 +87,9 @@ class MobileStagingPolishTest extends TestCase
     public function test_mobile_purchase_uses_erp_actions_and_hides_cost_from_unauthorized_users(): void
     {
         $f = $this->responsibilityFoundation(5);
+        app(ResponsibilityAssignmentService::class)->create(
+            $this->assignmentData($f, overrides: ['assignStockByDefault' => true]), $f['owner'],
+        );
         $manager = $this->responsibilityUser(EmployeeRole::Manager);
         $staff = $f['employee']->user;
         $base = '/api/mobile/v1/workspace/purchases';

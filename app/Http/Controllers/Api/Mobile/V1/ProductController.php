@@ -77,7 +77,9 @@ class ProductController extends MobileController
             $actions[] = $this->action('update', 'Update product', $this->editFields($request, $p));
         }
 
-        return [...$data, 'fields' => $fields, 'actions' => $actions];
+        return [...$data, 'fields' => $fields,
+            'field_schema' => $this->readFields($fields, ['selling_price' => 'currency', 'cost_price' => 'currency', 'description' => 'multiline', 'warranty' => 'number', 'available_quantity' => 'number', 'reserved_quantity' => 'number', 'sellable_quantity' => 'number']),
+            'actions' => $actions];
     }
 
     private function editFields(Request $request, Product $p): array

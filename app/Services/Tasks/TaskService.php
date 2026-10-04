@@ -20,6 +20,7 @@ use App\Models\TaskCompletionSubmissionEvent;
 use App\Models\TaskEvent;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Notifications\TaskNotificationDispatcher;
 use App\Services\ReferenceSequenceService;
@@ -208,6 +209,11 @@ class TaskService
                 $task->due_at = $data['due_at'];
             }
             $task->save();
+
+            $changedFields = array_keys($task->getChanges());
+            if ($changedFields !== []) {
+                app(ActivityLogger::class)->log('task.updated', $actor, $task, ['changed_fields' => $changedFields]);
+            }
 
             return $this->load($task->refresh());
         });

@@ -7,8 +7,10 @@ use App\Actions\Purchases\CreatePurchase;
 use App\DTOs\Purchases\ApprovePurchaseData;
 use App\DTOs\Purchases\CreatePurchaseData;
 use App\DTOs\Purchases\PurchaseItemData;
+use App\DTOs\Responsibilities\CreateResponsibilityAssignmentData;
 use App\DTOs\Tasks\CreateTaskData;
 use App\Enums\EmployeeRole;
+use App\Enums\ResponsibilityAssignmentMode;
 use App\Enums\TaskPriority;
 use App\Models\Employee;
 use App\Models\Product;
@@ -24,6 +26,7 @@ use App\Models\Warehouse;
 use App\Services\Chat\ConversationMessageService;
 use App\Services\Chat\ConversationService;
 use App\Services\Mobile\NotificationTarget;
+use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use App\Services\Tasks\TaskService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -206,6 +209,7 @@ class MobilePurchasingWorkTest extends TestCase
             ])
             ->assertForbidden();
     }
+
     public function test_chat_detail_read_send_and_targets_remain_participant_private(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
@@ -239,6 +243,13 @@ class MobilePurchasingWorkTest extends TestCase
     private function approvedPurchase(User $owner, int $quantity, string $cost): array
     {
         $product = Product::factory()->create();
+        app(ResponsibilityAssignmentService::class)->create(new CreateResponsibilityAssignmentData(
+            employeeId: $owner->employee->id, mode: ResponsibilityAssignmentMode::Scope,
+            brandId: null, platformId: null, productId: $product->id,
+            productInventoryId: null, assignedQuantity: null, effectiveAt: now()->subMinute()->toDateTimeString(),
+            reason: 'Default stock holder for purchase fixture', notes: null,
+            idempotencyKey: (string) Str::uuid(), assignStockByDefault: true,
+        ), $owner);
         $purchase = app(CreatePurchase::class)->handle(new CreatePurchaseData(
             Supplier::factory()->create()->id,
             Warehouse::factory()->create()->id,

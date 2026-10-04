@@ -26,13 +26,28 @@ class MobileController extends Controller
         return response()->json($query->paginate($data['per_page'] ?? 25)->through($present));
     }
 
-    protected function field(string $name, string $label, string $type = 'text', bool $required = false, mixed $value = null, array $options = []): array
+    protected function field(string $name, string $label, string $type = 'text', bool $required = false, mixed $value = null, array $options = [], bool $editable = true, ?string $placeholder = null, ?string $helpText = null): array
     {
-        return compact('name', 'label', 'type', 'required', 'value', 'options');
+        return [...compact('name', 'label', 'type', 'required', 'value', 'options'),
+            'editable' => $editable, 'mobile_editable' => $editable, 'read_only' => ! $editable,
+            'placeholder' => $placeholder, 'help_text' => $helpText];
     }
 
-    protected function action(string $key, string $label, array $fields = []): array
+    protected function action(string $key, string $label, array $fields = [], ?bool $destructive = null, ?string $confirmationMessage = null): array
     {
-        return compact('key', 'label', 'fields');
+        $destructive ??= in_array($key, ['cancel', 'cancelled', 'close', 'closed', 'rejected', 'not_eligible', 'release', 'return', 'reject_source', 'deactivate', 'cannot_repair'], true);
+
+        return [...compact('key', 'label', 'fields', 'destructive'),
+            'confirmation_message' => $confirmationMessage ?? ($destructive ? 'Review this action before confirming.' : null)];
+    }
+
+    protected function readFields(array $values, array $types = []): array
+    {
+        $fields = [];
+        foreach ($values as $name => $value) {
+            $fields[] = $this->field($name, str($name)->headline()->toString(), $types[$name] ?? (is_bool($value) ? 'boolean' : 'text'), false, $value, editable: false);
+        }
+
+        return $fields;
     }
 }

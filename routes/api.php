@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Mobile\V1\AppVersionController;
 use App\Http\Controllers\Api\Mobile\V1\AuthController;
 use App\Http\Controllers\Api\Mobile\V1\CaseController;
 use App\Http\Controllers\Api\Mobile\V1\ChatController;
@@ -28,6 +29,8 @@ use App\Http\Controllers\Api\Mobile\V1\WorkspaceController;
 use App\Http\Middleware\EnsureEligibleEmployee;
 use Illuminate\Support\Facades\Route;
 
+Route::get('mobile/v1/app/version', AppVersionController::class)->middleware('throttle:60,1');
+
 Route::prefix('mobile/v1/auth')->group(function (): void {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/mfa/verify', [AuthController::class, 'verifyMfa'])
@@ -53,6 +56,7 @@ Route::prefix('mobile/v1')
     ->group(function (): void {
         Route::get('/dashboard', DashboardController::class);
         Route::get('/workspace/modules', [WorkspaceController::class, 'modules']);
+        Route::get('/workspace/manifest', [WorkspaceController::class, 'manifest']);
         Route::post('/devices', [DeviceController::class, 'register'])->middleware('throttle:mobile-device-register');
         Route::delete('/devices', [DeviceController::class, 'unregister']);
 

@@ -15,6 +15,7 @@ use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
 use App\Services\Mobile\MobileInventoryService;
+use App\Services\Mobile\MobileManifest;
 use App\Services\Mobile\MobileWorkspaceCapabilities;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Responsibilities\ResponsibilityReadService;
@@ -42,6 +43,12 @@ class WorkspaceController extends Controller
     public function modules(Request $request): JsonResponse
     {
         return response()->json(['data' => app(MobileWorkspaceCapabilities::class)->modules($request->user())]);
+    }
+
+    public function manifest(Request $request): JsonResponse
+    {
+        return response()->json(app(MobileManifest::class)->forUser($request->user()))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function inventory(Request $request): JsonResponse

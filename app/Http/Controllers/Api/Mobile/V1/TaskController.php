@@ -109,8 +109,7 @@ class TaskController extends MobileController
             'description' => 'nullable|string|max:5000',
             'priority' => 'required|in:low,normal,high,critical',
 
-            'assignment_mode' =>
-                'nullable|in:single_employee,multiple_employees,entire_team,team_queue',
+            'assignment_mode' => 'nullable|in:single_employee,multiple_employees,entire_team,team_queue',
 
             'assigned_employee_id' => 'nullable|integer',
             'assigned_employee_ids' => 'nullable|array|max:100',
@@ -157,6 +156,7 @@ class TaskController extends MobileController
 
         return $this->show($request, $task);
     }
+
     public function show(Request $request, Task $task): JsonResponse
     {
         app(TaskAuthorization::class)->authorize($request->user(), TaskPermission::View, $task);
@@ -178,6 +178,15 @@ class TaskController extends MobileController
             return $data;
         }
         $actions = [];
+        if (! $task->status->isTerminal() && $auth->allows($user, TaskPermission::Update, $task)) {
+            $actions[] = $this->action('update', 'Edit task details', [
+                $this->field('title', 'Title', 'text', true, $task->title),
+                $this->field('description', 'Description', 'multiline', false, $task->description),
+                $this->field('priority', 'Priority', 'select', true, $task->priority->value,
+                    array_map(fn (TaskPriority $priority) => ['value' => $priority->value, 'label' => $priority->getLabel()], TaskPriority::cases())),
+                $this->field('due_at', 'Due date/time', 'datetime', false, $task->due_at?->toIso8601String()),
+            ]);
+        }
         $note = [$this->field('note', 'Progress / remarks', 'multiline')];
         if ($auth->isAssignee($user, $task) && $auth->allows($user, TaskPermission::ChangeStatus, $task)) {
             $actions[] = $this->action('comment', 'Add progress update', [$this->field('note', 'Progress update', 'multiline', true)]);
@@ -226,7 +235,14 @@ class TaskController extends MobileController
         $data = $request->validate(['note' => 'nullable|string|max:5000', 'follow_up_at' => 'nullable|date']);
         $service = app(TaskService::class);
         try {
-            if (preg_match('/^(confirm|return)-(\\d+)$/', $action, $match)) {
+            if ($action === 'update') {
+                $auth->authorize($user, TaskPermission::Update, $task);
+                $edit = $request->validate([
+                    'title' => 'required|string|max:255', 'description' => 'nullable|string|max:5000',
+                    'priority' => 'required|in:low,normal,high,critical', 'due_at' => 'nullable|date',
+                ]);
+                $result = $service->update($task, $edit, $user);
+            } elseif (preg_match('/^(confirm|return)-(\\d+)$/', $action, $match)) {
                 abort_unless($auth->canSupervise($user, $task), 403);
                 $submission = $task->completionSubmissions()->findOrFail((int) $match[2]);
                 $result = $match[1] === 'confirm' ? $service->confirmCompletion($submission, $user) : $service->returnToEmployee($submission, $data['note'] ?? '', $user);

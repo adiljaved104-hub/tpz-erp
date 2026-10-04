@@ -66,6 +66,7 @@ Route::prefix('mobile/v1')
             Route::post('/{conversation}/read', 'read')->whereNumber('conversation');
         });
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
+            Route::get('/manifest', 'manifest');
             Route::get('/search', SearchController::class);
             Route::get('/inventory', 'inventory');
             Route::get('/products', [ProductController::class, 'index']);

@@ -6,6 +6,7 @@ use App\Enums\ResponsibilityPermission;
 use App\Models\User;
 use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Inventory\MyInventoryColumnRegistry;
+use App\Services\Preferences\UserUiPreferenceService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -41,6 +42,9 @@ class MyInventory extends Page
     /** @var array<int, string> */
     public array $visibleColumns = [];
 
+    /** @var array<int, string> */
+    public array $collapsedSections = [];
+
     protected string $view = 'filament.pages.inventory.my-inventory';
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedUserCircle;
@@ -49,7 +53,7 @@ class MyInventory extends Page
 
     protected static ?string $navigationLabel = 'My Inventory';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 1;
 
     public static function canAccess(): bool
     {
@@ -62,6 +66,10 @@ class MyInventory extends Page
     {
         abort_unless(static::canAccess(), 403);
         $this->visibleColumns = app(MyInventoryColumnRegistry::class)->resolve(auth()->user());
+        $this->collapsedSections = app(UserUiPreferenceService::class)->get(
+            auth()->user(),
+            UserUiPreferenceService::MY_INVENTORY_COLLAPSED_SECTIONS,
+        );
     }
 
     public function getViewData(): array
@@ -96,6 +104,21 @@ class MyInventory extends Page
     {
         $this->reset('search', 'brand', 'category', 'condition', 'platform', 'warehouse', 'stockStatus', 'allocation', 'visibleBecause');
         $this->resetPage();
+    }
+
+    public function toggleSection(string $section): void
+    {
+        abort_unless(in_array($section, ['filters', 'responsibilities'], true), 422);
+
+        $this->collapsedSections = in_array($section, $this->collapsedSections, true)
+            ? array_values(array_diff($this->collapsedSections, [$section]))
+            : [...$this->collapsedSections, $section];
+
+        app(UserUiPreferenceService::class)->put(
+            auth()->user(),
+            UserUiPreferenceService::MY_INVENTORY_COLLAPSED_SECTIONS,
+            $this->collapsedSections,
+        );
     }
 
     public function updated(string $property): void

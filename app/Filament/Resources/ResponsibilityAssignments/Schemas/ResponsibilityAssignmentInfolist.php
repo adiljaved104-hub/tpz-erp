@@ -17,6 +17,7 @@ class ResponsibilityAssignmentInfolist
                 TextEntry::make('employee.name')->label('Employee'),
                 TextEntry::make('team_name_at_assignment')->label('Team Snapshot')->placeholder('No Team'),
                 TextEntry::make('assignment_mode')->badge(),
+                TextEntry::make('assign_stock_by_default')->label('Assign stock by default')->formatStateUsing(fn (bool $state): string => $state ? 'Yes' : 'No'),
                 TextEntry::make('status')->badge(),
                 TextEntry::make('brandScope.brand.name')->label('Brand')->placeholder('—'),
                 TextEntry::make('categoryScope.category.name')->label('Category')->placeholder('—'),

@@ -3,6 +3,7 @@
 namespace App\Services\Purchases;
 
 use App\Models\PurchaseItem;
+use App\Models\PurchaseReceiptCorrection;
 use Illuminate\Support\Collection;
 
 class PurchaseReconciliationService
@@ -12,6 +13,10 @@ class PurchaseReconciliationService
         return PurchaseItem::query()->get()->map(function (PurchaseItem $item): ?array {
             $received = (int) $item->receiptItems()
                 ->selectRaw('COALESCE(SUM(accepted_quantity + damaged_quantity), 0) AS aggregate')
+                ->value('aggregate');
+            $received -= (int) PurchaseReceiptCorrection::query()
+                ->where('purchase_item_id', $item->id)
+                ->selectRaw('COALESCE(SUM(-adjustment_quantity), 0) AS aggregate')
                 ->value('aggregate');
             $rejected = (int) $item->receiptItems()->sum('rejected_quantity');
 

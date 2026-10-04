@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Employees;
 
-use App\Enums\EmployeeRole;
 use App\Filament\Resources\Employees\Pages\CreateEmployee;
 use App\Filament\Resources\Employees\Pages\EditEmployee;
 use App\Filament\Resources\Employees\Pages\ListEmployees;
@@ -12,6 +11,7 @@ use App\Filament\Resources\Employees\Schemas\EmployeeForm;
 use App\Filament\Resources\Employees\Schemas\EmployeeInfolist;
 use App\Filament\Resources\Employees\Tables\EmployeesTable;
 use App\Models\Employee;
+use App\Services\Authorization\EmployeeDirectoryScopeService;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -28,6 +28,8 @@ class EmployeeResource extends Resource
     protected static ?string $recordTitleAttribute = 'name';
 
     protected static string|\UnitEnum|null $navigationGroup = 'People';
+
+    protected static ?int $navigationSort = 1;
 
     public static function form(Schema $schema): Schema
     {
@@ -47,11 +49,7 @@ class EmployeeResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery();
-        $employee = auth()->user()?->employee;
-
-        if ($employee?->role === EmployeeRole::Manager) {
-            return $query->where('team_id', $employee->team_id);
-        }
+        app(EmployeeDirectoryScopeService::class)->apply($query, auth()->user());
 
         return $query;
     }

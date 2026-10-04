@@ -39,6 +39,8 @@ class EmployeeWarningResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'HR';
 
+    protected static ?int $navigationSort = 5;
+
     protected static ?string $navigationLabel = 'Warnings';
 
     protected static ?string $recordTitleAttribute = 'reference';

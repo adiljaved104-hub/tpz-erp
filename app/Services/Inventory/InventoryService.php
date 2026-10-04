@@ -20,6 +20,9 @@ use App\Exceptions\InactiveInventorySubjectException;
 use App\Exceptions\InsufficientInventoryException;
 use App\Exceptions\InventoryInvariantException;
 use App\Models\Component;
+use App\Models\InventoryAdjustment;
+use App\Models\InventoryAllocationAccount;
+use App\Models\InventoryAllocationReservationLine;
 use App\Models\InventoryReservation;
 use App\Models\OpeningStockEntry;
 use App\Models\OrderFulfillment;
@@ -395,6 +398,46 @@ class InventoryService
         );
     }
 
+    public function postAdjustmentPhysical(InventoryAdjustment $adjustment, ProductInventory $inventory, User $actor): StockMovement
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Inventory adjustment requires an active transaction.');
+        }
+        if ($adjustment->available_delta < 0 && $inventory->sellableQuantity() < -$adjustment->available_delta) {
+            throw new InventoryInvariantException('Stock already fulfilled or consumed cannot be removed by an inventory adjustment.');
+        }
+        if ($adjustment->damaged_delta < 0 && $inventory->damaged_quantity < -$adjustment->damaged_delta) {
+            throw new InventoryInvariantException('Damaged stock is lower than the requested adjustment.');
+        }
+
+        $before = $this->snapshot($inventory);
+        $newAvailable = $inventory->available_quantity + $adjustment->available_delta;
+        $newDamaged = $inventory->damaged_quantity + $adjustment->damaged_delta;
+        $average = $inventory->average_cost;
+        if ($newAvailable + $newDamaged + $inventory->marketplace_non_sellable_quantity + $inventory->qc_pending_quantity === 0) {
+            $average = null;
+        } elseif ($average === null) {
+            $average = $adjustment->reference_unit_cost;
+            if ($average === null) {
+                throw new InventoryInvariantException('A valuation unit cost is required when adding stock to an empty inventory balance.');
+            }
+        }
+        $inventory->forceFill([
+            'available_quantity' => $newAvailable,
+            'damaged_quantity' => $newDamaged,
+            'average_cost' => $average,
+        ])->save();
+
+        return $this->createMovement(
+            $inventory, $actor, $adjustment->movement_reference, $adjustment->movement_group,
+            StockMovementType::InventoryAdjustment,
+            max(abs($adjustment->available_delta), abs($adjustment->damaged_delta)),
+            $adjustment->available_delta, 0, $adjustment->damaged_delta,
+            $before, $adjustment, $adjustment->reason, $adjustment->idempotency_key,
+            $before['average'] ?? $adjustment->reference_unit_cost,
+        );
+    }
+
     public function receiveQuotationSourcing(QuotationSourcingPosting $posting, User $actor, string $reference, string $group): StockMovement
     {
         if (DB::transactionLevel() === 0) {
@@ -428,7 +471,7 @@ class InventoryService
     }
 
     /** @param array<int, int>|null $exactAllocationSources */
-    public function reserveOrderItem(OrderItem $item, User $actor, string $reservationReference, string $movementReference, string $idempotencyKey, string $movementGroup, ?int $responsibilityAssignmentId = null, ?array $exactAllocationSources = null): InventoryReservation
+    public function reserveOrderItem(OrderItem $item, User $actor, string $reservationReference, string $movementReference, string $idempotencyKey, string $movementGroup, ?int $responsibilityAssignmentId = null, ?array $exactAllocationSources = null, bool $authorizeExactSources = false, string $exactSourceErrorKey = 'items'): InventoryReservation
     {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Order reservation requires an active transaction.');
@@ -470,7 +513,10 @@ class InventoryService
         if ($exactAllocationSources === null) {
             $this->allocationLedger->reserve($reservation, $item, $actor);
         } else {
-            $this->allocationLedger->reserveExact($reservation, $exactAllocationSources, $actor);
+            if ($authorizeExactSources) {
+                $this->allocationLedger->assertOrderSources($inventory, $exactAllocationSources, $item->ordered_quantity, $actor, $exactSourceErrorKey);
+            }
+            $this->allocationLedger->reserveExact($reservation, $exactAllocationSources, $actor, $authorizeExactSources);
         }
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $item->ordered_quantity])->save();
         $movement = $this->createMovement(
@@ -621,11 +667,66 @@ class InventoryService
         ]);
     }
 
+    /** @param array<int, string> $movementReferences */
+    public function releaseForAdjustment(ProductInventory $inventory, InventoryAllocationAccount $account, int $quantity, InventoryAdjustment $adjustment, User $actor, array &$movementReferences): void
+    {
+        if (DB::transactionLevel() === 0 || $quantity < 1) {
+            throw new InventoryInvariantException('Adjustment reservation release requires an active transaction and positive quantity.');
+        }
+        $remaining = $quantity;
+        $lines = InventoryAllocationReservationLine::query()
+            ->where('account_id', $account->id)
+            ->where('status', 'reserved')
+            ->whereHas('reservation', fn ($query) => $query->where('product_inventory_id', $inventory->id)
+                ->where('status', InventoryReservationStatus::Active->value))
+            ->orderBy('id')->lockForUpdate()->get();
+        foreach ($lines as $line) {
+            if ($remaining === 0) {
+                break;
+            }
+            $reservation = InventoryReservation::query()->lockForUpdate()->findOrFail($line->inventory_reservation_id);
+            $take = min($remaining, $line->quantity, $reservation->quantity);
+            if ($take < 1 || $inventory->reserved_quantity < $take || $movementReferences === []) {
+                throw new InventoryInvariantException('Reserved inventory cannot satisfy the adjustment release. Retry the adjustment.');
+            }
+            $before = $this->snapshot($inventory);
+            $this->allocationLedger->releaseReservationAccountQuantity($reservation, $account, $take, $actor, $adjustment);
+            $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity - $take])->save();
+            $newQuantity = $reservation->quantity - $take;
+            $attributes = $newQuantity > 0 ? ['quantity' => $newQuantity] : [
+                'status' => InventoryReservationStatus::Released,
+                'release_idempotency_key' => (string) Str::uuid(),
+                'released_by_user_id' => $actor->id,
+                'released_at' => now(),
+            ];
+            $reservation->forceFill($attributes)->save();
+            $movement = $this->createMovement(
+                $inventory, $actor, array_shift($movementReferences), $adjustment->movement_group,
+                $reservation->reservation_kind === InventoryReservationKind::UpgradeComponent
+                    ? StockMovementType::UpgradeComponentReservationRelease : StockMovementType::ReservationRelease,
+                $take, 0, -$take, 0, $before, $reservation,
+                'Unfulfilled reservation released for inventory adjustment '.$adjustment->reference,
+                (string) Str::uuid(),
+            );
+            $this->activity->log('inventory.reservation_released', $actor, $reservation, [
+                'reservation_reference' => $reservation->reference,
+                'movement_reference' => $movement->reference,
+                'inventory_adjustment_id' => $adjustment->id,
+                'quantity' => $take,
+                'reason_recorded' => true,
+            ]);
+            $remaining -= $take;
+        }
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('Unfulfilled reservation attribution cannot satisfy the adjustment release.');
+        }
+    }
+
     /**
      * Adjust an existing active reservation without replacing its unique reservation key or
      * responsibility attribution. Every delta gets its own immutable stock movement.
      */
-    public function adjustOrderReservation(InventoryReservation $reservation, int $quantity, User $actor, string $movementReference, string $idempotencyKey, string $movementGroup): void
+    public function adjustOrderReservation(InventoryReservation $reservation, int $quantity, User $actor, string $movementReference, string $idempotencyKey, string $movementGroup, ?array $additionalAllocationSources = null): void
     {
         if (DB::transactionLevel() === 0 || $quantity < 1) {
             throw new InventoryInvariantException('A positive Order reservation adjustment requires an active transaction.');
@@ -650,7 +751,7 @@ class InventoryService
 
         $before = $this->snapshot($inventory);
         if ($reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
-            $this->allocationLedger->adjustReservation($reservation, $reservation->orderItem()->with('order')->firstOrFail(), $quantity, $actor);
+            $this->allocationLedger->adjustReservation($reservation, $reservation->orderItem()->with('order')->firstOrFail(), $quantity, $actor, $additionalAllocationSources);
         }
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $delta])->save();
         $reservation->forceFill(['quantity' => $quantity])->save();
@@ -800,6 +901,7 @@ class InventoryService
         string $postingKey,
         ?InventoryReservation $reservation = null,
         ?int $responsibilityAssignmentId = null,
+        ?array $exactAllocationSources = null,
     ): OrderFulfillmentItem {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Order fulfilment requires an active transaction.');
@@ -861,7 +963,11 @@ class InventoryService
         }
         $before = $this->snapshot($inventory);
         if ($reservation === null) {
-            $this->allocationLedger->consumeDirect($orderItem, $inventory, $actor);
+            if ($exactAllocationSources === null) {
+                $this->allocationLedger->consumeDirect($orderItem, $inventory, $actor);
+            } else {
+                $this->allocationLedger->consumeDirectExact($orderItem, $inventory, $quantity, $exactAllocationSources, $actor);
+            }
         } elseif ($reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
             $this->allocationLedger->fulfill($reservation, $actor);
         }

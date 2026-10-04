@@ -5,6 +5,7 @@ namespace App\Enums;
 enum InventoryPermission: string
 {
     case View = 'inventory.view';
+    case ViewLocationBalances = 'inventory.view_location_balances';
     case ViewFinancials = 'inventory.view_financials';
     case PostOpeningStock = 'inventory.post_opening_stock';
     case ReverseOpeningStock = 'inventory.reverse_opening_stock';
@@ -12,6 +13,7 @@ enum InventoryPermission: string
     case ReleaseReservation = 'inventory.release_reservation';
     case MarkDamaged = 'inventory.mark_damaged';
     case RestoreDamaged = 'inventory.restore_damaged';
+    case AdjustStock = 'inventory.adjust_stock';
     case ViewMovements = 'inventory.view_movements';
     case Export = 'inventory.export';
     case ViewAllocations = 'inventory.view_allocations';
@@ -22,4 +24,5 @@ enum InventoryPermission: string
     case DecideOwnStockRequestSources = 'inventory.decide_own_stock_request_sources';
     case DecideAllStockRequestSources = 'inventory.decide_all_stock_request_sources';
     case ExecuteStockRequests = 'inventory.execute_stock_requests';
+    case ConsumeFromAllAllocations = 'inventory.consume_from_all_allocations';
 }

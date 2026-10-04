@@ -2,10 +2,12 @@
 
 use App\Http\Controllers\Auth\EmailOtpAuthenticationController;
 use App\Http\Controllers\Auth\LoginBrandingAssetController;
+use App\Http\Controllers\Auth\WebSessionActivityController;
 use App\Http\Controllers\PublicTaxInvoiceVerificationController;
 use App\Http\Controllers\QuotationPdfController;
 use App\Http\Controllers\ReportsExportController;
 use App\Http\Controllers\TaxInvoicePdfController;
+use App\Http\Middleware\EnforceWebSecurityPolicy;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/admin/reports/download/{report}/{format}', ReportsExportController::class)
@@ -20,6 +22,13 @@ Route::get('/', function () {
 Route::get('/admin/login/branding/logo', LoginBrandingAssetController::class)
     ->middleware('panel:admin')
     ->name('auth.branding.logo');
+
+Route::middleware(['auth', EnforceWebSecurityPolicy::class])->group(function (): void {
+    Route::get('/admin/session/activity', [WebSessionActivityController::class, 'show'])
+        ->name('auth.session.activity.show');
+    Route::post('/admin/session/activity', [WebSessionActivityController::class, 'store'])
+        ->name('auth.session.activity.store');
+});
 
 Route::middleware(['guest', 'panel:admin'])->group(function (): void {
     Route::get('/admin/login/email-otp', [EmailOtpAuthenticationController::class, 'requestLogin'])->name('auth.otp.request');

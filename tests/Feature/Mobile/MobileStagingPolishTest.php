@@ -60,6 +60,7 @@ class MobileStagingPolishTest extends TestCase
         $ownerKeys = collect($owner->json('data'))->pluck('key');
         $this->assertContains('sales', $ownerKeys);
         $this->assertContains('purchases', $ownerKeys);
+        $this->assertContains('stock_requests', $ownerKeys);
         $this->assertContains('hr', $ownerKeys);
         $cards = $this->as($f['owner'])->getJson('/api/mobile/v1/dashboard?period=today')->assertOk()->json('data.cards');
         $this->assertNotEmpty($cards);
@@ -86,6 +87,9 @@ class MobileStagingPolishTest extends TestCase
     public function test_mobile_purchase_uses_erp_actions_and_hides_cost_from_unauthorized_users(): void
     {
         $f = $this->responsibilityFoundation(5);
+        app(ResponsibilityAssignmentService::class)->create(
+            $this->assignmentData($f, overrides: ['assignStockByDefault' => true]), $f['owner'],
+        );
         $manager = $this->responsibilityUser(EmployeeRole::Manager);
         $staff = $f['employee']->user;
         $base = '/api/mobile/v1/workspace/purchases';
@@ -206,6 +210,33 @@ class MobileStagingPolishTest extends TestCase
             'order_id' => $id, 'order_fulfillment_item_id' => $fulfillmentItem,
             'quantity' => 1, 'return_reason' => 'other', 'idempotency_key' => (string) Str::uuid(),
         ])->assertForbidden();
+    }
+
+    public function test_mobile_order_can_save_directly_as_shipped_when_authorized(): void
+    {
+        $f = $this->responsibilityFoundation(5);
+        $payload = [
+            'mode' => 'shipped',
+            'warehouse_id' => $f['inventory']->warehouse_id,
+            'order_date' => now()->toDateString(),
+            'idempotency_key' => (string) Str::uuid(),
+            'external_order_number' => 'MOBILE-SHIPPED-001',
+            'items' => [[
+                'product_id' => $f['product']->id,
+                'quantity' => 1,
+                'selling_price' => '200',
+                'discount_total' => '0',
+                'vat_rate' => '0',
+            ]],
+        ];
+
+        $response = $this->as($f['owner'])
+            ->postJson('/api/mobile/v1/workspace/orders', $payload)
+            ->assertOk()
+            ->assertJsonPath('data.status', 'fulfilled');
+
+        $this->assertNotNull($response->json('data.id'));
+        $this->assertSame(4, $f['inventory']->refresh()->available_quantity);
     }
 
     public function test_price_restricted_product_editor_never_receives_or_changes_price_fields(): void

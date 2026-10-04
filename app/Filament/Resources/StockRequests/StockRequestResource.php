@@ -3,7 +3,7 @@
 namespace App\Filament\Resources\StockRequests;
 
 use App\Enums\InventoryPermission;
-use App\Filament\Resources\StockRequests\Pages\CreateStockRequest;
+use App\Filament\Resources\StockRequests\Pages\CreateStockRequestGrid;
 use App\Filament\Resources\StockRequests\Pages\ListStockRequests;
 use App\Filament\Resources\StockRequests\Pages\ViewStockRequest;
 use App\Filament\Resources\StockRequests\Schemas\StockRequestForm;
@@ -27,6 +27,8 @@ class StockRequestResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
+
+    protected static ?int $navigationSort = 4;
 
     protected static ?string $navigationLabel = 'Stock Requests';
 
@@ -81,7 +83,7 @@ class StockRequestResource extends Resource
     {
         return [
             'index' => ListStockRequests::route('/'),
-            'create' => CreateStockRequest::route('/create'),
+            'create' => CreateStockRequestGrid::route('/create'),
             'view' => ViewStockRequest::route('/{record}'),
         ];
     }

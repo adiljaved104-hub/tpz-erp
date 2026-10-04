@@ -121,6 +121,12 @@ class ConditionResponsibilityTest extends TestCase
             ['brandId' => null, 'categoryId' => $category->id, 'platformId' => $f['platform']->id],
             ['brandId' => null, 'warehouseId' => $f['inventory']->warehouse_id],
             ['brandId' => null, 'warehouseId' => $f['inventory']->warehouse_id, 'platformId' => $f['platform']->id],
+            ['brandId' => $f['brand']->id, 'categoryId' => $category->id],
+            ['brandId' => $f['brand']->id, 'categoryId' => $category->id, 'platformId' => $f['platform']->id],
+            ['brandId' => $f['brand']->id, 'categoryId' => $category->id, 'warehouseId' => $f['inventory']->warehouse_id],
+            ['brandId' => $f['brand']->id, 'categoryId' => $category->id, 'warehouseId' => $f['inventory']->warehouse_id, 'platformId' => $f['platform']->id],
+            ['brandId' => null, 'productId' => $f['product']->id],
+            ['brandId' => $f['brand']->id, 'productId' => $f['product']->id, 'categoryId' => $category->id],
         ];
 
         foreach ($cases as $overrides) {
@@ -131,20 +137,18 @@ class ConditionResponsibilityTest extends TestCase
         }
 
         $assignments = $f['employee']->responsibilityAssignments()->with(['brandScope', 'categoryScope', 'platformScope', 'warehouseScope', 'conditionScope'])->get();
-        $this->assertCount(8, $assignments);
+        $this->assertCount(14, $assignments);
         $this->assertTrue($assignments->every(fn ($assignment): bool => $assignment->conditionScope->product_condition === ProductCondition::Renewed));
-        $this->assertSame(2, $assignments->filter(fn ($assignment): bool => $assignment->brandScope !== null)->count());
-        $this->assertSame(2, $assignments->filter(fn ($assignment): bool => $assignment->categoryScope !== null)->count());
-        $this->assertSame(2, $assignments->filter(fn ($assignment): bool => $assignment->warehouseScope !== null)->count());
-        $this->assertSame(4, $assignments->filter(fn ($assignment): bool => $assignment->platformScope !== null)->count());
+        $this->assertSame(7, $assignments->filter(fn ($assignment): bool => $assignment->brandScope !== null)->count());
+        $this->assertSame(7, $assignments->filter(fn ($assignment): bool => $assignment->categoryScope !== null)->count());
+        $this->assertSame(4, $assignments->filter(fn ($assignment): bool => $assignment->warehouseScope !== null)->count());
+        $this->assertSame(6, $assignments->filter(fn ($assignment): bool => $assignment->platformScope !== null)->count());
     }
 
-    public function test_condition_cannot_be_combined_with_product_quantity_or_category_brand_shapes(): void
+    public function test_condition_remains_invalid_in_quantity_assignments(): void
     {
         $f = $this->responsibilityFoundation();
         $attempts = [
-            [ResponsibilityAssignmentMode::Scope, ['brandId' => null, 'productId' => $f['product']->id, 'condition' => ProductCondition::Renewed]],
-            [ResponsibilityAssignmentMode::Scope, ['brandId' => $f['brand']->id, 'categoryId' => $f['product']->category_id, 'condition' => ProductCondition::Renewed]],
             [ResponsibilityAssignmentMode::Quantity, ['brandId' => null, 'productInventoryId' => $f['inventory']->id, 'assignedQuantity' => 1, 'condition' => ProductCondition::Renewed]],
         ];
 
@@ -153,7 +157,7 @@ class ConditionResponsibilityTest extends TestCase
                 app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, $mode, $overrides + [
                     'idempotencyKey' => (string) Str::uuid(),
                 ]), $f['owner']);
-                $this->fail('The unapproved Condition scope shape must be rejected.');
+                $this->fail('Quantity responsibilities must retain their separate scope rules.');
             } catch (InvalidResponsibilityScopeException) {
                 $this->assertDatabaseCount('responsibility_assignments', 0);
             }

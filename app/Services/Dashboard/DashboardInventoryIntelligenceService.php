@@ -83,7 +83,8 @@ class DashboardInventoryIntelligenceService
                 'state' => $state,
                 'priority' => ($sold > 0 && $sellable <= 0) ? 50 : (($sold > 0 && $sellable <= app(StockStatus::class)->low()) ? 40 : ($sellable <= 0 ? 30 : ($sellable <= app(StockStatus::class)->low() ? 20 : 0))),
                 'url' => $this->inventoryAuthorization->allows($viewer, InventoryPermission::View)
-                    ? ProductInventoryResource::getUrl()
+                    && $this->inventoryAuthorization->allows($viewer, InventoryPermission::ViewLocationBalances)
+                    ? ProductInventoryResource::getUrl('index', ['filters' => ['product_id' => ['value' => $row->product_id]]])
                     : MyInventory::getUrl(),
             ];
         });

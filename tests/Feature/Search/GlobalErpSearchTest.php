@@ -96,7 +96,7 @@ class GlobalErpSearchTest extends TestCase
             'product' => 'Products',
             'inventory overview' => 'Inventory Overview',
             'purchase' => 'Purchases',
-            'order' => 'Orders',
+            'order' => 'Sales Orders',
             'quotation' => 'Quotations',
             'responsib' => 'Responsibility Assignments',
             'employee' => 'Employees',

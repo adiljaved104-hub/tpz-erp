@@ -39,7 +39,9 @@
             <x-filament::button color="gray" icon="heroicon-m-users" size="sm" x-on:click="employeePanelOpen = true">
                 Select Employee
             </x-filament::button>
-            @if ($selectedEmployee)
+            @if ($bulkMode)
+                <span>{{ $selectedEmployees->count() }} employees selected · Bulk Access mode</span>
+            @elseif ($selectedEmployee)
                 <span>{{ $selectedEmployee->name }} · {{ $selectedEmployee->employee_id }}</span>
             @endif
         </div>
@@ -48,24 +50,33 @@
 
         <div class="ac-workspace grid min-w-0 gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
             <aside class="ac-employee-panel min-w-0" x-cloak x-show="employeePanelOpen" x-transition:enter="ac-drawer-enter" x-transition:enter-start="ac-drawer-enter-start" x-transition:enter-end="ac-drawer-enter-end" x-transition:leave="ac-drawer-leave" x-transition:leave-start="ac-drawer-leave-start" x-transition:leave-end="ac-drawer-leave-end" aria-label="Employee selector">
-                <x-filament::section heading="Employees" description="Select an employee to review access." compact>
+                <x-filament::section heading="Employees" description="Open one employee, or select several for Bulk Access." compact>
                     <div class="ac-employee-drawer-close">
                         <x-filament::icon-button color="gray" icon="heroicon-m-x-mark" label="Close employee selector" x-on:click="employeePanelOpen = false" />
                     </div>
+                    <div class="mb-3 flex flex-wrap items-center gap-2">
+                        <x-filament::button color="gray" size="xs" wire:click="selectFilteredEmployees">Select filtered employees</x-filament::button>
+                        <x-filament::button color="gray" size="xs" wire:click="clearEmployeeSelection" :disabled="$selectedEmployeeIds === []">Clear selection</x-filament::button>
+                        <x-filament::badge :color="$selectedEmployeeIds === [] ? 'gray' : 'primary'">{{ count($selectedEmployeeIds) }} selected</x-filament::badge>
+                    </div>
+                    @error('employees')<p class="mb-3 text-sm text-danger-600">{{ $message }}</p>@enderror
                     <div class="ac-employee-list space-y-2" data-testid="employee-picker">
                         @forelse ($employees as $employee)
-                            <button type="button" wire:click="selectEmployee({{ $employee->id }})" x-on:click="if (window.innerWidth < 1400) employeePanelOpen = false" wire:key="access-employee-{{ $employee->id }}" @class([
+                            @php($bulkSelectable = $employee->status && auth()->user()?->can('managePermissions', $employee))
+                            <div wire:key="access-employee-{{ $employee->id }}" @class([
                                 'ac-employee-row group w-full min-w-0 rounded-xl border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600',
-                                'is-selected' => $selectedEmployeeId === $employee->id,
-                                'border-primary-500 bg-primary-50 shadow-sm ring-1 ring-primary-500/20 dark:bg-primary-500/10' => $selectedEmployeeId === $employee->id,
-                                'border-gray-200 bg-white hover:border-primary-300 hover:bg-gray-50 dark:border-white/10 dark:bg-gray-900 dark:hover:border-primary-500/50 dark:hover:bg-white/5' => $selectedEmployeeId !== $employee->id,
+                                'is-selected' => $selectedEmployeeId === $employee->id || in_array($employee->id, $selectedEmployeeIds, true),
+                                'border-primary-500 bg-primary-50 shadow-sm ring-1 ring-primary-500/20 dark:bg-primary-500/10' => $selectedEmployeeId === $employee->id || in_array($employee->id, $selectedEmployeeIds, true),
+                                'border-gray-200 bg-white hover:border-primary-300 hover:bg-gray-50 dark:border-white/10 dark:bg-gray-900 dark:hover:border-primary-500/50 dark:hover:bg-white/5' => $selectedEmployeeId !== $employee->id && ! in_array($employee->id, $selectedEmployeeIds, true),
                             ])>
                                 <span class="flex min-w-0 items-start justify-between gap-2">
-                                    <span class="min-w-0">
+                                    <button type="button" class="min-w-0 flex-1 text-left" wire:click="selectEmployee({{ $employee->id }})" x-on:click="if (window.innerWidth < 1400) employeePanelOpen = false">
                                         <span class="block truncate text-sm font-semibold text-gray-950 dark:text-white" title="{{ $employee->name }}">{{ $employee->name }}</span>
                                         <span class="mt-0.5 block text-xs font-medium text-gray-500">{{ $employee->employee_id }}</span>
-                                    </span>
-                                    @if ($selectedEmployeeId === $employee->id)<x-heroicon-m-check-circle class="h-5 w-5 shrink-0 text-primary-600" />@endif
+                                    </button>
+                                    <button type="button" wire:click="toggleEmployeeSelection({{ $employee->id }})" @disabled(! $bulkSelectable) aria-label="{{ $bulkSelectable ? 'Toggle '.$employee->name.' for Bulk Access' : $employee->name.' cannot be bulk modified' }}" class="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-gray-300 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/20">
+                                        @if (in_array($employee->id, $selectedEmployeeIds, true))<x-heroicon-m-check class="h-4 w-4 text-primary-600" />@elseif($bulkSelectable)<span class="h-3 w-3 rounded-sm border border-gray-400"></span>@else<x-heroicon-m-lock-closed class="h-4 w-4 text-gray-400" />@endif
+                                    </button>
                                 </span>
                                 <span class="mt-2 flex flex-wrap items-center gap-1.5">
                                     <x-filament::badge size="sm" color="gray">{{ $employee->role->getLabel() }}</x-filament::badge>
@@ -75,7 +86,7 @@
                                     <x-heroicon-m-user-group class="h-4 w-4 shrink-0" />
                                     <span class="truncate" title="{{ $employee->team?->name ?? 'No Team' }}">{{ $employee->team?->name ?? 'No Team' }}</span>
                                 </span>
-                            </button>
+                            </div>
                         @empty
                             <p class="py-6 text-center text-sm text-gray-500">No Employees match these filters.</p>
                         @endforelse
@@ -85,22 +96,27 @@
             </aside>
 
             <main class="min-w-0 space-y-4">
-                @if ($selectedEmployee)
+                @if ($selectedEmployee || $bulkMode)
                     <div class="ac-selected-summary sticky top-20 z-10">
                     <x-filament::section compact>
                         <div class="ac-selected-card-body flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                             <div class="min-w-0">
-                                <div class="ac-identity-badges flex flex-wrap items-center gap-2">
-                                    <h2 class="truncate text-lg font-semibold">{{ $selectedEmployee->name }}</h2>
-                                    <x-filament::badge color="gray">{{ $selectedEmployee->employee_id }}</x-filament::badge>
-                                    <x-filament::badge color="gray">{{ $selectedEmployee->role->getLabel() }}</x-filament::badge>
-                                    <x-filament::badge :color="$selectedEmployee->status ? 'success' : 'danger'">{{ $selectedEmployee->status ? 'Active' : 'Inactive' }}</x-filament::badge>
-                                    @if ($selectedEmployee->role === \App\Enums\EmployeeRole::Owner)<x-filament::badge color="warning" icon="heroicon-m-lock-closed">Owner Protected</x-filament::badge>@endif
-                                </div>
-                                <div class="ac-summary-meta mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
-                                    <span class="inline-flex min-w-0 items-center gap-1.5"><x-heroicon-m-user-group class="h-4 w-4 shrink-0" /><span class="truncate">{{ $selectedEmployee->team?->name ?? 'No Team' }}</span></span>
-                                    <span>Default role access is used unless you set a custom permission.</span>
-                                </div>
+                                @if ($bulkMode)
+                                    <div class="ac-identity-badges flex flex-wrap items-center gap-2"><h2 class="text-lg font-semibold">Bulk Access</h2><x-filament::badge color="primary">{{ $selectedEmployees->count() }} employees selected</x-filament::badge></div>
+                                    <p class="mt-1.5 text-sm text-gray-500">Only permissions explicitly changed below will be applied. Unchanged and mixed settings remain untouched.</p>
+                                @else
+                                    <div class="ac-identity-badges flex flex-wrap items-center gap-2">
+                                        <h2 class="truncate text-lg font-semibold">{{ $selectedEmployee->name }}</h2>
+                                        <x-filament::badge color="gray">{{ $selectedEmployee->employee_id }}</x-filament::badge>
+                                        <x-filament::badge color="gray">{{ $selectedEmployee->role->getLabel() }}</x-filament::badge>
+                                        <x-filament::badge :color="$selectedEmployee->status ? 'success' : 'danger'">{{ $selectedEmployee->status ? 'Active' : 'Inactive' }}</x-filament::badge>
+                                        @if ($selectedEmployee->role === \App\Enums\EmployeeRole::Owner)<x-filament::badge color="warning" icon="heroicon-m-lock-closed">Owner Protected</x-filament::badge>@endif
+                                    </div>
+                                    <div class="ac-summary-meta mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+                                        <span class="inline-flex min-w-0 items-center gap-1.5"><x-heroicon-m-user-group class="h-4 w-4 shrink-0" /><span class="truncate">{{ $selectedEmployee->team?->name ?? 'No Team' }}</span></span>
+                                        <span>Default role access is used unless you set a custom permission.</span>
+                                    </div>
+                                @endif
                             </div>
                             <div class="ac-summary-actions flex shrink-0 flex-wrap gap-2">
                                 @if ($dirtyCount > 0)
@@ -135,7 +151,7 @@
 
                     @forelse ($modulesByGroup as $groupKey => $modules)
                         @php($groupDefinition = $groups[$groupKey])
-                        <details class="ac-group group rounded-xl border border-gray-200 bg-white shadow-sm open:ring-1 open:ring-gray-950/5 dark:border-white/10 dark:bg-gray-900 dark:open:ring-white/10" @if ($loop->first) open @endif data-testid="access-group-{{ $groupKey }}">
+                        <details class="ac-group group rounded-xl border border-gray-200 bg-white shadow-sm open:ring-1 open:ring-gray-950/5 dark:border-white/10 dark:bg-gray-900 dark:open:ring-white/10" @if (in_array($groupKey, $expandedGroups, true)) open @endif data-testid="access-group-{{ $groupKey }}" wire:key="access-group-{{ $groupKey }}" x-on:toggle.self.debounce.50ms="$wire.setGroupExpanded(@js($groupKey), $event.target.open)">
                             <summary class="ac-group-header cursor-pointer list-none px-4 py-3.5 marker:hidden sm:px-5">
                                         <div class="ac-group-title flex min-w-0 items-start gap-3">
                                     <div class="flex min-w-0 items-start gap-3">
@@ -144,7 +160,7 @@
                                     </div>
                                 </div>
                             </summary>
-                            @if ($selectedEmployee->role !== \App\Enums\EmployeeRole::Owner && ! in_array($groupKey, ['dashboard', 'reports'], true) && collect($modules)->contains('can_manage_primary', true))
+                            @if (($bulkMode || $selectedEmployee->role !== \App\Enums\EmployeeRole::Owner) && ! in_array($groupKey, ['dashboard', 'reports'], true) && collect($modules)->contains('can_manage_primary', true))
                                 <div class="ac-group-tools flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 bg-gray-50/70 px-4 py-2 dark:border-white/10 dark:bg-white/5 sm:px-5">
                                     <span class="mr-auto text-xs font-medium text-gray-500">Set every manageable module in this group</span>
                                     <span class="text-xs font-semibold text-gray-600 dark:text-gray-300">Set Group</span>
@@ -159,14 +175,14 @@
                                 @foreach ($modules as $module)
                                     @php($allowOverrideCount = collect($module['permissions'])->where('setting', 'allow')->count())
                                     @php($denyOverrideCount = collect($module['permissions'])->where('setting', 'deny')->count())
-                                    <article class="ac-module-card min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900" data-testid="access-module-{{ $module['key'] }}">
+                                    <article class="ac-module-card min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900" data-testid="access-module-{{ $module['key'] }}" wire:key="access-module-{{ $module['key'] }}">
                                         <div class="ac-module-heading flex min-w-0 items-start justify-between gap-3">
                                             <div class="min-w-0"><h4 class="font-semibold">{{ $module['label'] }}</h4>@if ($module['description'])<p class="mt-1 text-xs leading-5 text-gray-500">{{ $module['description'] }}</p>@endif</div>
                                             <div class="ac-module-badges flex shrink-0 flex-wrap justify-end gap-1">
                                                 @if ($module['changed_count'] > 0)<x-filament::badge size="sm" color="warning">Not Saved Yet</x-filament::badge>@endif
-                                                @if ($allowOverrideCount > 0)<x-filament::badge size="sm" color="success">Allowed for this employee</x-filament::badge>@endif
-                                                @if ($denyOverrideCount > 0)<x-filament::badge size="sm" color="danger">Blocked for this employee</x-filament::badge>@endif
-                                                @if ($module['override_count'] === 0)<x-filament::badge size="sm" color="gray">Using Role Default</x-filament::badge>@endif
+                                                @if ($allowOverrideCount > 0)<x-filament::badge size="sm" color="success">Allowed for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@endif
+                                                @if ($denyOverrideCount > 0)<x-filament::badge size="sm" color="danger">Blocked for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@endif
+                                                @if ($module['mixed_count'] > 0)<x-filament::badge size="sm" color="gray">Mixed settings</x-filament::badge>@elseif ($module['override_count'] === 0)<x-filament::badge size="sm" color="gray">Using Role Default</x-filament::badge>@endif
                                             </div>
                                         </div>
                                         @if ($module['derived'])
@@ -174,7 +190,7 @@
                                         @else
                                             <span class="sr-only">{{ collect([...$module['view_permissions'], ...$module['edit_permissions']])->pluck('label')->implode(', ') }}</span>
                                             <div class="mt-3">
-                                                <div class="ac-module-access-header mb-2 flex flex-wrap items-center justify-between gap-2"><span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Module Access</span><x-filament::badge size="sm" color="gray">Default Access: {{ match($module['role_level']) {'view_edit' => 'View & Edit', 'view' => 'View', default => 'No Access'} }}</x-filament::badge></div>
+                                                <div class="ac-module-access-header mb-2 flex flex-wrap items-center justify-between gap-2"><span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Module Access</span><x-filament::badge size="sm" color="gray">Default Access: {{ match($module['role_level']) {'view_edit' => 'View & Edit', 'view' => 'View', 'mixed' => 'Mixed', default => 'No Access'} }}</x-filament::badge></div>
                                                 @if ($module['can_manage_primary'])
                                                     <div class="ac-segmented grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1 dark:bg-white/5" role="radiogroup" aria-label="{{ $module['label'] }} access level">
                                                         @foreach (['none' => 'None', 'view' => 'View', 'view_edit' => 'View & Edit'] as $level => $label)
@@ -183,7 +199,7 @@
                                                         @endforeach
                                                     </div>
                                                     <div class="ac-module-access-footer mt-2 flex items-center justify-between gap-2">
-                                                        <span class="text-xs text-gray-500">Effective: <strong class="font-medium text-gray-700 dark:text-gray-200">{{ match($module['primary_level']) {'view_edit' => 'View & Edit', 'view' => 'View', default => 'None'} }}</strong></span>
+                                                        <span class="text-xs text-gray-500">Effective: <strong class="font-medium text-gray-700 dark:text-gray-200">{{ match($module['primary_level']) {'view_edit' => 'View & Edit', 'view' => 'View', 'mixed' => 'Mixed', default => 'None'} }}</strong></span>
                                                         <x-filament::button color="gray" icon="heroicon-m-arrow-path" size="xs" wire:click="inheritModule('{{ $module['key'] }}')">Reset to Role Default</x-filament::button>
                                                     </div>
                                                 @else
@@ -191,7 +207,7 @@
                                                 @endif
                                             </div>
                                             @if ($module['advanced_permissions'] !== [])
-                                                <details class="ac-advanced group/advanced mt-3 rounded-lg border border-gray-200 dark:border-white/10">
+                                                <details class="ac-advanced group/advanced mt-3 rounded-lg border border-gray-200 dark:border-white/10" @if (in_array($module['key'], $expandedAdvancedModules, true)) open @endif data-testid="access-advanced-{{ $module['key'] }}" wire:key="access-advanced-{{ $module['key'] }}" x-on:toggle.self.debounce.50ms="$wire.setAdvancedExpanded(@js($module['key']), $event.target.open)">
                                                     <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium marker:hidden"><span>Advanced Permissions <span class="text-xs font-normal text-gray-500">({{ count($module['advanced_permissions']) }})</span></span><x-heroicon-m-chevron-down class="h-4 w-4 text-gray-400 transition group-open/advanced:rotate-180" /></summary>
                                                     <div class="space-y-2 border-t border-gray-100 p-3 dark:border-white/10">
                                                         @foreach ($module['advanced_permissions'] as $permissionDefinition)
@@ -201,15 +217,15 @@
                                                                     <div class="ac-permission-badges flex flex-wrap items-center gap-1.5">
                                                                         <span class="text-sm font-medium">{{ $permission['label'] }}</span>
                                                                         @if ($permission['financial'])<x-filament::badge size="sm" color="warning">Financial</x-filament::badge>@endif
-                                                                        <x-filament::badge size="sm" :color="$permission['effective'] ? 'success' : 'danger'">Access: {{ $permission['effective'] ? 'Yes' : 'No' }}</x-filament::badge>
-                                                                        @if ($permission['setting'] === 'inherit')<x-filament::badge size="sm" color="gray">Using Role Default</x-filament::badge>@elseif ($permission['setting'] === 'allow')<x-filament::badge size="sm" color="success">Allowed for this employee</x-filament::badge>@else<x-filament::badge size="sm" color="danger">Blocked for this employee</x-filament::badge>@endif
+                                                                        <x-filament::badge size="sm" :color="$permission['effective'] === null ? 'gray' : ($permission['effective'] ? 'success' : 'danger')">Access: {{ $permission['effective'] === null ? 'Mixed' : ($permission['effective'] ? 'Yes' : 'No') }}</x-filament::badge>
+                                                                        @if ($permission['setting'] === 'mixed')<x-filament::badge size="sm" color="gray">Mixed — unchanged</x-filament::badge>@elseif ($permission['setting'] === 'inherit')<x-filament::badge size="sm" color="gray">Using Role Default</x-filament::badge>@elseif ($permission['setting'] === 'allow')<x-filament::badge size="sm" color="success">Allowed for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@else<x-filament::badge size="sm" color="danger">Blocked for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@endif
                                                                         @if ($permission['changed'])<x-filament::badge size="sm" color="warning">Not Saved Yet</x-filament::badge>@endif
                                                                     </div>
-                                                                    <p class="mt-1 text-xs text-gray-500">Default Access: {{ $permission['role_default'] ? 'Access' : 'No Access' }}</p>
+                                                                    <p class="mt-1 text-xs text-gray-500">Default Access: {{ $permission['role_default'] === null ? 'Mixed' : ($permission['role_default'] ? 'Access' : 'No Access') }}</p>
                                                                 </div>
                                                                 @if ($permission['can_manage'])
                                                                     <div class="ac-segmented ac-segmented-advanced grid grid-cols-3 gap-1 rounded-lg bg-gray-200/70 p-1 dark:bg-black/20" role="radiogroup" aria-label="{{ $permission['label'] }} override">
-                                                                        @foreach (['inherit' => 'Reset to Role Default', 'allow' => 'Allow for Employee', 'deny' => 'Block for Employee'] as $setting => $settingLabel)
+                                                                        @foreach (['inherit' => 'Reset to Role Default', 'allow' => $bulkMode ? 'Allow for Selected' : 'Allow for Employee', 'deny' => $bulkMode ? 'Block for Selected' : 'Block for Employee'] as $setting => $settingLabel)
                                                                             <button type="button" wire:click="stagePermission(@js($permission['key']), '{{ $setting }}')" aria-pressed="{{ $permission['setting'] === $setting ? 'true' : 'false' }}" @class(['whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-semibold transition', 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:text-primary-300 dark:ring-white/10' => $permission['setting'] === $setting, 'text-gray-600 hover:bg-white/70 dark:text-gray-300 dark:hover:bg-white/5' => $permission['setting'] !== $setting])>{{ $settingLabel }}</button>
                                                                         @endforeach
                                                                     </div>

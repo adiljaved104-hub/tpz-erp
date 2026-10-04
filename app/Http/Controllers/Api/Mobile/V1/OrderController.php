@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
+use App\Actions\Orders\SaveAsShippedOrder;
 use App\DTOs\Orders\CancelOrderData;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
@@ -132,6 +133,7 @@ class OrderController extends MobileController
         return response()->json(['data' => [
             'can_create' => $auth->allows($user, OrderPermission::Create) && $auth->allows($user, OrderPermission::EditSellingPrice),
             'can_reserve' => $auth->allows($user, OrderPermission::Reserve),
+            'can_fulfill' => $auth->allows($user, OrderPermission::Fulfill),
             'platforms' => $platforms, 'warehouses' => collect(app(OrderFulfillmentLocationService::class)->options($platform))->map(fn ($label, $id) => ['id' => $id, 'name' => $label])->values(),
             'products' => $products->orderBy('name')->paginate(25)->through(fn ($p) => ['id' => $p->id, 'name' => $p->name, 'sku' => $p->sku]),
         ]]);
@@ -158,7 +160,7 @@ class OrderController extends MobileController
 
     public function store(Request $request): JsonResponse
     {
-        $request->validate(['mode' => 'required|in:draft,reserve']);
+        $request->validate(['mode' => 'required|in:draft,reserve,shipped']);
         $auth = app(OrderAuthorization::class);
         $user = $request->user();
         $auth->authorize($user, OrderPermission::Create);
@@ -171,7 +173,11 @@ class OrderController extends MobileController
             return $this->show($request, $retry);
         }
         $service = app(OrderService::class);
-        $order = $request->input('mode') === 'reserve' ? $service->saveAndReserve($dto, $user) : $service->saveDraft($dto, $user);
+        $order = match ($request->input('mode')) {
+            'reserve' => $service->saveAndReserve($dto, $user),
+            'shipped' => app(SaveAsShippedOrder::class)->handle($dto, $user),
+            default => $service->saveDraft($dto, $user),
+        };
 
         return $this->show($request, $order);
     }

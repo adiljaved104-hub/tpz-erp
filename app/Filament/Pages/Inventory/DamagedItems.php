@@ -44,6 +44,8 @@ class DamagedItems extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
+    protected static ?int $navigationSort = 6;
+
     protected static ?string $navigationLabel = 'Damaged Items';
 
     protected static ?string $title = 'Damaged Items';

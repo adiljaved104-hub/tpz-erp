@@ -13,5 +13,7 @@ final readonly class OrderItemData
         public ?string $notes = null,
         public ?int $salesConfigurationId = null,
         public ?int $upgradeRecipeId = null,
+        /** @var array<int, int>|null */
+        public ?array $allocationSources = null,
     ) {}
 }

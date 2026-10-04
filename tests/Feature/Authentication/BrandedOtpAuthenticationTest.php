@@ -308,6 +308,8 @@ class BrandedOtpAuthenticationTest extends TestCase
 
         $this->assertTrue(Hash::check('New-Secure-Password-2026!', $user->refresh()->password));
         $this->assertFalse(Hash::check('password', $user->password));
+        $this->assertNotNull($user->password_changed_at);
+        $this->assertTrue($user->password_changed_at->isCurrentMinute());
         $this->assertNotNull(AuthenticationOtpChallenge::query()->sole()->consumed_at);
     }
 
@@ -351,6 +353,28 @@ class BrandedOtpAuthenticationTest extends TestCase
             ->call('authenticate')
             ->assertRedirect('/admin');
         $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_privileged_passwordless_otp_login_still_requires_password_as_second_factor(): void
+    {
+        Notification::fake();
+        $owner = $this->user(role: EmployeeRole::Owner);
+
+        $this->post(route('auth.otp.send'), ['email' => $owner->email])
+            ->assertRedirect(route('auth.otp.verify'));
+        $code = $this->sentOtp($owner, AuthenticationOtpPurpose::Login)->code;
+        $this->post(route('auth.otp.verify.submit'), ['code' => $code])
+            ->assertRedirect(route('filament.admin.auth.login'));
+        $this->assertGuest();
+
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        Livewire::test(Login::class)
+            ->set('data.email', $owner->email)
+            ->set('data.password', 'password')
+            ->call('authenticate')
+            ->assertRedirect('/admin');
+        $this->assertAuthenticatedAs($owner);
+        Notification::assertSentToTimes($owner, AuthenticationOtpNotification::class, 1);
     }
 
     public function test_existing_password_login_still_works_and_inactive_employee_is_denied(): void

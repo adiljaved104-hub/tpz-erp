@@ -258,7 +258,7 @@ class OrderAmendmentService
     }
 
     /**
-     * @param  array{external_order_number?:?string,items?:array<int,array{id:int,quantity:int,selling_price?:string}>,reason:string,idempotency_key:string}  $input
+     * @param  array{external_order_number?:?string,items?:array<int,array{id:int,quantity:int,selling_price?:string,allocation_sources?:array<int,array{account_id:int,quantity:int}>}>,reason:string,idempotency_key:string}  $input
      */
     public function amend(Order $order, array $input, User $actor): OrderAmendment
     {
@@ -271,6 +271,9 @@ class OrderAmendmentService
             'items.*.id' => ['required', 'integer', 'distinct'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.selling_price' => ['sometimes', 'required', 'numeric', 'min:0', 'decimal:0,2'],
+            'items.*.allocation_sources' => ['sometimes', 'array'],
+            'items.*.allocation_sources.*.account_id' => ['required', 'integer', 'distinct'],
+            'items.*.allocation_sources.*.quantity' => ['required', 'integer', 'min:1'],
         ])->validate();
 
         // References are allocated outside the business transaction and cannot be reused after rollback.
@@ -351,6 +354,11 @@ class OrderAmendmentService
                     }
                     $delta = $quantity - $item->ordered_quantity;
                     if ($delta > 0) {
+                        if (empty($change['allocation_sources'])) {
+                            throw ValidationException::withMessages([
+                                'items' => "{$item->sku} — Select an additional Stock Source for the {$delta}-unit increase.",
+                            ]);
+                        }
                         $stock = ProductInventory::query()->lockForUpdate()->findOrFail($reservation->product_inventory_id);
                         $attributed = DB::table('responsibility_inventory_consumptions')->where('inventory_reservation_id', $reservation->id)->value('responsibility_assignment_id');
                         if ($attributed !== null) {
@@ -365,7 +373,15 @@ class OrderAmendmentService
                             }
                         }
                     }
-                    $this->inventory->adjustOrderReservation($reservation, $quantity, $actor, $references[$referenceIndex++] ?? throw new \LogicException('Missing reserved movement reference.'), (string) Str::uuid(), $movementGroup);
+                    $this->inventory->adjustOrderReservation(
+                        $reservation,
+                        $quantity,
+                        $actor,
+                        $references[$referenceIndex++] ?? throw new \LogicException('Missing reserved movement reference.'),
+                        (string) Str::uuid(),
+                        $movementGroup,
+                        $delta > 0 ? $this->allocationSources($change['allocation_sources'] ?? []) : null,
+                    );
                     if ($item->upgradeSelection !== null) {
                         $this->adjustUpgradeSelection($item, $quantity, $actor, $amendment, $references, $referenceIndex, $movementGroup);
                     }
@@ -424,6 +440,18 @@ class OrderAmendmentService
     private function line(OrderAmendment $amendment, ?OrderItem $item, string $field, ?string $old, ?string $new): void
     {
         $amendment->lines()->create(['order_item_id' => $item?->id, 'field' => $field, 'old_value' => $old, 'new_value' => $new]);
+    }
+
+    /** @param array<int, array{account_id:int,quantity:int}> $rows
+     * @return array<int, int>|null
+     */
+    private function allocationSources(array $rows): ?array
+    {
+        $sources = collect($rows)->mapWithKeys(fn (array $row): array => [
+            (int) $row['account_id'] => (int) $row['quantity'],
+        ])->all();
+
+        return $sources === [] ? null : $sources;
     }
 
     /** @param list<string> $references */

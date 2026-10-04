@@ -22,7 +22,9 @@ class MarketplacePlatformResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingStorefront;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Catalog';
+    protected static string|\UnitEnum|null $navigationGroup = 'Administration';
+
+    protected static ?int $navigationSort = 7;
 
     protected static ?string $navigationLabel = 'Platforms';
 

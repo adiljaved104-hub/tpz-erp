@@ -21,6 +21,8 @@ class PurchaseReceiptResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Purchasing';
 
+    protected static ?int $navigationSort = 3;
+
     protected static ?string $navigationLabel = 'Goods Received Notes';
 
     protected static ?string $modelLabel = 'Goods Receipt (GRN)';

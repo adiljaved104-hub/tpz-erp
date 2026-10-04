@@ -18,5 +18,6 @@ final readonly class WebSalesOrderData
         public array $items,
         public string $idempotencyKey,
         public ?string $notes = null,
+        public ?string $customerAddress = null,
     ) {}
 }

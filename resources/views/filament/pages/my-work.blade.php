@@ -7,13 +7,13 @@
         </div>
     @endif
 
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        @foreach (['pending' => ['Pending', 'heroicon-o-clock', 'amber'], 'in_progress' => ['In Progress', 'heroicon-o-arrow-path', 'blue'], 'waiting' => ['Waiting', 'heroicon-o-pause-circle', 'slate'], 'awaiting_confirmation' => ['Awaiting Confirmation', 'heroicon-o-question-mark-circle', 'indigo'], 'overdue' => ['Overdue', 'heroicon-o-exclamation-circle', 'red']] as $key => [$label, $icon, $accent])
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        @foreach (['pending' => ['To Do', 'heroicon-o-clock', 'amber'], 'in_progress' => ['In Progress', 'heroicon-o-arrow-path', 'blue'], 'waiting' => ['Waiting', 'heroicon-o-pause-circle', 'slate'], 'awaiting_confirmation' => ['Awaiting Confirmation', 'heroicon-o-question-mark-circle', 'indigo'], 'due_soon' => ['Due Soon', 'heroicon-o-calendar-days', 'amber'], 'overdue' => ['Overdue', 'heroicon-o-exclamation-circle', 'red']] as $key => [$label, $icon, $accent])
             @include('filament.widgets.dashboard.metric-card', ['metricTitle' => $label, 'metricValue' => $summary[$key], 'metricIcon' => $icon, 'metricAccent' => $accent, 'metricShowOpen' => false])
         @endforeach
     </div>
 
-    <x-filament::section compact>
+    <x-filament::section compact heading="My Tasks" description="Your assigned work is listed first. Linked records remain subject to their own access rules.">
         <div class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label><span class="mb-1 block text-xs font-medium">Search Tasks</span><x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.300ms="search" placeholder="Task reference or title" /></x-filament::input.wrapper></label>
             <label><span class="mb-1 block text-xs font-medium">Priority</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="priority"><option value="">All priorities</option>@foreach (\App\Enums\TaskPriority::cases() as $option)<option value="{{ $option->value }}">{{ $option->getLabel() }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
@@ -23,7 +23,13 @@
     </x-filament::section>
 
     @if ($rows->isEmpty())
-        <x-filament::section><div class="py-8 text-center text-sm text-gray-500">You have no pending work right now.</div></x-filament::section>
+        <x-filament::section>
+            <div class="py-8 text-center">
+                <div class="font-medium">No tasks match this view.</div>
+                <p class="mt-1 text-sm text-gray-500">Clear the filters or check back when work is assigned.</p>
+                @if ($search !== '' || $priority !== '' || $status !== '')<div class="mt-3"><x-filament::button size="sm" color="gray" wire:click="resetFilters">Clear filters</x-filament::button></div>@endif
+            </div>
+        </x-filament::section>
     @else
         <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-900">
             <table class="w-full min-w-[1050px] divide-y divide-gray-200 text-sm dark:divide-white/10">

@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Auth\EmailOtpAuthenticationProvider;
 use App\Filament\Auth\Login;
 use App\Filament\Widgets\ErpDashboardOverview;
+use App\Http\Middleware\EnforceWebSecurityPolicy;
 use App\Services\Branding\ApplicationBranding;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -32,6 +33,10 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->sidebarFullyCollapsibleOnDesktop()
+            ->navigationGroups([
+                'Workspace', 'Sales', 'Purchasing', 'Inventory', 'Marketplace', 'Returns & Service',
+                'Products', 'People', 'HR', 'Finance', 'Reports', 'Administration',
+            ])
             ->assets([
                 Css::make('access-control', resource_path('css/filament/access-control.css')),
             ])
@@ -70,6 +75,10 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::AUTH_LOGIN_FORM_AFTER,
                 fn () => view('filament.auth.login-alternatives'),
             )
+            ->renderHook(
+                PanelsRenderHook::BODY_END,
+                fn () => view('filament.hooks.web-inactivity-timeout'),
+            )
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -83,6 +92,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
-            ]);
+                EnforceWebSecurityPolicy::class,
+            ], isPersistent: true);
     }
 }

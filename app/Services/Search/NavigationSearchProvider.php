@@ -5,7 +5,7 @@ namespace App\Services\Search;
 use App\Contracts\GlobalSearchProvider;
 use App\DTOs\GlobalSearchResult;
 use App\Models\User;
-use Filament\Facades\Filament;
+use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Illuminate\Support\Collection;
@@ -22,7 +22,7 @@ class NavigationSearchProvider implements GlobalSearchProvider
 
         $needle = Str::lower(trim($query));
 
-        return collect(Filament::getPanel('admin')->getNavigation())
+        return collect(app(NavigationPreferenceService::class)->authorizedNavigation())
             ->flatMap(fn (NavigationGroup $group): Collection => $this->resultsForItems(
                 collect($group->getItems()),
                 $group->getLabel(),

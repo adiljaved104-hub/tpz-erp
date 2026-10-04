@@ -116,6 +116,38 @@ class NavigationPreferenceTest extends TestCase
         $this->assertSame([], app(NavigationPreferenceService::class)->apply($user, $groups));
     }
 
+    public function test_reorganized_groups_preserve_legacy_hidden_items_and_group_order(): void
+    {
+        $user = User::factory()->create();
+        $service = app(NavigationPreferenceService::class);
+        $workspace = NavigationGroup::make('Workspace')->items([
+            NavigationItem::make('My Work')->url('/admin/my-work'),
+        ]);
+        $catalog = NavigationGroup::make('Products & Catalog')->items([
+            NavigationItem::make('Products')->url('/admin/products'),
+            NavigationItem::make('Brands')->url('/admin/product-brands'),
+        ]);
+        $sales = NavigationGroup::make('Sales')->items([
+            NavigationItem::make('Sales Orders')->url('/admin/orders'),
+            NavigationItem::make('Quotations')->url('/admin/quotations'),
+        ]);
+
+        app(UserUiPreferenceService::class)->put($user, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS, [
+            $this->itemKey('Catalog', 'Brands', 'admin/product-brands'),
+            $this->itemKey('Sales', 'Orders', 'admin/orders'),
+        ]);
+        app(UserUiPreferenceService::class)->put($user, UserUiPreferenceService::NAVIGATION_GROUP_ORDER, [
+            $this->groupKey('Work'),
+            $this->groupKey('Catalog'),
+        ]);
+
+        $result = $service->apply($user, [$catalog, $sales, $workspace]);
+
+        $this->assertSame(['Workspace', 'Products & Catalog', 'Sales'], collect($result)->map(fn (NavigationGroup $group): ?string => $group->getLabel())->all());
+        $this->assertSame(['Products'], collect($result[1]->getItems())->map(fn (NavigationItem $item): string => $item->getLabel())->all());
+        $this->assertSame(['Quotations'], collect($result[2]->getItems())->map(fn (NavigationItem $item): string => $item->getLabel())->all());
+    }
+
     public function test_customizer_normalizes_string_group_keys_and_preserves_default_and_saved_order(): void
     {
         [$inventory, $sales] = $this->navigationGroups();

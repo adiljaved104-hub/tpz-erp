@@ -11,7 +11,7 @@ abstract class BasePurchaseReport extends Page
 {
     protected string $view = 'filament.pages.purchasing-report';
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Purchasing';
+    protected static string|\UnitEnum|null $navigationGroup = 'Reports';
 
     public static function canAccess(): bool
     {

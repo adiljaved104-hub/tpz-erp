@@ -9,28 +9,41 @@
 
         @if ($responsibilities->isNotEmpty())
             <x-filament::section heading="My Responsibilities" description="The active scopes that determine which Products and inventory you can work with.">
-                <div class="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 dark:divide-white/5 dark:border-white/10">
-                    @foreach ($responsibilities as $scope)
-                        <div class="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
-                            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                                <span class="max-w-full truncate text-sm font-semibold text-gray-950 dark:text-white" title="{{ $scope['scope'] }}">{{ $scope['scope'] }}</span>
-                                @if ($scope['platform'])
-                                    <x-filament::badge color="info" size="sm">{{ $scope['platform'] }}</x-filament::badge>
-                                @endif
-                                <x-filament::badge color="gray" size="sm">{{ $scope['type'] }}</x-filament::badge>
-                                @if ($scope['quantity'] !== null)
-                                    <x-filament::badge color="warning" size="sm">{{ $scope['remaining'] }} / {{ $scope['quantity'] }} remaining</x-filament::badge>
-                                @endif
-                            </div>
-                            <span class="shrink-0 font-mono text-xs text-gray-500 dark:text-gray-400">{{ $scope['reference'] }}</span>
-                        </div>
-                    @endforeach
+                <div class="mb-3 flex justify-end">
+                    <x-filament::button color="gray" size="sm" :icon="in_array('responsibilities', $collapsedSections, true) ? 'heroicon-m-chevron-down' : 'heroicon-m-chevron-up'" wire:click="toggleSection('responsibilities')">
+                        {{ in_array('responsibilities', $collapsedSections, true) ? 'Show Responsibilities' : 'Hide Responsibilities' }}
+                    </x-filament::button>
                 </div>
+                @if (! in_array('responsibilities', $collapsedSections, true))
+                    <div class="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 dark:divide-white/5 dark:border-white/10">
+                        @foreach ($responsibilities as $scope)
+                            <div class="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
+                                <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                                    <span class="max-w-full truncate text-sm font-semibold text-gray-950 dark:text-white" title="{{ $scope['scope'] }}">{{ $scope['scope'] }}</span>
+                                    @if ($scope['platform'])
+                                        <x-filament::badge color="info" size="sm">{{ $scope['platform'] }}</x-filament::badge>
+                                    @endif
+                                    <x-filament::badge color="gray" size="sm">{{ $scope['type'] }}</x-filament::badge>
+                                    @if ($scope['quantity'] !== null)
+                                        <x-filament::badge color="warning" size="sm">{{ $scope['remaining'] }} / {{ $scope['quantity'] }} remaining</x-filament::badge>
+                                    @endif
+                                </div>
+                                <span class="shrink-0 font-mono text-xs text-gray-500 dark:text-gray-400">{{ $scope['reference'] }}</span>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
             </x-filament::section>
         @endif
 
         <x-filament::section heading="My Products" description="Search and filter only the inventory available through your active responsibilities.">
-            <div class="mb-5 space-y-4">
+            <div class="mb-3 flex justify-end">
+                <x-filament::button color="gray" size="sm" :icon="in_array('filters', $collapsedSections, true) ? 'heroicon-m-chevron-down' : 'heroicon-m-chevron-up'" wire:click="toggleSection('filters')">
+                    {{ in_array('filters', $collapsedSections, true) ? 'Show Filters' : 'Hide Filters' }}
+                </x-filament::button>
+            </div>
+            @if (! in_array('filters', $collapsedSections, true))
+                <div class="mb-5 space-y-4">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
                     <label class="block min-w-0 flex-1">
                         <span class="mb-1.5 block text-sm font-medium">Search Products</span>
@@ -63,7 +76,8 @@
                     <label class="min-w-0 xl:col-span-2"><span class="mb-1.5 block text-sm font-medium">Visible Because</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="visibleBecause"><option value="">All Responsibilities</option>@foreach ($filterOptions['reasons'] as $option)<option value="{{ $option }}">{{ $option }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
                     <div class="flex items-end"><x-filament::button color="gray" icon="heroicon-m-x-mark" wire:click="resetInventoryFilters" class="w-full justify-center">Clear filters</x-filament::button></div>
                 </div>
-            </div>
+                </div>
+            @endif
 
             @if ($inventoryRows->isEmpty())
                 <div class="rounded-lg border border-dashed border-gray-300 px-4 py-10 text-center dark:border-white/15">

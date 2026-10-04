@@ -16,6 +16,7 @@ use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
@@ -33,6 +34,8 @@ class AccessControl extends Page
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedKey;
 
     protected static string|\UnitEnum|null $navigationGroup = 'Administration';
+
+    protected static ?int $navigationSort = 4;
 
     protected static ?string $navigationLabel = 'Access Control';
 
@@ -65,6 +68,15 @@ class AccessControl extends Page
 
     public ?int $selectedEmployeeId = null;
 
+    /** @var array<int, int> */
+    public array $selectedEmployeeIds = [];
+
+    /** @var array<int, string> */
+    public array $expandedGroups = [];
+
+    /** @var array<int, string> */
+    public array $expandedAdvancedModules = [];
+
     /** @var array<string, string> */
     public array $draftSettings = [];
 
@@ -94,6 +106,8 @@ class AccessControl extends Page
     {
         abort_unless(static::canAccess(), 403);
         $this->selectedEmployeeId = $this->employeeQuery()->value('id');
+        $firstGroup = array_key_first(app(AccessControlModuleRegistry::class)->groups());
+        $this->expandedGroups = $firstGroup === null ? [] : [$firstGroup];
         $this->loadDraftSettings();
     }
 
@@ -122,14 +136,71 @@ class AccessControl extends Page
         abort_unless(static::canAccess(), 403);
         abort_unless($this->employeeQuery()->whereKey($employeeId)->exists(), 404);
         $this->selectedEmployeeId = $employeeId;
+        $this->selectedEmployeeIds = [];
         $this->changeReason = '';
         $this->loadDraftSettings();
     }
 
+    public function toggleEmployeeSelection(int $employeeId): void
+    {
+        abort_unless(static::canAccess(), 403);
+        $employee = $this->employeeQuery()->whereKey($employeeId)->firstOrFail();
+        $this->ensureBulkSelectable($employee);
+
+        $selected = collect($this->selectedEmployeeIds)->map(fn ($id): int => (int) $id);
+        $this->selectedEmployeeIds = $selected->contains($employeeId)
+            ? $selected->reject(fn (int $id): bool => $id === $employeeId)->values()->all()
+            : $selected->push($employeeId)->unique()->sort()->values()->all();
+        $this->changeReason = '';
+        $this->loadDraftSettings();
+    }
+
+    public function selectFilteredEmployees(): void
+    {
+        abort_unless(static::canAccess(), 403);
+        $employees = $this->employeeQuery()->get();
+        $manageable = $employees->filter(fn (Employee $employee): bool => $this->isBulkSelectable($employee));
+        $excluded = $employees->count() - $manageable->count();
+
+        if ($manageable->isEmpty()) {
+            Notification::make()->warning()->title('No manageable active employees match these filters')->send();
+
+            return;
+        }
+
+        $this->selectedEmployeeIds = $manageable->modelKeys();
+        $this->changeReason = '';
+        $this->loadDraftSettings();
+
+        if ($excluded > 0) {
+            Notification::make()->warning()->title("{$excluded} protected or inactive ".str('employee')->plural($excluded).' not selected')->send();
+        }
+    }
+
+    public function clearEmployeeSelection(): void
+    {
+        $this->selectedEmployeeIds = [];
+        $this->changeReason = '';
+        $this->loadDraftSettings();
+    }
+
+    public function setGroupExpanded(string $groupKey, bool $expanded): void
+    {
+        abort_unless(array_key_exists($groupKey, app(AccessControlModuleRegistry::class)->groups()), 404);
+        $this->expandedGroups = $this->updatedExpandedState($this->expandedGroups, $groupKey, $expanded);
+    }
+
+    public function setAdvancedExpanded(string $moduleKey, bool $expanded): void
+    {
+        abort_unless(array_key_exists($moduleKey, app(AccessControlModuleRegistry::class)->keyed()), 404);
+        $this->expandedAdvancedModules = $this->updatedExpandedState($this->expandedAdvancedModules, $moduleKey, $expanded);
+    }
+
     public function stagePermission(string $permissionKey, string $setting): void
     {
-        $employee = $this->selectedEmployee();
-        $this->authorizeManagedChange($employee, $permissionKey, $setting);
+        foreach ($this->targetEmployees() as $employee) {
+            $this->authorizeManagedChange($employee, $permissionKey, $setting);
+        }
         $this->draftSettings[$permissionKey] = $setting;
     }
 
@@ -138,16 +209,20 @@ class AccessControl extends Page
         abort_unless(in_array($level, ['none', 'view', 'view_edit'], true), 422);
         $module = app(AccessControlModuleRegistry::class)->keyed()[$moduleKey] ?? null;
         abort_unless(is_array($module) && ! $module['derived'], 404);
-        $employee = $this->selectedEmployee();
+        $employees = $this->targetEmployees();
 
         foreach ($module['view_keys'] as $key) {
             $setting = $level === 'none' ? 'deny' : 'allow';
-            $this->authorizeManagedChange($employee, $key, $setting);
+            foreach ($employees as $employee) {
+                $this->authorizeManagedChange($employee, $key, $setting);
+            }
             $this->draftSettings[$key] = $setting;
         }
         foreach ($module['edit_keys'] as $key) {
             $setting = $level === 'view_edit' ? 'allow' : 'deny';
-            $this->authorizeManagedChange($employee, $key, $setting);
+            foreach ($employees as $employee) {
+                $this->authorizeManagedChange($employee, $key, $setting);
+            }
             $this->draftSettings[$key] = $setting;
         }
     }
@@ -156,10 +231,12 @@ class AccessControl extends Page
     {
         $module = app(AccessControlModuleRegistry::class)->keyed()[$moduleKey] ?? null;
         abort_unless(is_array($module) && ! $module['derived'], 404);
-        $employee = $this->selectedEmployee();
+        $employees = $this->targetEmployees();
 
         foreach ([...$module['view_keys'], ...$module['edit_keys']] as $key) {
-            $this->authorizeManagedChange($employee, $key, 'inherit');
+            foreach ($employees as $employee) {
+                $this->authorizeManagedChange($employee, $key, 'inherit');
+            }
             $this->draftSettings[$key] = 'inherit';
         }
     }
@@ -185,7 +262,8 @@ class AccessControl extends Page
     public function saveChanges(): void
     {
         abort_unless(static::canAccess(), 403);
-        $employee = $this->selectedEmployee();
+        $this->resetValidation();
+        $employees = $this->targetEmployees();
         $changes = $this->pendingChanges();
         if ($changes === []) {
             Notification::make()->info()->title('No access changes to save')->send();
@@ -196,7 +274,9 @@ class AccessControl extends Page
         $catalog = app(EmployeePermissionCatalog::class);
         $requiresReason = false;
         foreach ($changes as $key => $setting) {
-            $this->authorizeManagedChange($employee, $key, $setting);
+            foreach ($employees as $employee) {
+                $this->authorizeManagedChange($employee, $key, $setting);
+            }
             $requiresReason = $requiresReason || (bool) ($catalog->find($key)['financial'] ?? false);
         }
         $reason = filled($this->changeReason) ? trim($this->changeReason) : null;
@@ -205,23 +285,50 @@ class AccessControl extends Page
         }
 
         try {
-            DB::transaction(function () use ($changes, $employee, $reason): void {
-                foreach ($changes as $key => $setting) {
-                    app(EmployeePermissionOverrideService::class)->change(
-                        $employee,
-                        $key,
-                        match ($setting) {
-                            'allow' => EmployeePermissionEffect::Allow,
-                            'deny' => EmployeePermissionEffect::Deny,
-                            default => null,
-                        },
-                        $reason,
-                        auth()->user(),
-                    );
-                }
-            });
-        } catch (ValidationException|AuthorizationException $exception) {
-            throw $exception;
+            if ($this->isBulkMode()) {
+                $effects = collect($changes)->map(fn (string $setting): ?EmployeePermissionEffect => match ($setting) {
+                    'allow' => EmployeePermissionEffect::Allow,
+                    'deny' => EmployeePermissionEffect::Deny,
+                    default => null,
+                })->all();
+                $changedCount = app(EmployeePermissionOverrideService::class)->changeMany(
+                    $employees->modelKeys(),
+                    $effects,
+                    $reason,
+                    auth()->user(),
+                );
+            } else {
+                $employee = $employees->firstOrFail();
+                DB::transaction(function () use ($changes, $employee, $reason): void {
+                    foreach ($changes as $key => $setting) {
+                        app(EmployeePermissionOverrideService::class)->change(
+                            $employee,
+                            $key,
+                            match ($setting) {
+                                'allow' => EmployeePermissionEffect::Allow,
+                                'deny' => EmployeePermissionEffect::Deny,
+                                default => null,
+                            },
+                            $reason,
+                            auth()->user(),
+                        );
+                    }
+                });
+                $changedCount = count($changes);
+            }
+        } catch (ValidationException $exception) {
+            if (isset($exception->errors()['reason'])) {
+                throw ValidationException::withMessages(['changeReason' => $exception->errors()['reason']]);
+            }
+            $message = collect($exception->errors())->flatten()->first() ?? 'The access changes are invalid.';
+            $this->addError('employees', $message);
+            Notification::make()->danger()->title('Access changes were not saved')->body($message)->send();
+
+            return;
+        } catch (AuthorizationException $exception) {
+            Notification::make()->danger()->title('Access changes were not saved')->body($exception->getMessage() ?: 'You are not authorized to change one or more selected employees.')->send();
+
+            return;
         } catch (Throwable $exception) {
             report($exception);
             Notification::make()->danger()->title('Access changes could not be saved')->body('No partial permission changes were applied.')->send();
@@ -231,7 +338,12 @@ class AccessControl extends Page
 
         $this->changeReason = '';
         $this->loadDraftSettings();
-        Notification::make()->success()->title('Access changes saved')->body(count($changes).' permission '.str('change')->plural(count($changes)).' applied.')->send();
+        $employeeCount = $employees->count();
+        Notification::make()->success()->title('Access changes saved')->body(
+            $this->isBulkMode()
+                ? "{$changedCount} permission ".str('change')->plural($changedCount)." applied to {$employeeCount} employees."
+                : count($changes).' permission '.str('change')->plural(count($changes)).' applied.',
+        )->send();
     }
 
     /** Compatibility entry point for existing employee-access integrations. */
@@ -311,14 +423,18 @@ class AccessControl extends Page
             $this->selectedEmployeeId = (int) $employees->first()->getKey();
             $this->loadDraftSettings();
         }
-        $selected = $this->selectedEmployeeOrNull();
+        $bulkMode = $this->isBulkMode();
+        $selected = $bulkMode ? null : $this->selectedEmployeeOrNull();
+        $targets = $bulkMode ? $this->bulkEmployees() : ($selected === null ? new EloquentCollection : new EloquentCollection([$selected]));
         $registry = app(AccessControlModuleRegistry::class);
 
         return [
             'employees' => $employees,
             'selectedEmployee' => $selected,
+            'selectedEmployees' => $targets,
+            'bulkMode' => $bulkMode,
             'groups' => $registry->groups(),
-            'modulesByGroup' => $this->moduleRows($selected, $registry),
+            'modulesByGroup' => $this->moduleRows($targets, $registry),
             'teams' => Team::query()->orderBy('name')->pluck('name', 'id'),
             'roleOptions' => collect(EmployeeRole::cases())->mapWithKeys(fn (EmployeeRole $role): array => [$role->value => $role->getLabel()]),
             'dirtyCount' => count($this->pendingChanges()),
@@ -377,12 +493,50 @@ class AccessControl extends Page
             ->find($this->selectedEmployeeId);
     }
 
+    public function isBulkMode(): bool
+    {
+        return $this->selectedEmployeeIds !== [];
+    }
+
+    /** @return EloquentCollection<int, Employee> */
+    private function targetEmployees(): EloquentCollection
+    {
+        if ($this->isBulkMode()) {
+            $employees = $this->bulkEmployees();
+            if ($employees->count() !== count(array_unique(array_map('intval', $this->selectedEmployeeIds)))) {
+                throw ValidationException::withMessages(['employees' => 'One or more selected employees are no longer available.']);
+            }
+
+            return $employees;
+        }
+
+        $employee = $this->selectedEmployee();
+
+        return new EloquentCollection([$employee]);
+    }
+
+    /** @return EloquentCollection<int, Employee> */
+    private function bulkEmployees(): EloquentCollection
+    {
+        return Employee::query()
+            ->with(['user:id,name,email', 'team:id,name', 'permissionOverrides:id,employee_id,permission_key,effect'])
+            ->whereKey(array_values(array_unique(array_map('intval', $this->selectedEmployeeIds))))
+            ->orderBy('name')
+            ->get();
+    }
+
     private function loadDraftSettings(): void
     {
-        $employee = $this->selectedEmployeeOrNull();
-        $overrides = $employee?->permissionOverrides?->keyBy('permission_key');
+        $employees = $this->isBulkMode()
+            ? $this->bulkEmployees()
+            : (($employee = $this->selectedEmployeeOrNull()) === null ? new EloquentCollection : new EloquentCollection([$employee]));
         $this->originalSettings = collect(app(AccessControlModuleRegistry::class)->managedPermissionKeys())
-            ->mapWithKeys(fn (string $key): array => [$key => $overrides?->get($key)?->effect?->value ?? 'inherit'])
+            ->mapWithKeys(function (string $key) use ($employees): array {
+                $settings = $employees->map(fn (Employee $employee): string => $employee->permissionOverrides
+                    ->firstWhere('permission_key', $key)?->effect?->value ?? 'inherit')->unique()->values();
+
+                return [$key => $settings->count() <= 1 ? ($settings->first() ?? 'inherit') : 'mixed'];
+            })
             ->all();
         $this->draftSettings = $this->originalSettings;
     }
@@ -419,9 +573,9 @@ class AccessControl extends Page
     }
 
     /** @return array<string, array<int, array<string, mixed>>> */
-    private function moduleRows(?Employee $employee, AccessControlModuleRegistry $registry): array
+    private function moduleRows(EloquentCollection $employees, AccessControlModuleRegistry $registry): array
     {
-        if ($employee === null) {
+        if ($employees->isEmpty()) {
             return [];
         }
         $catalog = app(EmployeePermissionCatalog::class);
@@ -437,22 +591,36 @@ class AccessControl extends Page
                     return str_contains(strtolower($module['label'].' '.$module['description'].' '.implode(' ', $labels)), $search);
                 });
             })
-            ->map(function (array $module) use ($employee, $catalog, $actor): array {
-                $module['permissions'] = collect($module['permission_keys'])->mapWithKeys(function (string $key) use ($employee, $catalog, $actor): array {
+            ->map(function (array $module) use ($employees, $catalog, $actor): array {
+                $module['permissions'] = collect($module['permission_keys'])->mapWithKeys(function (string $key) use ($employees, $catalog, $actor): array {
                     $setting = $this->draftSettings[$key] ?? 'inherit';
-                    $roleDefault = $catalog->roleDefault($employee, $key);
+                    $roleDefaults = $employees->map(fn (Employee $employee): bool => $catalog->roleDefault($employee, $key))->unique()->values();
+                    $roleDefault = $roleDefaults->count() === 1 ? $roleDefaults->first() : null;
+                    $currentEffective = $employees->map(function (Employee $employee) use ($catalog, $key): bool {
+                        $override = $employee->permissionOverrides->firstWhere('permission_key', $key)?->effect?->value;
+
+                        return match ($override) {
+                            'allow' => true,
+                            'deny' => false,
+                            default => $catalog->roleDefault($employee, $key),
+                        };
+                    })->unique()->values();
                     $effective = match ($setting) {
-                        'allow' => true, 'deny' => false, default => $roleDefault
+                        'allow' => true,
+                        'deny' => false,
+                        'inherit' => $roleDefault,
+                        default => $currentEffective->count() === 1 ? $currentEffective->first() : null,
                     };
                     $definition = $catalog->find($key);
-                    $canManage = $actor?->can('managePermissions', $employee) === true
+                    $canManage = $employees->every(fn (Employee $employee): bool => $actor?->can('managePermissions', $employee) === true)
                         && (! ($definition['financial'] ?? false) || $actor->employee?->role === EmployeeRole::Owner);
 
                     return [$key => [...$definition, 'setting' => $setting, 'original_setting' => $this->originalSettings[$key] ?? 'inherit', 'role_default' => $roleDefault, 'effective' => $effective, 'can_manage' => $canManage, 'changed' => ($this->originalSettings[$key] ?? 'inherit') !== $setting]];
                 })->all();
                 $module['primary_level'] = $this->primaryLevel($module);
                 $module['role_level'] = $this->primaryLevel($module, true);
-                $module['override_count'] = collect($module['permissions'])->where('setting', '!=', 'inherit')->count();
+                $module['override_count'] = collect($module['permissions'])->filter(fn (array $permission): bool => in_array($permission['setting'], ['allow', 'deny'], true))->count();
+                $module['mixed_count'] = collect($module['permissions'])->where('setting', 'mixed')->count();
                 $module['changed_count'] = collect($module['permissions'])->where('changed', true)->count();
                 $module['can_manage_primary'] = collect([...$module['view_keys'], ...$module['edit_keys']])
                     ->every(fn (string $key): bool => $module['permissions'][$key]['can_manage'] ?? false);
@@ -472,6 +640,11 @@ class AccessControl extends Page
     {
         if ($module['derived']) {
             return 'derived';
+        }
+        $field = $roleOnly ? 'role_default' : 'effective';
+        $relevantKeys = [...$module['view_keys'], ...$module['edit_keys']];
+        if (collect($relevantKeys)->contains(fn (string $key): bool => ($module['permissions'][$key][$field] ?? null) === null)) {
+            return 'mixed';
         }
         $value = fn (string $key): bool => $roleOnly ? (bool) ($module['permissions'][$key]['role_default'] ?? false) : (bool) ($module['permissions'][$key]['effective'] ?? false);
         $view = $module['view_keys'] === [] || collect($module['view_keys'])->every($value);
@@ -503,5 +676,28 @@ class AccessControl extends Page
 
             return false;
         }
+    }
+
+    private function isBulkSelectable(Employee $employee): bool
+    {
+        return $employee->status === true && auth()->user()?->can('managePermissions', $employee) === true;
+    }
+
+    private function ensureBulkSelectable(Employee $employee): void
+    {
+        if (! $employee->status) {
+            throw ValidationException::withMessages(['employees' => "{$employee->name} is inactive and cannot be bulk modified."]);
+        }
+        if (! $this->isBulkSelectable($employee)) {
+            throw new AuthorizationException('This employee’s access is protected.');
+        }
+    }
+
+    /** @param array<int, string> $current @return array<int, string> */
+    private function updatedExpandedState(array $current, string $key, bool $expanded): array
+    {
+        $values = collect($current)->filter(fn (string $value): bool => $value !== $key);
+
+        return ($expanded ? $values->push($key) : $values)->unique()->values()->all();
     }
 }

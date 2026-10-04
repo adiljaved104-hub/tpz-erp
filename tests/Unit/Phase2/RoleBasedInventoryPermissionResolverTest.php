@@ -25,14 +25,18 @@ class RoleBasedInventoryPermissionResolverTest extends TestCase
     {
         return [
             [EmployeeRole::Owner, InventoryPermission::View, true],
+            [EmployeeRole::Owner, InventoryPermission::ViewLocationBalances, true],
             [EmployeeRole::Owner, InventoryPermission::PostOpeningStock, true],
             [EmployeeRole::Owner, InventoryPermission::ReverseOpeningStock, false],
             [EmployeeRole::Admin, InventoryPermission::Reserve, true],
+            [EmployeeRole::Admin, InventoryPermission::ViewLocationBalances, true],
             [EmployeeRole::Admin, InventoryPermission::PostOpeningStock, false],
             [EmployeeRole::Admin, InventoryPermission::ViewFinancials, false],
             [EmployeeRole::Manager, InventoryPermission::ViewMovements, true],
+            [EmployeeRole::Manager, InventoryPermission::ViewLocationBalances, true],
             [EmployeeRole::Manager, InventoryPermission::MarkDamaged, false],
             [EmployeeRole::Staff, InventoryPermission::View, false],
+            [EmployeeRole::Staff, InventoryPermission::ViewLocationBalances, true],
         ];
     }
 }

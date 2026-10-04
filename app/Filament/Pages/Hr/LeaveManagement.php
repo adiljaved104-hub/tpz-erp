@@ -31,6 +31,8 @@ class LeaveManagement extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'HR';
 
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $navigationLabel = 'Leave';
 
     protected static ?string $title = 'Leave';

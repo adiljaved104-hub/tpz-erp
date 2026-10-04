@@ -24,6 +24,8 @@ class CompOff extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'HR';
 
+    protected static ?int $navigationSort = 3;
+
     protected static ?string $navigationLabel = 'Comp Off';
 
     public ?int $employeeId = null;

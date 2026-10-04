@@ -11,15 +11,10 @@ use App\Models\Employee;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryAllocationEvent;
-use App\Models\InventoryAllocationRule;
 use App\Models\InventoryAllocationSetting;
-use App\Models\Product;
-use App\Models\ProductBrand;
-use App\Models\ProductCategory;
 use App\Models\ProductInventory;
 use App\Models\Team;
 use App\Models\User;
-use App\Models\Warehouse;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\InventoryAllocationPolicyService;
 use App\Services\Inventory\InventoryAllocationService;
@@ -44,6 +39,8 @@ class InventoryAllocations extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Administration';
 
+    protected static ?int $navigationSort = 1;
+
     protected static ?string $navigationLabel = 'Inventory Allocations';
 
     public string $enforcementMode = '';
@@ -67,28 +64,6 @@ class InventoryAllocations extends Page
     public string $targetLabel = '';
 
     public string $reason = '';
-
-    public string $ruleName = '';
-
-    public ?int $ruleAccountId = null;
-
-    public string $ruleAccountSearch = '';
-
-    public string $ruleAccountLabel = '';
-
-    public ?int $ruleProductId = null;
-
-    public string $ruleProductSearch = '';
-
-    public string $ruleProductLabel = '';
-
-    public ?int $ruleBrandId = null;
-
-    public ?int $ruleCategoryId = null;
-
-    public ?int $ruleWarehouseId = null;
-
-    public int $rulePriority = 100;
 
     public string $balanceSearch = '';
 
@@ -261,64 +236,6 @@ class InventoryAllocations extends Page
         }, 'Stock was not allocated');
     }
 
-    public function selectRuleAccount(int $accountId): void
-    {
-        abort_unless($this->globalAdministrationAllowed(), 403);
-        app(InventoryAuthorization::class)->authorize(auth()->user(), InventoryPermission::ManageAllocationSettings);
-        $account = $this->ruleAccountSearchQuery()->whereKey($accountId)->firstOrFail();
-        $this->ruleAccountId = $account->id;
-        $this->ruleAccountLabel = $this->allocationAccountLabel($account);
-        $this->reset('ruleAccountSearch');
-    }
-
-    public function selectRuleProduct(int $productId): void
-    {
-        abort_unless($this->globalAdministrationAllowed(), 403);
-        app(InventoryAuthorization::class)->authorize(auth()->user(), InventoryPermission::ManageAllocationSettings);
-        $product = Product::query()->products()->whereKey($productId)->firstOrFail();
-        $this->ruleProductId = $product->id;
-        $this->ruleProductLabel = "{$product->sku} — {$product->name}";
-        $this->reset('ruleProductSearch');
-    }
-
-    public function createRule(): void
-    {
-        abort_unless($this->globalAdministrationAllowed(), 403);
-        app(InventoryAuthorization::class)->authorize(auth()->user(), InventoryPermission::ManageAllocationSettings);
-        $data = $this->validate([
-            'ruleName' => ['required', 'string', 'max:190'],
-            'ruleAccountId' => [
-                'required',
-                Rule::exists('inventory_allocation_accounts', 'id')->where(fn ($query) => $query->where('status', true)->where('is_system', false)),
-            ],
-            'ruleProductId' => ['nullable', 'exists:products,id'], 'ruleBrandId' => ['nullable', 'exists:product_brands,id'],
-            'ruleCategoryId' => ['nullable', 'exists:product_categories,id'], 'ruleWarehouseId' => ['nullable', 'exists:warehouses,id'],
-            'rulePriority' => ['required', 'integer', 'min:1', 'max:10000'],
-        ]);
-        if (collect([$data['ruleProductId'], $data['ruleBrandId'], $data['ruleCategoryId'], $data['ruleWarehouseId']])->filter()->isEmpty()) {
-            throw ValidationException::withMessages(['ruleName' => 'An allocation rule needs an explicit Product, Brand, Category, or Warehouse condition.']);
-        }
-        InventoryAllocationRule::query()->create([
-            'name' => $data['ruleName'], 'target_account_id' => $data['ruleAccountId'], 'product_id' => $data['ruleProductId'],
-            'product_brand_id' => $data['ruleBrandId'], 'product_category_id' => $data['ruleCategoryId'],
-            'warehouse_id' => $data['ruleWarehouseId'], 'priority' => $data['rulePriority'], 'status' => true,
-            'created_by_user_id' => auth()->id(),
-        ]);
-        $this->reset(
-            'ruleName',
-            'ruleAccountId',
-            'ruleAccountSearch',
-            'ruleAccountLabel',
-            'ruleProductId',
-            'ruleProductSearch',
-            'ruleProductLabel',
-            'ruleBrandId',
-            'ruleCategoryId',
-            'ruleWarehouseId',
-        );
-        Notification::make()->success()->title('Allocation rule created')->send();
-    }
-
     public function getViewData(): array
     {
         $actor = auth()->user();
@@ -367,15 +284,9 @@ class InventoryAllocations extends Page
             'events' => $events->latest('id')->limit(50)->get(),
             'canManageSettings' => $global && app(InventoryAuthorization::class)->allows($actor, InventoryPermission::ManageAllocationSettings),
             'canReconcile' => $global && app(InventoryAuthorization::class)->allows($actor, InventoryPermission::ManageAllocations),
-            'rules' => $global ? InventoryAllocationRule::query()->with(['targetAccount.employee', 'targetAccount.team'])->orderBy('priority')->get() : collect(),
             'inventorySearchResults' => $global ? $this->inventorySearchResults() : collect(),
             'selectedInventories' => $global ? $this->selectedInventories() : collect(),
             'targetSearchResults' => $global ? $this->targetSearchResults() : collect(),
-            'ruleAccountSearchResults' => $global ? $this->ruleAccountSearchResults() : collect(),
-            'ruleProductSearchResults' => $global ? $this->ruleProductSearchResults() : collect(),
-            'brands' => $global ? ProductBrand::query()->where('status', true)->orderBy('name')->get() : collect(),
-            'categories' => $global ? ProductCategory::query()->where('status', true)->orderBy('name')->get() : collect(),
-            'warehouses' => $global ? Warehouse::query()->where('status', true)->orderBy('name')->get() : collect(),
             'eventTypes' => $eventTypes,
             'reconciliationGaps' => $reconciliationGaps,
         ];
@@ -467,50 +378,6 @@ class InventoryAllocations extends Page
     private function targetSearchQuery(): Builder
     {
         return ($this->targetType === 'team' ? Team::query() : Employee::query())->where('status', true);
-    }
-
-    private function ruleAccountSearchResults(): Collection
-    {
-        $search = trim($this->ruleAccountSearch);
-        if (mb_strlen($search) < 2) {
-            return collect();
-        }
-
-        return $this->ruleAccountSearchQuery()
-            ->where(function (Builder $query) use ($search): void {
-                $query->where('name', 'like', "%{$search}%")
-                    ->orWhereHas('employee', fn (Builder $employee): Builder => $employee
-                        ->where('name', 'like', "%{$search}%")
-                        ->orWhere('employee_id', 'like', "%{$search}%"))
-                    ->orWhereHas('team', fn (Builder $team): Builder => $team->where('name', 'like', "%{$search}%"));
-            })
-            ->orderBy('name')
-            ->limit(20)
-            ->get();
-    }
-
-    private function ruleAccountSearchQuery(): Builder
-    {
-        return InventoryAllocationAccount::query()
-            ->with(['employee', 'team'])
-            ->where('status', true)
-            ->where('is_system', false);
-    }
-
-    private function ruleProductSearchResults(): Collection
-    {
-        $search = trim($this->ruleProductSearch);
-        if (mb_strlen($search) < 2) {
-            return collect();
-        }
-
-        return Product::query()
-            ->with('brandRelation')
-            ->products()
-            ->where(fn (Builder $query): Builder => $this->applyProductSearch($query, $search))
-            ->orderBy('name')
-            ->limit(20)
-            ->get();
     }
 
     private function applyProductSearch(Builder $query, string $search): Builder

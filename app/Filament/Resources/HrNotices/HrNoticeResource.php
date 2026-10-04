@@ -46,6 +46,8 @@ class HrNoticeResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'HR';
 
+    protected static ?int $navigationSort = 4;
+
     protected static ?string $navigationLabel = 'Notices';
 
     protected static ?string $recordTitleAttribute = 'reference';

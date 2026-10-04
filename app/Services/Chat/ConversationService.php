@@ -58,10 +58,17 @@ class ConversationService
             );
 
             foreach ($ids as $employeeId) {
-                $conversation->participants()->firstOrCreate(
+                $participant = $conversation->participants()->firstOrCreate(
                     ['employee_id' => $employeeId],
                     ['joined_at' => now()],
                 );
+
+                if ($participant->left_at !== null) {
+                    $participant->update([
+                        'left_at' => null,
+                        'joined_at' => now(),
+                    ]);
+                }
             }
 
             $this->logCreation($conversation, $actor);

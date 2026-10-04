@@ -1,4 +1,8 @@
 <x-filament-panels::page>
+    <x-filament::section>
+        <p class="text-sm text-gray-600 dark:text-gray-300">Allocation Balances are the source of truth for current stock ownership. Responsibility controls operational scope; it does not make warehouse stock belong to an employee.</p>
+        <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Automatic ownership for eligible future receipts is configured in Responsibilities with “Assign stock by default”. This page is for allocation management and reconciliation.</p>
+    </x-filament::section>
     @if ($canManageSettings || $canReconcile)
         <div class="grid gap-6 xl:grid-cols-2">
             @if ($canManageSettings)
@@ -12,7 +16,7 @@
                         </label>
                         <label class="text-sm font-medium">New Stock Policy
                             <select wire:model="defaultPolicy" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900">
-                                <option value="automatic">Use Automatic Stock Rules</option>
+                                <option value="automatic">Use Responsibility Default Assignment</option>
                                 <option value="ask_at_grn">Ask When Receiving Stock</option>
                                 <option value="no_automatic">Leave as Unassigned Stock</option>
                             </select>
@@ -20,6 +24,7 @@
                         <div class="space-y-1 text-sm text-gray-600 dark:text-gray-400 sm:col-span-2">
                             <p><strong>Setup Mode:</strong> Existing unassigned stock can still be used while allocations are being organized.</p>
                             <p><strong>Controlled Mode:</strong> Only stock assigned to an employee or team can be used.</p>
+                            <p><strong>Automatic assignment:</strong> Newly received stock ownership is managed from Responsibilities using “Assign stock by default”.</p>
                         </div>
                         @error('enforcementMode') <p class="text-sm text-danger-600 sm:col-span-2">{{ $message }}</p> @enderror
                         <x-filament::button type="submit">Save Stock Allocation Settings</x-filament::button>
@@ -129,30 +134,6 @@
     @if ($canReconcile && $reconciliationGaps->isNotEmpty())
         <x-filament::section heading="Physical / Allocation Reconciliation Gaps" description="These differences are shown separately and are never included in another employee's allocation.">
             <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr><th>Product</th><th>Warehouse</th><th>Physical Sellable</th><th>Ledger Allocated</th><th>Gap</th></tr></thead><tbody>@foreach($reconciliationGaps as $inventory)<tr><td>{{ $inventory->product->sku }} — {{ $inventory->product->name }}</td><td>{{ $inventory->warehouse->name }}</td><td>{{ $inventory->available_quantity }}</td><td>{{ (int) ($inventory->ledger_allocated_quantity ?? 0) }}</td><td>{{ $inventory->available_quantity - (int) ($inventory->ledger_allocated_quantity ?? 0) }}</td></tr>@endforeach</tbody></table></div>
-        </x-filament::section>
-    @endif
-
-    @if ($canManageSettings)
-        <x-filament::section heading="Automatic Stock Rules" description="Automatically assign newly received stock when it matches a rule.">
-            <form wire:submit="createRule" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <label class="text-sm font-medium">Rule Name<input wire:model="ruleName" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900" placeholder="Example: Dell laptops to E-Commerce"></label>
-                <div class="relative">
-                    <label class="text-sm font-medium">Give Stock To<input wire:model.live.debounce.400ms="ruleAccountSearch" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900" placeholder="Search employee or team"></label>
-                    @if ($ruleAccountLabel)<p class="mt-1 text-xs text-primary-600">Selected: {{ $ruleAccountLabel }}</p>@endif
-                    @if (mb_strlen(trim($ruleAccountSearch)) >= 2)<div class="absolute z-10 mt-1 max-h-48 w-full divide-y overflow-y-auto rounded-lg border bg-white shadow-lg dark:divide-white/10 dark:border-white/10 dark:bg-gray-900">@foreach($ruleAccountSearchResults as $account)<button type="button" wire:click="selectRuleAccount({{ $account->id }})" class="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-white/5">{{ $this->allocationAccountLabel($account) }}</button>@endforeach</div>@endif
-                </div>
-                <div class="relative">
-                    <label class="text-sm font-medium">Product <span class="font-normal text-gray-500">(optional)</span><input wire:model.live.debounce.400ms="ruleProductSearch" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900" placeholder="Search SKU or product"></label>
-                    @if ($ruleProductLabel)<p class="mt-1 text-xs text-primary-600">Selected: {{ $ruleProductLabel }}</p>@endif
-                    @if (mb_strlen(trim($ruleProductSearch)) >= 2)<div class="absolute z-10 mt-1 max-h-48 w-full divide-y overflow-y-auto rounded-lg border bg-white shadow-lg dark:divide-white/10 dark:border-white/10 dark:bg-gray-900">@foreach($ruleProductSearchResults as $product)<button type="button" wire:click="selectRuleProduct({{ $product->id }})" class="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-white/5">{{ $product->sku }} — {{ $product->name }}</button>@endforeach</div>@endif
-                </div>
-                <label class="text-sm font-medium">Brand<select wire:model="ruleBrandId" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900"><option value="">Any Brand</option>@foreach($brands as $brand)<option value="{{ $brand->id }}">{{ $brand->name }}</option>@endforeach</select></label>
-                <label class="text-sm font-medium">Category<select wire:model="ruleCategoryId" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900"><option value="">Any Category</option>@foreach($categories as $category)<option value="{{ $category->id }}">{{ $category->name }}</option>@endforeach</select></label>
-                <label class="text-sm font-medium">Warehouse<select wire:model="ruleWarehouseId" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900"><option value="">Any Warehouse</option>@foreach($warehouses as $warehouse)<option value="{{ $warehouse->id }}">{{ $warehouse->name }}</option>@endforeach</select></label>
-                <label class="text-sm font-medium">Priority<input wire:model="rulePriority" type="number" min="1" class="mt-1 w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-gray-900"></label>
-                <div class="flex items-end"><x-filament::button type="submit">Create Rule</x-filament::button></div>
-            </form>
-            <div class="mt-4 space-y-2">@forelse($rules as $rule)<div class="rounded-lg border p-3 text-sm dark:border-white/10"><strong>{{ $rule->name }}</strong> → {{ $this->allocationAccountLabel($rule->targetAccount) }} · Priority {{ $rule->priority }}</div>@empty<p class="text-sm text-gray-500">No automatic stock rules configured.</p>@endforelse</div>
         </x-filament::section>
     @endif
 

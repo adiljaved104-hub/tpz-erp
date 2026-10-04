@@ -46,6 +46,11 @@ class MarketplacePlatform extends Model
         return $this->hasMany(Order::class);
     }
 
+    public function marketplaceAccounts(): HasMany
+    {
+        return $this->hasMany(MarketplaceAccount::class);
+    }
+
     public function defaultReturnReceivingWarehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class, 'default_return_receiving_warehouse_id');

@@ -24,6 +24,7 @@ class WebSalesOrderInfolist
                 TextEntry::make('handledBy.name')->label('Sales Employee'),
                 TextEntry::make('customer_name')->label('Customer'),
                 TextEntry::make('customer_phone')->label('WhatsApp / Phone'),
+                TextEntry::make('customer_address')->label('Address')->placeholder('—')->columnSpan(2),
                 TextEntry::make('web_sales_channel')->label('Channel')->badge(),
                 TextEntry::make('warehouse.name')->label('Inventory Source'),
             ])->columns(4),
@@ -36,11 +37,16 @@ class WebSalesOrderInfolist
             Section::make('Products')->schema([
                 RepeatableEntry::make('items')->state(fn (Order $record) => $record->items()->with([
                     'upgradeSelection' => fn ($query) => $query->select(['id', 'order_item_id', 'configuration_snapshot']),
+                    'reservation.allocationLines.account:id,name',
                 ])->orderBy('line_number')->get())->schema([
                     TextEntry::make('line_number')->label('Line'), TextEntry::make('sku'), TextEntry::make('product_name')->label('Product'),
                     TextEntry::make('configuration')->state(fn (OrderItem $record): string => $record->upgradeSelection?->description() ?? 'Base Configuration'),
+                    TextEntry::make('stock_sources')->label('Stock Consumption')->state(fn (OrderItem $record): string => $record->reservation?->allocationLines
+                        ->map(fn ($line): string => ($line->account?->name ?? 'Unavailable source').' × '.$line->quantity)
+                        ->join(', ') ?: 'No allocation source recorded'),
                     TextEntry::make('ordered_quantity')->label('Qty'), TextEntry::make('selling_price')->money('AED'),
-                ])->columns(6),
+                    TextEntry::make('line_total')->label('Line Total')->money('AED'),
+                ])->columns(['default' => 1, 'md' => 4]),
             ]),
             Section::make('Financial Summary')->schema([
                 TextEntry::make('grand_total')->label('Revenue')->money('AED')->visible(fn (): bool => self::allowed(WebSalesPermission::ViewRevenue)),

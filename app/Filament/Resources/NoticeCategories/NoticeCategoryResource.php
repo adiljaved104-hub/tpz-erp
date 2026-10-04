@@ -28,7 +28,7 @@ class NoticeCategoryResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedTag;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'Administration';
 
     protected static ?string $navigationLabel = 'Notice Categories';
 

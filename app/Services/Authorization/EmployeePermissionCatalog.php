@@ -17,6 +17,7 @@ use App\Enums\HrPermission;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\InventoryPermission;
 use App\Enums\InvoicePermission;
+use App\Enums\MarketplaceOperationsPermission;
 use App\Enums\MarketplaceReturnPermission;
 use App\Enums\NotificationRulePermission;
 use App\Enums\OfficeFinancePermission;
@@ -58,6 +59,8 @@ class EmployeePermissionCatalog
                 $this->item(EmailSettingsPermission::Test, 'Test Email Delivery', true),
                 $this->item(NotificationRulePermission::View, 'View Notification Rules', true),
                 $this->item(NotificationRulePermission::Manage, 'Manage Notification Rules', true),
+                $this->item(MarketplaceOperationsPermission::View, 'View Marketplace Operations', true),
+                $this->item(MarketplaceOperationsPermission::Manage, 'Manage Marketplace Integrations', true),
                 $this->item(CompanyProfilePermission::View, 'View Company Profile', true),
                 $this->item(CompanyProfilePermission::Manage, 'Manage Company Profile', true),
                 $this->item(AuthSecurityPermission::View, 'View Login & Security Settings', true),
@@ -162,6 +165,7 @@ class EmployeePermissionCatalog
                 $this->item(PurchasePermission::Receive, 'Receive Purchases', true),
                 $this->item(PurchasePermission::Close, 'Close Purchases', true),
                 $this->item(PurchasePermission::ViewReceipts, 'View GRNs'),
+                $this->item(PurchasePermission::CorrectReceipt, 'Correct Posted GRN / Purchase Receipt', true),
                 $this->item(PurchasePermission::Export, 'Export Purchases'),
                 $this->item(PurchasePermission::QuickReceive, 'Quick Stock Purchase', true),
             ],
@@ -212,11 +216,13 @@ class EmployeePermissionCatalog
             ],
             'Inventory' => [
                 $this->item(InventoryPermission::View, 'View Inventory'),
+                $this->item(InventoryPermission::ViewLocationBalances, 'View Location Balances'),
                 $this->item(InventoryPermission::PostOpeningStock, 'Post Opening Stock', true),
                 $this->item(InventoryPermission::ReverseOpeningStock, 'Reverse Opening Stock', true),
                 $this->item(InventoryPermission::Reserve, 'Reserve Inventory', true),
                 $this->item(InventoryPermission::ReleaseReservation, 'Release Reservations', true),
                 $this->item(InventoryPermission::MarkDamaged, 'Move Stock to Damaged', true),
+                $this->item(InventoryPermission::AdjustStock, 'Post Inventory Adjustments', true),
                 $this->item(InventoryPermission::RestoreDamaged, 'Restore Damaged Stock', true),
                 $this->item(InventoryPermission::ViewMovements, 'View Stock Movements'),
                 $this->item(InventoryPermission::Export, 'Export Inventory'),
@@ -228,6 +234,7 @@ class EmployeePermissionCatalog
                 $this->item(InventoryPermission::DecideOwnStockRequestSources, 'Approve or Reject Own Stock Sources', true),
                 $this->item(InventoryPermission::DecideAllStockRequestSources, 'Approve or Reject Any Stock Source', true),
                 $this->item(InventoryPermission::ExecuteStockRequests, 'Execute Approved Stock Requests', true),
+                $this->item(InventoryPermission::ConsumeFromAllAllocations, 'Consume From Any Allocation', true),
             ],
             'Responsibility' => [
                 $this->item(ResponsibilityPermission::ViewAll, 'View All Responsibility Assignments'),
@@ -381,6 +388,7 @@ class EmployeePermissionCatalog
             ExpensePermission::tryFrom($key) !== null => app(ExpenseAuthorization::class)->roleDefault($user, ExpensePermission::from($key)),
             OfficeFinancePermission::tryFrom($key) !== null => app(OfficeFinanceAuthorization::class)->roleDefault($user, OfficeFinancePermission::from($key)),
             NotificationRulePermission::tryFrom($key) !== null => app(NotificationRuleAuthorization::class)->roleDefault($user, NotificationRulePermission::from($key)),
+            MarketplaceOperationsPermission::tryFrom($key) !== null => app(MarketplaceOperationsAuthorization::class)->roleDefault($user, MarketplaceOperationsPermission::from($key)),
             CompanyProfilePermission::tryFrom($key) !== null => app(CompanyProfileAuthorization::class)->roleDefault($user, CompanyProfilePermission::from($key)),
             AuthSecurityPermission::tryFrom($key) !== null => app(AuthSecurityAuthorization::class)->roleDefault($user, AuthSecurityPermission::from($key)),
             InvoicePermission::tryFrom($key) !== null => app(InvoiceAuthorization::class)->roleDefault($user, InvoicePermission::from($key)),

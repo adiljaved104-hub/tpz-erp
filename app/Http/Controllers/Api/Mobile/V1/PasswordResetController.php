@@ -144,6 +144,7 @@ class PasswordResetController extends Controller
 
             $locked->forceFill([
                 'password' => Hash::make($validated['password']),
+                'password_changed_at' => now(),
                 'remember_token' => Str::random(60),
             ])->save();
 
@@ -185,4 +186,3 @@ class PasswordResetController extends Controller
         ], 422);
     }
 }
-

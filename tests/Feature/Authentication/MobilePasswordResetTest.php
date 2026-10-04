@@ -133,6 +133,8 @@ class MobilePasswordResetTest extends TestCase
                 $user->refresh()->password,
             ),
         );
+        $this->assertNotNull($user->password_changed_at);
+        $this->assertTrue($user->password_changed_at->isCurrentMinute());
 
         $this->assertDatabaseMissing('personal_access_tokens', [
             'id' => $phoneToken->accessToken->id,

@@ -32,6 +32,7 @@ class CreateWebSalesOrder extends CreateRecord
             $dto = new WebSalesOrderData(
                 customerName: (string) $data['customer_name'],
                 customerPhone: (string) $data['customer_phone'],
+                customerAddress: $data['customer_address'] ?? null,
                 channel: $data['web_sales_channel'] instanceof WebSalesChannel
                     ? $data['web_sales_channel']
                     : WebSalesChannel::from($data['web_sales_channel']),
@@ -44,6 +45,7 @@ class CreateWebSalesOrder extends CreateRecord
                     productId: (int) $item['product_id'], quantity: (int) $item['quantity'], sellingPrice: (string) $item['selling_price'],
                     salesConfigurationId: filled($item['sales_configuration_id'] ?? null) ? (int) $item['sales_configuration_id'] : null,
                     upgradeRecipeId: filled($item['upgrade_recipe_id'] ?? null) ? (int) $item['upgrade_recipe_id'] : null,
+                    allocationSources: self::allocationSources($item['allocation_sources'] ?? []),
                 ), array_values($data['items'])),
                 idempotencyKey: (string) $data['idempotency_key'],
                 notes: $data['notes'] ?? null,
@@ -53,9 +55,10 @@ class CreateWebSalesOrder extends CreateRecord
                 ? app(WebSalesService::class)->completeSale($dto, auth()->user())
                 : app(WebSalesService::class)->createConfirmed($dto, auth()->user());
         } catch (ValidationException $exception) {
+            $itemKeys = array_keys($this->form->getRawState()['items'] ?? []);
             foreach ($exception->errors() as $key => $messages) {
                 foreach ($messages as $message) {
-                    $this->addError(str_starts_with($key, 'items.') ? 'data.items' : 'data.'.$key, $message);
+                    $this->addError($this->visibleErrorPath($key, $itemKeys), $message);
                 }
             }
             $this->dispatch('form-validation-error', livewireId: $this->getId());
@@ -97,5 +100,28 @@ class CreateWebSalesOrder extends CreateRecord
         $user = auth()->user();
 
         return $user instanceof User && app(OrderAuthorization::class)->allows($user, OrderPermission::Fulfill);
+    }
+
+    /** @param array<int, int|string> $itemKeys */
+    private function visibleErrorPath(string $key, array $itemKeys): string
+    {
+        if (preg_match('/^items\.(\d+)\.(product_id|quantity|selling_price|allocation_sources)$/', $key, $matches)) {
+            return 'data.items.'.($itemKeys[(int) $matches[1]] ?? $matches[1]).'.'.$matches[2];
+        }
+
+        return 'data.'.(str_starts_with($key, 'items.') ? 'items' : $key);
+    }
+
+    /** @param array<int|string, array{account_id?:mixed,quantity?:mixed}> $rows
+     * @return array<int, int>|null
+     */
+    private static function allocationSources(array $rows): ?array
+    {
+        $sources = collect($rows)
+            ->filter(fn ($row): bool => is_array($row) && filled($row['account_id'] ?? null) && (int) ($row['quantity'] ?? 0) > 0)
+            ->mapWithKeys(fn (array $row): array => [(int) $row['account_id'] => (int) $row['quantity']])
+            ->all();
+
+        return $sources === [] ? null : $sources;
     }
 }

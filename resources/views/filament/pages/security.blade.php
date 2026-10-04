@@ -16,9 +16,9 @@
             <div class="flex flex-wrap items-center justify-between gap-4">
                 <div>
                     <p class="font-medium">Email OTP 2FA</p>
-                    <x-filament::badge :color="auth()->user()->email_two_factor_enabled_at ? 'success' : 'gray'">{{ auth()->user()->email_two_factor_enabled_at ? 'Enabled' : 'Disabled' }}</x-filament::badge>
+                    <x-filament::badge :color="$this->mfaRequired() || auth()->user()->email_two_factor_enabled_at ? 'success' : 'gray'">{{ $this->mfaRequired() ? 'Required by policy' : (auth()->user()->email_two_factor_enabled_at ? 'Enabled' : 'Disabled') }}</x-filament::badge>
                 </div>
-                @if(!auth()->user()->email_two_factor_enabled_at)
+                @if(! $this->mfaRequired() && !auth()->user()->email_two_factor_enabled_at)
                     <x-filament::button wire:click="requestEnable">Enable Email 2FA</x-filament::button>
                 @endif
             </div>
@@ -35,7 +35,7 @@
                 />
             @endif
 
-            @if(auth()->user()->email_two_factor_enabled_at)
+            @if(auth()->user()->email_two_factor_enabled_at && ! $this->mfaRequired())
                 <form wire:submit="disable" class="mt-5 max-w-md space-y-3">
                     <label class="block text-sm font-medium">Current Password</label>
                     <x-filament::input.wrapper :valid="!$errors->has('currentPassword')"><x-filament::input type="password" wire:model="currentPassword" autocomplete="current-password" /></x-filament::input.wrapper>

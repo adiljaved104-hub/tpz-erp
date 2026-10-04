@@ -7,7 +7,7 @@ use App\Models\ResponsibilityAssignment;
 
 class ResponsibilityAssignmentObserver
 {
-    private const MUTABLE_TRANSITION_FIELDS = ['status', 'active_fingerprint', 'ended_at', 'ended_by_user_id', 'updated_at'];
+    private const MUTABLE_TRANSITION_FIELDS = ['status', 'active_fingerprint', 'ended_at', 'ended_by_user_id', 'assign_stock_by_default', 'updated_at'];
 
     public function updating(ResponsibilityAssignment $assignment): void
     {

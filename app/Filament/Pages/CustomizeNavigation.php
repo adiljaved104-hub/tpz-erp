@@ -16,13 +16,13 @@ class CustomizeNavigation extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedAdjustmentsHorizontal;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Account';
+    protected static string|\UnitEnum|null $navigationGroup = 'Workspace';
 
     protected static ?string $navigationLabel = 'Customize Navigation';
 
     protected static ?string $slug = 'customize-navigation';
 
-    protected static ?int $navigationSort = 90;
+    protected static ?int $navigationSort = 5;
 
     public static function canAccess(): bool
     {

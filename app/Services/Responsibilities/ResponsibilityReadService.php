@@ -90,6 +90,9 @@ class ResponsibilityReadService
 
             if ($assignment->warehouseScope === null && ($assignment->brandScope !== null || $assignment->categoryScope !== null || $assignment->conditionScope !== null)) {
                 $products = DB::table('products');
+                if ($assignment->productScope !== null) {
+                    $products->where('id', $assignment->productScope->product_id);
+                }
                 if ($assignment->brandScope !== null) {
                     $products->where('brand_id', $assignment->brandScope->product_brand_id);
                 }
@@ -109,9 +112,13 @@ class ResponsibilityReadService
                 ])->filter()->implode(' · ');
             }
 
-            if ($assignment->productScope !== null) {
+            if ($assignment->productScope !== null && $assignment->warehouseScope === null) {
                 $productId = $assignment->productScope->product_id;
-                $productIds = collect([$productId]);
+                $productIds = DB::table('products')->where('id', $productId)
+                    ->when($assignment->brandScope !== null, fn ($query) => $query->where('brand_id', $assignment->brandScope->product_brand_id))
+                    ->when($assignment->categoryScope !== null, fn ($query) => $query->where('category_id', $assignment->categoryScope->product_category_id))
+                    ->when($assignment->conditionScope !== null, fn ($query) => $query->where('condition', $assignment->conditionScope->product_condition->value))
+                    ->pluck('id');
                 $reason = 'Product Assignment'.($platform ? ' + Platform: '.$platform : '');
             }
 
@@ -128,10 +135,16 @@ class ResponsibilityReadService
                 $inventoryIds = DB::table('product_inventories as scoped_inventory')
                     ->join('products as scoped_product', 'scoped_product.id', '=', 'scoped_inventory.product_id')
                     ->where('scoped_inventory.warehouse_id', $warehouse->id)
+                    ->when($assignment->productScope !== null, fn ($query) => $query->where('scoped_product.id', $assignment->productScope->product_id))
+                    ->when($assignment->brandScope !== null, fn ($query) => $query->where('scoped_product.brand_id', $assignment->brandScope->product_brand_id))
+                    ->when($assignment->categoryScope !== null, fn ($query) => $query->where('scoped_product.category_id', $assignment->categoryScope->product_category_id))
                     ->when($assignment->conditionScope !== null, fn ($query) => $query->where('scoped_product.condition', $assignment->conditionScope->product_condition->value))
                     ->pluck('scoped_inventory.id');
                 $warehouseReason = collect([
                     $assignment->conditionScope?->product_condition?->label(),
+                    $assignment->productScope?->product?->sku,
+                    $assignment->brandScope?->brand?->name ? 'Brand: '.$assignment->brandScope->brand->name : null,
+                    $assignment->categoryScope?->category?->name ? 'Category: '.$assignment->categoryScope->category->name : null,
                     'Warehouse: '.$warehouse->name,
                     $platform ? 'Platform: '.$platform : null,
                 ])->filter()->implode(' · ');

@@ -4,17 +4,21 @@ namespace App\Filament\Pages\Purchasing;
 
 use App\Actions\Purchases\QuickStockPurchase as QuickStockPurchaseAction;
 use App\DTOs\Purchases\PurchaseItemData;
+use App\DTOs\Purchases\PurchaseProductContext;
 use App\DTOs\Purchases\QuickStockPurchaseData;
+use App\Enums\InventoryAllocationMode;
 use App\Enums\InventoryItemType;
 use App\Enums\ProductMatchContext;
 use App\Enums\PurchasePermission;
 use App\Filament\Resources\PurchaseReceipts\PurchaseReceiptResource;
 use App\Models\Employee;
+use App\Models\InventoryAllocationAccount;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\Inventory\InventoryAllocationPolicyService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\Purchases\PurchaseCostHistoryService;
 use App\Services\Purchases\PurchasePriceVarianceService;
@@ -68,13 +72,22 @@ class QuickStockPurchase extends Page
     {
         abort_unless(static::canAccess(), 403);
         $employee = auth()->user()?->employee;
+        $warehouseId = (int) request()->query('warehouse_id', 0);
+        $productId = (int) request()->query('product_id', 0);
+        $warehouse = $warehouseId > 0 ? Warehouse::query()->active()->find($warehouseId) : null;
+        $product = $productId > 0 ? Product::query()->where('status', 'active')->find($productId) : null;
+        $item = ['ordered_quantity' => 1, 'unit_cost_touched' => false];
+        if ($warehouse !== null && $product !== null) {
+            $item['product_id'] = $product->id;
+        }
         $this->getSchema('content')->fill([
             'idempotency_key' => (string) Str::uuid(),
             'purchase_date' => now()->toDateString(),
             'handled_by_employee_id' => $employee?->status ? $employee->id : null,
             'shipping_total' => '0.00',
             'other_charges_total' => '0.00',
-            'items' => [['ordered_quantity' => 1, 'unit_cost_touched' => false]],
+            'warehouse_id' => $warehouse?->id,
+            'items' => [$item],
         ]);
     }
 
@@ -99,6 +112,11 @@ class QuickStockPurchase extends Page
                         }),
                     Select::make('handled_by_employee_id')->label('Handled By / Reported By')->searchable()->nullable()
                         ->options(fn (): array => Employee::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all()),
+                    Select::make('allocation_account_id')->label('Allocate Stock To')->searchable()->nullable()
+                        ->options(fn (): array => InventoryAllocationAccount::query()->where('status', true)
+                            ->when(app(InventoryAllocationPolicyService::class)->mode() === InventoryAllocationMode::Strict, fn ($query) => $query->where('is_system', false))
+                            ->orderBy('is_system')->orderBy('name')->pluck('name', 'id')->all())
+                        ->helperText('Optional in migration/shadow mode. If blank, the configured GRN allocation policy applies; Handled By does not determine stock ownership.'),
                 ]),
                 Textarea::make('notes')->maxLength(5000)->rows(2),
             ])->compact(),
@@ -106,6 +124,7 @@ class QuickStockPurchase extends Page
                 Action::make('bulkAddProducts')->label('Bulk Add Products')->disabled(fn (Get $get): bool => blank($get('warehouse_id')))
                     ->schema([
                         Select::make('product_ids')->multiple()->searchable()->required()
+                            ->wrapOptionLabels()
                             ->options([])
                             ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
                             ->getOptionLabelsUsing(fn (array $values): array => self::productLabels(array_map('intval', $values)))
@@ -127,7 +146,7 @@ class QuickStockPurchase extends Page
                 Repeater::make('items')->schema([
                     Select::make('product_id')->label('Product / Component')
                         ->placeholder('Search by SKU, product name, or component specification')
-                        ->searchable()->required()->live()
+                        ->searchable()->required()->live()->wrapOptionLabels()
                         ->options([])
                         ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
                         ->getOptionLabelUsing(fn ($value): ?string => self::productLabels([(int) $value])[(int) $value] ?? null)
@@ -139,6 +158,8 @@ class QuickStockPurchase extends Page
                         ->afterStateUpdated(function ($state, Get $get, Set $set, QuickStockPurchase $livewire): void {
                             $set('stock_context', null);
                             $set('latest_received_cost', null);
+                            $set('suggested_cost', null);
+                            $set('suggested_cost_source', null);
 
                             $productId = (int) $state;
                             $warehouseId = (int) ($livewire->data['warehouse_id'] ?? 0);
@@ -149,26 +170,32 @@ class QuickStockPurchase extends Page
 
                             $context = self::contexts($warehouseId, [$productId])[$productId] ?? null;
                             $latestCost = self::normalizeLatestCost($context?->latestReceivedCost);
+                            [$suggestedCost, $source] = self::suggestedCost($context);
                             $set('stock_context', $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}");
                             $set('latest_received_cost', $latestCost);
+                            $set('suggested_cost', $suggestedCost);
+                            $set('suggested_cost_source', $source);
 
-                            if (! $get->boolean('unit_cost_touched') && blank($get->string('unit_cost', isNullable: true)) && $latestCost !== null) {
-                                $set('unit_cost', $latestCost);
-                                $set('unit_cost_suggested', true);
+                            if (! $get->boolean('unit_cost_touched')) {
+                                $set('unit_cost', $suggestedCost);
+                                $set('unit_cost_suggested', $suggestedCost !== null);
+                                $set('unit_cost_touched', false);
                             }
                         }),
                     TextInput::make('ordered_quantity')->label('Quantity')->integer()->minValue(1)->default(1)->required()->live(onBlur: true),
                     TextInput::make('unit_cost')->label('Unit Cost')->prefix('AED')->required()->rule('regex:/^\d{1,11}(?:\.\d{1,4})?$/')->live(onBlur: true)
                         ->helperText(fn (Get $get): ?string => self::costAdvisory($get))
                         ->afterStateUpdated(fn (Set $set): mixed => $set('unit_cost_touched', true)),
-                    Placeholder::make('latest_received_cost_display')->label('Latest Purchase Cost')
-                        ->content(fn (Get $get): string => ($cost = $get->string('latest_received_cost', isNullable: true)) === null
-                            ? 'No received purchase cost'
+                    Placeholder::make('latest_received_cost_display')->label(fn (Get $get): string => $get->string('suggested_cost_source', isNullable: true) ?? 'Latest Purchase Cost')
+                        ->content(fn (Get $get): string => ($cost = $get->string('suggested_cost', isNullable: true)) === null
+                            ? 'No suggested cost'
                             : AedMoney::format($cost))
                         ->suffixAction(self::historyAction()),
                     Placeholder::make('stock_context_display')->label('Current Stock')->content(fn (Get $get): string => $get->string('stock_context', isNullable: true) ?? 'Select a Product'),
                     Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get)),
                     Hidden::make('latest_received_cost')->dehydrated(false),
+                    Hidden::make('suggested_cost')->dehydrated(false),
+                    Hidden::make('suggested_cost_source')->dehydrated(false),
                     Hidden::make('stock_context')->dehydrated(false),
                     Hidden::make('unit_cost_touched')->default(false)->dehydrated(false),
                     Hidden::make('unit_cost_suggested')->default(false)->dehydrated(false),
@@ -176,7 +203,7 @@ class QuickStockPurchase extends Page
                     TableColumn::make('Product')->markAsRequired()->width('30%'),
                     TableColumn::make('Quantity')->markAsRequired()->width('9%'),
                     TableColumn::make('Unit Cost')->markAsRequired()->width('14%'),
-                    TableColumn::make('Latest Purchase Cost')->width('14%'),
+                    TableColumn::make('Suggested Cost')->width('14%'),
                     TableColumn::make('Current Stock')->width('22%'),
                     TableColumn::make('Line Total')->width('11%'),
                 ])->compact()->reorderable(false)->minItems(1)->defaultItems(1)->addActionLabel('Add Product')->columnSpanFull(),
@@ -220,6 +247,7 @@ class QuickStockPurchase extends Page
                 idempotencyKey: (string) $state['idempotency_key'],
                 supplierId: filled($state['supplier_id'] ?? null) ? (int) $state['supplier_id'] : null,
                 handledByEmployeeId: filled($state['handled_by_employee_id'] ?? null) ? (int) $state['handled_by_employee_id'] : null,
+                allocationAccountId: filled($state['allocation_account_id'] ?? null) ? (int) $state['allocation_account_id'] : null,
                 supplierInvoiceNumber: $state['supplier_invoice_number'] ?? null,
                 supplierInvoiceDate: $state['supplier_invoice_date'] ?? null,
                 supplierDeliveryNote: $state['supplier_delivery_note'] ?? null,
@@ -228,10 +256,23 @@ class QuickStockPurchase extends Page
                 notes: $state['notes'] ?? null,
             ), auth()->user());
         } catch (ValidationException $exception) {
-            throw $exception;
+            $message = collect($exception->errors())->flatten()->filter()->first()
+                ?? 'Review the purchase details and try again.';
+
+            Notification::make()
+                ->danger()
+                ->title('Quick Stock Purchase was not posted')
+                ->body($message)
+                ->send();
+
+            return;
         } catch (Throwable $exception) {
             report($exception);
-            Notification::make()->danger()->title('Quick Stock Purchase was not posted')->body($exception->getMessage())->send();
+            Notification::make()
+                ->danger()
+                ->title('Quick Stock Purchase was not posted')
+                ->body('No stock was received. Please review the purchase details and try again.')
+                ->send();
 
             return;
         }
@@ -247,27 +288,32 @@ class QuickStockPurchase extends Page
             return [];
         }
 
-        return app(ProductSearchOptions::class)->search(
+        $matches = app(ProductSearchOptions::class)->search(
             $search,
             ProductMatchContext::Receiving,
             auth()->user(),
         );
+
+        return self::productLabels(array_map('intval', array_keys($matches)));
     }
 
     /** @param array<int, int> $ids */
     private static function productLabels(array $ids): array
     {
-        return Product::query()->whereKey($ids)->get(['id', 'sku', 'inventory_item_type', 'name', 'brand', 'model'])
-            ->mapWithKeys(fn (Product $product): array => [$product->id => self::productLabel($product)])->all();
+        $products = Product::query()->with('categoryRelation')->whereKey($ids)->get()->keyBy('id');
+
+        return collect($ids)->mapWithKeys(function (int $id) use ($products): array {
+            $product = $products->get($id);
+
+            return $product instanceof Product ? [$id => self::productLabel($product)] : [];
+        })->all();
     }
 
     private static function productLabel(Product $product): string
     {
-        $details = collect([$product->brand, $product->model])->filter()->implode(' ');
-
         $kind = $product->inventory_item_type === InventoryItemType::Component ? '[Component] ' : '';
 
-        return "{$kind}{$product->sku} — {$product->name}".($details === '' ? '' : " ({$details})");
+        return "{$kind}{$product->sku} — {$product->name}";
     }
 
     private static function warehouseSelected(QuickStockPurchase $livewire): bool
@@ -285,14 +331,16 @@ class QuickStockPurchase extends Page
         return app(PurchaseProductContextService::class)->forQuickStockPurchase($user, $warehouseId, $ids);
     }
 
-    private static function newLine(int $id, $context): array
+    private static function newLine(int $id, ?PurchaseProductContext $context): array
     {
         $latestCost = self::normalizeLatestCost($context?->latestReceivedCost);
+        [$suggestedCost, $source] = self::suggestedCost($context);
 
         return [
-            'product_id' => $id, 'ordered_quantity' => 1, 'unit_cost' => $latestCost,
-            'unit_cost_touched' => false, 'unit_cost_suggested' => $latestCost !== null,
+            'product_id' => $id, 'ordered_quantity' => 1, 'unit_cost' => $suggestedCost,
+            'unit_cost_touched' => false, 'unit_cost_suggested' => $suggestedCost !== null,
             'latest_received_cost' => $latestCost,
+            'suggested_cost' => $suggestedCost, 'suggested_cost_source' => $source,
             'stock_context' => $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}",
         ];
     }
@@ -313,17 +361,19 @@ class QuickStockPurchase extends Page
             $productId = (int) ($line['product_id'] ?? 0);
             $context = $contexts[$productId] ?? null;
             $latestCost = self::normalizeLatestCost($context?->latestReceivedCost);
-            $manualCost = filled($line['unit_cost'] ?? null) || (bool) ($line['unit_cost_touched'] ?? false);
+            [$suggestedCost, $source] = self::suggestedCost($context);
             $lines[$key] = [
                 ...$line,
                 'ordered_quantity' => (int) ($line['ordered_quantity'] ?? 1),
                 'latest_received_cost' => $latestCost,
+                'suggested_cost' => $suggestedCost,
+                'suggested_cost_source' => $source,
                 'stock_context' => $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}",
             ];
 
-            if (! $manualCost && $latestCost !== null) {
-                $lines[$key]['unit_cost'] = $latestCost;
-                $lines[$key]['unit_cost_suggested'] = true;
+            if (! (bool) ($line['unit_cost_touched'] ?? false)) {
+                $lines[$key]['unit_cost'] = $suggestedCost;
+                $lines[$key]['unit_cost_suggested'] = $suggestedCost !== null;
             }
         }
 
@@ -333,6 +383,20 @@ class QuickStockPurchase extends Page
     private static function normalizeLatestCost(?string $cost): ?string
     {
         return $cost === null ? null : bcadd($cost, '0', 4);
+    }
+
+    /** @return array{?string, ?string} */
+    private static function suggestedCost(?PurchaseProductContext $context): array
+    {
+        if (($cost = self::normalizeLatestCost($context?->latestReceivedCost)) !== null) {
+            return [$cost, 'Latest Purchase Cost'];
+        }
+
+        if (($cost = self::normalizeLatestCost($context?->productCostPrice)) !== null) {
+            return [$cost, 'Catalog Cost'];
+        }
+
+        return [null, null];
     }
 
     private static function historyAction(): Action

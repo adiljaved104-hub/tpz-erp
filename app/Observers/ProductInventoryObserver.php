@@ -3,16 +3,13 @@
 namespace App\Observers;
 
 use App\Exceptions\ImmutableInventoryRecordException;
-use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Models\ProductInventory;
-use App\Services\Mobile\StockStatus;
-use App\Services\Notifications\CriticalAlertDispatcher;
-use App\Services\Notifications\CriticalAlertRecipientResolver;
+use App\Services\Notifications\StockAlertIncidentService;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
 
 class ProductInventoryObserver implements ShouldHandleEventsAfterCommit
 {
-    public function __construct(private readonly CriticalAlertRecipientResolver $recipients, private readonly CriticalAlertDispatcher $alerts) {}
+    public function __construct(private readonly StockAlertIncidentService $incidents) {}
 
     public function updated(ProductInventory $inventory): void
     {
@@ -20,33 +17,7 @@ class ProductInventoryObserver implements ShouldHandleEventsAfterCommit
             return;
         }
 
-        $before = (int) $inventory->getOriginal('available_quantity') - (int) $inventory->getOriginal('reserved_quantity');
-        $after = $inventory->sellableQuantity();
-        $type = null;
-        $title = null;
-
-        if ($before > 0 && $after <= 0) {
-            $type = 'inventory.out_of_stock';
-            $title = 'Product Out of Stock';
-        } elseif ($before > app(StockStatus::class)->low() && $after <= app(StockStatus::class)->low()) {
-            $type = 'inventory.low_stock';
-            $title = 'Product Reached Low Stock';
-        }
-
-        if ($type === null) {
-            return;
-        }
-
-        $inventory->loadMissing(['product', 'warehouse']);
-        $reference = $inventory->product->sku;
-        foreach ($this->recipients->inventory($inventory, $type) as $recipient) {
-            $this->alerts->send($recipient, $type, $inventory->id.':'.$inventory->updated_at?->toJSON(), [
-                'category' => 'inventory', 'event' => $type, 'title' => $title,
-                'message' => $reference.' has '.$after.' sellable unit(s) at '.$inventory->warehouse->name.'.',
-                'reference' => $reference, 'status' => $after === 0 ? 'Out of Stock' : 'Low Stock',
-                'target_type' => 'product_inventory', 'target_id' => $inventory->id,
-            ], $title.' — '.$reference, ProductInventoryResource::getUrl('view', ['record' => $inventory]));
-        }
+        $this->incidents->reconcile($inventory);
     }
 
     public function deleting(ProductInventory $inventory): never

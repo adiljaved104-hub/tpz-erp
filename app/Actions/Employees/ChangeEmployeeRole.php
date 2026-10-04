@@ -19,7 +19,7 @@ class ChangeEmployeeRole
         return DB::transaction(function () use ($employee, $role, $actor): Employee {
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->getKey());
 
-            if (! $actor->can('changeRole', $employee)) {
+            if (! $actor->can('changeRole', [$employee, $role])) {
                 throw new AuthorizationException;
             }
 

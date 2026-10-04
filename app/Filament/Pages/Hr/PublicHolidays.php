@@ -20,7 +20,7 @@ class PublicHolidays extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendarDateRange;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'HR';
+    protected static string|\UnitEnum|null $navigationGroup = 'Administration';
 
     protected static ?string $navigationLabel = 'Public Holidays';
 

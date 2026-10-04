@@ -24,9 +24,11 @@ class SafetClaimResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentCheck;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Returns';
+    protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
-    protected static ?string $navigationLabel = 'Claims';
+    protected static ?int $navigationSort = 3;
+
+    protected static ?string $navigationLabel = 'Claims / Safe-T';
 
     protected static ?string $modelLabel = 'Claim';
 

@@ -5,6 +5,7 @@ namespace Tests\Feature\Inventory;
 use App\Actions\Orders\CancelOrder;
 use App\Actions\Orders\FulfillOrder;
 use App\Actions\Orders\SaveAndReserveOrder;
+use App\Actions\Orders\SaveAsShippedOrder;
 use App\Actions\Purchases\ApprovePurchase;
 use App\Actions\Purchases\CreatePurchase;
 use App\Contracts\EmployeePermissionOverrideResolver;
@@ -31,7 +32,6 @@ use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryAllocationEvent;
 use App\Models\InventoryAllocationReservationLine;
-use App\Models\InventoryAllocationRule;
 use App\Models\InventoryAllocationSetting;
 use App\Models\InventoryReservation;
 use App\Models\Product;
@@ -225,7 +225,10 @@ class InventoryAllocationLedgerTest extends TestCase
         $service->reconcile($inventory, $teamAccount, 1, $owner, 'Team allocation');
 
         InventoryAllocationSetting::query()->whereKey(1)->update(['enforcement_mode' => InventoryAllocationMode::Strict->value]);
-        $order = app(SaveAndReserveOrder::class)->handle($this->orderData($owner, $product, $warehouse, 2), $owner);
+        $order = app(SaveAndReserveOrder::class)->handle($this->orderData($owner, $product, $warehouse, 2, [
+            $employeeAccount->id => 1,
+            $teamAccount->id => 1,
+        ]), $owner);
         $reservationId = $order->items->first()->reservation->id;
 
         $this->assertDatabaseHas('inventory_allocation_reservation_lines', [
@@ -238,6 +241,136 @@ class InventoryAllocationLedgerTest extends TestCase
             'account_id' => $teamAccount->id,
             'quantity' => 1,
         ]);
+    }
+
+    public function test_explicit_order_sources_are_exact_and_independent_from_handled_by(): void
+    {
+        [$owner, $product, $warehouse, $inventory] = $this->foundation(6);
+        $handler = Employee::factory()->create(['status' => true]);
+        $first = Employee::factory()->create(['status' => true]);
+        $second = Employee::factory()->create(['status' => true]);
+        $service = app(InventoryAllocationService::class);
+        $service->ensureShadowCoverage($inventory, $owner);
+        $firstAccount = $service->employeeAccount($first->id);
+        $secondAccount = $service->employeeAccount($second->id);
+        $service->reconcile($inventory, $firstAccount, 3, $owner, 'First source');
+        $service->reconcile($inventory, $secondAccount, 1, $owner, 'Second source');
+
+        $order = app(SaveAndReserveOrder::class)->handle(
+            $this->orderData($owner, $product, $warehouse, 4, [
+                $firstAccount->id => 3,
+                $secondAccount->id => 1,
+            ], $handler->id),
+            $owner,
+        );
+        $reservation = $order->items->firstOrFail()->reservation;
+
+        $this->assertSame($handler->id, $order->handled_by_employee_id);
+        $this->assertDatabaseHas('inventory_allocation_reservation_lines', [
+            'inventory_reservation_id' => $reservation->id, 'account_id' => $firstAccount->id,
+            'quantity' => 3, 'status' => 'reserved',
+        ]);
+        $this->assertDatabaseHas('inventory_allocation_reservation_lines', [
+            'inventory_reservation_id' => $reservation->id, 'account_id' => $secondAccount->id,
+            'quantity' => 1, 'status' => 'reserved',
+        ]);
+        $this->assertDatabaseMissing('inventory_allocation_reservation_lines', [
+            'inventory_reservation_id' => $reservation->id,
+            'account_id' => $service->employeeAccount($handler->id)->id,
+        ]);
+
+        app(CancelOrder::class)->handle($order, new CancelOrderData('Cancel explicit source test', (string) Str::uuid()), $owner);
+        $this->assertSame(0, $firstAccount->balances()->where('product_inventory_id', $inventory->id)->value('reserved_quantity'));
+        $this->assertSame(0, $secondAccount->balances()->where('product_inventory_id', $inventory->id)->value('reserved_quantity'));
+
+        $fulfilled = app(SaveAndReserveOrder::class)->handle(
+            $this->orderData($owner, $product, $warehouse, 4, [
+                $firstAccount->id => 3,
+                $secondAccount->id => 1,
+            ], $handler->id),
+            $owner,
+        );
+        app(FulfillOrder::class)->handle($fulfilled, (string) Str::uuid(), $owner);
+        $this->assertSame(0, $firstAccount->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+        $this->assertSame(0, $secondAccount->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+    }
+
+    public function test_selected_source_insufficient_rolls_back_without_system_fallback(): void
+    {
+        [$owner, $product, $warehouse, $inventory] = $this->foundation(5);
+        $service = app(InventoryAllocationService::class);
+        $service->ensureShadowCoverage($inventory, $owner);
+        $holder = Employee::factory()->create(['status' => true]);
+        $account = $service->employeeAccount($holder->id);
+        $service->reconcile($inventory, $account, 1, $owner, 'Limited source');
+
+        try {
+            app(SaveAndReserveOrder::class)->handle(
+                $this->orderData($owner, $product, $warehouse, 2, [$account->id => 2]),
+                $owner,
+            );
+            $this->fail('An insufficient selected source must be rejected.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('has only 1 available', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertSame(0, $account->balances()->where('product_inventory_id', $inventory->id)->value('reserved_quantity'));
+        $this->assertSame(4, $service->systemAccount()->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+    }
+
+    public function test_explicit_source_total_must_match_and_direct_fulfilment_is_audited(): void
+    {
+        [$owner, $product, $warehouse, $inventory] = $this->foundation(4);
+        $service = app(InventoryAllocationService::class);
+        $service->ensureShadowCoverage($inventory, $owner);
+        $account = $service->employeeAccount($owner->employee->id);
+        $service->reconcile($inventory, $account, 3, $owner, 'Direct source allocation');
+
+        try {
+            app(SaveAndReserveOrder::class)->handle(
+                $this->orderData($owner, $product, $warehouse, 2, [$account->id => 1]),
+                $owner,
+            );
+            $this->fail('The source split must equal the Order quantity.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('must total exactly 2', $exception->getMessage());
+        }
+        $this->assertDatabaseCount('orders', 0);
+
+        $shipped = app(SaveAsShippedOrder::class)->handle(
+            $this->orderData($owner, $product, $warehouse, 2, [$account->id => 2]),
+            $owner,
+        );
+        $this->assertSame('fulfilled', $shipped->status->value);
+        $this->assertDatabaseHas('inventory_allocation_events', [
+            'event_type' => 'direct_fulfilment_consumption',
+            'product_inventory_id' => $inventory->id,
+            'from_account_id' => $account->id,
+            'quantity' => 2,
+        ]);
+        $this->assertSame(1, $account->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+    }
+
+    public function test_employee_cannot_select_another_employees_allocation_without_explicit_permission(): void
+    {
+        [$owner, , , $inventory] = $this->foundation(3);
+        $actor = User::factory()->create();
+        Employee::factory()->for($actor)->role(EmployeeRole::Staff)->create(['email' => $actor->email]);
+        $holder = Employee::factory()->create(['status' => true]);
+        $service = app(InventoryAllocationService::class);
+        $service->ensureShadowCoverage($inventory, $owner);
+        $account = $service->employeeAccount($holder->id);
+        $service->reconcile($inventory, $account, 1, $owner, 'Other employee source');
+
+        try {
+            DB::transaction(fn () => $service->assertOrderSources($inventory, [$account->id => 1], 1, $actor));
+            $this->fail('Another employee allocation requires explicit authority.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('not authorized', $exception->getMessage());
+        }
+
+        $this->assertFalse($service->canConsumeFromAccount($actor, $account));
     }
 
     public function test_grn_policies_allocate_accepted_stock_without_changing_costing(): void
@@ -255,13 +388,16 @@ class InventoryAllocationLedgerTest extends TestCase
 
         [$owner2, $purchase2] = $this->approvedPurchase(2, '40.0000', $owner);
         $line2 = $purchase2->items->firstOrFail();
-        InventoryAllocationSetting::query()->whereKey(1)->update(['default_policy' => InventoryAllocationPolicy::Automatic->value]);
-        InventoryAllocationRule::query()->create(['name' => 'Product owner', 'target_account_id' => $account->id,
-            'product_id' => $line2->product_id, 'priority' => 1, 'status' => true, 'created_by_user_id' => $owner->id]);
+        $assignment = ResponsibilityAssignment::factory()->create([
+            'employee_id' => $owner->employee->id,
+            'assigned_by_user_id' => $owner->id,
+            'assign_stock_by_default' => true,
+        ]);
+        ResponsibilityAssignmentProduct::query()->create(['assignment_id' => $assignment->id, 'product_id' => $line2->product_id]);
         app(PurchaseReceivingService::class)->receive($purchase2, new ReceivePurchaseData(
             [new PurchaseReceiptItemData($line2->id, 2, 0, 0)], now()->toDateTimeString(), (string) Str::uuid()
         ), $owner2);
-        $this->assertDatabaseHas('purchase_receipt_allocation_lines', ['account_id' => $account->id, 'quantity' => 2, 'allocation_method' => 'automatic_rule']);
+        $this->assertDatabaseHas('purchase_receipt_allocation_lines', ['account_id' => $account->id, 'quantity' => 2, 'allocation_method' => 'responsibility_default']);
 
         InventoryAllocationSetting::query()->whereKey(1)->update([
             'enforcement_mode' => InventoryAllocationMode::Strict->value,
@@ -273,9 +409,9 @@ class InventoryAllocationLedgerTest extends TestCase
             app(PurchaseReceivingService::class)->receive($purchase3, new ReceivePurchaseData(
                 [new PurchaseReceiptItemData($line3->id, 1, 0, 0)], now()->toDateTimeString(), (string) Str::uuid()
             ), $owner3);
-            $this->fail('Strict mode must reject a GRN when automatic allocation is disabled.');
+            $this->fail('A GRN without a default stock responsibility must be rejected.');
         } catch (ValidationException $exception) {
-            $this->assertStringContainsString('No automatic allocation', $exception->getMessage());
+            $this->assertStringContainsString('No default stock responsibility', $exception->getMessage());
             $this->assertSame(0, $line3->refresh()->received_quantity);
         }
     }
@@ -621,7 +757,16 @@ class InventoryAllocationLedgerTest extends TestCase
         Livewire::test(InventoryAllocations::class)
             ->assertOk()
             ->assertSee('Stock Allocation Settings')
+            ->assertSee('Allocation Balances')
+            ->assertSee('Assign stock by default')
+            ->assertDontSee('Automatic Stock Rules')
+            ->assertDontSee('Create Rule')
             ->assertSee('Immutable Allocation Events');
+        $page = new \ReflectionClass(InventoryAllocations::class);
+        $this->assertFalse($page->hasMethod('createRule'));
+        $this->assertFalse($page->hasMethod('selectRuleAccount'));
+        $this->assertFalse($page->hasMethod('selectRuleProduct'));
+        $this->assertFalse($page->hasProperty('ruleName'));
         $this->actingAs($admin);
         $this->assertTrue(InventoryAllocations::canAccess());
         $this->actingAs($staff);
@@ -673,10 +818,11 @@ class InventoryAllocationLedgerTest extends TestCase
         return [$owner->refresh(), $product, $warehouse, $inventory];
     }
 
-    private function orderData(User $owner, Product $product, Warehouse $warehouse, int $quantity): SaveAndReserveOrderData
+    /** @param array<int, int>|null $allocationSources */
+    private function orderData(User $owner, Product $product, Warehouse $warehouse, int $quantity, ?array $allocationSources = null, ?int $handledByEmployeeId = null): SaveAndReserveOrderData
     {
-        return new SaveAndReserveOrderData($warehouse->id, null, null, now()->toDateString(), $owner->employee->id,
-            'Allocation test', [new OrderItemData($product->id, $quantity, '100.00')], (string) Str::uuid());
+        return new SaveAndReserveOrderData($warehouse->id, null, null, now()->toDateString(), $handledByEmployeeId ?? $owner->employee->id,
+            'Allocation test', [new OrderItemData($product->id, $quantity, '100.00', allocationSources: $allocationSources)], (string) Str::uuid());
     }
 
     private function approvedPurchase(int $quantity, string $cost, ?User $owner = null): array

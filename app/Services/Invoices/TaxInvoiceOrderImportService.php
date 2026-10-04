@@ -64,6 +64,7 @@ class TaxInvoiceOrderImportService
             'external_order_number' => $order->external_order_number,
             'customer_name' => $order->customer_name,
             'customer_phone' => $order->customer_phone,
+            'customer_address' => $order->customer_address,
             'items' => $items,
         ];
     }
@@ -76,7 +77,7 @@ class TaxInvoiceOrderImportService
 
         try {
             return $this->references->query($actor)
-                ->select(['orders.id', 'orders.reference', 'orders.source', 'orders.web_sales_channel', 'orders.external_order_number', 'orders.marketplace_platform_id', 'orders.customer_name', 'orders.customer_phone', 'orders.status'])
+                ->select(['orders.id', 'orders.reference', 'orders.source', 'orders.web_sales_channel', 'orders.external_order_number', 'orders.marketplace_platform_id', 'orders.customer_name', 'orders.customer_phone', 'orders.customer_address', 'orders.status'])
                 ->whereKey($orderId)
                 ->where('orders.status', '!=', OrderStatus::Cancelled->value)
                 ->with(['items' => fn (HasMany $items): HasMany => $items

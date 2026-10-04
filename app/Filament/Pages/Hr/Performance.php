@@ -25,6 +25,8 @@ class Performance extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'HR';
 
+    protected static ?int $navigationSort = 6;
+
     protected static ?string $navigationLabel = 'Performance';
 
     #[Url]

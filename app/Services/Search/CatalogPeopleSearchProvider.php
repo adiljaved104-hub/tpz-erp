@@ -4,7 +4,6 @@ namespace App\Services\Search;
 
 use App\Contracts\GlobalSearchProvider;
 use App\DTOs\GlobalSearchResult;
-use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\PeoplePermission;
 use App\Enums\ProductPermission;
@@ -14,6 +13,7 @@ use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\Suppliers\SupplierResource;
 use App\Filament\Resources\Warehouses\WarehouseResource;
 use App\Models\User;
+use App\Services\Authorization\EmployeeDirectoryScopeService;
 use App\Services\Authorization\InventoryLocationAuthorization;
 use App\Services\Authorization\PeopleAuthorization;
 use App\Services\Authorization\ProductAuthorization;
@@ -38,15 +38,18 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         if (! app(ProductAuthorization::class)->allows($user, ProductPermission::View)) {
             return collect();
         }
-        $query = DB::table('products')->where('products.inventory_item_type', 'product')->select(['products.id', 'products.sku', 'products.name', 'products.model', 'products.status']);
+        $query = DB::table('products')
+            ->leftJoin('product_brands as search_product_brands', 'search_product_brands.id', '=', 'products.brand_id')
+            ->where('products.inventory_item_type', 'product')
+            ->select(['products.id', 'products.sku', 'products.name', 'products.model', 'products.status']);
         app(ResponsibilityProductScopeService::class)->apply($query, 'products.id', $user);
-        SearchQuery::match($query, ['products.sku', 'products.name', 'products.model'], $term);
+        SearchQuery::match($query, ['products.sku', 'products.name', 'products.model', 'products.brand', 'search_product_brands.name'], $term);
         SearchQuery::rank($query, 'products.sku', $term);
         SearchQuery::rank($query, 'products.name', $term);
 
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Products', $row->sku.' · '.$row->name, trim(($row->model ? $row->model.' · ' : '').ucfirst($row->status)),
-            ProductResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-cube',
+            ProductResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-cube', ['module' => 'products', 'id' => $row->id],
         ));
     }
 
@@ -57,9 +60,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         }
         $query = DB::table('employees')->leftJoin('teams', 'teams.id', '=', 'employees.team_id')
             ->select(['employees.id', 'employees.employee_id', 'employees.name', 'employees.role', 'employees.status', 'teams.name as team_name']);
-        if ($user->employee?->role === EmployeeRole::Manager) {
-            $query->where('employees.team_id', $user->employee->team_id);
-        }
+        app(EmployeeDirectoryScopeService::class)->apply($query, $user);
         SearchQuery::match($query, ['employees.employee_id', 'employees.name'], $term);
         SearchQuery::rank($query, 'employees.employee_id', $term);
         SearchQuery::rank($query, 'employees.name', $term);
@@ -67,7 +68,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Employees', $row->employee_id.' · '.$row->name,
             ucfirst($row->role).($row->team_name ? ' · '.$row->team_name : '').' · '.($row->status ? 'Active' : 'Inactive'),
-            EmployeeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-user',
+            EmployeeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-user', ['module' => 'hr/employees', 'id' => $row->id],
         ));
     }
 
@@ -82,7 +83,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
 
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             'Suppliers', $row->name, trim(($row->contact_person ?: 'Supplier').' · '.($row->status ? 'Active' : 'Inactive')),
-            SupplierResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-building-storefront',
+            SupplierResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-building-storefront', ['module' => 'suppliers', 'id' => $row->id],
         ));
     }
 
@@ -99,7 +100,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
         return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
             $row->location_type === 'company_warehouse' ? 'Warehouses' : 'Inventory Locations',
             $row->code.' · '.$row->name, str_replace('_', ' ', ucfirst($row->location_type)).' · '.($row->status ? 'Active' : 'Inactive'),
-            WarehouseResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-map-pin',
+            WarehouseResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-map-pin', ['module' => 'inventory-locations', 'id' => $row->id],
         ));
     }
 }

@@ -24,6 +24,8 @@ class QcPending extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
+    protected static ?int $navigationSort = 7;
+
     protected static ?string $navigationLabel = 'QC Pending';
 
     protected static ?string $title = 'QC Pending';

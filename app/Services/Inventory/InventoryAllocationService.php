@@ -3,8 +3,10 @@
 namespace App\Services\Inventory;
 
 use App\Enums\InventoryAllocationMode;
+use App\Enums\InventoryPermission;
 use App\Exceptions\InventoryInvariantException;
 use App\Models\Employee;
+use App\Models\InventoryAdjustment;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryAllocationEvent;
@@ -17,6 +19,7 @@ use App\Models\PurchaseReceiptAllocationLine;
 use App\Models\PurchaseReceiptItem;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Authorization\InventoryAuthorization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +28,90 @@ use Illuminate\Validation\ValidationException;
 
 class InventoryAllocationService
 {
-    public function __construct(private readonly InventoryAllocationPolicyService $policy) {}
+    public function __construct(
+        private readonly InventoryAllocationPolicyService $policy,
+        private readonly InventoryAuthorization $authorization,
+    ) {}
+
+    /** @return array<int, string> */
+    public function orderSourceOptions(int $productId, int $warehouseId, User $actor): array
+    {
+        $inventoryId = ProductInventory::query()
+            ->where('product_id', $productId)
+            ->where('warehouse_id', $warehouseId)
+            ->value('id');
+        if ($inventoryId === null) {
+            return [];
+        }
+
+        return InventoryAllocationBalance::query()
+            ->with(['account.employee', 'account.team'])
+            ->where('product_inventory_id', $inventoryId)
+            ->whereRaw('allocated_quantity > reserved_quantity')
+            ->orderBy('account_id')
+            ->get()
+            ->filter(fn (InventoryAllocationBalance $balance): bool => $balance->account?->status === true
+                && $this->canConsumeFromAccount($actor, $balance->account))
+            ->mapWithKeys(fn (InventoryAllocationBalance $balance): array => [
+                $balance->account_id => $balance->account->name.' — '.$balance->availableQuantity().' available',
+            ])->all();
+    }
+
+    /** @param array<int, int> $quantitiesByAccountId */
+    public function assertOrderSources(ProductInventory $inventory, array $quantitiesByAccountId, int $required, User $actor, string $errorKey = 'items'): void
+    {
+        $quantitiesByAccountId = collect($quantitiesByAccountId)
+            ->mapWithKeys(fn ($quantity, $accountId): array => [(int) $accountId => (int) $quantity])
+            ->filter(fn (int $quantity): bool => $quantity > 0)
+            ->all();
+
+        if ($quantitiesByAccountId === [] || array_sum($quantitiesByAccountId) !== $required) {
+            throw ValidationException::withMessages([$errorKey => "Stock Source quantities must total exactly {$required}."]);
+        }
+
+        foreach ($quantitiesByAccountId as $accountId => $quantity) {
+            $account = InventoryAllocationAccount::query()->where('status', true)->find($accountId);
+            if ($account === null || ! $this->canConsumeFromAccount($actor, $account)) {
+                throw ValidationException::withMessages([$errorKey => 'You are not authorized to consume from one of the selected allocation sources. Use Stock Requests for stock controlled by another employee or team.']);
+            }
+            if ($this->policy->mode() === InventoryAllocationMode::Strict && $account->is_system) {
+                throw ValidationException::withMessages([$errorKey => 'System / Unallocated stock cannot be consumed in Strict allocation mode.']);
+            }
+            $balance = InventoryAllocationBalance::query()
+                ->where('account_id', $accountId)
+                ->where('product_inventory_id', $inventory->id)
+                ->lockForUpdate()
+                ->first();
+            $available = $balance?->availableQuantity() ?? 0;
+            if ($available < $quantity) {
+                throw ValidationException::withMessages([$errorKey => "{$account->name} has only {$available} available. Correct the Stock Source split before continuing."]);
+            }
+        }
+    }
+
+    public function canConsumeFromAccount(User $actor, InventoryAllocationAccount $account): bool
+    {
+        $account->loadMissing(['employee', 'team']);
+        if (! $account->status
+            || ($account->employee_id !== null && $account->employee?->status !== true)
+            || ($account->team_id !== null && ! (bool) $account->team?->status)) {
+            return false;
+        }
+
+        if ($account->is_system) {
+            return $this->policy->mode() === InventoryAllocationMode::MigrationShadow;
+        }
+
+        if ($this->authorization->allows($actor, InventoryPermission::ConsumeFromAllAllocations)) {
+            return true;
+        }
+
+        $employee = $actor->employee;
+
+        return $employee !== null
+            && ($account->employee_id === $employee->id
+                || ($account->team_id !== null && $account->team_id === $employee->team_id));
+    }
 
     public function systemAccount(): InventoryAllocationAccount
     {
@@ -66,6 +152,114 @@ class InventoryAllocationService
             'purchase_receipt_item_id' => $item->id, 'account_id' => $account->id,
             'quantity' => $quantity, 'allocation_method' => $method,
         ]);
+    }
+
+    /** @param array<int, string> $releaseMovementReferences */
+    public function applyAdjustment(InventoryAdjustment $adjustment, ProductInventory $inventory, User $actor, array &$releaseMovementReferences): void
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Allocation adjustment requires an active transaction.');
+        }
+
+        if ($adjustment->type === 'restore_damaged') {
+            $this->restoreDamaged($inventory, -$adjustment->damaged_delta, $adjustment, $actor);
+
+            return;
+        }
+
+        if ($adjustment->type === 'mark_damaged') {
+            $this->releaseForAdjustmentIfNeeded($inventory, -$adjustment->available_delta, $adjustment, $actor, $releaseMovementReferences);
+            $this->markDamaged($inventory, -$adjustment->available_delta, $adjustment, $actor);
+
+            return;
+        }
+
+        if ($adjustment->available_delta > 0) {
+            $quantity = $adjustment->available_delta;
+            $sources = $adjustment->receiptItem?->allocationLines()->with('account')->orderBy('id')->get() ?? collect();
+            $sources = $sources->filter(fn ($line): bool => $line->account?->status === true)->values();
+            if ($sources->isNotEmpty()) {
+                $total = $sources->sum('quantity');
+                foreach ($sources as $index => $line) {
+                    $take = $index === $sources->count() - 1 ? $quantity : intdiv($adjustment->available_delta * $line->quantity, $total);
+                    if ($take > 0) {
+                        $this->increase($line->account, $inventory, $take, 'inventory_adjustment_increase', $actor, $adjustment, 'Stock count adjustment to original GRN holder');
+                        $quantity -= $take;
+                    }
+                }
+
+                return;
+            }
+            $account = InventoryAllocationAccount::query()->where('status', true)->find($adjustment->allocation_account_id);
+            if ($account === null || ! $this->canConsumeFromAccount($actor, $account)) {
+                throw new InventoryInvariantException('Select an authorized active allocation holder for this stock increase.');
+            }
+            $this->increase($account, $inventory, $quantity, 'inventory_adjustment_increase', $actor, $adjustment, 'Stock count adjustment');
+
+            return;
+        }
+
+        $remaining = -$adjustment->available_delta;
+        $preferredAccountIds = $adjustment->receiptItem?->allocationLines()->orderBy('id')->pluck('account_id')->all() ?? [];
+        $balances = InventoryAllocationBalance::query()->with('account')
+            ->where('product_inventory_id', $inventory->id)->orderBy('account_id')->lockForUpdate()->get()
+            ->filter(fn (InventoryAllocationBalance $balance): bool => $balance->account !== null && $this->canConsumeFromAccount($actor, $balance->account))
+            ->sortBy(function (InventoryAllocationBalance $balance) use ($preferredAccountIds): int {
+                $position = array_search($balance->account_id, $preferredAccountIds, true);
+
+                return ($position === false ? count($preferredAccountIds) : $position) * 1000000 + $balance->account_id;
+            });
+        foreach ([false, true] as $reservedPass) {
+            foreach ($balances as $balance) {
+                if ($remaining === 0) {
+                    break;
+                }
+                $take = min($remaining, $reservedPass ? $balance->allocated_quantity : $balance->availableQuantity());
+                if ($take < 1) {
+                    continue;
+                }
+                if ($reservedPass && $balance->availableQuantity() < $take) {
+                    app(InventoryService::class)->releaseForAdjustment(
+                        $inventory, $balance->account, $take - $balance->availableQuantity(),
+                        $adjustment, $actor, $releaseMovementReferences,
+                    );
+                    $balance->refresh();
+                }
+                $balance->decrement('allocated_quantity', $take);
+                $this->event('inventory_adjustment_decrease', $inventory, $take, $actor,
+                    'Stock count adjustment', $adjustment, $balance->account);
+                $remaining -= $take;
+            }
+        }
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('Stock already fulfilled or consumed cannot be removed by an inventory adjustment.');
+        }
+    }
+
+    /** @param array<int, string> $releaseMovementReferences */
+    private function releaseForAdjustmentIfNeeded(ProductInventory $inventory, int $quantity, InventoryAdjustment $adjustment, User $actor, array &$releaseMovementReferences): void
+    {
+        $needed = max(0, $quantity - $inventory->sellableQuantity());
+        if ($needed === 0) {
+            return;
+        }
+        $balances = InventoryAllocationBalance::query()->with('account')
+            ->where('product_inventory_id', $inventory->id)->where('reserved_quantity', '>', 0)
+            ->orderBy('account_id')->lockForUpdate()->get();
+        foreach ($balances as $balance) {
+            if ($needed === 0) {
+                break;
+            }
+            if (! $this->canConsumeFromAccount($actor, $balance->account)) {
+                continue;
+            }
+            $release = min($needed, $balance->reserved_quantity);
+            app(InventoryService::class)->releaseForAdjustment($inventory, $balance->account, $release, $adjustment, $actor, $releaseMovementReferences);
+            $needed -= $release;
+        }
+        if ($needed > 0) {
+            throw new InventoryInvariantException('Stock already fulfilled or consumed cannot be removed by an inventory adjustment.');
+        }
     }
 
     public function reconcile(ProductInventory $inventory, InventoryAllocationAccount $target, int $quantity, User $actor, string $reason): void
@@ -158,11 +352,15 @@ class InventoryAllocationService
     }
 
     /** @param array<int, int> $quantitiesByAccountId */
-    public function reserveExact(InventoryReservation $reservation, array $quantitiesByAccountId, User $actor): void
+    public function reserveExact(InventoryReservation $reservation, array $quantitiesByAccountId, User $actor, bool $manualOrderSelection = false): void
     {
         $inventory = ProductInventory::query()->lockForUpdate()->findOrFail($reservation->product_inventory_id);
         $quantitiesByAccountId = array_filter($quantitiesByAccountId, fn (int $quantity): bool => $quantity > 0);
         ksort($quantitiesByAccountId);
+
+        if ($manualOrderSelection) {
+            $this->assertOrderSources($inventory, $quantitiesByAccountId, $reservation->quantity, $actor, 'items');
+        }
 
         if (array_sum($quantitiesByAccountId) !== $reservation->quantity) {
             throw ValidationException::withMessages(['execution' => 'Approved stock sources do not match the required reservation quantity.']);
@@ -183,8 +381,19 @@ class InventoryAllocationService
                 'quantity' => $quantity,
                 'status' => 'reserved',
             ]);
-            $this->event($account->is_system ? 'approved_system_reservation' : 'approved_source_reservation', $inventory, $quantity, $actor,
-                'Approved Stock Request source reservation', $reservation, $account);
+            $this->event(
+                $manualOrderSelection
+                    ? ($account->is_system ? 'selected_system_reservation' : 'selected_source_reservation')
+                    : ($account->is_system ? 'approved_system_reservation' : 'approved_source_reservation'),
+                $inventory,
+                $quantity,
+                $actor,
+                $manualOrderSelection ? 'Order reservation from selected allocation source' : 'Approved Stock Request source reservation',
+                $reservation,
+                $account,
+                null,
+                $manualOrderSelection ? ['selection' => 'explicit'] : [],
+            );
         }
     }
 
@@ -223,7 +432,28 @@ class InventoryAllocationService
             });
     }
 
-    public function adjustReservation(InventoryReservation $reservation, OrderItem $item, int $newQuantity, User $actor): void
+    public function releaseReservationAccountQuantity(InventoryReservation $reservation, InventoryAllocationAccount $account, int $quantity, User $actor, InventoryAdjustment $adjustment): void
+    {
+        $line = InventoryAllocationReservationLine::query()
+            ->where('inventory_reservation_id', $reservation->id)
+            ->where('account_id', $account->id)
+            ->where('status', 'reserved')->lockForUpdate()->firstOrFail();
+        $balance = $this->balance($account, $reservation->inventory, true);
+        if ($quantity < 1 || $line->quantity < $quantity || $balance->reserved_quantity < $quantity) {
+            throw new InventoryInvariantException('Allocation reservation attribution cannot satisfy the adjustment release.');
+        }
+        $balance->decrement('reserved_quantity', $quantity);
+        $line->forceFill([
+            'quantity' => $line->quantity - $quantity,
+            'status' => $line->quantity === $quantity ? 'released' : 'reserved',
+        ])->save();
+        $this->event('reservation_decrease', $reservation->inventory, $quantity, $actor,
+            'Unfulfilled reservation released for inventory adjustment', $reservation, $account,
+            metadata: ['inventory_adjustment_id' => $adjustment->id]);
+    }
+
+    /** @param array<int, int>|null $additionalSources */
+    public function adjustReservation(InventoryReservation $reservation, OrderItem $item, int $newQuantity, User $actor, ?array $additionalSources = null): void
     {
         $current = (int) InventoryAllocationReservationLine::query()->where('inventory_reservation_id', $reservation->id)->where('status', 'reserved')->sum('quantity');
         $delta = $newQuantity - $current;
@@ -232,8 +462,38 @@ class InventoryAllocationService
         }
         $inventory = ProductInventory::query()->lockForUpdate()->findOrFail($reservation->product_inventory_id);
         if ($delta > 0) {
+            if ($additionalSources !== null) {
+                $this->assertOrderSources($inventory, $additionalSources, $delta, $actor, 'items');
+                ksort($additionalSources);
+                foreach ($additionalSources as $accountId => $take) {
+                    $account = InventoryAllocationAccount::query()->findOrFail($accountId);
+                    $balance = $this->balance($account, $inventory, true);
+                    $balance->increment('reserved_quantity', $take);
+                    $line = InventoryAllocationReservationLine::query()->firstOrNew([
+                        'inventory_reservation_id' => $reservation->id, 'account_id' => $account->id,
+                    ]);
+                    $line->quantity = ((int) $line->quantity) + $take;
+                    $line->status = 'reserved';
+                    $line->save();
+                    $this->event('reservation_increase', $inventory, $take, $actor,
+                        'Controlled Order amendment from selected allocation source', $reservation, $account, null,
+                        ['selection' => 'explicit']);
+                }
+
+                return;
+            }
             $needed = $delta;
-            foreach ($this->candidateAccounts($item, $actor) as $account) {
+            $existingAccountIds = InventoryAllocationReservationLine::query()
+                ->where('inventory_reservation_id', $reservation->id)
+                ->where('status', 'reserved')
+                ->orderBy('id')
+                ->pluck('account_id');
+            $existingAccounts = InventoryAllocationAccount::query()
+                ->whereIn('id', $existingAccountIds)
+                ->get()
+                ->sortBy(fn (InventoryAllocationAccount $account): int => (int) $existingAccountIds->search($account->id))
+                ->all();
+            foreach ($existingAccounts as $account) {
                 if ($needed === 0) {
                     break;
                 }
@@ -253,7 +513,7 @@ class InventoryAllocationService
                 $needed -= $take;
             }
             if ($needed > 0) {
-                throw ValidationException::withMessages(['items' => 'Insufficient allocated inventory for the Order amendment.']);
+                throw ValidationException::withMessages(['items' => 'The existing allocation source cannot cover this Order increase. Select an explicit additional Stock Source.']);
             }
 
             return;
@@ -323,6 +583,21 @@ class InventoryAllocationService
         }
         if ($needed > 0) {
             throw ValidationException::withMessages(['items' => 'Insufficient explicitly allocated inventory for this shipment.']);
+        }
+    }
+
+    /** @param array<int, int> $quantitiesByAccountId */
+    public function consumeDirectExact(OrderItem $item, ProductInventory $inventory, int $quantity, array $quantitiesByAccountId, User $actor): void
+    {
+        $this->assertOrderSources($inventory, $quantitiesByAccountId, $quantity, $actor);
+        ksort($quantitiesByAccountId);
+        foreach ($quantitiesByAccountId as $accountId => $amount) {
+            $account = InventoryAllocationAccount::query()->findOrFail($accountId);
+            $balance = $this->balance($account, $inventory, true);
+            $balance->decrement('allocated_quantity', $amount);
+            $this->event('direct_fulfilment_consumption', $inventory, $amount, $actor,
+                'Direct Order fulfilment from selected allocation source', $item, $account, null,
+                ['selection' => 'explicit']);
         }
     }
 
@@ -456,7 +731,7 @@ class InventoryAllocationService
 
     private function candidateAccounts(OrderItem $item, User $actor): array
     {
-        $employeeId = $item->order->handled_by_employee_id ?? $actor->employee?->id;
+        $employeeId = $actor->employee?->id;
         $accounts = [];
         if ($employeeId !== null) {
             $employee = Employee::query()->find($employeeId);
@@ -497,6 +772,9 @@ class InventoryAllocationService
             if ($remaining === 0) {
                 break;
             }
+            if ($source instanceof InventoryAdjustment && ! $this->canConsumeFromAccount($actor, $balance->account)) {
+                continue;
+            }
             $amount = min($remaining, $balance->availableQuantity());
             if ($amount < 1) {
                 continue;
@@ -529,7 +807,9 @@ class InventoryAllocationService
             'from_account_id' => $from?->id, 'to_account_id' => $to?->id, 'quantity' => $quantity,
             'source_type' => $source?->getMorphClass(), 'source_id' => $source?->getKey(),
             'order_id' => $source instanceof InventoryReservation ? $source->orderItem?->order_id : ($source instanceof OrderItem ? $source->order_id : null),
-            'purchase_receipt_id' => $source instanceof PurchaseReceiptItem ? $source->purchase_receipt_id : null,
+            'purchase_receipt_id' => $source instanceof PurchaseReceiptItem
+                ? $source->purchase_receipt_id
+                : ($source instanceof InventoryAdjustment ? $source->purchase_receipt_id : null),
             'performed_by_user_id' => $actor?->id, 'reason' => $reason, 'metadata' => $metadata ?: null, 'created_at' => now(),
         ]);
     }

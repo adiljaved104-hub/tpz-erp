@@ -19,5 +19,6 @@ final readonly class QuickStockPurchaseData
         public string $shippingTotal = '0.00',
         public string $otherChargesTotal = '0.00',
         public ?string $notes = null,
+        public ?int $allocationAccountId = null,
     ) {}
 }

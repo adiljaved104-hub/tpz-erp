@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Authorization\AuthSecurityAuthorization;
 use App\Services\CompanyEmailPolicyService;
 use App\Services\LoginBrandingService;
+use App\Services\Security\ApplicationSecurityPolicy;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -115,6 +116,13 @@ class LoginSecuritySettings extends Page
         return [
             'canManage' => auth()->user()?->can(AuthSecurityPermission::Manage->value) === true,
             'policyReady' => Schema::hasTable('login_email_change_requests'),
+            'securityPolicy' => [
+                'minimumPasswordLength' => ApplicationSecurityPolicy::PASSWORD_MIN_LENGTH,
+                'passwordMaxAgeDays' => ApplicationSecurityPolicy::PASSWORD_MAX_AGE_DAYS,
+                'loginMaxAttempts' => ApplicationSecurityPolicy::LOGIN_MAX_ATTEMPTS,
+                'lockoutMinutes' => ApplicationSecurityPolicy::LOGIN_LOCKOUT_MINUTES,
+                'webInactivityMinutes' => ApplicationSecurityPolicy::webInactivityMinutes(),
+            ],
         ];
     }
 }

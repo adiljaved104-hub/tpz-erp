@@ -239,6 +239,36 @@ class MobileOperationsAuthorizationTest extends TestCase
         $this->assertDatabaseCount('mobile_devices', 0);
     }
 
+    public function test_device_registration_rate_limit_does_not_consume_chat_creation_limit(): void
+    {
+        $one = $this->responsibilityUser(EmployeeRole::Owner);
+        $two = $this->responsibilityUser(EmployeeRole::Staff);
+        $token = $this->token($one);
+        $deviceId = (string) Str::uuid();
+        $payload = [
+            'device_id' => $deviceId,
+            'expo_token' => 'ExponentPushToken[rateLimitIsolation]',
+            'platform' => 'android',
+        ];
+
+        for ($i = 0; $i < 30; $i++) {
+            $this->as($token)
+                ->postJson('/api/mobile/v1/devices', $payload)
+                ->assertOk();
+        }
+
+        $this->as($token)
+            ->postJson('/api/mobile/v1/devices', $payload)
+            ->assertTooManyRequests();
+
+        $this->as($token)
+            ->postJson('/api/mobile/v1/chat', [
+                'type' => 'direct',
+                'employee_id' => $two->employee->id,
+            ])
+            ->assertOk();
+    }
+
     public function test_chat_direct_messages_are_private_and_read_markers_are_monotonic(): void
     {
         $one = $this->responsibilityUser(EmployeeRole::Owner);
@@ -259,6 +289,56 @@ class MobileOperationsAuthorizationTest extends TestCase
         $this->assertSame(0, $this->as($second)->getJson('/api/mobile/v1/chat')->json('unread_count'));
     }
 
+    public function test_reopening_direct_chat_reactivates_previous_participant(): void
+    {
+        $one = $this->responsibilityUser(EmployeeRole::Owner);
+        $two = $this->responsibilityUser(EmployeeRole::Staff);
+
+        $first = $this->token($one);
+        $second = $this->token($two);
+
+        $conversationId = $this->as($first)
+            ->postJson('/api/mobile/v1/chat', [
+                'type' => 'direct',
+                'employee_id' => $two->employee->id,
+            ])
+            ->assertOk()
+            ->json('data.id');
+
+        $conversation = \App\Models\Conversation::query()->findOrFail($conversationId);
+
+        $conversation->participants()
+            ->where('employee_id', $two->employee->id)
+            ->update(['left_at' => now()]);
+
+        $this->as($second)
+            ->getJson('/api/mobile/v1/chat/'.$conversationId.'/messages')
+            ->assertForbidden();
+
+        $inbox = $this->as($second)
+            ->getJson('/api/mobile/v1/chat')
+            ->assertOk();
+
+        $this->assertNotContains($conversationId, collect($inbox->json('data'))->pluck('id'));
+
+        $this->as($first)
+            ->postJson('/api/mobile/v1/chat', [
+                'type' => 'direct',
+                'employee_id' => $two->employee->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.id', $conversationId);
+
+        $this->assertDatabaseHas('conversation_participants', [
+            'conversation_id' => $conversationId,
+            'employee_id' => $two->employee->id,
+            'left_at' => null,
+        ]);
+
+        $this->as($second)
+            ->getJson('/api/mobile/v1/chat/'.$conversationId.'/messages')
+            ->assertOk();
+    }
     public function test_return_record_scope_and_receive_permission(): void
     {
         $f = $this->assigned();

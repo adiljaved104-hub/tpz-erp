@@ -29,6 +29,7 @@ use App\Enums\ExpensePermission;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\InventoryPermission;
 use App\Enums\InvoicePermission;
+use App\Enums\MarketplaceOperationsPermission;
 use App\Enums\MarketplaceReturnPermission;
 use App\Enums\NotificationRulePermission;
 use App\Enums\OrderPermission;
@@ -70,10 +71,16 @@ use App\Models\EmployeeLoanRepayment;
 use App\Models\EmployeeWarning;
 use App\Models\Expense;
 use App\Models\HrNotice;
+use App\Models\InventoryAdjustment;
 use App\Models\InventoryReservation;
 use App\Models\InvoiceSetting;
 use App\Models\LeaveRequest;
 use App\Models\LoginSecuritySetting;
+use App\Models\MarketplaceAccount;
+use App\Models\MarketplaceConnection;
+use App\Models\MarketplaceMonitoringSetting;
+use App\Models\MarketplaceOperationIncident;
+use App\Models\MarketplaceOrderEvent;
 use App\Models\MarketplacePlatform;
 use App\Models\MarketplaceReturnRemoval;
 use App\Models\MarketplaceReturnRemovalEvent;
@@ -103,6 +110,7 @@ use App\Models\ProductInventory;
 use App\Models\PublicHoliday;
 use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
+use App\Models\PurchaseReceiptCorrection;
 use App\Models\PurchaseReceiptItem;
 use App\Models\Quotation;
 use App\Models\QuotationEmailDelivery;
@@ -112,6 +120,7 @@ use App\Models\ResponsibilityAssignment;
 use App\Models\SafetClaim;
 use App\Models\SafetClaimStatusEvent;
 use App\Models\SalesConfiguration;
+use App\Models\StockAlertIncident;
 use App\Models\StockMovement;
 use App\Models\StockRequest;
 use App\Models\StockTransfer;
@@ -186,6 +195,7 @@ use App\Services\Authorization\ExpenseAuthorization;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\InventoryLocationAuthorization;
 use App\Services\Authorization\InvoiceAuthorization;
+use App\Services\Authorization\MarketplaceOperationsAuthorization;
 use App\Services\Authorization\MarketplaceReturnAuthorization;
 use App\Services\Authorization\NotificationRuleAuthorization;
 use App\Services\Authorization\OrderAuthorization;
@@ -210,6 +220,9 @@ use App\Services\Authorization\UpgradeAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Hikvision\HikvisionAttendanceImporter;
+use App\Services\Marketplace\AmazonUaeMonitorAdapter;
+use App\Services\Marketplace\MarketplaceConnectionCapabilityResolver;
+use App\Services\Marketplace\MarketplaceMonitorManager;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\ProductIntelligence\LocalProductQueryInterpreter;
 use App\Services\Reports\Providers\CoreReportProvider;
@@ -218,6 +231,7 @@ use App\Services\Reports\Providers\OfficeFinanceReportProvider;
 use App\Services\Reports\Providers\QuotationReportProvider;
 use App\Services\Reports\Providers\WebSalesReportProvider;
 use App\Services\Reports\ReportRegistry;
+use App\Services\Security\ApplicationSecurityPolicy;
 use App\Services\ServiceCases\ServiceCaseAssigneeService;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
 use Filament\Navigation\NavigationManager;
@@ -227,6 +241,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -262,6 +277,9 @@ class AppServiceProvider extends ServiceProvider
         );
         $this->app->scoped(ServiceCaseAssigneeService::class);
         $this->app->scoped(NavigationPreferenceService::class);
+        $this->app->singleton(MarketplaceMonitorManager::class, fn ($app): MarketplaceMonitorManager => new MarketplaceMonitorManager([
+            $app->make(AmazonUaeMonitorAdapter::class),
+        ], $app->make(MarketplaceConnectionCapabilityResolver::class)));
         $this->app->scoped(NavigationManager::class, fn (): NavigationManager => new PersonalizedNavigationManager);
     }
 
@@ -270,6 +288,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Password::defaults(fn (): Password => ApplicationSecurityPolicy::passwordRule());
+
         RateLimiter::for('mobile-login', function (Request $request): array {
             $email = mb_strtolower(trim((string) $request->input('email')));
 
@@ -278,6 +298,15 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(60)->by('mobile-login:ip:'.$request->ip()),
             ];
         });
+
+        RateLimiter::for('mobile-device-register', fn (Request $request): Limit => Limit::perMinute(30)
+            ->by('mobile-device-register:user:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
+        RateLimiter::for('mobile-chat-create', fn (Request $request): Limit => Limit::perMinute(30)
+            ->by('mobile-chat-create:user:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
+        RateLimiter::for('mobile-chat-message', fn (Request $request): Limit => Limit::perMinute(60)
+            ->by('mobile-chat-message:user:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
         Gate::policy(Employee::class, EmployeePolicy::class);
         Gate::policy(ActivityLog::class, ActivityLogPolicy::class);
@@ -432,6 +461,9 @@ class AppServiceProvider extends ServiceProvider
         foreach (NotificationRulePermission::cases() as $permission) {
             Gate::define($permission->value, fn (User $user): bool => app(NotificationRuleAuthorization::class)->allows($user, $permission));
         }
+        foreach (MarketplaceOperationsPermission::cases() as $permission) {
+            Gate::define($permission->value, fn (User $user): bool => app(MarketplaceOperationsAuthorization::class)->allows($user, $permission));
+        }
         foreach (AuthSecurityPermission::cases() as $permission) {
             Gate::define($permission->value, fn (User $user): bool => app(AuthSecurityAuthorization::class)->allows($user, $permission));
         }
@@ -477,10 +509,12 @@ class AppServiceProvider extends ServiceProvider
             'product_brand' => ProductBrand::class,
             'product_category' => ProductCategory::class,
             'product_inventory' => ProductInventory::class,
+            'stock_alert_incident' => StockAlertIncident::class,
             'stock_movement' => StockMovement::class,
             'stock_request' => StockRequest::class,
             'opening_stock' => OpeningStockEntry::class,
             'inventory_reservation' => InventoryReservation::class,
+            'inventory_adjustment' => InventoryAdjustment::class,
             'order' => Order::class,
             'order_setting' => OrderSetting::class,
             'order_amendment' => OrderAmendment::class,
@@ -494,8 +528,13 @@ class AppServiceProvider extends ServiceProvider
             'order_status_event' => OrderStatusEvent::class,
             'purchase' => Purchase::class,
             'purchase_receipt' => PurchaseReceipt::class,
+            'purchase_receipt_correction' => PurchaseReceiptCorrection::class,
             'purchase_receipt_item' => PurchaseReceiptItem::class,
             'marketplace_platform' => MarketplacePlatform::class,
+            'marketplace_account' => MarketplaceAccount::class,
+            'marketplace_connection' => MarketplaceConnection::class,
+            'marketplace_order_event' => MarketplaceOrderEvent::class,
+            'marketplace_monitoring_setting' => MarketplaceMonitoringSetting::class,
             'responsibility_assignment' => ResponsibilityAssignment::class,
             'stock_transfer' => StockTransfer::class,
             'stock_transfer_item' => StockTransferItem::class,
@@ -508,6 +547,7 @@ class AppServiceProvider extends ServiceProvider
             'customer_return_refund' => CustomerReturnRefund::class,
             'marketplace_return_removal' => MarketplaceReturnRemoval::class,
             'marketplace_return_removal_item' => MarketplaceReturnRemovalItem::class,
+            'marketplace_operation_incident' => MarketplaceOperationIncident::class,
             'marketplace_return_removal_event' => MarketplaceReturnRemovalEvent::class,
             'damaged_stock_event' => DamagedStockEvent::class,
             'safet_claim' => SafetClaim::class,

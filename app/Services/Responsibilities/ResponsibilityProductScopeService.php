@@ -36,6 +36,8 @@ class ResponsibilityProductScopeService
                     ->where('direct_ra.status', ResponsibilityAssignmentStatus::Active->value)
                     ->whereNull('direct_ra.ended_at')
                     ->whereColumn('direct_rap.product_id', $qualifiedProductColumn);
+                $this->matchingRequiredProductScopes($direct, $qualifiedProductColumn, 'direct_ra');
+                $this->matchingRequiredWarehouseScope($direct, $qualifiedProductColumn, 'direct_ra');
             })->orWhereExists(function (Builder $quantity) use ($employeeId, $qualifiedProductColumn): void {
                 $quantity->selectRaw('1')
                     ->from('responsibility_assignments as quantity_ra')
@@ -58,6 +60,7 @@ class ResponsibilityProductScopeService
                         $condition->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as warehouse_condition_none')->whereColumn('warehouse_condition_none.assignment_id', 'warehouse_ra.id'))
                             ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as warehouse_condition_match')->join('products as warehouse_condition_product', 'warehouse_condition_product.condition', '=', 'warehouse_condition_match.product_condition')->whereColumn('warehouse_condition_match.assignment_id', 'warehouse_ra.id')->whereColumn('warehouse_condition_product.id', $qualifiedProductColumn));
                     });
+                $this->matchingRequiredProductScopes($warehouse, $qualifiedProductColumn, 'warehouse_ra');
             })->orWhereExists(function (Builder $dimensions) use ($employeeId, $qualifiedProductColumn): void {
                 $dimensions->selectRaw('1')
                     ->from('responsibility_assignments as dimension_ra')
@@ -65,6 +68,7 @@ class ResponsibilityProductScopeService
                     ->where('dimension_ra.status', ResponsibilityAssignmentStatus::Active->value)
                     ->whereNull('dimension_ra.ended_at');
                 $this->matchingProductDimensions($dimensions, $qualifiedProductColumn, 'dimension_ra');
+                $this->matchingRequiredProductScopes($dimensions, $qualifiedProductColumn, 'dimension_ra');
             });
         });
     }
@@ -115,7 +119,25 @@ class ResponsibilityProductScopeService
                             ->from('responsibility_assignment_platforms as inventory_platform_scope')
                             ->join('warehouses as inventory_platform_warehouse', 'inventory_platform_warehouse.marketplace_platform_id', '=', 'inventory_platform_scope.marketplace_platform_id')
                             ->whereColumn('inventory_platform_scope.assignment_id', 'inventory_ra.id')
-                            ->whereColumn('inventory_platform_warehouse.id', "{$inventoryAlias}.warehouse_id"));
+                            ->whereColumn('inventory_platform_warehouse.id', "{$inventoryAlias}.warehouse_id"))
+                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                            ->from('responsibility_assignment_platforms as inventory_listing_platform')
+                            ->join('product_marketplace_listings as inventory_listing', 'inventory_listing.marketplace_platform_id', '=', 'inventory_listing_platform.marketplace_platform_id')
+                            ->whereColumn('inventory_listing_platform.assignment_id', 'inventory_ra.id')
+                            ->whereColumn('inventory_listing.product_id', "{$inventoryAlias}.product_id"))
+                        ->orWhere(function (Builder $physical) use ($inventoryAlias): void {
+                            $physical->whereExists(fn (Builder $scope) => $scope->selectRaw('1')
+                                ->from('warehouses as inventory_physical_warehouse')
+                                ->whereColumn('inventory_physical_warehouse.id', "{$inventoryAlias}.warehouse_id")
+                                ->whereNull('inventory_physical_warehouse.marketplace_platform_id'))
+                                ->where(function (Builder $bounded): void {
+                                    $bounded->whereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_products as inventory_physical_product')->whereColumn('inventory_physical_product.assignment_id', 'inventory_ra.id'))
+                                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_brands as inventory_physical_brand')->whereColumn('inventory_physical_brand.assignment_id', 'inventory_ra.id'))
+                                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_categories as inventory_physical_category')->whereColumn('inventory_physical_category.assignment_id', 'inventory_ra.id'))
+                                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_conditions as inventory_physical_condition')->whereColumn('inventory_physical_condition.assignment_id', 'inventory_ra.id'))
+                                        ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as inventory_physical_quantity')->whereColumn('inventory_physical_quantity.assignment_id', 'inventory_ra.id'));
+                                });
+                        });
                 })
                 ->where(function (Builder $condition) use ($inventoryAlias): void {
                     $condition->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
@@ -153,6 +175,8 @@ class ResponsibilityProductScopeService
                                 ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_warehouses as inventory_no_warehouse')->whereColumn('inventory_no_warehouse.assignment_id', 'inventory_ra.id'));
                         });
                 });
+            $this->matchingRequiredProductScopes($assignment, "{$inventoryAlias}.product_id", 'inventory_ra');
+            $this->matchingRequiredWarehouseScope($assignment, "{$inventoryAlias}.product_id", 'inventory_ra', "{$inventoryAlias}.warehouse_id");
         });
     }
 
@@ -214,5 +238,45 @@ class ResponsibilityProductScopeService
                         ->whereColumn('dimension_condition_match.assignment_id', "{$assignmentAlias}.id")
                         ->whereColumn('dimension_condition_product.id', $productColumn));
             });
+    }
+
+    private function matchingRequiredProductScopes(Builder $query, string $productColumn, string $assignmentAlias): void
+    {
+        foreach ([
+            'products' => ['product_id', 'id'],
+            'brands' => ['product_brand_id', 'brand_id'],
+            'categories' => ['product_category_id', 'category_id'],
+            'conditions' => ['product_condition', 'condition'],
+        ] as $dimension => [$scopeColumn, $attribute]) {
+            $table = 'responsibility_assignment_'.$dimension;
+            $alias = 'required_'.$dimension;
+            $query->where(function (Builder $required) use ($table, $alias, $scopeColumn, $attribute, $productColumn, $assignmentAlias): void {
+                $required->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from($table.' as '.$alias.'_none')
+                    ->whereColumn($alias.'_none.assignment_id', $assignmentAlias.'.id'))
+                    ->orWhereExists(fn (Builder $scope) => $scope->selectRaw('1')->from($table.' as '.$alias.'_match')
+                        ->join('products as '.$alias.'_product', $alias.'_product.'.$attribute, '=', $alias.'_match.'.$scopeColumn)
+                        ->whereColumn($alias.'_match.assignment_id', $assignmentAlias.'.id')
+                        ->whereColumn($alias.'_product.id', $productColumn));
+            });
+        }
+    }
+
+    private function matchingRequiredWarehouseScope(Builder $query, string $productColumn, string $assignmentAlias, ?string $warehouseColumn = null): void
+    {
+        $query->where(function (Builder $required) use ($productColumn, $assignmentAlias, $warehouseColumn): void {
+            $required->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
+                ->from('responsibility_assignment_warehouses as required_warehouse_none')
+                ->whereColumn('required_warehouse_none.assignment_id', $assignmentAlias.'.id'))
+                ->orWhereExists(function (Builder $scope) use ($productColumn, $assignmentAlias, $warehouseColumn): void {
+                    $scope->selectRaw('1')->from('responsibility_assignment_warehouses as required_warehouse_match')
+                        ->whereColumn('required_warehouse_match.assignment_id', $assignmentAlias.'.id');
+                    if ($warehouseColumn !== null) {
+                        $scope->whereColumn('required_warehouse_match.warehouse_id', $warehouseColumn);
+                    } else {
+                        $scope->join('product_inventories as required_warehouse_inventory', 'required_warehouse_inventory.warehouse_id', '=', 'required_warehouse_match.warehouse_id')
+                            ->whereColumn('required_warehouse_inventory.product_id', $productColumn);
+                    }
+                });
+        });
     }
 }

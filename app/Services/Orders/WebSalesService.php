@@ -147,6 +147,7 @@ class WebSalesService
             webSalesChannel: $data->channel->value,
             customerName: trim($data->customerName),
             customerPhone: $this->normalizePhone($data->customerPhone),
+            customerAddress: filled($data->customerAddress) ? trim((string) $data->customerAddress) : null,
             deliveryType: $data->deliveryType->value,
             courierName: $data->deliveryType === WebSalesDeliveryType::ShopPickup ? null : $data->courierName,
             trackingNumber: $data->deliveryType === WebSalesDeliveryType::ShopPickup ? null : $data->trackingNumber,

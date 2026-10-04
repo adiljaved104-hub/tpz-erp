@@ -9,6 +9,9 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\AuthenticationOtpService;
 use App\Services\LoginBrandingService;
+use App\Services\Security\MfaPolicy;
+use App\Services\Security\PasswordAgeService;
+use App\Services\Security\WebInactivityService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -55,8 +58,12 @@ class EmailOtpAuthenticationController extends Controller
         ));
     }
 
-    public function verifyLogin(Request $request, AuthenticationOtpService $challenges): RedirectResponse
-    {
+    public function verifyLogin(
+        Request $request,
+        AuthenticationOtpService $challenges,
+        PasswordAgeService $passwordAge,
+        MfaPolicy $mfaPolicy,
+    ): RedirectResponse {
         $code = $request->validate(['code' => ['required', 'digits:6']])['code'];
         $challengeId = (string) $request->session()->get('auth_otp.login_challenge');
         $user = $challenges->verify($challengeId, AuthenticationOtpPurpose::Login, $code);
@@ -65,10 +72,30 @@ class EmailOtpAuthenticationController extends Controller
             return back()->withErrors(['code' => 'The verification code is invalid or has expired.']);
         }
 
+        if ($passwordAge->isExpired($user)) {
+            $passwordAge->auditRotationRequired($user, 'email_otp');
+            $request->session()->forget('auth_otp.login_challenge');
+
+            return redirect()->route('auth.password.request')
+                ->with('status', 'Your password has expired. Reset it before signing in again.');
+        }
+
+        if ($mfaPolicy->requires($user)) {
+            $request->session()->forget('auth_otp.login_challenge');
+            $request->session()->put('auth_security.passwordless_mfa_proof', [
+                'user_id' => $user->id,
+                'expires_at' => now()->addMinutes(AuthenticationOtpService::EXPIRY_MINUTES)->timestamp,
+            ]);
+
+            return redirect()->route('filament.admin.auth.login')
+                ->with('status', 'Enter your password to complete secure sign-in.');
+        }
+
         Auth::login($user);
         $request->session()->forget('auth_otp.login_challenge');
         $request->session()->forget('url.intended');
         $request->session()->regenerate();
+        $request->session()->put(WebInactivityService::SESSION_KEY, now()->timestamp);
 
         return redirect()->to(filament()->getPanel('admin')->getUrl());
     }
@@ -151,6 +178,7 @@ class EmailOtpAuthenticationController extends Controller
             $locked = User::query()->lockForUpdate()->findOrFail($user->id);
             $locked->forceFill([
                 'password' => Hash::make($validated['password']),
+                'password_changed_at' => now(),
                 'remember_token' => Str::random(60),
             ])->save();
             DB::table('sessions')->where('user_id', $locked->id)->delete();

@@ -26,9 +26,9 @@ class WebSalesOrderResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedShoppingCart;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Web Sales';
+    protected static string|\UnitEnum|null $navigationGroup = 'Sales';
 
-    protected static ?string $navigationLabel = 'Orders';
+    protected static ?string $navigationLabel = 'Web Sales Orders';
 
     protected static ?string $modelLabel = 'Web Sale';
 
@@ -36,7 +36,7 @@ class WebSalesOrderResource extends Resource
 
     protected static ?string $slug = 'web-sales/orders';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 2;
 
     public static function canViewAny(): bool
     {

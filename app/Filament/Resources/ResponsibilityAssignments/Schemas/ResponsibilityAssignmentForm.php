@@ -13,6 +13,7 @@ use App\Models\ProductCategory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\Warehouse;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
@@ -29,6 +30,8 @@ use Illuminate\Support\Str;
 
 class ResponsibilityAssignmentForm
 {
+    private const DEFAULT_STOCK_SCOPE_TYPES = ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'product', 'product_platform', 'category'];
+
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
@@ -58,6 +61,9 @@ class ResponsibilityAssignmentForm
                         'quantity' => 'Product Inventory + Quantity', 'quantity_platform' => 'Product Inventory + Quantity + Platform',
                     ])->required()->default('brand')->live()
                         ->afterStateUpdated(function (mixed $state, Set $set): void {
+                            if (! in_array($state, self::DEFAULT_STOCK_SCOPE_TYPES, true)) {
+                                $set('assign_stock_by_default', false);
+                            }
                             $set('assignment_mode', str_starts_with((string) $state, 'quantity') ? ResponsibilityAssignmentMode::Quantity->value : ResponsibilityAssignmentMode::Scope->value);
                             if (! in_array($state, ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true)) {
                                 $set('brand_ids', []);
@@ -86,6 +92,11 @@ class ResponsibilityAssignmentForm
                             }
                         }),
                     Hidden::make('assignment_mode')->default(ResponsibilityAssignmentMode::Scope->value),
+                    Checkbox::make('assign_stock_by_default')->label('Assign stock by default')
+                        ->helperText('Controls ownership of eligible future receipts only. Responsibility itself does not transfer existing stock; existing ownership is recorded in Allocation Balances.')
+                        ->helperText('Matching future purchase receipts go to this employee. Existing stock stays with its current holder.')
+                        ->visible(fn (Get $get): bool => in_array($get('scope_type'), self::DEFAULT_STOCK_SCOPE_TYPES, true))
+                        ->default(false),
                     DateTimePicker::make('effective_at')->required()->default(now())->maxDate(now()),
                 ]),
             ]),

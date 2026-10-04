@@ -1,27 +1,40 @@
 <?php
 
+use App\Http\Controllers\Api\Mobile\V1\AppVersionController;
 use App\Http\Controllers\Api\Mobile\V1\AuthController;
 use App\Http\Controllers\Api\Mobile\V1\CaseController;
 use App\Http\Controllers\Api\Mobile\V1\ChatController;
 use App\Http\Controllers\Api\Mobile\V1\DashboardController;
 use App\Http\Controllers\Api\Mobile\V1\DeviceController;
 use App\Http\Controllers\Api\Mobile\V1\HrController;
+use App\Http\Controllers\Api\Mobile\V1\InventoryLocationController;
+use App\Http\Controllers\Api\Mobile\V1\InventoryReservationController;
+use App\Http\Controllers\Api\Mobile\V1\InvoiceController;
 use App\Http\Controllers\Api\Mobile\V1\NotificationController;
 use App\Http\Controllers\Api\Mobile\V1\OrderController;
 use App\Http\Controllers\Api\Mobile\V1\PasswordResetController;
 use App\Http\Controllers\Api\Mobile\V1\ProductController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseController;
+use App\Http\Controllers\Api\Mobile\V1\PurchaseReceiptController;
+use App\Http\Controllers\Api\Mobile\V1\ReportController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
+use App\Http\Controllers\Api\Mobile\V1\SearchController;
+use App\Http\Controllers\Api\Mobile\V1\StockRequestController;
+use App\Http\Controllers\Api\Mobile\V1\StockTransferController;
+use App\Http\Controllers\Api\Mobile\V1\SupplierController;
 use App\Http\Controllers\Api\Mobile\V1\TaskController;
 use App\Http\Controllers\Api\Mobile\V1\WarrantyController;
 use App\Http\Controllers\Api\Mobile\V1\WorkspaceController;
 use App\Http\Middleware\EnsureEligibleEmployee;
 use Illuminate\Support\Facades\Route;
 
+Route::get('mobile/v1/app/version', AppVersionController::class)->middleware('throttle:60,1');
+
 Route::prefix('mobile/v1/auth')->group(function (): void {
-    Route::post('/login', [AuthController::class, 'login'])
-        ->middleware('throttle:mobile-login');
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/mfa/verify', [AuthController::class, 'verifyMfa'])
+        ->middleware('throttle:10,1');
 
     Route::post('/password/forgot', [PasswordResetController::class, 'requestCode'])
         ->middleware('throttle:mobile-login');
@@ -43,19 +56,21 @@ Route::prefix('mobile/v1')
     ->group(function (): void {
         Route::get('/dashboard', DashboardController::class);
         Route::get('/workspace/modules', [WorkspaceController::class, 'modules']);
-        Route::post('/devices', [DeviceController::class, 'register'])->middleware('throttle:30,1');
+        Route::get('/workspace/manifest', [WorkspaceController::class, 'manifest']);
+        Route::post('/devices', [DeviceController::class, 'register'])->middleware('throttle:mobile-device-register');
         Route::delete('/devices', [DeviceController::class, 'unregister']);
 
         Route::prefix('chat')->controller(ChatController::class)->group(function (): void {
             Route::get('/', 'index');
             Route::get('/options', 'options');
-            Route::post('/', 'store')->middleware('throttle:30,1');
+            Route::post('/', 'store')->middleware('throttle:mobile-chat-create');
             Route::get('/{conversation}', 'show')->whereNumber('conversation');
             Route::get('/{conversation}/messages', 'messages')->whereNumber('conversation');
-            Route::post('/{conversation}/messages', 'send')->whereNumber('conversation')->middleware('throttle:60,1');
+            Route::post('/{conversation}/messages', 'send')->whereNumber('conversation')->middleware('throttle:mobile-chat-message');
             Route::post('/{conversation}/read', 'read')->whereNumber('conversation');
         });
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
+            Route::get('/search', SearchController::class);
             Route::get('/inventory', 'inventory');
             Route::get('/products', [ProductController::class, 'index']);
             Route::get('/products/{product}', [ProductController::class, 'show'])->whereNumber('product');
@@ -73,6 +88,34 @@ Route::prefix('mobile/v1')
             Route::get('/purchases/{purchase}', [PurchaseController::class, 'show'])->whereNumber('purchase');
             Route::put('/purchases/{purchase}', [PurchaseController::class, 'update'])->whereNumber('purchase');
             Route::post('/purchases/{purchase}/{action}', [PurchaseController::class, 'act'])->whereNumber('purchase');
+            Route::get('/purchase-receipts', [PurchaseReceiptController::class, 'index']);
+            Route::get('/purchase-receipts/{receipt}', [PurchaseReceiptController::class, 'show'])->whereNumber('receipt');
+            Route::get('/suppliers', [SupplierController::class, 'index']);
+            Route::get('/suppliers/{supplier}', [SupplierController::class, 'show'])->whereNumber('supplier');
+            Route::get('/inventory-locations', [InventoryLocationController::class, 'index']);
+            Route::get('/inventory-locations/{location}', [InventoryLocationController::class, 'show'])->whereNumber('location');
+            Route::get('/stock-transfers', [StockTransferController::class, 'index']);
+            Route::get('/stock-transfers/options', [StockTransferController::class, 'options']);
+            Route::post('/stock-transfers', [StockTransferController::class, 'store']);
+            Route::get('/stock-transfers/{transfer}', [StockTransferController::class, 'show'])->whereNumber('transfer');
+            Route::post('/stock-transfers/{transfer}/{action}', [StockTransferController::class, 'act'])->whereNumber('transfer');
+            Route::get('/stock-requests', [StockRequestController::class, 'index']);
+            Route::get('/stock-requests/options', [StockRequestController::class, 'options']);
+            Route::post('/stock-requests', [StockRequestController::class, 'store']);
+            Route::get('/stock-requests/{stockRequest}', [StockRequestController::class, 'show'])->whereNumber('stockRequest');
+            Route::post('/stock-requests/{stockRequest}/{action}', [StockRequestController::class, 'act'])->whereNumber('stockRequest');
+            Route::get('/reservations', [InventoryReservationController::class, 'index']);
+            Route::get('/reservations/{reservation}', [InventoryReservationController::class, 'show'])->whereNumber('reservation');
+            Route::post('/reservations/{reservation}/release', [InventoryReservationController::class, 'release'])->whereNumber('reservation');
+            Route::get('/reports', [ReportController::class, 'index']);
+            Route::get('/reports/{report}/export/{format}', [ReportController::class, 'export'])
+                ->where('report', '[A-Za-z0-9._-]+')
+                ->where('format', 'xlsx|csv|pdf');
+            Route::get('/reports/{report}', [ReportController::class, 'show'])
+                ->where('report', '[A-Za-z0-9._-]+');
+            Route::get('/invoices', [InvoiceController::class, 'index']);
+            Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->whereNumber('invoice');
+            Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->whereNumber('invoice');
             Route::get('/orders', [OrderController::class, 'index']);
             Route::get('/orders/options', [OrderController::class, 'options']);
             Route::post('/orders', [OrderController::class, 'store']);
@@ -85,6 +128,7 @@ Route::prefix('mobile/v1')
             Route::get('/notifications', [NotificationController::class, 'index']);
             Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
             Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
+            Route::post('/notifications/{notification}/acknowledge', [NotificationController::class, 'acknowledge']);
             Route::get('/returns', [ReturnController::class, 'index']);
             Route::get('/returns/options', [ReturnController::class, 'options']);
             Route::get('/returns/eligible-orders', [ReturnController::class, 'eligibleOrders']);
@@ -93,11 +137,14 @@ Route::prefix('mobile/v1')
             Route::post('/returns/{return}/{action}', [ReturnController::class, 'act'])->whereNumber('return');
             Route::get('/cases/{kind}', [CaseController::class, 'index'])->whereIn('kind', ['claims', 'complaints']);
             Route::get('/cases/{kind}/{record}', [CaseController::class, 'show'])->whereIn('kind', ['claims', 'complaints'])->whereNumber('record');
+            Route::post('/cases/{kind}/{record}/{action}', [CaseController::class, 'act'])->whereIn('kind', ['claims', 'complaints'])->whereNumber('record');
             Route::get('/internal-repairs', [WarrantyController::class, 'internalRepairs']);
             Route::get('/warranty', [WarrantyController::class, 'index']);
             Route::get('/warranty/{warranty}', [WarrantyController::class, 'show'])->whereNumber('warranty');
             Route::post('/warranty/{warranty}/{action}', [WarrantyController::class, 'act'])->whereNumber('warranty');
             Route::get('/tasks', [TaskController::class, 'index']);
+            Route::get('/tasks/options', [TaskController::class, 'options']);
+            Route::post('/tasks', [TaskController::class, 'store']);
             Route::get('/tasks/{task}', [TaskController::class, 'show'])->whereNumber('task');
             Route::post('/tasks/{task}/{action}', [TaskController::class, 'act'])->whereNumber('task');
         });

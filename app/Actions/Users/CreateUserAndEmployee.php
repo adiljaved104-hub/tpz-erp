@@ -46,6 +46,7 @@ class CreateUserAndEmployee
             'email' => ['required', 'email', 'max:255', 'unique:users,email', 'unique:employees,email'],
             'password' => ['required', Password::defaults()],
         ])->validate();
+        $userData['password_changed_at'] = now();
 
         $reservedReference = $this->references->nextEmployeeReference();
 

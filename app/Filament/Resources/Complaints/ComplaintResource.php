@@ -43,7 +43,9 @@ class ComplaintResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChatBubbleLeftRight;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Service';
+    protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
+
+    protected static ?int $navigationSort = 7;
 
     protected static ?string $recordTitleAttribute = 'reference';
 

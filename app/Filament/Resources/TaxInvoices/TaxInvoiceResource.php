@@ -54,7 +54,9 @@ class TaxInvoiceResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Sales';
 
-    protected static ?string $navigationLabel = 'Invoices';
+    protected static ?int $navigationSort = 4;
+
+    protected static ?string $navigationLabel = 'Tax Invoices';
 
     protected static ?string $recordTitleAttribute = 'invoice_number';
 
@@ -121,6 +123,9 @@ class TaxInvoiceResource extends Resource
                             $set('order_reference', $prefill['order_reference']);
                             if (filled($prefill['customer_name'])) {
                                 $set('customer_name', $prefill['customer_name']);
+                            }
+                            if (filled($prefill['customer_address'])) {
+                                $set('customer_address', $prefill['customer_address']);
                             }
                             $set('items', $prefill['items']);
                         }),

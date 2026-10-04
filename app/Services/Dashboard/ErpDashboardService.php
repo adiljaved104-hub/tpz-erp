@@ -150,10 +150,12 @@ class ErpDashboardService
         }
 
         if ($showInventory && $inventoryData !== null) {
-            $inventoryUrl = $this->inventory->allows($user, InventoryPermission::View) ? ProductInventoryResource::getUrl() : MyInventory::getUrl();
+            $canViewBalances = $this->inventory->allows($user, InventoryPermission::View)
+                && $this->inventory->allows($user, InventoryPermission::ViewLocationBalances);
+            $inventoryUrl = $canViewBalances ? ProductInventoryResource::getUrl() : MyInventory::getUrl();
             $cards->push($this->card('sellable_inventory', 'Sellable Inventory Units', $inventoryData['sellable_units'], $inventoryData['scope_label'].' scope · Available minus Reserved', $inventoryUrl));
-            $cards->push($this->card('low_stock', 'Low Stock Products', $inventoryData['low_stock_count'], 'Sellable stock from 1 to '.$inventoryData['threshold'], $inventoryUrl, 'warning'));
-            $cards->push($this->card('out_of_stock', 'Out of Stock Products', $inventoryData['out_of_stock_count'], 'Sellable stock is zero or below', $inventoryUrl, 'danger'));
+            $cards->push($this->card('low_stock', 'Low Stock Products', $inventoryData['low_stock_count'], 'Sellable stock from 1 to '.$inventoryData['threshold'], $canViewBalances ? ProductInventoryResource::getUrl('index', ['filters' => ['stock_status' => ['value' => 'low_stock']]]) : $inventoryUrl, 'warning'));
+            $cards->push($this->card('out_of_stock', 'Out of Stock Products', $inventoryData['out_of_stock_count'], 'Sellable stock is zero or below', $canViewBalances ? ProductInventoryResource::getUrl('index', ['filters' => ['stock_status' => ['value' => 'out_of_stock']]]) : $inventoryUrl, 'danger'));
         }
 
         return [

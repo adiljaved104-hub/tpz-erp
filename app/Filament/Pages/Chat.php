@@ -44,13 +44,13 @@ class Chat extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedChatBubbleLeftRight;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Work';
+    protected static string|\UnitEnum|null $navigationGroup = 'Workspace';
 
     protected static ?string $navigationLabel = 'Chat';
 
     protected static ?string $title = 'Chat';
 
-    protected static ?int $navigationSort = -90;
+    protected static ?int $navigationSort = 3;
 
     protected Width|string|null $maxContentWidth = Width::Full;
 

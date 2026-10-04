@@ -43,4 +43,19 @@ class WeightedAverageCostCalculatorTest extends TestCase
         $this->expectException(InventoryInvariantException::class);
         app(WeightedAverageCostCalculator::class)->weightedAverage(0, null, 1, '1.00001');
     }
+
+    public function test_receipt_cost_can_be_reversed_from_weighted_average_exactly(): void
+    {
+        $calculator = app(WeightedAverageCostCalculator::class);
+        $average = $calculator->weightedAverage(1, '50.0000', 1, '100.0000');
+
+        $this->assertSame('50.0000', $calculator->reverseWeightedAverage(2, $average, 1, '100.0000'));
+        $this->assertNull($calculator->reverseWeightedAverage(4, '100.0000', 4, '100.0000'));
+    }
+
+    public function test_unsafe_receipt_cost_reversal_is_rejected(): void
+    {
+        $this->expectException(InventoryInvariantException::class);
+        app(WeightedAverageCostCalculator::class)->reverseWeightedAverage(2, '10.0000', 1, '30.0000');
+    }
 }

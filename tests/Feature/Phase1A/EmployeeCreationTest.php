@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 use ReflectionClass;
 use Tests\TestCase;
 
@@ -47,6 +48,7 @@ class EmployeeCreationTest extends TestCase
         ), $actor);
 
         $this->assertTrue(Hash::check('ValidPassword123!', $employee->user->password));
+        $this->assertNotNull($employee->user->password_changed_at);
         $this->assertNull($employee->getRawOriginal('password'));
     }
 
@@ -55,6 +57,17 @@ class EmployeeCreationTest extends TestCase
         $properties = collect((new ReflectionClass(CreateEmployeeData::class))->getProperties())->pluck('name');
 
         $this->assertFalse($properties->contains('password'));
+    }
+
+    public function test_controlled_user_creation_rejects_a_password_without_a_symbol(): void
+    {
+        $actor = $this->owner();
+
+        $this->expectException(ValidationException::class);
+        app(CreateUserAndEmployee::class)->handle(new CreateUserAndEmployeeData(
+            new CreateUserAccountData('Weak User', 'weak@example.com', 'MissingSymbol123'),
+            new CreateEmployeeData(0, 'Weak User', 'weak@example.com', 'Operations'),
+        ), $actor);
     }
 
     public function test_reference_allocator_returns_unique_sequential_references(): void

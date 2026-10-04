@@ -8,6 +8,7 @@ use App\DTOs\Orders\OrderUpgradePlan;
 use App\DTOs\Orders\PreparedOrderReservation;
 use App\DTOs\Orders\PreparedPlainOrderReferences;
 use App\DTOs\Orders\SaveAndReserveOrderData;
+use App\Enums\EmployeeRole;
 use App\Enums\OrderPermission;
 use App\Enums\OrderSource;
 use App\Enums\OrderStatus;
@@ -96,7 +97,7 @@ class OrderService
             $order->order_date = $validated['order_date'];
             $order->handled_by_employee_id = $validated['handled_by_employee_id'];
             $order->notes = $validated['notes'];
-            foreach (['web_sales_channel', 'customer_name', 'customer_phone', 'delivery_type', 'courier_name', 'tracking_number'] as $field) {
+            foreach (['web_sales_channel', 'customer_name', 'customer_phone', 'customer_address', 'delivery_type', 'courier_name', 'tracking_number'] as $field) {
                 $order->{$field} = $validated[$field];
             }
             foreach (['subtotal', 'discount_total', 'vat_total', 'grand_total'] as $field) {
@@ -327,6 +328,7 @@ class OrderService
             'external_identity_hash' => $validated['external_identity_hash'],
             'customer_name' => $validated['customer_name'],
             'customer_phone' => $validated['customer_phone'],
+            'customer_address' => $validated['customer_address'],
             'delivery_type' => $validated['delivery_type'],
             'courier_name' => $validated['courier_name'],
             'tracking_number' => $validated['tracking_number'],
@@ -371,6 +373,9 @@ class OrderService
                 $postingKeys[$index]['base'],
                 $movementGroup,
                 $allocationAssignments[$item->product_id] ?? null,
+                $data->items[$index]->allocationSources,
+                $data->items[$index]->allocationSources !== null,
+                "items.{$index}.allocation_sources",
             );
             if ($upgradePlans[$index] instanceof OrderUpgradePlan) {
                 $selection = $this->upgradePlanning->lockAndCreateSelection($item, $upgradePlans[$index], $actor);
@@ -514,6 +519,7 @@ class OrderService
                     'external_identity_hash' => $validated['external_identity_hash'],
                     'customer_name' => $validated['customer_name'],
                     'customer_phone' => $validated['customer_phone'],
+                    'customer_address' => $validated['customer_address'],
                     'delivery_type' => $validated['delivery_type'],
                     'courier_name' => $validated['courier_name'],
                     'tracking_number' => $validated['tracking_number'],
@@ -566,6 +572,7 @@ class OrderService
                         $postingKeys[$index]['base'],
                         null,
                         $allocationAssignments[$item->product_id] ?? null,
+                        $data->items[$index]->allocationSources,
                     );
                     if ($item->upgradeSelection !== null) {
                         $this->upgrades->execute(
@@ -951,7 +958,7 @@ class OrderService
         ], $data->items);
         $externalNumber = $data->externalOrderNumber === null ? null : trim($data->externalOrderNumber);
         $externalHash = $this->externalIdentity->hash($data->platformId, $externalNumber);
-        $handledBy = $data->handledByEmployeeId ?? $actor->employee?->id;
+        $handledBy = $data->handledByEmployeeId ?? $existing?->handled_by_employee_id ?? $actor->employee?->id;
         $validated = Validator::make([
             'warehouse_id' => $data->warehouseId,
             'marketplace_platform_id' => $data->platformId,
@@ -960,6 +967,7 @@ class OrderService
             'web_sales_channel' => $data->webSalesChannel,
             'customer_name' => $data->customerName === null ? null : trim($data->customerName),
             'customer_phone' => $data->customerPhone === null ? null : trim($data->customerPhone),
+            'customer_address' => $data->customerAddress === null ? null : trim($data->customerAddress),
             'delivery_type' => $data->deliveryType,
             'courier_name' => $data->courierName === null ? null : trim($data->courierName),
             'tracking_number' => $data->trackingNumber === null ? null : trim($data->trackingNumber),
@@ -976,6 +984,7 @@ class OrderService
             'web_sales_channel' => ['nullable', 'in:website,whatsapp,walk_in,other'],
             'customer_name' => ['nullable', 'required_with:web_sales_channel', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'required_with:web_sales_channel', 'string', 'max:40', 'regex:/^\+?[0-9][0-9\s().-]{5,39}$/'],
+            'customer_address' => ['nullable', 'string', 'max:2000'],
             'delivery_type' => ['nullable', 'required_with:web_sales_channel', 'in:courier,shop_pickup'],
             'courier_name' => ['nullable', 'required_if:delivery_type,courier', 'string', 'max:100'],
             'tracking_number' => ['nullable', 'string', 'max:100'],
@@ -1015,6 +1024,10 @@ class OrderService
             }
             if ($employee?->status !== true) {
                 $validator->errors()->add('handled_by_employee_id', 'Handled By must be an active Employee.');
+            }
+            if (! in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+                && $handledBy !== ($existing?->handled_by_employee_id ?? $actor->employee?->id)) {
+                $validator->errors()->add('handled_by_employee_id', 'The selling employee must remain the original handler. Only Owner/Admin may assign another handler.');
             }
             foreach ($data->items as $index => $item) {
                 if (! $this->responsibilities->canAccessProduct($actor, $item->productId, $data->platformId, $data->warehouseId)) {

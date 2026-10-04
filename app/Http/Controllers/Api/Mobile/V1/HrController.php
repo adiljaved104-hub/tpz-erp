@@ -10,6 +10,7 @@ use App\Models\HrAcknowledgment;
 use App\Models\HrNotice;
 use App\Models\Team;
 use App\Models\WarningCategory;
+use App\Services\Authorization\EmployeeDirectoryScopeService;
 use App\Services\Authorization\HrRecordAuthorization;
 use App\Services\Hr\EmployeeWarningService;
 use App\Services\Hr\HrNoticeService;
@@ -77,10 +78,11 @@ class HrController extends MobileController
         return match ($section) {
             'employees' => $user->can('viewAny', Employee::class)
                 ? Employee::query()->select(['id', 'employee_id', 'name', 'designation', 'team_id', 'role', 'status'])
-                    ->when($user->employee?->role === EmployeeRole::Manager,
-                        fn ($q) => $user->employee->team_id === null ? $q->whereKey($user->employee->id) : $q->where('team_id', $user->employee->team_id))
+                    ->tap(fn ($query) => app(EmployeeDirectoryScopeService::class)->apply($query, $user))
                 : Employee::query()->select(['id', 'employee_id', 'name', 'designation', 'team_id', 'role', 'status'])->whereKey($user->employee?->id),
-            'teams' => $user->can('viewAny', Team::class) ? Team::query()->select(['id', 'name', 'description', 'status']) : abort(403),
+            'teams' => $user->can('viewAny', Team::class) ? Team::query()->select(['id', 'name', 'description', 'status'])
+                ->when($user->employee?->role === EmployeeRole::Manager,
+                    fn ($q) => $user->employee?->team_id === null ? $q->whereRaw('1 = 0') : $q->whereKey($user->employee->team_id)) : abort(403),
             'notices' => $auth->scopeNotices(HrNotice::query()->select(['id', 'reference', 'title', 'content',
                 'priority', 'published_at', 'status', 'acknowledgment_required', 'team_id']), $user),
             'warnings' => $auth->scopeWarnings(EmployeeWarning::query()->select(['id', 'reference', 'employee_id',
@@ -143,7 +145,13 @@ class HrController extends MobileController
             }
         }
 
-        return [...$data, 'fields' => $fields, 'actions' => $actions];
+        $items = $section === 'teams' ? Employee::query()->where('team_id', $row->id)
+            ->select(['id', 'employee_id', 'name', 'designation', 'role', 'status'])->orderBy('name')->get()
+            ->map(fn (Employee $employee): array => ['id' => $employee->id, 'employee_reference' => $employee->employee_id,
+                'name' => $employee->name, 'designation' => $employee->designation, 'role' => $employee->role?->value,
+                'status' => $employee->status ? 'active' : 'inactive'])->all() : [];
+
+        return [...$data, 'fields' => $fields, 'items' => $items, 'actions' => $actions];
     }
 
     public function publishNotice(Request $request): JsonResponse

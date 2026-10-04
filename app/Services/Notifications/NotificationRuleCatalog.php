@@ -20,8 +20,12 @@ class NotificationRuleCatalog
             'task.completion_confirmed' => $this->rule('Task Completion Confirmed', 'Tasks', 'task_assignee', null, null, null, [], false),
             'warranty.due_soon' => $this->rule('Warranty SLA Due Soon', 'Warranty', 'existing_business_routing', ['existing_business_routing', 'assigned_employee', 'owner_admin_fallback'], WarrantySlaService::DUE_SOON_DAYS, 'days'),
             'warranty.overdue' => $this->rule('Warranty SLA Overdue', 'Warranty', 'existing_business_routing', ['existing_business_routing', 'assigned_employee', 'owner_admin_fallback']),
-            'inventory.low_stock' => $this->rule('Low Stock', 'Inventory', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback'], null, null, ['threshold_source' => 'inventory']),
-            'inventory.out_of_stock' => $this->rule('Out of Stock', 'Inventory', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback']),
+            'inventory.low_stock' => $this->rule('Low Stock', 'Inventory', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback'], null, null, ['threshold_source' => 'inventory', 'reminder_hours' => [24]]),
+            'inventory.out_of_stock' => $this->rule('Out of Stock', 'Inventory', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback'], null, null, ['reminder_hours' => [2, 24, 48], 'escalation_hours' => 48]),
+            'marketplace.featured_offer_lost' => $this->rule('Featured Offer Lost', 'Marketplace', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback'], null, null, ['reminder_hours' => [2, 24], 'escalation_hours' => 24]),
+            'marketplace.stock_exposure' => $this->rule('Marketplace Stock Exposure', 'Marketplace', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback'], null, null, ['reminder_hours' => [2, 24], 'escalation_hours' => 24]),
+            'marketplace.daily_summary' => $this->rule('Marketplace Operations Daily Summary', 'Marketplace', 'owner_admin_fallback', ['owner_admin_fallback']),
+            'marketplace.new_order' => $this->rule('Marketplace New Order', 'Marketplace', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback']),
             'claim.needs_filing' => $this->rule('Claim Needs Filing', 'Claims / Returns', 'existing_business_routing', ['existing_business_routing', 'assigned_employee', 'owner_admin_fallback']),
             'return.awaiting_qc' => $this->rule('Return Awaiting QC', 'Claims / Returns', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback']),
             'hr.warning_issued' => $this->rule('Warning Issued', 'HR', 'warned_employee'),
@@ -67,13 +71,13 @@ class NotificationRuleCatalog
     }
 
     /** @return array<string, mixed> */
-    private function rule(string $name, string $category, string $recipient, ?array $options = null, ?int $threshold = null, ?string $unit = null, array $configuration = [], bool $email = true): array
+    private function rule(string $name, string $category, string $recipient, ?array $options = null, ?int $threshold = null, ?string $unit = null, array $configuration = [], bool $email = true, bool $inApp = true): array
     {
         return [
             'name' => $name,
             'category' => $category,
             'enabled' => true,
-            'in_app_enabled' => true,
+            'in_app_enabled' => $inApp,
             'email_enabled' => $email,
             'recipient_strategy' => $recipient,
             'recipient_options' => $options ?? [$recipient],

@@ -32,6 +32,17 @@
             </div>
         </x-filament::section>
 
+        <x-filament::section heading="Application Security Policy" description="Fixed compliance controls enforced by the application. These values are read-only.">
+            <dl class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div><dt class="text-sm text-gray-500">Minimum password length</dt><dd class="font-medium">{{ $securityPolicy['minimumPasswordLength'] }} characters</dd></div>
+                <div><dt class="text-sm text-gray-500">Password complexity</dt><dd class="font-medium">Mixed case, number and symbol</dd></div>
+                <div><dt class="text-sm text-gray-500">Password expiry</dt><dd class="font-medium">{{ $securityPolicy['passwordMaxAgeDays'] }} days</dd></div>
+                <div><dt class="text-sm text-gray-500">Failed-login lockout</dt><dd class="font-medium">{{ $securityPolicy['loginMaxAttempts'] }} attempts / {{ $securityPolicy['lockoutMinutes'] }} minutes</dd></div>
+                <div><dt class="text-sm text-gray-500">Browser inactivity limit</dt><dd class="font-medium">{{ $securityPolicy['webInactivityMinutes'] }} minutes</dd></div>
+                <div><dt class="text-sm text-gray-500">Mandatory email OTP</dt><dd class="font-medium">Owner, Admin and Manager</dd></div>
+            </dl>
+        </x-filament::section>
+
         <x-filament::section heading="Company Login Email Policy" description="Only exact email addresses at this domain may authenticate. Subdomains and lookalike domains are not accepted.">
             @unless($policyReady)<p class="mb-4 rounded-lg bg-warning-50 p-3 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-warning-300">The prepared company-email security migration must be approved and run before this policy can be changed.</p>@endunless
             <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">

@@ -2,19 +2,24 @@
 
 namespace App\Filament\Resources\WebSalesOrders\Pages;
 
+use App\Enums\InvoicePermission;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
+use App\Enums\ProductTitleMode;
 use App\Enums\WebSalesDeliveryType;
 use App\Enums\WebSalesPermission;
 use App\Exceptions\DefaultWarehouseException;
 use App\Exceptions\InvalidOrderTransitionException;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
+use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\CustomerReturn;
 use App\Models\User;
+use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Orders\WebSalesService;
+use App\Services\Orders\WebSalesTaxInvoiceService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -24,6 +29,7 @@ use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class ViewWebSalesOrder extends ViewRecord
 {
@@ -32,6 +38,37 @@ class ViewWebSalesOrder extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('taxInvoice')
+                ->label(fn (): string => $this->record->taxInvoices()->exists() ? 'View Tax Invoice' : 'Generate Tax Invoice')
+                ->icon('heroicon-o-document-currency-dollar')
+                ->color('primary')
+                ->requiresConfirmation(fn (): bool => ! $this->record->taxInvoices()->exists())
+                ->modalDescription('Creates an immutable Tax Invoice snapshot using the existing Order lines and product title rules.')
+                ->schema(fn (): array => $this->record->taxInvoices()->exists() ? [] : [
+                    Select::make('title_mode')->label('Product Title Mode')
+                        ->options(collect(ProductTitleMode::cases())->mapWithKeys(fn (ProductTitleMode $mode): array => [$mode->value => $mode->label()])->all())
+                        ->default(ProductTitleMode::Auto->value)->required(),
+                ])
+                ->visible(fn (): bool => $this->canUseTaxInvoice())
+                ->action(function (array $data): void {
+                    try {
+                        $invoice = app(WebSalesTaxInvoiceService::class)->generateOrFind(
+                            $this->record,
+                            auth()->user(),
+                            $data['title_mode'] ?? ProductTitleMode::Auto,
+                        );
+                        $this->redirect(TaxInvoiceResource::getUrl('view', ['record' => $invoice]));
+                    } catch (ValidationException $exception) {
+                        Notification::make()->danger()->title('Tax Invoice could not be generated')
+                            ->body(collect($exception->errors())->flatten()->unique()->join(' '))->send();
+                        throw new Halt;
+                    } catch (Throwable $exception) {
+                        report($exception);
+                        Notification::make()->danger()->title('Tax Invoice could not be generated')
+                            ->body('No Tax Invoice was created. Please try again or contact an administrator.')->send();
+                        throw new Halt;
+                    }
+                }),
             Action::make('updateDelivery')->label('Courier / Tracking')->schema([
                 Select::make('delivery_type')->options(WebSalesDeliveryType::class)->required()->live(),
                 TextInput::make('courier_name')->required(fn (Get $get): bool => $this->deliveryValue($get('delivery_type')) === 'courier')->visible(fn (Get $get): bool => $this->deliveryValue($get('delivery_type')) === 'courier'),
@@ -76,6 +113,20 @@ class ViewWebSalesOrder extends ViewRecord
         $user = auth()->user();
 
         return $user instanceof User && app(OrderAuthorization::class)->allows($user, OrderPermission::Fulfill, $this->record);
+    }
+
+    private function canUseTaxInvoice(): bool
+    {
+        $user = auth()->user();
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        $invoice = $this->record->taxInvoices()->oldest('id')->first();
+
+        return $invoice !== null
+            ? app(InvoiceAuthorization::class)->allows($user, InvoicePermission::View, $invoice)
+            : app(InvoiceAuthorization::class)->allows($user, InvoicePermission::Create);
     }
 
     private function deliveryValue(mixed $value): mixed

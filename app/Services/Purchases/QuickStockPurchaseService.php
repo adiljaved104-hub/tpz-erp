@@ -15,6 +15,7 @@ use App\Events\PurchaseApproved;
 use App\Events\PurchaseReceived;
 use App\Exceptions\QuickStockPurchaseIdempotencyConflictException;
 use App\Models\Employee;
+use App\Models\InventoryAllocationAccount;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
@@ -104,6 +105,7 @@ class QuickStockPurchaseService
                         acceptedQuantity: $item->ordered_quantity,
                         damagedQuantity: 0,
                         rejectedQuantity: 0,
+                        allocationAccountId: $data->allocationAccountId,
                     ))->all(),
                     receivedAt: now()->toDateTimeString(),
                     idempotencyKey: $data->idempotencyKey,
@@ -157,14 +159,20 @@ class QuickStockPurchaseService
             'idempotency_key' => $data->idempotencyKey,
             'handled_by_employee_id' => $data->handledByEmployeeId,
             'supplier_delivery_note' => $data->supplierDeliveryNote,
+            'allocation_account_id' => $data->allocationAccountId,
         ], [
             'idempotency_key' => ['required', 'uuid'],
             'handled_by_employee_id' => ['nullable', 'integer', 'exists:employees,id'],
             'supplier_delivery_note' => ['nullable', 'string', 'max:255'],
+            'allocation_account_id' => ['nullable', 'integer', 'exists:inventory_allocation_accounts,id'],
         ])->validate();
 
         if ($data->handledByEmployeeId !== null && ! Employee::query()->whereKey($data->handledByEmployeeId)->where('status', true)->exists()) {
             throw ValidationException::withMessages(['handled_by_employee_id' => 'Handled By / Reported By must be an active Employee.']);
+        }
+
+        if ($data->allocationAccountId !== null && ! InventoryAllocationAccount::query()->whereKey($data->allocationAccountId)->where('status', true)->exists()) {
+            throw ValidationException::withMessages(['allocation_account_id' => 'Allocate Stock To must be an active allocation account.']);
         }
 
         foreach ($data->items as $index => $item) {
@@ -190,6 +198,10 @@ class QuickStockPurchaseService
             throw ValidationException::withMessages(['handled_by_employee_id' => 'Handled By / Reported By must be an active Employee.']);
         }
 
+        if ($data->allocationAccountId !== null && ! InventoryAllocationAccount::query()->lockForUpdate()->whereKey($data->allocationAccountId)->where('status', true)->exists()) {
+            throw ValidationException::withMessages(['allocation_account_id' => 'Allocate Stock To must be an active allocation account.']);
+        }
+
         $ids = collect($data->items)->pluck('productId')->map(fn ($id): int => (int) $id);
 
         if ($ids->duplicates()->isNotEmpty()) {
@@ -206,7 +218,7 @@ class QuickStockPurchaseService
     private function existingResult(QuickStockPurchaseData $data, bool $lock = false): ?QuickStockPurchaseResult
     {
         $query = PurchaseReceipt::query()->where('idempotency_key', $data->idempotencyKey);
-        $receipt = ($lock ? $query->lockForUpdate() : $query)->with(['purchase.items', 'items'])->first();
+        $receipt = ($lock ? $query->lockForUpdate() : $query)->with(['purchase.items', 'items.allocationLines'])->first();
 
         if ($receipt === null) {
             return null;
@@ -234,6 +246,21 @@ class QuickStockPurchaseService
             && $receipt->supplier_delivery_note === $this->nullableTrim($data->supplierDeliveryNote)
             && (string) $purchase->shipping_total === bcadd($data->shippingTotal, '0', 2)
             && (string) $purchase->other_charges_total === bcadd($data->otherChargesTotal, '0', 2)
+            && $receipt->items->every(function ($item) use ($data): bool {
+                if ($data->allocationAccountId === null) {
+                    return $item->allocationLines->every(
+                        fn ($line): bool => $line->allocation_method !== 'grn_selected'
+                    );
+                }
+
+                if ($item->allocationLines->count() !== 1) {
+                    return false;
+                }
+                $line = $item->allocationLines->first();
+
+                return $line->allocation_method === 'grn_selected'
+                    && $line->account_id === $data->allocationAccountId;
+            })
             && $expectedItems === $actualItems;
 
         if (! $matches) {

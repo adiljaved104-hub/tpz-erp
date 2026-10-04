@@ -23,5 +23,6 @@ readonly class CreateResponsibilityAssignmentBatchData
         public array $platformIds = [],
         public ?int $warehouseId = null,
         public ?ProductCondition $condition = null,
+        public bool $assignStockByDefault = false,
     ) {}
 }

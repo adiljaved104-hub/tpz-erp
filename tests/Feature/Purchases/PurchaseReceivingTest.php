@@ -18,6 +18,8 @@ use App\Models\Employee;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\PurchaseReceipt;
+use App\Models\ResponsibilityAssignment;
+use App\Models\ResponsibilityAssignmentBrand;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
@@ -141,6 +143,14 @@ class PurchaseReceivingTest extends TestCase
         $owner = User::factory()->create();
         Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create();
         $product = Product::factory()->create();
+        $assignment = ResponsibilityAssignment::factory()->create([
+            'employee_id' => $owner->employee->id,
+            'assign_stock_by_default' => true,
+        ]);
+        ResponsibilityAssignmentBrand::query()->create([
+            'assignment_id' => $assignment->id,
+            'product_brand_id' => $product->brand_id,
+        ]);
         $purchase = app(CreatePurchase::class)->handle(new CreatePurchaseData(
             Supplier::factory()->create()->id,
             Warehouse::factory()->create()->id,

@@ -62,20 +62,24 @@
                     @error('employees')<p class="mb-3 text-sm text-danger-600">{{ $message }}</p>@enderror
                     <div class="ac-employee-list space-y-2" data-testid="employee-picker">
                         @forelse ($employees as $employee)
-                            @php($bulkSelectable = $employee->status && auth()->user()?->can('managePermissions', $employee))
-                            <div wire:key="access-employee-{{ $employee->id }}" @class([
+                            @php
+                                $bulkSelectable = $employee->status && auth()->user()?->can('managePermissions', $employee);
+                                $bulkSelected = in_array($employee->id, $selectedEmployeeIds, true);
+                                $rowSelected = $bulkMode ? $bulkSelected : $selectedEmployeeId === $employee->id;
+                            @endphp
+                            <div wire:key="access-employee-{{ $employee->id }}" data-testid="employee-row-{{ $employee->id }}" @class([
                                 'ac-employee-row group w-full min-w-0 rounded-xl border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600',
-                                'is-selected' => $selectedEmployeeId === $employee->id || in_array($employee->id, $selectedEmployeeIds, true),
-                                'border-primary-500 bg-primary-50 shadow-sm ring-1 ring-primary-500/20 dark:bg-primary-500/10' => $selectedEmployeeId === $employee->id || in_array($employee->id, $selectedEmployeeIds, true),
-                                'border-gray-200 bg-white hover:border-primary-300 hover:bg-gray-50 dark:border-white/10 dark:bg-gray-900 dark:hover:border-primary-500/50 dark:hover:bg-white/5' => $selectedEmployeeId !== $employee->id && ! in_array($employee->id, $selectedEmployeeIds, true),
+                                'is-selected' => $rowSelected,
+                                'border-primary-500 bg-primary-50 shadow-sm ring-1 ring-primary-500/20 dark:bg-primary-500/10' => $rowSelected,
+                                'border-gray-200 bg-white hover:border-primary-300 hover:bg-gray-50 dark:border-white/10 dark:bg-gray-900 dark:hover:border-primary-500/50 dark:hover:bg-white/5' => ! $rowSelected,
                             ])>
                                 <span class="flex min-w-0 items-start justify-between gap-2">
                                     <button type="button" class="min-w-0 flex-1 text-left" wire:click="selectEmployee({{ $employee->id }})" x-on:click="if (window.innerWidth < 1280) employeePanelOpen = false">
                                         <span class="block truncate text-sm font-semibold text-gray-950 dark:text-white" title="{{ $employee->name }}">{{ $employee->name }}</span>
                                         <span class="mt-0.5 block text-xs font-medium text-gray-500">{{ $employee->employee_id }}</span>
                                     </button>
-                                    <button type="button" wire:click="toggleEmployeeSelection({{ $employee->id }})" @disabled(! $bulkSelectable) aria-label="{{ $bulkSelectable ? 'Toggle '.$employee->name.' for Bulk Access' : $employee->name.' cannot be bulk modified' }}" class="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-gray-300 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/20">
-                                        @if (in_array($employee->id, $selectedEmployeeIds, true))<x-heroicon-m-check class="h-4 w-4 text-primary-600" />@elseif($bulkSelectable)<span class="h-3 w-3 rounded-sm border border-gray-400"></span>@else<x-heroicon-m-lock-closed class="h-4 w-4 text-gray-400" />@endif
+                                    <button type="button" wire:click="toggleEmployeeSelection({{ $employee->id }})" @disabled(! $bulkSelectable) aria-pressed="{{ $bulkSelected ? 'true' : 'false' }}" aria-label="{{ $bulkSelectable ? 'Toggle '.$employee->name.' for Bulk Access' : $employee->name.' cannot be bulk modified' }}" class="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-gray-300 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/20">
+                                        @if ($bulkSelected)<x-heroicon-m-check class="h-4 w-4 text-primary-600" />@elseif($bulkSelectable)<span class="h-3 w-3 rounded-sm border border-gray-400"></span>@else<x-heroicon-m-lock-closed class="h-4 w-4 text-gray-400" />@endif
                                     </button>
                                 </span>
                                 <span class="mt-2 flex flex-wrap items-center gap-1.5">

@@ -298,6 +298,55 @@ class AccessControlMatrixTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['event' => 'employee_permission.allowed', 'subject_id' => $second->id]);
     }
 
+    public function test_bulk_row_selection_ignores_previous_single_employee_and_clear_restores_it(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $first = $this->employee(EmployeeRole::Admin);
+        $second = $this->employee(EmployeeRole::Manager);
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $first->id);
+
+        $assertRow = function (Employee $employee, bool $selected, bool $bulkSelected) use ($component): void {
+            $previousErrors = libxml_use_internal_errors(true);
+            $document = new DOMDocument;
+            $document->loadHTML($component->html());
+            libxml_clear_errors();
+            libxml_use_internal_errors($previousErrors);
+            $xpath = new DOMXPath($document);
+            $rows = $xpath->query('//*[@data-testid="employee-row-'.$employee->id.'"]');
+            $this->assertSame(1, $rows->length);
+            $classes = explode(' ', $rows->item(0)->getAttribute('class'));
+            foreach (['is-selected', 'border-primary-500', 'bg-primary-50', 'ring-1', 'ring-primary-500/20'] as $class) {
+                $this->assertSame($selected, in_array($class, $classes, true), $class);
+            }
+            $this->assertSame(! $selected, in_array('border-gray-200', $classes, true));
+            $buttons = $xpath->query('.//button[@aria-pressed]', $rows->item(0));
+            $this->assertSame(1, $buttons->length);
+            $this->assertSame($bulkSelected ? 'true' : 'false', $buttons->item(0)->getAttribute('aria-pressed'));
+            $this->assertSame($bulkSelected ? 1 : 0, $xpath->query('.//*[local-name()="svg"]', $buttons->item(0))->length);
+        };
+
+        $assertRow($first, true, false);
+        $assertRow($second, false, false);
+        $component->call('toggleEmployeeSelection', $second->id)
+            ->assertSet('selectedEmployeeId', $first->id)
+            ->assertSet('selectedEmployeeIds', [$second->id])
+            ->assertSee('1 employees selected');
+        $assertRow($first, false, false);
+        $assertRow($second, true, true);
+
+        $key = ProductPermission::Export->value;
+        $component->call('stagePermission', $key, 'allow')->call('saveChanges')->assertHasNoErrors();
+        $this->assertDatabaseHas('employee_permission_overrides', ['employee_id' => $second->id, 'permission_key' => $key, 'effect' => 'allow']);
+        $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $first->id]);
+
+        $component->call('clearEmployeeSelection')
+            ->assertSet('selectedEmployeeIds', [])
+            ->assertSet('selectedEmployeeId', $first->id);
+        $assertRow($first, true, false);
+        $assertRow($second, false, false);
+    }
+
     public function test_bulk_advanced_permission_requires_owner_reason_and_is_atomic(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);

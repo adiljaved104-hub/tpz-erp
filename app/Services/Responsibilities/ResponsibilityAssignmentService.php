@@ -3,6 +3,7 @@
 namespace App\Services\Responsibilities;
 
 use App\DTOs\Responsibilities\ChangeResponsibilityQuantityData;
+use App\DTOs\Responsibilities\ChangeResponsibilityScopeBatchData;
 use App\DTOs\Responsibilities\ChangeResponsibilityScopeData;
 use App\DTOs\Responsibilities\CreateResponsibilityAssignmentData;
 use App\DTOs\Responsibilities\DeactivateResponsibilityAssignmentData;
@@ -37,6 +38,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Ramsey\Uuid\Uuid;
 
 class ResponsibilityAssignmentService
 {
@@ -253,6 +255,124 @@ class ResponsibilityAssignmentService
         }
     }
 
+    /** @return Collection<int, ResponsibilityAssignment> */
+    public function changeScopes(ResponsibilityAssignment $source, ChangeResponsibilityScopeBatchData $data, User $actor): Collection
+    {
+        $this->authorization->authorize($actor, ResponsibilityPermission::Reassign, $source);
+        $this->validateReason($data->scope->reason);
+
+        return $this->replaceScopes($source, $this->exactScopeChanges($source, $data), $actor, 'responsibility.scope_changed');
+    }
+
+    public function previewScopeChanges(ResponsibilityAssignment $source, ChangeResponsibilityScopeBatchData $data): string
+    {
+        try {
+            $source->load($this->relations());
+            $this->assertActive($source);
+            if ($source->assignment_mode !== ResponsibilityAssignmentMode::Scope) {
+                return 'Quantity assignments use the dedicated quantity/reservation workflow.';
+            }
+            $changes = $this->exactScopeChanges($source, $data);
+            $this->prepareScopeChanges($source, $changes);
+
+            return "SAFE — {$changes->count()} exact Responsibility Assignments can be created. Existing stock ownership will not move.";
+        } catch (ValidationException|InvalidResponsibilityScopeException|DuplicateActiveResponsibilityException $exception) {
+            return 'Cannot continue — '.collect($exception instanceof ValidationException ? $exception->errors() : ['scope' => [$exception->getMessage()]])->flatten()->join(' ');
+        }
+    }
+
+    /** @return Collection<int, ChangeResponsibilityScopeData> */
+    private function exactScopeChanges(ResponsibilityAssignment $source, ChangeResponsibilityScopeBatchData $data): Collection
+    {
+        $ids = $data->categoryIds;
+        if (count($ids) > 100 || collect($ids)->contains(fn ($id): bool => (! is_int($id) && ! is_string($id)) || preg_match('/^[1-9][0-9]*$/', (string) $id) !== 1)) {
+            throw ValidationException::withMessages(['category_ids' => 'Select at most 100 active Categories.']);
+        }
+        $ids = array_map('intval', $ids);
+        if (count(array_unique($ids)) !== count($ids)) {
+            throw ValidationException::withMessages(['category_ids' => 'Select each Category only once. No assignments were changed.']);
+        }
+        if ($ids !== [] && ProductCategory::query()->active()->whereKey($ids)->count() !== count($ids)) {
+            throw ValidationException::withMessages(['category_ids' => 'Every selected Category must be active. No assignments were changed.']);
+        }
+        sort($ids);
+        $scope = $data->scope;
+
+        return collect($ids === [] ? [null] : $ids)->map(fn (?int $categoryId): ChangeResponsibilityScopeData => new ChangeResponsibilityScopeData(
+            employeeId: $scope->employeeId,
+            brandId: $scope->brandId,
+            productId: $scope->productId,
+            categoryId: $categoryId,
+            condition: $scope->condition,
+            warehouseId: $scope->warehouseId,
+            platformId: $scope->platformId,
+            assignStockByDefault: $scope->assignStockByDefault,
+            reason: $scope->reason,
+            idempotencyKey: count($ids) <= 1 ? $scope->idempotencyKey : Uuid::uuid5(Uuid::NAMESPACE_URL, "responsibility-change:{$source->id}:{$scope->idempotencyKey}:category:{$categoryId}")->toString(),
+        ));
+    }
+
+    /** @param Collection<int, ChangeResponsibilityScopeData> $changes */
+    private function prepareScopeChanges(ResponsibilityAssignment $source, Collection $changes, bool $checkOperational = true, bool $lock = false): Collection
+    {
+        $errors = [];
+        $prepared = $changes->map(function (ChangeResponsibilityScopeData $data) use ($source, $checkOperational, $lock, &$errors): ?array {
+            try {
+                $candidate = $this->createDataFromChange($data, $source->notes);
+                $prepared = $this->prepareCreate($candidate, [$source->id], $checkOperational);
+                if ($lock) {
+                    $this->scopeConflicts->assertNoConflicts($candidate, [$source->id], lock: true, checkOperational: $checkOperational);
+                    $this->assertFingerprintAvailable($prepared['fingerprint'], lock: true, exceptAssignmentIds: [$source->id]);
+                }
+
+                return $prepared;
+            } catch (ValidationException|InvalidResponsibilityScopeException|DuplicateActiveResponsibilityException $exception) {
+                $label = $data->categoryId === null ? 'No Category restriction' : ProductCategory::query()->whereKey($data->categoryId)->value('name');
+                foreach ($exception instanceof ValidationException ? $exception->errors() : ['scope' => [$exception->getMessage()]] as $field => $messages) {
+                    foreach ((array) $messages as $message) {
+                        $errors[$field][] = "{$label}: {$message}";
+                    }
+                }
+
+                return null;
+            }
+        });
+        if ($errors !== []) {
+            $errors['scope'][] = ($changes->count() - $prepared->filter()->count())." of {$changes->count()} proposed Responsibility Assignments cannot be created. No assignments were changed.";
+            throw ValidationException::withMessages($errors);
+        }
+        if ($prepared->pluck('fingerprint')->unique()->count() !== $changes->count()) {
+            throw ValidationException::withMessages(['category_ids' => 'The proposed batch contains duplicate exact Responsibility scopes.']);
+        }
+
+        return $prepared;
+    }
+
+    /** @param Collection<int, ChangeResponsibilityScopeData> $changes */
+    private function recordedScopeChanges(ResponsibilityAssignment $source, Collection $changes): ?Collection
+    {
+        $existing = ResponsibilityAssignment::query()->whereIn('idempotency_key', $changes->pluck('idempotencyKey'))->get()->keyBy('idempotency_key');
+        if ($existing->isEmpty()) {
+            return null;
+        }
+        $persistedSource = ResponsibilityAssignment::query()->findOrFail($source->id);
+        if (! in_array($persistedSource->status, [ResponsibilityAssignmentStatus::Superseded, ResponsibilityAssignmentStatus::Transferred], true)
+            || $persistedSource->ended_at === null
+            || $existing->count() !== $changes->count()
+            || $source->successors()->count() !== $changes->count()
+            || $changes->contains(function (ChangeResponsibilityScopeData $data) use ($source, $existing): bool {
+                $assignment = $existing->get($data->idempotencyKey);
+                $assignment?->load($this->relations());
+
+                return $assignment === null || $assignment->predecessor_assignment_id !== $source->id
+                    || ! $this->sameScope($assignment, $data) || $assignment->reason !== trim($data->reason);
+            })) {
+            throw ValidationException::withMessages(['scope' => 'This change was only partially recorded or differs from the completed request. Review its history before retrying. No assignments were changed.']);
+        }
+
+        return $changes->map(fn (ChangeResponsibilityScopeData $data): ResponsibilityAssignment => $existing[$data->idempotencyKey]);
+    }
+
     private function replaceScope(
         ResponsibilityAssignment $source,
         ChangeResponsibilityScopeData $data,
@@ -260,61 +380,88 @@ class ResponsibilityAssignmentService
         string $event,
         ?bool $previousDefaultStock = null,
     ): ResponsibilityAssignment {
-        $candidate = $this->createDataFromChange($data, $source->notes);
-        $checkOperational = $event !== 'responsibility.stock_default_changed';
-        $this->prepareCreate($candidate, [$source->id], $checkOperational);
-        $reference = $this->references->nextResponsibilityAssignmentReference();
+        return $this->replaceScopes($source, collect([$data]), $actor, $event, $previousDefaultStock)->sole();
+    }
 
-        return DB::transaction(function () use ($source, $data, $candidate, $actor, $event, $reference, $previousDefaultStock, $checkOperational): ResponsibilityAssignment {
+    /** @param Collection<int, ChangeResponsibilityScopeData> $changes */
+    private function replaceScopes(
+        ResponsibilityAssignment $source,
+        Collection $changes,
+        User $actor,
+        string $event,
+        ?bool $previousDefaultStock = null,
+    ): Collection {
+        if ($existing = $this->recordedScopeChanges($source, $changes)) {
+            return $existing;
+        }
+        $source->load($this->relations());
+        $this->assertActive($source);
+        if ($source->assignment_mode !== ResponsibilityAssignmentMode::Scope) {
+            throw ValidationException::withMessages(['assignment' => 'Only operational scope assignments can use this workflow.']);
+        }
+        if ($event === 'responsibility.scope_changed' && $changes->count() === 1 && $this->sameScope($source, $changes->sole())) {
+            throw ValidationException::withMessages(['scope' => 'Change at least one Responsibility value before continuing.']);
+        }
+        $checkOperational = $event !== 'responsibility.stock_default_changed';
+        $this->prepareScopeChanges($source, $changes, $checkOperational);
+        $references = $changes->map(fn (): string => $this->references->nextResponsibilityAssignmentReference());
+
+        return DB::transaction(function () use ($source, $changes, $actor, $event, $references, $previousDefaultStock, $checkOperational): Collection {
             $this->lockResponsibilityScopeMutations();
             $source = ResponsibilityAssignment::query()->lockForUpdate()->findOrFail($source->id);
             $source->load($this->relations());
+            if ($existing = $this->recordedScopeChanges($source, $changes)) {
+                return $existing;
+            }
             $this->assertActive($source);
             if ($source->assignment_mode !== ResponsibilityAssignmentMode::Scope) {
                 throw ValidationException::withMessages(['assignment' => 'Only operational scope assignments can use this workflow.']);
             }
-            if ($event === 'responsibility.stock_default_changed' && $source->assign_stock_by_default === $data->assignStockByDefault) {
-                return $source;
+            if ($event === 'responsibility.stock_default_changed' && $source->assign_stock_by_default === $changes->sole()->assignStockByDefault) {
+                return collect([$source]);
             }
 
-            $prepared = $this->prepareCreate($candidate, [$source->id], $checkOperational);
-            $this->scopeConflicts->assertNoConflicts($candidate, [$source->id], lock: true, checkOperational: $checkOperational);
+            $preparedChanges = $this->prepareScopeChanges($source, $changes, $checkOperational, lock: true);
             $oldScope = $this->scopeFrom($source);
             $oldEmployeeId = $source->employee_id;
-            $status = $oldEmployeeId === $prepared['employee']->id
+            $status = $oldEmployeeId === $changes->first()->employeeId
                 ? ResponsibilityAssignmentStatus::Superseded
                 : ResponsibilityAssignmentStatus::Transferred;
 
             $this->end($source, $status, $actor);
-            $this->assertFingerprintAvailable($prepared['fingerprint'], lock: true);
-            $successor = $this->createHeader(
-                $reference,
-                $prepared['employee'],
-                ResponsibilityAssignmentMode::Scope,
-                $prepared['fingerprint'],
-                now()->toDateTimeString(),
-                $actor,
-                $data->reason,
-                $source->notes,
-                $data->idempotencyKey,
-                $source->id,
-                $data->assignStockByDefault,
-            );
-            $this->writeScopes($successor, $prepared['scope'], null);
-            $this->activity->log($event, $actor, $successor, [
-                'assignment_id' => $successor->id,
-                'predecessor_assignment_id' => $source->id,
-                'reference' => $successor->reference,
-                'from_employee_id' => $oldEmployeeId,
-                'to_employee_id' => $successor->employee_id,
-                'old_scope' => $this->safeProperties($source, $oldScope, null, $data->reason),
-                'new_scope' => $this->safeProperties($successor, $prepared['scope'], null, $data->reason),
-                'previous_assign_stock_by_default' => $previousDefaultStock ?? $source->assign_stock_by_default,
-                'assign_stock_by_default' => $successor->assign_stock_by_default,
-                'reason' => trim($data->reason),
-            ]);
 
-            return $successor->load($this->relations());
+            return $changes->map(function (ChangeResponsibilityScopeData $data, int $index) use ($source, $preparedChanges, $references, $actor, $event, $oldScope, $oldEmployeeId, $previousDefaultStock): ResponsibilityAssignment {
+                $prepared = $preparedChanges[$index];
+                $this->assertFingerprintAvailable($prepared['fingerprint'], lock: true);
+                $successor = $this->createHeader(
+                    $references[$index],
+                    $prepared['employee'],
+                    ResponsibilityAssignmentMode::Scope,
+                    $prepared['fingerprint'],
+                    now()->toDateTimeString(),
+                    $actor,
+                    $data->reason,
+                    $source->notes,
+                    $data->idempotencyKey,
+                    $source->id,
+                    $data->assignStockByDefault,
+                );
+                $this->writeScopes($successor, $prepared['scope'], null);
+                $this->activity->log($event, $actor, $successor, [
+                    'assignment_id' => $successor->id,
+                    'predecessor_assignment_id' => $source->id,
+                    'reference' => $successor->reference,
+                    'from_employee_id' => $oldEmployeeId,
+                    'to_employee_id' => $successor->employee_id,
+                    'old_scope' => $this->safeProperties($source, $oldScope, null, $data->reason),
+                    'new_scope' => $this->safeProperties($successor, $prepared['scope'], null, $data->reason),
+                    'previous_assign_stock_by_default' => $previousDefaultStock ?? $source->assign_stock_by_default,
+                    'assign_stock_by_default' => $successor->assign_stock_by_default,
+                    'reason' => trim($data->reason),
+                ]);
+
+                return $successor->load($this->relations());
+            });
         });
     }
 

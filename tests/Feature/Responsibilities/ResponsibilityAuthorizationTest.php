@@ -4,6 +4,7 @@ namespace Tests\Feature\Responsibilities;
 
 use App\Actions\Responsibilities\CreateResponsibilityAssignment;
 use App\Enums\EmployeeRole;
+use App\Models\ProductBrand;
 use App\Models\Team;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -28,6 +29,7 @@ class ResponsibilityAuthorizationTest extends TestCase
         $f['employee'] = $staff->employee;
         $staffAssignment = app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $owner);
         $f['employee'] = $other->employee;
+        $f['brand'] = ProductBrand::factory()->create();
         $otherAssignment = app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $owner);
         $read = app(ResponsibilityReadService::class);
 

@@ -8,6 +8,7 @@ use App\Actions\Responsibilities\DeactivateResponsibilityAssignment;
 use App\Actions\Responsibilities\DeactivateResponsibilityAssignments;
 use App\Actions\Responsibilities\TransferResponsibilityAssignment;
 use App\DTOs\Responsibilities\ChangeResponsibilityQuantityData;
+use App\DTOs\Responsibilities\ChangeResponsibilityScopeBatchData;
 use App\DTOs\Responsibilities\ChangeResponsibilityScopeData;
 use App\DTOs\Responsibilities\DeactivateResponsibilityAssignmentData;
 use App\DTOs\Responsibilities\TransferResponsibilityAssignmentData;
@@ -34,6 +35,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -114,10 +116,11 @@ class ResponsibilityAssignmentsTable
                     Textarea::make('reason')->required()->maxLength(2000),
                 ])->action(fn (ResponsibilityAssignment $record, array $data) => app(TransferResponsibilityAssignment::class)->handle($record, new TransferResponsibilityAssignmentData((int) $data['employee_id'], $data['reason'], (string) Str::uuid()), auth()->user())),
             Action::make('changeScope')->label('Change / Transfer Responsibility')->icon('heroicon-o-arrow-path')->requiresConfirmation()
-                ->modalDescription('This creates a new historical version. Existing inventory ownership, reservations, and physical quantities are not moved.')
+                ->modalDescription('Each selected Category creates an exact historical successor. The previous assignment ends once. Existing inventory ownership, reservations, and physical quantities are not moved.')
                 ->authorize(fn (ResponsibilityAssignment $record): bool => auth()->user()->can('transfer', $record))
                 ->visible(fn (ResponsibilityAssignment $record): bool => $record->status === ResponsibilityAssignmentStatus::Active && $record->assignment_mode === ResponsibilityAssignmentMode::Scope)
                 ->schema(fn (ResponsibilityAssignment $record): array => [
+                    Hidden::make('idempotency_key')->default(fn (): string => (string) Str::uuid())->required()->uuid(),
                     Placeholder::make('current_scope')->label('Current Responsibility')->content(fn (): string => self::describeScope($record)),
                     Select::make('employee_id')->label('Employee')->required()->searchable()->live()->default($record->employee_id)
                         ->options(fn (): array => Employee::query()->where('status', true)->whereNotNull('user_id')->orderBy('name')->pluck('name', 'id')->all()),
@@ -125,7 +128,9 @@ class ResponsibilityAssignmentsTable
                         ->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
                     Select::make('product_id')->label('Product')->searchable()->nullable()->live()->default($record->productScope?->product_id)
                         ->options(fn (): array => Product::query()->products()->where('status', ProductStatus::Active->value)->orderBy('name')->get(['id', 'sku', 'name'])->mapWithKeys(fn (Product $product): array => [$product->id => "{$product->sku} — {$product->name}"])->all()),
-                    Select::make('category_id')->label('Category')->searchable()->nullable()->live()->default($record->categoryScope?->product_category_id)
+                    Select::make('category_ids')->label('Categories')->multiple()->searchable()->nullable()->live()
+                        ->default($record->categoryScope === null ? [] : [$record->categoryScope->product_category_id])
+                        ->helperText('One exact successor per selected Category. Leave empty for no Category restriction where valid.')
                         ->options(fn (): array => ProductCategory::query()->active()->orderBy('name')->pluck('name', 'id')->all()),
                     Select::make('condition')->label('Condition')->searchable()->nullable()->live()->default($record->conditionScope?->product_condition?->value)
                         ->options(collect(ProductCondition::cases())->mapWithKeys(fn (ProductCondition $condition): array => [$condition->value => $condition->label()])->all()),
@@ -136,9 +141,9 @@ class ResponsibilityAssignmentsTable
                     Checkbox::make('assign_stock_by_default')->label('Assign stock by default')->live()->default($record->assign_stock_by_default)
                         ->helperText('Controls future receipt ownership only. Existing Allocation Balances are not changed.'),
                     Placeholder::make('scope')->label('Preflight Summary')->content(function (Get $get) use ($record): string {
-                        return app(ResponsibilityAssignmentService::class)->previewScopeChange($record, self::scopeChangeData([
+                        return app(ResponsibilityAssignmentService::class)->previewScopeChanges($record, self::scopeChangeData([
                             'employee_id' => $get('employee_id'), 'brand_id' => $get('brand_id'), 'product_id' => $get('product_id'),
-                            'category_id' => $get('category_id'), 'condition' => $get('condition'), 'warehouse_id' => $get('warehouse_id'),
+                            'category_ids' => $get('category_ids'), 'condition' => $get('condition'), 'warehouse_id' => $get('warehouse_id'),
                             'platform_id' => $get('platform_id'), 'assign_stock_by_default' => $get('assign_stock_by_default'),
                         ], 'Preflight only', 'scope-preview'));
                     }),
@@ -146,7 +151,7 @@ class ResponsibilityAssignmentsTable
                 ])
                 ->action(function (ResponsibilityAssignment $record, array $data, $livewire): void {
                     try {
-                        app(ChangeResponsibilityScope::class)->handle($record, self::scopeChangeData($data), auth()->user());
+                        $successors = app(ChangeResponsibilityScope::class)->handleBatch($record, self::scopeChangeData($data), auth()->user());
                     } catch (ValidationException|InvalidResponsibilityScopeException|DuplicateActiveResponsibilityException $exception) {
                         $errors = $exception instanceof ValidationException
                             ? $exception->errors()
@@ -157,7 +162,7 @@ class ResponsibilityAssignmentsTable
                         throw ValidationException::withMessages(collect($errors)
                             ->mapWithKeys(fn (array $messages, string $key): array => ["{$path}.{$key}" => $messages])->all());
                     }
-                    Notification::make()->success()->title('Responsibility changed')->body('The previous assignment is preserved in history. Existing stock ownership was not moved.')->send();
+                    Notification::make()->success()->title('Responsibility changed')->body("{$successors->count()} exact successor assignments created. The previous assignment is preserved in history. Existing stock ownership was not moved.")->send();
                 }),
             Action::make('changeQuantity')->label('Change Quantity')->requiresConfirmation()->authorize(fn (ResponsibilityAssignment $record): bool => auth()->user()->can('changeQuantity', $record))
                 ->visible(fn (ResponsibilityAssignment $record): bool => $record->status === ResponsibilityAssignmentStatus::Active && $record->assignment_mode === ResponsibilityAssignmentMode::Quantity)
@@ -202,20 +207,20 @@ class ResponsibilityAssignmentsTable
             ->emptyStateHeading('No Responsibility Assignments found for the selected filters.');
     }
 
-    private static function scopeChangeData(array $data, ?string $reason = null, ?string $idempotencyKey = null): ChangeResponsibilityScopeData
+    private static function scopeChangeData(array $data, ?string $reason = null, ?string $idempotencyKey = null): ChangeResponsibilityScopeBatchData
     {
-        return new ChangeResponsibilityScopeData(
+        return new ChangeResponsibilityScopeBatchData(new ChangeResponsibilityScopeData(
             employeeId: (int) ($data['employee_id'] ?? 0),
             brandId: self::nullableId($data['brand_id'] ?? null),
             productId: self::nullableId($data['product_id'] ?? null),
-            categoryId: self::nullableId($data['category_id'] ?? null),
+            categoryId: null,
             condition: self::condition($data['condition'] ?? null),
             warehouseId: self::nullableId($data['warehouse_id'] ?? null),
             platformId: self::nullableId($data['platform_id'] ?? null),
             assignStockByDefault: (bool) ($data['assign_stock_by_default'] ?? false),
             reason: $reason ?? (string) ($data['reason'] ?? ''),
-            idempotencyKey: $idempotencyKey ?? (string) Str::uuid(),
-        );
+            idempotencyKey: $idempotencyKey ?? (string) ($data['idempotency_key'] ?? ''),
+        ), $data['category_ids'] ?? []);
     }
 
     private static function nullableId(mixed $value): ?int

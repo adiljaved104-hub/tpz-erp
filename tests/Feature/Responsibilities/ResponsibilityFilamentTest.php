@@ -66,7 +66,7 @@ class ResponsibilityFilamentTest extends TestCase
                 'employee_id' => $assignment->employee_id,
                 'brand_id' => $f['brand']->id,
                 'product_id' => null,
-                'category_id' => null,
+                'category_ids' => [],
                 'condition' => null,
                 'warehouse_id' => null,
                 'platform_id' => $f['platform']->id,
@@ -98,9 +98,10 @@ class ResponsibilityFilamentTest extends TestCase
         $f = $this->responsibilityFoundation();
         $source = app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
         $data = $this->changeFormData($f);
-        foreach (['brand_id', 'category_id', 'condition', 'platform_id'] as $field) {
+        foreach (['brand_id', 'condition', 'platform_id'] as $field) {
             $data[$field] = null;
         }
+        $data['category_ids'] = [];
         $data['assign_stock_by_default'] = false;
         $this->actingAs($f['owner']);
         $component = Livewire::test(ListResponsibilityAssignments::class)->callTableAction('changeScope', $source, $data)
@@ -161,7 +162,7 @@ class ResponsibilityFilamentTest extends TestCase
     {
         return [
             'employee_id' => $f['employee']->id, 'brand_id' => $f['brand']->id, 'product_id' => null,
-            'category_id' => $f['product']->category_id, 'condition' => 'renewed', 'warehouse_id' => null,
+            'category_ids' => [$f['product']->category_id], 'condition' => 'renewed', 'warehouse_id' => null,
             'platform_id' => $f['platform']->id, 'assign_stock_by_default' => true, 'reason' => 'New to Renewed',
         ];
     }

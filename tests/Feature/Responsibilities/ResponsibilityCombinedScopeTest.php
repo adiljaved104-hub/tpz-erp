@@ -57,7 +57,7 @@ class ResponsibilityCombinedScopeTest extends TestCase
             Product::factory()->create(['brand_id' => $f['brand']->id, 'category_id' => $categoryId, 'condition' => ProductCondition::Renewed]),
         ]);
         $inventories = $products->map(fn (Product $product): ProductInventory => ProductInventory::factory()->create([
-            'product_id' => $product->id, 'warehouse_id' => $f['inventory']->warehouse_id,
+            'product_id' => $product->id, 'warehouse_id' => $f['inventory']->warehouse_id, 'available_quantity' => 2,
         ]));
         $wrongWarehouse = ProductInventory::factory()->create(['product_id' => $products->first()->id, 'warehouse_id' => $otherWarehouse->id]);
         $physical = app(ResponsibilityProductScopeService::class);
@@ -70,6 +70,10 @@ class ResponsibilityCombinedScopeTest extends TestCase
         $this->assertFalse($physical->canAccessInventory($f['employee']->user, $wrongWarehouse->id));
         $this->assertFalse($orders->canAccessProduct($f['employee']->user, $products->first()->id, $otherPlatform->id, $f['inventory']->warehouse_id));
         $this->assertFalse($orders->canAccessProduct($f['employee']->user, $products->first()->id, $f['platform']->id, $otherWarehouse->id));
+        $this->assertCount(0, app(ResponsibilityReadService::class)->myInventory($f['employee']->user));
+        foreach ([$f['inventory'], $inventories->first()] as $inventory) {
+            $this->allocateOwnedStock($f, $inventory);
+        }
         $this->assertEqualsCanonicalizing([$f['inventory']->id, $inventories->first()->id], app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->pluck('inventory_id')->all());
         $this->assertSame($f['employee']->id, app(InventoryAllocationPolicyService::class)->receiptAccount($inventories->first(), null)[0]->employee_id);
         foreach ($inventories->skip(1)->push($wrongWarehouse) as $inventory) {
@@ -100,12 +104,14 @@ class ResponsibilityCombinedScopeTest extends TestCase
         $this->assertFalse($physical->canAccessInventory($f['employee']->user, $otherInventory->id));
         $this->assertFalse($physical->canAccessInventory($f['employee']->user, $wrongWarehouse->id));
         $this->assertFalse($orders->canAccessProduct($f['employee']->user, $other->id, null, $f['inventory']->warehouse_id));
+        $this->assertCount(0, app(ResponsibilityReadService::class)->myInventory($f['employee']->user));
+        $this->allocateOwnedStock($f, $f['inventory']);
         $this->assertEquals([$f['inventory']->id], app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->pluck('inventory_id')->all());
         $f['product']->forceFill(['condition' => ProductCondition::Renewed])->save();
         $this->assertFalse($physical->canAccessProduct($f['employee']->user, $f['product']->id));
         $this->assertFalse($physical->canAccessInventory($f['employee']->user, $f['inventory']->id));
         $this->assertFalse($orders->canAccessProduct($f['employee']->user, $f['product']->id, null, $f['inventory']->warehouse_id));
-        $this->assertCount(0, app(ResponsibilityReadService::class)->myInventory($f['employee']->user));
+        $this->assertEquals([$f['inventory']->id], app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->pluck('inventory_id')->all());
     }
 
     public function test_product_brand_and_category_mismatches_are_readable_validation(): void
@@ -212,6 +218,13 @@ class ResponsibilityCombinedScopeTest extends TestCase
     private function stockSnapshot(): array
     {
         return $this->snapshot(['product_inventories', 'inventory_allocation_balances', 'inventory_allocation_events', 'inventory_reservations', 'inventory_allocation_reservation_lines', 'stock_movements']);
+    }
+
+    private function allocateOwnedStock(array $f, ProductInventory $inventory): void
+    {
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $f['owner']);
+        $allocations->reconcile($inventory, $allocations->employeeAccount($f['employee']->id), 1, $f['owner'], 'Explicit ownership fixture');
     }
 
     private function assignmentSnapshot(): array

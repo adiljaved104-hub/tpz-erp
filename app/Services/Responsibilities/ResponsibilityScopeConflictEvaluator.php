@@ -66,17 +66,7 @@ class ResponsibilityScopeConflictEvaluator
             return;
         }
 
-        $messages = $conflicts->map(function (array $conflict): string {
-            $assignment = $conflict['assignment'];
-            $employee = $assignment->employee?->name ?? 'another Employee';
-            $scope = $this->describe($assignment);
-            $types = collect([
-                $conflict['operational'] ? 'operational responsibility' : null,
-                $conflict['defaultStock'] ? 'default stock holder' : null,
-            ])->filter()->implode(' and ');
-
-            return "{$employee} ({$assignment->reference}) already has an overlapping {$types}: {$scope}. Resolve or explicitly transfer that scope first.";
-        });
+        $messages = $conflicts->map(fn (array $conflict): string => $this->explainConflict($conflict, $proposed));
 
         throw ValidationException::withMessages(['scope' => $messages->all()]);
     }
@@ -88,12 +78,33 @@ class ResponsibilityScopeConflictEvaluator
             return 'SAFE — No conflicting active Responsibility was found.';
         }
 
-        return 'CONFLICT — '.collect($conflicts)->map(function (array $conflict): string {
-            $assignment = $conflict['assignment'];
-            $type = $conflict['defaultStock'] ? 'default stock holder' : 'operational scope';
+        return 'CONFLICT — '.$conflicts->map(fn (array $conflict): string => $this->explainConflict($conflict, $proposed))->implode(' ');
+    }
 
-            return ($assignment->employee?->name ?? 'Another Employee')." has an overlapping {$type} ({$this->describe($assignment)}).";
-        })->implode(' ');
+    private function explainConflict(array $conflict, CreateResponsibilityAssignmentData $proposed): string
+    {
+        $assignment = $conflict['assignment'];
+        $employee = $assignment->employee?->name ?? 'another Employee';
+        if (! $conflict['defaultStock']) {
+            return "{$employee} ({$assignment->reference}) already has an overlapping operational responsibility: {$this->describe($assignment)}. Resolve or explicitly transfer that scope first.";
+        }
+
+        $message = "{$employee} ({$assignment->reference}) is already a matching default stock holder for {$this->describe($assignment, includePlatform: false)}. These physical product scopes overlap.";
+        if ($assignment->conditionScope === null && $proposed->condition !== null) {
+            $message .= " Their Responsibility has no Condition restriction, so it includes {$proposed->condition->label()} stock.";
+        } elseif ($proposed->condition === null && $assignment->conditionScope !== null) {
+            $message .= " The proposed Responsibility has no Condition restriction, so it includes {$assignment->conditionScope->product_condition->label()} stock.";
+        }
+        $platform = $assignment->platformScope?->platform?->name;
+        if ($platform !== null || $proposed->platformId !== null) {
+            $message .= ($platform === null ? ' Platform' : " Platform {$platform}")
+                .' does not separate Default Stock ownership because it applies to physical receipt ownership.';
+        }
+        if ($conflict['operational']) {
+            $message .= ' Operational responsibility also overlaps.';
+        }
+
+        return $message.' Resolve or explicitly transfer that scope first.';
     }
 
     /**
@@ -310,7 +321,7 @@ class ResponsibilityScopeConflictEvaluator
         return $left === null || $right === null || (string) $left === (string) $right;
     }
 
-    private function describe(ResponsibilityAssignment $assignment): string
+    private function describe(ResponsibilityAssignment $assignment, bool $includePlatform = true): string
     {
         $parts = collect([
             $assignment->productScope?->product?->sku,
@@ -319,7 +330,7 @@ class ResponsibilityScopeConflictEvaluator
             $assignment->conditionScope?->product_condition?->label() ? 'Condition '.$assignment->conditionScope->product_condition->label() : null,
             $assignment->warehouseScope?->warehouse?->name ? 'Warehouse '.$assignment->warehouseScope->warehouse->name : null,
             $assignment->quantityScope?->inventory?->product?->sku,
-            $assignment->platformScope?->platform?->name ? 'Platform '.$assignment->platformScope->platform->name : null,
+            $includePlatform && $assignment->platformScope?->platform?->name ? 'Platform '.$assignment->platformScope->platform->name : null,
         ])->filter()->values();
 
         return $parts->isEmpty() ? 'all applicable products' : $parts->implode(' · ');

@@ -67,7 +67,7 @@ class InventoryLocationOverviewService
                 ->where('marketplace_return_removals.status', 'dispatched')->get($returnColumns)->groupBy('product_id');
         }
 
-        return $inventories->groupBy('product_id')->map(function (Collection $rows) use ($employeeView, $balances, $financial, $transit, $returnTransit): array {
+        $results = $inventories->groupBy('product_id')->map(function (Collection $rows) use ($employeeView, $balances, $financial, $transit, $returnTransit): array {
             $product = $rows->first()->product;
             $locations = $rows->map(function (ProductInventory $inventory) use ($employeeView, $balances, $financial): array {
                 $balance = $balances->get($inventory->id);
@@ -125,6 +125,7 @@ class InventoryLocationOverviewService
                 'return_in_transit' => $returnInTransit,
                 'total_owned' => $locations->sum('location_total_owned') + $inTransit + $returnInTransit,
                 'locations' => $locations,
+                'responsibility_zero_stock' => $employeeView && $locations->sum('available') === 0,
             ];
 
             if ($financial) {
@@ -144,6 +145,19 @@ class InventoryLocationOverviewService
 
             return $result;
         })->values();
+
+        if ($employeeView) {
+            foreach ($this->ownership->noLocationProducts($user)->select(['products.id', 'products.sku', 'products.name'])->get() as $product) {
+                $results->push([
+                    'product' => $product, 'available' => 0, 'reserved' => 0, 'sellable' => 0,
+                    'damaged' => 0, 'marketplace_non_sellable' => 0, 'qc_pending' => 0,
+                    'total_on_hand' => 0, 'in_transit' => 0, 'return_in_transit' => 0,
+                    'total_owned' => 0, 'locations' => collect(), 'responsibility_zero_stock' => true,
+                ]);
+            }
+        }
+
+        return $results;
     }
 
     public function summaryForUser(User $user): array

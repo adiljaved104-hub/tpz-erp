@@ -185,7 +185,7 @@ class ResponsibilityReadService
 
         $employeeView = $ownedOnly && $this->ownership->isEmployeeView($user);
         if ($ownedOnly) {
-            $this->ownership->apply($rowsQuery, 'pi.id', $user);
+            $this->ownership->apply($rowsQuery, 'pi.id', $user, 'p.id');
         } else {
             // Operational mobile lookups retain Responsibility eligibility, including zero-owned stock.
             $rowsQuery->where(function ($visible) use ($productReasons, $inventoryReasons): void {
@@ -222,6 +222,7 @@ class ResponsibilityReadService
 
         return $rows->map(function (object $row) use ($ownedOnly, $employeeView, $ownedBalances, $productReasons, $platforms, $inventoryReasons, $inventoryPlatforms, $ownQuantities, $ownRemaining, $capacity, $allocationMetrics): object {
             $ownedBalance = $ownedBalances->get($row->inventory_id);
+            $row->responsibility_zero_stock = $employeeView && (int) ($ownedBalance?->allocated_quantity ?? 0) === 0;
             if ($employeeView) {
                 $row->available_quantity = $ownedBalance?->allocated_quantity ?? 0;
                 $row->reserved_quantity = $ownedBalance?->reserved_quantity ?? 0;
@@ -263,6 +264,11 @@ class ResponsibilityReadService
             ]));
             if ($row->visibility_reasons === []) {
                 $row->visibility_reasons = [$employeeView ? 'Employee allocation ownership' : 'Company inventory'];
+            }
+            if ($row->responsibility_zero_stock) {
+                array_unshift($row->visibility_reasons, 'Responsibility scope · Out of Stock');
+                $row->aggregate_assigned = $row->aggregate_outstanding = $row->remaining_assignable = 0;
+                $row->capacity_status = 'Not applicable';
             }
             $row->platforms = array_values(array_unique([
                 ...($platforms[$row->product_id] ?? []),

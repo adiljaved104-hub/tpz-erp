@@ -42,6 +42,9 @@
         @forelse ($products as $row)
             <x-filament::section>
                 <x-slot name="heading"><span class="line-clamp-2" title="{{ $row['product']->name }}">{{ $row['product']->sku }} · {{ \Illuminate\Support\Str::limit($row['product']->name, 72) }}</span></x-slot>
+                @if ($row['responsibility_zero_stock'] ?? false)
+                    <x-filament::badge color="danger">Responsibility scope · Out of Stock</x-filament::badge>
+                @endif
 
                 <div class="inventory-product-metrics mb-4" data-testid="inventory-product-metrics">
                     @foreach (collect(['total_owned' => 'Total Owned', 'available' => 'Available', 'reserved' => 'Reserved', 'sellable' => 'Sellable', 'damaged' => 'Damaged', 'marketplace_non_sellable' => 'Marketplace Non-Sellable', 'qc_pending' => 'QC Pending', 'in_transit' => 'Normal In Transit', 'return_in_transit' => 'Return-to-Company In Transit'])->filter(fn ($label, $key) => ! $employeeOwnedView || in_array($key, ['total_owned', 'available', 'reserved', 'sellable'], true)) as $key => $label)
@@ -52,6 +55,9 @@
                     @endisset
                 </div>
 
+                @if ($row['locations']->isEmpty())
+                    <p class="text-sm text-gray-500">No current stock location</p>
+                @else
                 <details>
                     <summary class="cursor-pointer font-medium">Location breakdown ({{ $row['locations']->count() }})</summary>
                     <div class="mt-3 max-w-full overflow-x-auto">
@@ -82,6 +88,7 @@
                         </table>
                     </div>
                 </details>
+                @endif
             </x-filament::section>
         @empty
             <x-filament::section>

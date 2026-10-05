@@ -39,6 +39,7 @@ class ProductInventoriesTable
             TextColumn::make('product.sku')->label('SKU')->searchable()->toggleable(),
             TextColumn::make('product.name')->label('Product')->searchable()->sortable()->limit(52)->tooltip(fn (ProductInventory $record): string => $record->product->name),
             TextColumn::make('warehouse.name')->label('Warehouse')->sortable()->toggleable(),
+            ...($owned ? [TextColumn::make('visibility_reason')->label('Visible Because')->state(fn (ProductInventory $record): string => $record->responsibility_zero_stock ? 'Responsibility scope · Out of Stock' : 'Employee allocation ownership')->toggleable()] : []),
             TextColumn::make('available_quantity')->label($owned ? 'My Total Held' : 'Available')->tooltip('Includes Reserved.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderBy($available, $direction))->toggleable(),
             TextColumn::make('reserved_quantity')->label($owned ? 'My Reserved' : 'Reserved')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderBy($reserved, $direction))->toggleable(),
             TextColumn::make('sellable_quantity')->label('Sellable')->state(fn (ProductInventory $record): int => $record->sellableQuantity())->weight('bold')->toggleable(),
@@ -70,7 +71,7 @@ class ProductInventoriesTable
                     $products = app(EmployeeOwnedInventoryReadService::class)->inventories(auth()->user())->reorder()
                         ->select('product_id')->groupBy('product_id');
                     $read = app(EmployeeOwnedInventoryReadService::class);
-                    $sum = 'SUM('.$read->quantityColumn(auth()->user(), 'available_quantity').' - '.$read->quantityColumn(auth()->user(), 'reserved_quantity').')';
+                    $sum = 'SUM(COALESCE('.$read->quantityColumn(auth()->user(), 'available_quantity').', 0) - COALESCE('.$read->quantityColumn(auth()->user(), 'reserved_quantity').', 0))';
                     match ($status) {
                         'low_stock' => $products->havingRaw("{$sum} > 0 AND {$sum} <= ?", [app(StockStatus::class)->low()]),
                         'out_of_stock' => $products->havingRaw("{$sum} <= 0"),

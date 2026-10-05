@@ -124,12 +124,13 @@ class MyInventoryTest extends TestCase
         $this->allocateToEmployee($f, $twoInventory);
 
         $rows = app(ResponsibilityReadService::class)->myInventory($f['employee']->user)->keyBy('product_id');
-        $this->assertArrayNotHasKey($f['product']->id, $rows->all());
+        $this->assertSame('out_of_stock', $rows[$f['product']->id]->stock_status);
+        $this->assertSame(0, $rows[$f['product']->id]->employee_usable);
         $this->assertSame('low_stock', $rows[$one->id]->stock_status);
         $this->assertSame('in_stock', $rows[$two->id]->stock_status);
 
         Livewire::actingAs($f['employee']->user)->test(MyInventory::class)
-            ->assertViewHas('summary', fn (array $summary): bool => $summary['low'] === 1 && $summary['out'] === 0);
+            ->assertViewHas('summary', fn (array $summary): bool => $summary['low'] === 1 && $summary['out'] === 1);
     }
 
     public function test_quantity_responsibility_uses_authoritative_remaining_allocation(): void
@@ -347,8 +348,8 @@ class MyInventoryTest extends TestCase
         $this->assignProduct($f, $product);
 
         Livewire::actingAs($f['employee']->user)->test(MyInventory::class)
-            ->assertDontSee($product->sku)
-            ->assertViewHas('inventoryRows', fn ($rows): bool => ! $rows->contains('product_id', $product->id));
+            ->assertSee($product->sku)->assertSee('No current stock location')
+            ->assertViewHas('inventoryRows', fn ($rows): bool => $rows->contains('product_id', $product->id));
     }
 
     public function test_cost_projection_follows_existing_purchase_cost_history_permission(): void
@@ -426,7 +427,7 @@ class MyInventoryTest extends TestCase
         $queries = count(DB::getQueryLog());
         DB::disableQueryLog();
 
-        $this->assertCount(1, $rows);
+        $this->assertCount(13, $rows);
         $this->assertLessThanOrEqual(24, $queries, 'My Inventory must batch-load Product visibility, allocation ownership, Condition scope, and stock context.');
     }
 

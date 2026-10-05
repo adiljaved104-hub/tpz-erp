@@ -20,6 +20,7 @@ use App\Models\ResponsibilityAssignmentProduct;
 use App\Models\ResponsibilityAssignmentWarehouse;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
@@ -50,6 +51,12 @@ class ResponsibilityPhysicalInventoryScopeTest extends TestCase
         $this->assignment($categoryBrandUser, brand: $brand, category: $category, platform: $platform);
         $this->assertVisibleInventoryIds($categoryBrandUser, [$matching->id]);
         $this->assertSame([$matching->id], app(InventoryReadService::class)->inventories($categoryBrandUser)->pluck('id')->all());
+        $this->assertTrue(app(InventoryLocationOverviewService::class)->forUser($categoryBrandUser, false)->isEmpty());
+        $owner = User::factory()->create();
+        Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
+        $allocation = app(InventoryAllocationService::class);
+        $allocation->ensureShadowCoverage($matching, $owner);
+        $allocation->reconcile($matching, $allocation->employeeAccount($categoryBrandUser->employee->id), 2, $owner, 'Explicit visibility fixture ownership');
         $this->assertSame(
             [$matching->product_id],
             app(InventoryLocationOverviewService::class)->forUser($categoryBrandUser, false)->pluck('product.id')->all(),

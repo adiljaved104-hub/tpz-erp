@@ -73,6 +73,27 @@ class ResponsibilityProductScopeService
         });
     }
 
+    /** Read-only eligibility for products without any physical location; no warehouse/quantity scope can prove one. */
+    public function applyNoLocationProducts(Builder $query, string $productColumn, User $user): Builder
+    {
+        return $query->whereExists(function (Builder $assignment) use ($productColumn, $user): void {
+            $assignment->selectRaw('1')->from('responsibility_assignments as missing_ra')
+                ->where('missing_ra.employee_id', $user->employee?->id ?? 0)
+                ->where('missing_ra.status', ResponsibilityAssignmentStatus::Active->value)
+                ->whereNull('missing_ra.ended_at')
+                ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_warehouses as missing_warehouse')->whereColumn('missing_warehouse.assignment_id', 'missing_ra.id'))
+                ->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')->from('inventory_responsibility_quantities as missing_quantity')->whereColumn('missing_quantity.assignment_id', 'missing_ra.id'))
+                ->where(function (Builder $kind) use ($productColumn): void {
+                    $kind->whereExists(fn (Builder $scope) => $scope->selectRaw('1')->from('responsibility_assignment_products as missing_product')->whereColumn('missing_product.assignment_id', 'missing_ra.id'))
+                        ->orWhere(fn (Builder $dimensions) => $this->matchingProductDimensions($dimensions, $productColumn, 'missing_ra'))
+                        ->orWhereExists(fn (Builder $platform) => $platform->selectRaw('1')->from('responsibility_assignment_platforms as missing_platform')
+                            ->join('product_marketplace_listings as missing_listing', 'missing_listing.marketplace_platform_id', '=', 'missing_platform.marketplace_platform_id')
+                            ->whereColumn('missing_platform.assignment_id', 'missing_ra.id')->whereColumn('missing_listing.product_id', $productColumn));
+                });
+            $this->matchingRequiredProductScopes($assignment, $productColumn, 'missing_ra');
+        });
+    }
+
     public function canAccessProduct(User $user, int $productId): bool
     {
         $query = DB::table('products')->where('products.id', $productId);

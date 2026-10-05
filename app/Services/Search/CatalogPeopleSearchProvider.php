@@ -42,7 +42,11 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
             ->leftJoin('product_brands as search_product_brands', 'search_product_brands.id', '=', 'products.brand_id')
             ->where('products.inventory_item_type', 'product')
             ->select(['products.id', 'products.sku', 'products.name', 'products.model', 'products.status']);
-        app(ResponsibilityProductScopeService::class)->apply($query, 'products.id', $user);
+        $authorization = app(ProductAuthorization::class);
+        $authorization->applyCreatorScope($query, $user);
+        if (! $authorization->requiresCreatorScope($user)) {
+            app(ResponsibilityProductScopeService::class)->apply($query, 'products.id', $user);
+        }
         SearchQuery::match($query, ['products.sku', 'products.name', 'products.model', 'products.brand', 'search_product_brands.name'], $term);
         SearchQuery::rank($query, 'products.sku', $term);
         SearchQuery::rank($query, 'products.name', $term);

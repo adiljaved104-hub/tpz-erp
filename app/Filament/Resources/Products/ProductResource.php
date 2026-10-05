@@ -41,7 +41,7 @@ class ProductResource extends Resource
         $query = parent::getEloquentQuery()->products();
         $user = auth()->user();
         $fields = [
-            'id', 'sku', 'name', 'brand', 'brand_id', 'category', 'category_id', 'model', 'condition', 'processor', 'ram', 'storage',
+            'id', 'sku', 'name', 'created_by_user_id', 'brand', 'brand_id', 'category', 'category_id', 'model', 'condition', 'processor', 'ram', 'storage',
             'processor_class', 'processor_model', 'processor_generation', 'screen_size', 'graphics', 'color', 'touch_screen',
             'is_convertible_360', 'accounting_title_override', 'website_title_override', 'warranty', 'description', 'status', 'created_at', 'updated_at',
         ];
@@ -55,6 +55,9 @@ class ProductResource extends Resource
         }
 
         $query->select($fields)->with(['brandRelation:id,name,status', 'categoryRelation:id,name,status']);
+        if ($user instanceof User) {
+            app(ProductAuthorization::class)->applyCreatorScope($query, $user);
+        }
 
         if ($user instanceof User && app(PurchaseAuthorization::class)->allows($user, PurchasePermission::ViewCostHistory)) {
             app(PurchaseCostHistoryService::class)->addLatestCostSelect($query, 'products.id', $user);

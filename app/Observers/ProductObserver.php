@@ -13,6 +13,9 @@ class ProductObserver
         if ($product->isDirty('sku')) {
             throw new RuntimeException('Product SKUs are immutable.');
         }
+        if ($product->isDirty('created_by_user_id')) {
+            throw new RuntimeException('The original Product creator is immutable.');
+        }
     }
 
     public function deleting(Product $product): never

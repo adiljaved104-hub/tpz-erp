@@ -55,6 +55,7 @@ class ComponentCatalogFoundationTest extends TestCase
             'capacity_value' => 8, 'capacity_unit' => 'gb', 'interface_type' => 'DDR4',
         ], $owner);
         $this->assertSame(InventoryItemType::Component, $component->product->inventory_item_type);
+        $this->assertSame($owner->id, $component->product->created_by_user_id);
         $this->assertSame('0.0000', $component->approved_oem_recovery_value);
 
         $component = app(ComponentCatalogService::class)->updateApprovedRecoveryValue($component, '30.0000', 'Approved standard OEM recovery benchmark.', $owner);

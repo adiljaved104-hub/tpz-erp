@@ -46,6 +46,7 @@ class CreateProduct
                 'brand' => $brand->name,
                 'category' => $category->name,
                 'sku' => $sku,
+                'created_by_user_id' => $actor->id,
                 'cost_price' => $data->costPriceProvided ? $validated['cost_price'] : null,
                 'selling_price' => $data->sellingPriceProvided ? $validated['selling_price'] : '0.00',
                 'status' => ProductStatus::Active,

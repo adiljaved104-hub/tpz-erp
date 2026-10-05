@@ -73,6 +73,7 @@ class QuotationManualProductMaterializer
             $product = new Product;
             $product->forceFill([
                 'sku' => $sku,
+                'created_by_user_id' => $actor->id,
                 'inventory_item_type' => InventoryItemType::Product,
                 'name' => $item->product_name,
                 'brand' => $brand->name,

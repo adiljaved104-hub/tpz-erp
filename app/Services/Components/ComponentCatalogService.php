@@ -44,6 +44,7 @@ class ComponentCatalogService
             $product = new Product;
             $product->forceFill([
                 'sku' => $sku,
+                'created_by_user_id' => $actor->id,
                 'inventory_item_type' => InventoryItemType::Component,
                 'name' => $validated['name'],
                 'brand' => $brand->name,

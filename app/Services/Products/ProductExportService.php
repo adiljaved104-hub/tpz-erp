@@ -28,8 +28,10 @@ class ProductExportService
 
     public function stream(ProductExportData $data, User $actor): StreamedResponse
     {
+        $this->authorization->authorize($actor, ProductPermission::Export);
         $fields = $this->fieldsFor($actor);
         $query = $this->query($data, $fields);
+        $this->authorization->applyCreatorScope($query, $actor);
         $rowCount = (clone $query)->count();
         $filters = $data->filters();
 

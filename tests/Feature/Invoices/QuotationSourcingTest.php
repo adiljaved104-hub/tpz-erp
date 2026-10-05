@@ -488,6 +488,7 @@ class QuotationSourcingTest extends TestCase
         $inventory = ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $this->warehouse->id)->sole();
 
         $this->assertSame($beforeProducts + 1, Product::query()->count());
+        $this->assertSame($this->owner->id, $product->created_by_user_id);
         $this->assertMatchesRegularExpression('/^TPZ-\d{6}$/', $product->sku);
         $this->assertSame('Manually sourced laptop', $product->name);
         $this->assertSame('650.00', $product->selling_price);

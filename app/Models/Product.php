@@ -56,6 +56,7 @@ class Product extends Model
             'selling_price' => 'decimal:2',
             'touch_screen' => 'boolean',
             'is_convertible_360' => 'boolean',
+            'created_by_user_id' => 'integer',
         ];
     }
 
@@ -77,6 +78,11 @@ class Product extends Model
     public function component(): HasOne
     {
         return $this->hasOne(Component::class);
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
     public function hardwareProfile(): HasOne

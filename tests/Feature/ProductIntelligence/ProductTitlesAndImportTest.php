@@ -9,6 +9,7 @@ use App\Enums\EmployeeRole;
 use App\Enums\ProductMatchContext;
 use App\Filament\Resources\Products\Pages\ImportProducts;
 use App\Models\Employee;
+use App\Models\MarketplaceAccount;
 use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductBrand;
@@ -91,14 +92,17 @@ class ProductTitlesAndImportTest extends TestCase
         $this->assertSame(['created' => 1, 'updated' => 0], $result);
         $product = Product::query()->latest('id')->firstOrFail();
         $sku = $product->sku;
+        $this->assertSame($owner->id, $product->created_by_user_id);
 
         $updatePath = $this->csv($service->templateHeaders(), [$sku, 'HP', 'Laptop', '15-fd0132wm', 'Core i7', 'i7-1355U', '13th Gen', '16GB', '1TB SSD', '15.6"', 'Integrated', 'Blue', 'Yes', 'No', 'New', '24', '2499.00', '', '']);
         $updatePreview = $service->preview($updatePath, ProductImportService::MODE_UPSERT, $owner);
         $this->assertSame(1, $updatePreview['counts']['update']);
-        $service->import($updatePreview, ProductImportService::MODE_UPSERT, $owner, 'Approved structured variant update.');
+        $importer = $this->user(EmployeeRole::Admin);
+        $service->import($updatePreview, ProductImportService::MODE_UPSERT, $importer, 'Approved structured variant update.');
         $this->assertSame($sku, $product->refresh()->sku);
         $this->assertSame('i7-1355U', $product->processor_model);
         $this->assertSame('Blue', $product->color);
+        $this->assertSame($owner->id, $product->created_by_user_id);
     }
 
     public function test_import_reports_exact_invalid_row_and_rejects_non_owner_admin(): void
@@ -115,6 +119,18 @@ class ProductTitlesAndImportTest extends TestCase
         $staff = $this->user(EmployeeRole::Staff);
         $this->expectException(HttpException::class);
         $service->preview($path, ProductImportService::MODE_CREATE, $staff);
+    }
+
+    public function test_new_admin_import_attributes_importer_and_ignores_supplied_creator_metadata(): void
+    {
+        [$owner] = $this->foundation();
+        $admin = $this->user(EmployeeRole::Admin);
+        $service = app(ProductImportService::class);
+        $path = $this->csv($service->templateHeaders(), ['', 'HP', 'Laptop', 'Admin original imported model', '', '', '', '', '', '', '', '', '', '', 'New', '12', '', '', '']);
+        $preview = $service->preview($path, ProductImportService::MODE_CREATE, $admin);
+        $preview['rows'][0]['data']['created_by_user_id'] = $owner->id;
+        $this->assertSame(['created' => 1, 'updated' => 0], $service->import($preview, ProductImportService::MODE_CREATE, $admin));
+        $this->assertSame($admin->id, Product::query()->sole()->created_by_user_id);
     }
 
     public function test_xlsx_is_supported_and_variant_specific_duplicate_fields_do_not_collapse_color_or_touch_variants(): void
@@ -173,12 +189,13 @@ class ProductTitlesAndImportTest extends TestCase
     {
         $product = Product::factory()->create();
         $platform = MarketplacePlatform::factory()->create();
+        $account = MarketplaceAccount::query()->create(['marketplace_platform_id' => $platform->id, 'name' => 'Default test account', 'code' => 'default', 'enabled' => true]);
         ProductMarketplaceListing::query()->create([
-            'product_id' => $product->id, 'marketplace_platform_id' => $platform->id,
+            'product_id' => $product->id, 'marketplace_platform_id' => $platform->id, 'marketplace_account_id' => $account->id,
             'marketplace_identifier' => 'ASIN-ONE', 'listing_sku' => 'AMZ-SKU-ONE', 'listing_title' => 'First listing',
         ]);
         ProductMarketplaceListing::query()->create([
-            'product_id' => $product->id, 'marketplace_platform_id' => $platform->id,
+            'product_id' => $product->id, 'marketplace_platform_id' => $platform->id, 'marketplace_account_id' => $account->id,
             'marketplace_identifier' => 'ASIN-TWO', 'listing_sku' => 'AMZ-SKU-TWO', 'listing_title' => 'Second listing',
         ]);
         $this->assertSame(2, $product->marketplaceListings()->count());
@@ -186,20 +203,20 @@ class ProductTitlesAndImportTest extends TestCase
         $duplicateProduct = Product::factory()->create();
         try {
             ProductMarketplaceListing::query()->create([
-                'product_id' => $duplicateProduct->id, 'marketplace_platform_id' => $platform->id,
+                'product_id' => $duplicateProduct->id, 'marketplace_platform_id' => $platform->id, 'marketplace_account_id' => $account->id,
                 'marketplace_identifier' => 'ASIN-ONE', 'listing_sku' => 'AMZ-SKU-THREE', 'listing_title' => 'Duplicate identity',
             ]);
-            $this->fail('A Marketplace identifier must be unique within its Platform.');
+            $this->fail('A Marketplace identifier must be unique within its Account.');
         } catch (QueryException) {
             $this->assertDatabaseCount('product_marketplace_listings', 2);
         }
 
         try {
             ProductMarketplaceListing::query()->create([
-                'product_id' => $duplicateProduct->id, 'marketplace_platform_id' => $platform->id,
+                'product_id' => $duplicateProduct->id, 'marketplace_platform_id' => $platform->id, 'marketplace_account_id' => $account->id,
                 'marketplace_identifier' => 'ASIN-THREE', 'listing_sku' => 'AMZ-SKU-TWO', 'listing_title' => 'Duplicate SKU',
             ]);
-            $this->fail('A listing SKU must be unique within its Platform.');
+            $this->fail('A listing SKU must be unique within its Account.');
         } catch (QueryException) {
             $this->assertDatabaseCount('product_marketplace_listings', 2);
         }

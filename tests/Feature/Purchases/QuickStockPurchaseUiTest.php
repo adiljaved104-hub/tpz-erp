@@ -103,8 +103,8 @@ class QuickStockPurchaseUiTest extends TestCase
 
         $source = file_get_contents(app_path('Filament/Pages/Purchasing/QuickStockPurchase.php'));
         $this->assertIsString($source);
-        $this->assertStringContainsString('getOptionLabelsUsing(fn (array $values): array => self::productLabels', $source);
-        $this->assertStringContainsString('getOptionLabelUsing(fn ($value): ?string => self::productLabels', $source);
+        $this->assertStringContainsString('getOptionLabelsUsing(fn (array $values, QuickStockPurchase $livewire): array => self::productLabels', $source);
+        $this->assertStringContainsString('getOptionLabelUsing(fn ($value, QuickStockPurchase $livewire): ?string => self::productLabels', $source);
         $this->assertSame(2, substr_count($source, '->wrapOptionLabels()'));
         $this->assertStringNotContainsString('ProductTitleService', $source);
     }

@@ -19,11 +19,13 @@ use App\Models\InventoryAllocationAccount;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
+use App\Models\ResponsibilityAssignment;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -49,7 +51,7 @@ class QuickStockPurchaseService
             return $existing;
         }
 
-        $prepared = $this->documents->prepare($this->documentData($data));
+        $prepared = $this->documents->prepare($this->documentData($data), actor: $actor);
         $purchaseReference = $this->references->nextPurchaseReference();
         $receiptReference = $this->references->nextPurchaseReceiptReference();
         $productIds = collect($data->items)->pluck('productId')->map(fn ($id): int => (int) $id)->sort()->values();
@@ -68,7 +70,10 @@ class QuickStockPurchaseService
                 }
 
                 $this->lockAndRevalidate($data);
-                $prepared = $this->documents->prepare($this->documentData($data));
+                if (app(OrderResponsibilityScopeService::class)->requiresScope($actor)) {
+                    ResponsibilityAssignment::query()->active()->where('employee_id', $actor->employee->id)->orderBy('id')->lockForUpdate()->get();
+                }
+                $prepared = $this->documents->prepare($this->documentData($data), actor: $actor);
                 $purchase = Purchase::query()->create(array_merge($prepared['header'], [
                     'reference' => $purchaseReference,
                     'entry_type' => PurchaseEntryType::QuickStock,

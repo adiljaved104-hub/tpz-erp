@@ -18,7 +18,9 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationPolicyService;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\Purchases\PurchaseCostHistoryService;
 use App\Services\Purchases\PurchasePriceVarianceService;
@@ -77,7 +79,7 @@ class QuickStockPurchase extends Page
         $warehouse = $warehouseId > 0 ? Warehouse::query()->active()->find($warehouseId) : null;
         $product = $productId > 0 ? Product::query()->where('status', 'active')->find($productId) : null;
         $item = ['ordered_quantity' => 1, 'unit_cost_touched' => false];
-        if ($warehouse !== null && $product !== null) {
+        if ($warehouse !== null && $product !== null && app(OrderResponsibilityScopeService::class)->canAccessProduct(auth()->user(), $product->id, $warehouse->marketplace_platform_id, $warehouse->id)) {
             $item['product_id'] = $product->id;
         }
         $this->getSchema('content')->fill([
@@ -126,13 +128,17 @@ class QuickStockPurchase extends Page
                         Select::make('product_ids')->multiple()->searchable()->required()
                             ->wrapOptionLabels()
                             ->options([])
-                            ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
-                            ->getOptionLabelsUsing(fn (array $values): array => self::productLabels(array_map('intval', $values)))
+                            ->getSearchResultsUsing(fn (string $search, QuickStockPurchase $livewire): array => self::productOptions($search, (int) ($livewire->data['warehouse_id'] ?? 0)))
+                            ->getOptionLabelsUsing(fn (array $values, QuickStockPurchase $livewire): array => self::productLabels(array_map('intval', $values), (int) ($livewire->data['warehouse_id'] ?? 0)))
                             ->searchPrompt('Type at least 2 characters to search Products.'),
-                    ])->action(function (array $data, Get $get, Set $set): void {
+                    ])->action(function (array $data, Get $get, Set $set, Schema $schema): void {
                         $lines = $get('items') ?? [];
                         $present = collect($lines)->pluck('product_id')->filter()->map(fn ($id): int => (int) $id);
                         $ids = collect($data['product_ids'])->map(fn ($id): int => (int) $id)->unique()->reject(fn ($id): bool => $present->contains($id));
+                        if (count(self::productLabels($ids->all(), (int) $get('warehouse_id'))) !== $ids->count()) {
+                            $errorKey = $schema->getStatePath().'.product_ids';
+                            throw ValidationException::withMessages([$errorKey => 'Select active Products within your Responsibility for this Warehouse.']);
+                        }
                         $contexts = self::contexts((int) $get('warehouse_id'), $ids->all());
 
                         foreach ($ids as $id) {
@@ -148,8 +154,8 @@ class QuickStockPurchase extends Page
                         ->placeholder('Search by SKU, product name, or component specification')
                         ->searchable()->required()->live()->wrapOptionLabels()
                         ->options([])
-                        ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
-                        ->getOptionLabelUsing(fn ($value): ?string => self::productLabels([(int) $value])[(int) $value] ?? null)
+                        ->getSearchResultsUsing(fn (string $search, QuickStockPurchase $livewire): array => self::productOptions($search, (int) ($livewire->data['warehouse_id'] ?? 0)))
+                        ->getOptionLabelUsing(fn ($value, QuickStockPurchase $livewire): ?string => self::productLabels([(int) $value], (int) ($livewire->data['warehouse_id'] ?? 0))[(int) $value] ?? null)
                         ->searchPrompt('Type at least 2 characters to search Products or Components.')
                         ->noSearchResultsMessage('No active Products or Components match your search.')
                         ->disableOptionsWhenSelectedInSiblingRepeaterItems()
@@ -171,7 +177,7 @@ class QuickStockPurchase extends Page
                             $context = self::contexts($warehouseId, [$productId])[$productId] ?? null;
                             $latestCost = self::normalizeLatestCost($context?->latestReceivedCost);
                             [$suggestedCost, $source] = self::suggestedCost($context);
-                            $set('stock_context', $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}");
+                            $set('stock_context', self::stockContext($context));
                             $set('latest_received_cost', $latestCost);
                             $set('suggested_cost', $suggestedCost);
                             $set('suggested_cost_source', $source);
@@ -282,7 +288,7 @@ class QuickStockPurchase extends Page
     }
 
     /** @return array<int, string> */
-    private static function productOptions(string $search): array
+    private static function productOptions(string $search, int $warehouseId): array
     {
         if (mb_strlen(trim($search)) < 2) {
             return [];
@@ -292,15 +298,21 @@ class QuickStockPurchase extends Page
             $search,
             ProductMatchContext::Receiving,
             auth()->user(),
+            warehouseId: $warehouseId > 0 ? $warehouseId : null,
         );
 
-        return self::productLabels(array_map('intval', array_keys($matches)));
+        return self::productLabels(array_map('intval', array_keys($matches)), $warehouseId);
     }
 
     /** @param array<int, int> $ids */
-    private static function productLabels(array $ids): array
+    private static function productLabels(array $ids, int $warehouseId): array
     {
-        $products = Product::query()->with('categoryRelation')->whereKey($ids)->get()->keyBy('id');
+        $scope = app(OrderResponsibilityScopeService::class);
+        if ($warehouseId < 1 && $scope->requiresScope(auth()->user())) {
+            return [];
+        }
+        $products = $scope->applyProducts(Product::query()->active()->with('categoryRelation')->whereKey($ids), auth()->user(),
+            Warehouse::query()->whereKey($warehouseId)->value('marketplace_platform_id'), $warehouseId)->get()->keyBy('id');
 
         return collect($ids)->mapWithKeys(function (int $id) use ($products): array {
             $product = $products->get($id);
@@ -341,7 +353,7 @@ class QuickStockPurchase extends Page
             'unit_cost_touched' => false, 'unit_cost_suggested' => $suggestedCost !== null,
             'latest_received_cost' => $latestCost,
             'suggested_cost' => $suggestedCost, 'suggested_cost_source' => $source,
-            'stock_context' => $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}",
+            'stock_context' => self::stockContext($context),
         ];
     }
 
@@ -368,7 +380,7 @@ class QuickStockPurchase extends Page
                 'latest_received_cost' => $latestCost,
                 'suggested_cost' => $suggestedCost,
                 'suggested_cost_source' => $source,
-                'stock_context' => $context === null ? null : "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}",
+                'stock_context' => self::stockContext($context),
             ];
 
             if (! (bool) ($line['unit_cost_touched'] ?? false)) {
@@ -378,6 +390,18 @@ class QuickStockPurchase extends Page
         }
 
         return $lines;
+    }
+
+    private static function stockContext(?PurchaseProductContext $context): ?string
+    {
+        if ($context === null) {
+            return null;
+        }
+        if (app(EmployeeOwnedInventoryReadService::class)->isEmployeeView(auth()->user())) {
+            return "My available {$context->availableQuantity}; My reserved {$context->reservedQuantity}; My sellable {$context->sellableQuantity()}";
+        }
+
+        return "Avail {$context->availableQuantity}; Res {$context->reservedQuantity}; Sellable {$context->sellableQuantity()}; Damaged {$context->damagedQuantity}; On hand {$context->totalOnHand()}";
     }
 
     private static function normalizeLatestCost(?string $cost): ?string

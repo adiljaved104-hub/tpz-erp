@@ -10,10 +10,13 @@ use App\Enums\PurchaseStatus;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -43,14 +46,16 @@ class PurchaseProductContextService
     public function forQuickStockPurchase(User $actor, int $warehouseId, array $productIds): array
     {
         $this->purchases->authorize($actor, PurchasePermission::QuickReceive);
+        $products = app(OrderResponsibilityScopeService::class)->applyProducts(Product::query()->active()->whereKey($productIds),
+            $actor, Warehouse::query()->whereKey($warehouseId)->value('marketplace_platform_id'), $warehouseId);
 
-        return $this->contexts($actor, $warehouseId, $productIds);
+        return $this->contexts($actor, $warehouseId, $products->pluck('products.id')->all(), ownedStockOnly: true);
     }
 
     /** @param array<int, int> $productIds
      * @return array<int, PurchaseProductContext>
      */
-    private function contexts(User $actor, int $warehouseId, array $productIds, ?Purchase $purchase = null): array
+    private function contexts(User $actor, int $warehouseId, array $productIds, ?Purchase $purchase = null, bool $ownedStockOnly = false): array
     {
         $productIds = collect($productIds)->map(fn ($id): int => (int) $id)->unique()->values();
 
@@ -67,7 +72,11 @@ class PurchaseProductContextService
             $inventoryFields[] = 'average_cost';
         }
 
-        $inventories = DB::table('product_inventories')->select($inventoryFields)
+        $ownership = app(EmployeeOwnedInventoryReadService::class);
+        $inventoryQuery = $ownedStockOnly && $ownership->isEmployeeView($actor)
+            ? $ownership->inventories($actor)
+            : DB::table('product_inventories')->select($inventoryFields);
+        $inventories = $inventoryQuery
             ->where('warehouse_id', $warehouseId)->whereIn('product_id', $productIds)->get()->keyBy('product_id');
         $outstanding = DB::table('purchase_items as pi')->join('purchases as p', 'p.id', '=', 'pi.purchase_id')
             ->selectRaw('pi.product_id, SUM(pi.ordered_quantity - pi.received_quantity) AS outstanding_quantity')

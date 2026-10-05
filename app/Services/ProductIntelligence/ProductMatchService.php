@@ -20,11 +20,13 @@ use App\Models\ProductBrand;
 use App\Models\ProductInventory;
 use App\Models\SalesConfiguration;
 use App\Models\UpgradeRecipe;
+use App\Models\Warehouse;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Products\ProductTitleService;
 use App\Services\Upgrades\UpgradeRecipeValidationService;
@@ -155,12 +157,15 @@ class ProductMatchService
         if (! $request->context->allowsComponents()) {
             $query->products();
         }
-        if (in_array($request->context, [ProductMatchContext::Order, ProductMatchContext::WebSales, ProductMatchContext::Quotation, ProductMatchContext::Purchase], true)) {
+        if (in_array($request->context, [ProductMatchContext::Order, ProductMatchContext::WebSales, ProductMatchContext::Quotation, ProductMatchContext::Purchase, ProductMatchContext::Receiving], true)) {
             if ($this->responsibilities->requiresScope($request->user) && ! $request->warehouseId) {
                 return collect();
             }
             if ($request->warehouseId) {
-                $query = $this->responsibilities->applyProducts($query, $request->user, $request->platformId, $request->warehouseId);
+                $platformId = $request->context === ProductMatchContext::Receiving
+                    ? Warehouse::query()->whereKey($request->warehouseId)->value('marketplace_platform_id')
+                    : $request->platformId;
+                $query = $this->responsibilities->applyProducts($query, $request->user, $platformId, $request->warehouseId);
             }
         }
 
@@ -301,7 +306,11 @@ class ProductMatchService
             ->filter(fn ($line): bool => $line->operation === UpgradeRecipeOperation::Install && $line->installComponent !== null)
             ->pluck('installComponent.product_id');
 
-        $stock = ProductInventory::query()->where('warehouse_id', $request->warehouseId)
+        $ownership = app(EmployeeOwnedInventoryReadService::class);
+        $inventoryQuery = $request->context === ProductMatchContext::Receiving && $ownership->isEmployeeView($request->user)
+            ? $ownership->inventories($request->user)
+            : ProductInventory::query();
+        $stock = $inventoryQuery->where('warehouse_id', $request->warehouseId)
             ->whereIn('product_id', $products->pluck('id')->merge($componentProductIds)->unique())
             ->get(['product_id', 'available_quantity', 'reserved_quantity'])
             ->mapWithKeys(fn (ProductInventory $inventory): array => [$inventory->product_id => max(0, $inventory->sellableQuantity())])->all();

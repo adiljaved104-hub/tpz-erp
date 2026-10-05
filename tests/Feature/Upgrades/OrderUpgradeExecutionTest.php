@@ -65,9 +65,14 @@ class OrderUpgradeExecutionTest extends TestCase
             new OrderItemData($product->id, 1, '1450.00', salesConfigurationId: $configuration->id, upgradeRecipeId: $recipe->id),
         ]), $owner);
         $item = $order->items()->sole();
+        $sourceAccountId = $item->reservation->allocationLines()->where('status', 'reserved')->sole()->account_id;
         app(OrderAmendmentService::class)->amend($order, [
             'reason' => 'Customer needs two upgraded laptops', 'idempotency_key' => (string) Str::uuid(),
-            'items' => [['id' => $item->id, 'quantity' => 2]],
+            'items' => [[
+                'id' => $item->id,
+                'quantity' => 2,
+                'allocation_sources' => [['account_id' => $sourceAccountId, 'quantity' => 1]],
+            ]],
         ], $owner);
         $this->assertSame(2, $item->fresh()->reservation->quantity);
         $this->assertSame(2, $item->fresh()->componentReservations()->sole()->quantity);

@@ -33,6 +33,11 @@ class InventoryAllocationService
         private readonly InventoryAuthorization $authorization,
     ) {}
 
+    public function canSelectOrderSources(User $actor): bool
+    {
+        return $this->authorization->allows($actor, InventoryPermission::ConsumeFromAllAllocations);
+    }
+
     /** @return array<int, string> */
     public function orderSourceOptions(int $productId, int $warehouseId, User $actor): array
     {
@@ -347,7 +352,7 @@ class InventoryAllocationService
             $needed -= $take;
         }
         if ($needed > 0) {
-            throw ValidationException::withMessages(['items' => 'Insufficient explicitly allocated inventory for this Order.']);
+            throw ValidationException::withMessages(['items' => 'Insufficient explicitly allocated inventory for this Order. Request the required stock through Stock Request.']);
         }
     }
 
@@ -582,7 +587,7 @@ class InventoryAllocationService
             $needed -= $take;
         }
         if ($needed > 0) {
-            throw ValidationException::withMessages(['items' => 'Insufficient explicitly allocated inventory for this shipment.']);
+            throw ValidationException::withMessages(['items' => 'Insufficient explicitly allocated inventory for this shipment. Request the required stock through Stock Request.']);
         }
     }
 

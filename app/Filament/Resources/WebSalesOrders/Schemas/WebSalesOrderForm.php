@@ -51,7 +51,7 @@ class WebSalesOrderForm
                 Textarea::make('customer_address')->label('Address')->rows(3)->maxLength(2000)->columnSpanFull(),
                 Hidden::make('idempotency_key')->default(fn (): string => (string) str()->uuid()),
             ])->columns(['default' => 1, 'md' => 2])->compact(),
-            Section::make('Products')->description('Choose the exact allocation holder(s) whose stock will be reserved for each line.')->schema([
+            Section::make('Products')->description('Add the products and quantities to reserve for this sale.')->schema([
                 Repeater::make('items')->schema([
                     Select::make('product_id')->label('Product')->placeholder('Search by SKU or product name')
                         ->searchable()->searchPrompt('Type at least 2 characters to search available products.')
@@ -66,6 +66,8 @@ class WebSalesOrderForm
                         ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),
                     Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get))->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),
                     Repeater::make('allocation_sources')->label('Stock Source / Consume From')
+                        ->visible(fn (): bool => auth()->user() instanceof User && app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
+                        ->dehydrated(fn (): bool => auth()->user() instanceof User && app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
                         ->helperText('Reserved stock is unavailable. Add rows to split this sale line across authorized Employee, Team, or System sources.')
                         ->schema([
                             Select::make('account_id')->label('Allocation Holder')

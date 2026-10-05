@@ -206,13 +206,16 @@
                                                     <div class="ac-protected rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-white/5"><x-heroicon-m-lock-closed class="mr-1 inline h-4 w-4" /> Access protected</div>
                                                 @endif
                                             </div>
-                                            @if ($module['advanced_permissions'] !== [])
-                                                <details class="ac-advanced group/advanced mt-3 rounded-lg border border-gray-200 dark:border-white/10" @if (in_array($module['key'], $expandedAdvancedModules, true)) open @endif data-testid="access-advanced-{{ $module['key'] }}" wire:key="access-advanced-{{ $module['key'] }}" x-on:toggle.self.debounce.50ms="$wire.setAdvancedExpanded(@js($module['key']), $event.target.open)">
-                                                    <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium marker:hidden"><span>Advanced Permissions <span class="text-xs font-normal text-gray-500">({{ count($module['advanced_permissions']) }})</span></span><x-heroicon-m-chevron-down class="h-4 w-4 text-gray-400 transition group-open/advanced:rotate-180" /></summary>
+                                            @foreach (['edit' => 'Edit Permissions', 'advanced' => 'Advanced Permissions'] as $section => $sectionLabel)
+                                            @if ($module[$section.'_permissions'] !== [])
+                                                @php($expandedModules = $section === 'edit' ? $expandedEditModules : $expandedAdvancedModules)
+                                                @php($expandMethod = $section === 'edit' ? 'setEditExpanded' : 'setAdvancedExpanded')
+                                                <details class="ac-advanced group/advanced mt-3 rounded-lg border border-gray-200 dark:border-white/10" @if (in_array($module['key'], $expandedModules, true)) open @endif data-testid="access-{{ $section }}-{{ $module['key'] }}" wire:key="access-{{ $section }}-{{ $module['key'] }}" x-on:toggle.self.debounce.50ms="$wire.{{ $expandMethod }}(@js($module['key']), $event.target.open)">
+                                                    <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium marker:hidden"><span>{{ $sectionLabel }} <span class="text-xs font-normal text-gray-500">({{ count($module[$section.'_permissions']) }})</span></span><x-heroicon-m-chevron-down class="h-4 w-4 text-gray-400 transition group-open/advanced:rotate-180" /></summary>
                                                     <div class="space-y-2 border-t border-gray-100 p-3 dark:border-white/10">
-                                                        @foreach ($module['advanced_permissions'] as $permissionDefinition)
+                                                        @foreach ($module[$section.'_permissions'] as $permissionDefinition)
                                                             @php($permission = $module['permissions'][$permissionDefinition['key']])
-                                                            <div class="ac-advanced-row grid min-w-0 gap-3 rounded-lg bg-gray-50 p-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center dark:bg-white/5" data-testid="advanced-permission-{{ sha1($permission['key']) }}">
+                                                            <div class="ac-advanced-row ac-permission-row grid min-w-0 gap-3 rounded-lg bg-gray-50 p-3 dark:bg-white/5" data-testid="{{ $section }}-permission-{{ sha1($permission['key']) }}">
                                                                 <div class="min-w-0">
                                                                     <div class="ac-permission-badges flex flex-wrap items-center gap-1.5">
                                                                         <span class="text-sm font-medium">{{ $permission['label'] }}</span>
@@ -222,11 +225,14 @@
                                                                         @if ($permission['changed'])<x-filament::badge size="sm" color="warning">Not Saved Yet</x-filament::badge>@endif
                                                                     </div>
                                                                     <p class="mt-1 text-xs text-gray-500">Default Access: {{ $permission['role_default'] === null ? 'Mixed' : ($permission['role_default'] ? 'Access' : 'No Access') }}</p>
+                                                                    @if ($permission['key'] === 'inventory.consume_from_all_allocations')
+                                                                        <p class="mt-1 text-xs text-gray-500">Allows manual selection of allocation holders in Sales Orders and Web Sales. Without it, ERP automatically uses the employee's authorized allocation.</p>
+                                                                    @endif
                                                                 </div>
                                                                 @if ($permission['can_manage'])
                                                                     <div class="ac-segmented ac-segmented-advanced grid grid-cols-3 gap-1 rounded-lg bg-gray-200/70 p-1 dark:bg-black/20" role="radiogroup" aria-label="{{ $permission['label'] }} override">
                                                                         @foreach (['inherit' => 'Reset to Role Default', 'allow' => $bulkMode ? 'Allow for Selected' : 'Allow for Employee', 'deny' => $bulkMode ? 'Block for Selected' : 'Block for Employee'] as $setting => $settingLabel)
-                                                                            <button type="button" wire:click="stagePermission(@js($permission['key']), '{{ $setting }}')" aria-pressed="{{ $permission['setting'] === $setting ? 'true' : 'false' }}" @class(['whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-semibold transition', 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:text-primary-300 dark:ring-white/10' => $permission['setting'] === $setting, 'text-gray-600 hover:bg-white/70 dark:text-gray-300 dark:hover:bg-white/5' => $permission['setting'] !== $setting])>{{ $settingLabel }}</button>
+                                                                            <button type="button" wire:click="stagePermission(@js($permission['key']), '{{ $setting }}')" aria-pressed="{{ $permission['setting'] === $setting ? 'true' : 'false' }}" @class(['rounded-md px-2 py-1.5 text-xs font-semibold transition', 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:text-primary-300 dark:ring-white/10' => $permission['setting'] === $setting, 'text-gray-600 hover:bg-white/70 dark:text-gray-300 dark:hover:bg-white/5' => $permission['setting'] !== $setting])>{{ $settingLabel }}</button>
                                                                         @endforeach
                                                                     </div>
                                                                 @else<x-filament::badge color="gray" icon="heroicon-m-lock-closed">Protected</x-filament::badge>@endif
@@ -235,6 +241,7 @@
                                                     </div>
                                                 </details>
                                             @endif
+                                            @endforeach
                                         @endif
                                     </article>
                                 @endforeach

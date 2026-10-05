@@ -28,6 +28,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
@@ -1030,6 +1031,9 @@ class OrderService
                 $validator->errors()->add('handled_by_employee_id', 'The selling employee must remain the original handler. Only Owner/Admin may assign another handler.');
             }
             foreach ($data->items as $index => $item) {
+                if ($item->allocationSources !== null && ! app(InventoryAllocationService::class)->canSelectOrderSources($actor)) {
+                    $validator->errors()->add("items.{$index}.allocation_sources", 'You are not authorized to select Stock Sources manually. ERP uses your authorized allocation automatically. Request additional stock through Stock Request.');
+                }
                 if (! $this->responsibilities->canAccessProduct($actor, $item->productId, $data->platformId, $data->warehouseId)) {
                     $validator->errors()->add("items.{$index}.product_id", 'This Product is outside your active Responsibility Assignments.');
                 }

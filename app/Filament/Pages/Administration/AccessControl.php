@@ -77,6 +77,9 @@ class AccessControl extends Page
     /** @var array<int, string> */
     public array $expandedAdvancedModules = [];
 
+    /** @var array<int, string> */
+    public array $expandedEditModules = [];
+
     /** @var array<string, string> */
     public array $draftSettings = [];
 
@@ -194,6 +197,12 @@ class AccessControl extends Page
     {
         abort_unless(array_key_exists($moduleKey, app(AccessControlModuleRegistry::class)->keyed()), 404);
         $this->expandedAdvancedModules = $this->updatedExpandedState($this->expandedAdvancedModules, $moduleKey, $expanded);
+    }
+
+    public function setEditExpanded(string $moduleKey, bool $expanded): void
+    {
+        abort_unless(array_key_exists($moduleKey, app(AccessControlModuleRegistry::class)->keyed()), 404);
+        $this->expandedEditModules = $this->updatedExpandedState($this->expandedEditModules, $moduleKey, $expanded);
     }
 
     public function stagePermission(string $permissionKey, string $setting): void
@@ -649,12 +658,15 @@ class AccessControl extends Page
         $value = fn (string $key): bool => $roleOnly ? (bool) ($module['permissions'][$key]['role_default'] ?? false) : (bool) ($module['permissions'][$key]['effective'] ?? false);
         $view = $module['view_keys'] === [] || collect($module['view_keys'])->every($value);
         $edit = $module['edit_keys'] !== [] && collect($module['edit_keys'])->every($value);
+        $noEdit = collect($module['edit_keys'])->every(fn (string $key): bool => ! $value($key));
+        $noAccess = collect($relevantKeys)->every(fn (string $key): bool => ! $value($key));
 
         return match (true) {
             $view && $edit => 'view_edit',
-            $module['view_keys'] !== [] && $view => 'view',
+            $module['view_keys'] !== [] && $view && $noEdit => 'view',
             $module['view_keys'] === [] && $edit => 'view_edit',
-            default => 'none',
+            $noAccess => 'none',
+            default => 'mixed',
         };
     }
 

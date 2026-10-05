@@ -611,6 +611,23 @@ button.ac-employee-row.is-selected {
 
 .ac-segmented-advanced {
     width: 100%;
+    min-width: 0;
+}
+
+.ac-permission-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.ac-permission-row > * {
+    min-width: 0;
+}
+
+.ac-permission-row .ac-segmented button {
+    white-space: normal;
+    overflow-wrap: break-word;
 }
 
 .ac-savebar {
@@ -656,16 +673,6 @@ button.ac-employee-row.is-selected {
 @media (min-width: 768px) {
     .ac-permission-toolbar {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .ac-advanced-row {
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: center;
-    }
-
-    .ac-segmented-advanced {
-        width: auto;
-        min-width: 24rem;
     }
 
 }

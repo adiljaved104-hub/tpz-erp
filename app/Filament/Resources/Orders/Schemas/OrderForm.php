@@ -92,6 +92,8 @@ class OrderForm
                         Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get)),
                         Repeater::make('allocation_sources')
                             ->label('Stock Source / Consume From')
+                            ->visible(fn (): bool => auth()->user() instanceof User && app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
+                            ->dehydrated(fn (): bool => auth()->user() instanceof User && app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
                             ->helperText('Choose exactly whose allocation supplies this line. Add rows to split the quantity across sources.')
                             ->schema([
                                 Select::make('account_id')

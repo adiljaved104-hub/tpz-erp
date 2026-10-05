@@ -48,6 +48,78 @@ class AccessControlMatrixTest extends TestCase
         $this->assertSame(count($registry->managedPermissionKeys()), count(array_unique($registry->managedPermissionKeys())));
     }
 
+    public function test_granular_inventory_edit_is_visible_searchable_independent_and_resettable(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+        $key = InventoryPermission::AdjustStock->value;
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->id)
+            ->set('moduleSearch', 'Adjust Stock')
+            ->assertSee('Inventory & Opening Stock')
+            ->assertSee('Edit Permissions')
+            ->assertSeeHtml('data-testid="edit-permission-'.sha1($key).'"')
+            ->call('setEditExpanded', 'inventory', true);
+        $original = $component->instance()->draftSettings;
+        $component->call('stagePermission', $key, 'allow');
+        $this->assertSame([$key => 'allow'], array_diff_assoc($component->instance()->draftSettings, $original));
+        $this->assertContains('inventory', $component->instance()->expandedEditModules);
+        $component->assertSee('Mixed')->call('saveChanges')->assertHasNoErrors();
+        $this->assertDatabaseCount('employee_permission_overrides', 1);
+        $this->assertDatabaseHas('employee_permission_overrides', ['employee_id' => $staff->id, 'permission_key' => $key, 'effect' => 'allow']);
+        $component->call('stagePermission', $key, 'inherit')->call('saveChanges')->assertHasNoErrors();
+        $this->assertDatabaseCount('employee_permission_overrides', 0);
+    }
+
+    public function test_inventory_presets_still_apply_every_primary_key_and_preserve_advanced(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+        $module = app(AccessControlModuleRegistry::class)->keyed()['inventory'];
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->id)
+            ->call('stagePermission', InventoryPermission::ConsumeFromAllAllocations->value, 'allow');
+        foreach (['view_edit', 'view', 'none'] as $level) {
+            $component->call('setModuleAccess', 'inventory', $level);
+            foreach ($module['view_keys'] as $key) {
+                $this->assertSame($level === 'none' ? 'deny' : 'allow', $component->instance()->draftSettings[$key]);
+            }
+            foreach ($module['edit_keys'] as $key) {
+                $this->assertSame($level === 'view_edit' ? 'allow' : 'deny', $component->instance()->draftSettings[$key]);
+                $component->assertSeeHtml('data-testid="edit-permission-'.sha1($key).'"');
+            }
+            $this->assertSame('allow', $component->instance()->draftSettings[InventoryPermission::ConsumeFromAllAllocations->value]);
+        }
+    }
+
+    public function test_bulk_granular_edit_preserves_mixed_untouched_keys_and_supports_allow_block_reset(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $first = $this->employee(EmployeeRole::Staff);
+        $second = $this->employee(EmployeeRole::Staff);
+        $service = app(EmployeePermissionOverrideService::class);
+        $untouched = InventoryPermission::MarkDamaged->value;
+        $service->change($first, $untouched, EmployeePermissionEffect::Allow, null, $owner->user);
+        $service->change($second, $untouched, EmployeePermissionEffect::Deny, null, $owner->user);
+        $key = InventoryPermission::AdjustStock->value;
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('toggleEmployeeSelection', $first->id)->call('toggleEmployeeSelection', $second->id);
+        $this->assertSame('mixed', $component->instance()->draftSettings[$untouched]);
+        foreach (['allow', 'deny', 'inherit'] as $setting) {
+            $component->call('stagePermission', $key, $setting)->call('saveChanges')->assertHasNoErrors();
+            foreach ([$first, $second] as $employee) {
+                if ($setting === 'inherit') {
+                    $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $employee->id, 'permission_key' => $key]);
+                } else {
+                    $this->assertDatabaseHas('employee_permission_overrides', ['employee_id' => $employee->id, 'permission_key' => $key, 'effect' => $setting]);
+                }
+            }
+            $this->assertSame('mixed', $component->instance()->draftSettings[$untouched]);
+        }
+        $this->assertDatabaseHas('employee_permission_overrides', ['employee_id' => $first->id, 'permission_key' => $untouched, 'effect' => 'allow']);
+        $this->assertDatabaseHas('employee_permission_overrides', ['employee_id' => $second->id, 'permission_key' => $untouched, 'effect' => 'deny']);
+    }
+
     public function test_all_required_current_modules_render_in_grouped_cards(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);
@@ -347,6 +419,9 @@ class AccessControlMatrixTest extends TestCase
         $this->assertStringContainsString('@media (min-width: 1280px)', $stylesheet);
         $this->assertStringContainsString('@media (min-width: 1400px)', $stylesheet);
         $this->assertStringContainsString('@media (max-width: 639px)', $stylesheet);
+        $this->assertStringNotContainsString('min-width: 24rem', $stylesheet);
+        $this->assertStringContainsString('repeat(auto-fit, minmax(min(100%, 24rem), 1fr))', $stylesheet);
+        $this->assertSame($stylesheet, file_get_contents(public_path('css/app/access-control.css')));
     }
 
     public function test_tax_invoice_and_quotation_granular_actions_are_reconciled_without_inventing_update_permission(): void

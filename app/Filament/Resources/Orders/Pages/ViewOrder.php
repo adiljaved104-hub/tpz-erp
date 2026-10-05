@@ -79,6 +79,8 @@ class ViewOrder extends ViewRecord
                             ->visible(fn (): bool => app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $this->record)
                                 && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $this->record)),
                         Repeater::make('allocation_sources')->label('Additional Stock Source')
+                            ->visible(fn (): bool => app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
+                            ->dehydrated(fn (): bool => app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
                             ->helperText('Required only when increasing this line. The split must equal the added quantity.')
                             ->schema([
                                 Select::make('account_id')->label('Consume From')

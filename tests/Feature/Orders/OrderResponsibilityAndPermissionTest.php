@@ -47,12 +47,10 @@ class OrderResponsibilityAndPermissionTest extends TestCase
         ), $staff);
         $service = app(OrderAmendmentService::class);
         $item = $order->items()->sole();
-        $sourceAccountId = (int) $item->reservation->allocationLines()->where('status', 'reserved')->value('account_id');
         $service->amend($order, ['reason' => 'Customer requests one more', 'idempotency_key' => (string) Str::uuid(),
             'items' => [[
                 'id' => $item->id,
                 'quantity' => 3,
-                'allocation_sources' => [['account_id' => $sourceAccountId, 'quantity' => 1]],
             ]]], $staff);
         $this->assertSame(3, $item->fresh()->reservation->quantity);
         try {
@@ -60,10 +58,10 @@ class OrderResponsibilityAndPermissionTest extends TestCase
                 'items' => [[
                     'id' => $item->id,
                     'quantity' => 4,
-                    'allocation_sources' => [['account_id' => $sourceAccountId, 'quantity' => 1]],
                 ]]], $staff);
             $this->fail('Quantity cap must apply to B1 increments.');
-        } catch (ValidationException) {
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('remaining Quantity Responsibility allocation', $exception->getMessage());
             $this->assertSame(3, $foundation['inventory']->refresh()->reserved_quantity);
         }
 

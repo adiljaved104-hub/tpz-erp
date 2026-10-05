@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
@@ -275,6 +276,7 @@ class OrderAmendmentService
             'items.*.allocation_sources.*.account_id' => ['required', 'integer', 'distinct'],
             'items.*.allocation_sources.*.quantity' => ['required', 'integer', 'min:1'],
         ])->validate();
+        $this->assertManualSourcesAuthorized($data, $actor);
 
         // References are allocated outside the business transaction and cannot be reused after rollback.
         $candidateReservations = $order->items()->whereIn('id', collect($data['items'] ?? [])->pluck('id'))
@@ -293,6 +295,7 @@ class OrderAmendmentService
         return DB::transaction(function () use ($order, $data, $actor, $requestHash, $references): OrderAmendment {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->authorization->authorize($actor, OrderPermission::Amend, $order);
+            $canSelectSources = $this->assertManualSourcesAuthorized($data, $actor);
             $existing = OrderAmendment::query()->where('idempotency_key', $data['idempotency_key'])->first();
             if ($existing !== null) {
                 if ($existing->order_id !== $order->id || $existing->request_hash !== $requestHash) {
@@ -354,7 +357,7 @@ class OrderAmendmentService
                     }
                     $delta = $quantity - $item->ordered_quantity;
                     if ($delta > 0) {
-                        if (empty($change['allocation_sources'])) {
+                        if ($canSelectSources && empty($change['allocation_sources'])) {
                             throw ValidationException::withMessages([
                                 'items' => "{$item->sku} — Select an additional Stock Source for the {$delta}-unit increase.",
                             ]);
@@ -380,7 +383,7 @@ class OrderAmendmentService
                         $references[$referenceIndex++] ?? throw new \LogicException('Missing reserved movement reference.'),
                         (string) Str::uuid(),
                         $movementGroup,
-                        $delta > 0 ? $this->allocationSources($change['allocation_sources'] ?? []) : null,
+                        $delta > 0 && $canSelectSources ? $this->allocationSources($change['allocation_sources'] ?? []) : null,
                     );
                     if ($item->upgradeSelection !== null) {
                         $this->adjustUpgradeSelection($item, $quantity, $actor, $amendment, $references, $referenceIndex, $movementGroup);
@@ -429,6 +432,22 @@ class OrderAmendmentService
 
             return $amendment;
         }, 5);
+    }
+
+    private function assertManualSourcesAuthorized(array $data, User $actor): bool
+    {
+        $allowed = app(InventoryAllocationService::class)->canSelectOrderSources($actor);
+        if (! $allowed) {
+            foreach ($data['items'] ?? [] as $index => $item) {
+                if (array_key_exists('allocation_sources', $item)) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.allocation_sources" => 'You are not authorized to select Stock Sources manually. ERP uses your authorized allocation automatically. Request additional stock through Stock Request.',
+                    ]);
+                }
+            }
+        }
+
+        return $allowed;
     }
 
     private function startedAt(Order $order): ?CarbonInterface

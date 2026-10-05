@@ -498,9 +498,18 @@ class InventoryAllocationService
                 ->get()
                 ->sortBy(fn (InventoryAllocationAccount $account): int => (int) $existingAccountIds->search($account->id))
                 ->all();
+            if (! $this->canSelectOrderSources($actor)) {
+                $existingAccounts = collect($existingAccounts)
+                    ->filter(fn (InventoryAllocationAccount $account): bool => $account->employee_id === $actor->employee?->id)
+                    ->concat($this->candidateAccounts($item, $actor))
+                    ->unique('id')->values()->all();
+            }
             foreach ($existingAccounts as $account) {
                 if ($needed === 0) {
                     break;
+                }
+                if (! $this->canConsumeFromAccount($actor, $account)) {
+                    continue;
                 }
                 $balance = $this->balance($account, $inventory, true);
                 $take = min($needed, $balance->availableQuantity());
@@ -514,11 +523,15 @@ class InventoryAllocationService
                 $line->quantity = ((int) $line->quantity) + $take;
                 $line->status = 'reserved';
                 $line->save();
-                $this->event('reservation_increase', $inventory, $take, $actor, 'Controlled Order amendment', $reservation, $account);
+                $this->event('reservation_increase', $inventory, $take, $actor,
+                    $account->is_system ? 'Migration/shadow Order amendment from System / Unallocated' : 'Controlled Order amendment',
+                    $reservation, $account, metadata: ['selection' => 'automatic', 'legacy_system_source' => $account->is_system]);
                 $needed -= $take;
             }
             if ($needed > 0) {
-                throw ValidationException::withMessages(['items' => 'The existing allocation source cannot cover this Order increase. Select an explicit additional Stock Source.']);
+                throw ValidationException::withMessages(['items' => $this->canSelectOrderSources($actor)
+                    ? 'The existing allocation source cannot cover this Order increase. Select an explicit additional Stock Source.'
+                    : 'Your available allocated stock is insufficient for this Order increase. Request the required stock through Stock Request.']);
             }
 
             return;

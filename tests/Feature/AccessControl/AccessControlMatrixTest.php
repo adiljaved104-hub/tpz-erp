@@ -16,6 +16,8 @@ use App\Models\Employee;
 use App\Models\Team;
 use App\Services\Authorization\AccessControlModuleRegistry;
 use App\Services\Authorization\EmployeePermissionOverrideService;
+use DOMDocument;
+use DOMXPath;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -415,13 +417,74 @@ class AccessControlMatrixTest extends TestCase
         $stylesheet = file_get_contents(resource_path('css/filament/access-control.css'));
         $this->assertIsString($stylesheet);
         $this->assertStringContainsString("[data-testid='module-access-control']", $stylesheet);
-        $this->assertStringContainsString('@media (min-width: 768px)', $stylesheet);
         $this->assertStringContainsString('@media (min-width: 1280px)', $stylesheet);
-        $this->assertStringContainsString('@media (min-width: 1400px)', $stylesheet);
         $this->assertStringContainsString('@media (max-width: 639px)', $stylesheet);
         $this->assertStringNotContainsString('min-width: 24rem', $stylesheet);
-        $this->assertStringContainsString('repeat(auto-fit, minmax(min(100%, 24rem), 1fr))', $stylesheet);
+        $this->assertStringContainsString('repeat(auto-fit, minmax(min(100%, 12rem), 1fr))', $stylesheet);
+        $this->assertStringContainsString('@container access-control-module', $stylesheet);
         $this->assertSame($stylesheet, file_get_contents(public_path('css/app/access-control.css')));
+    }
+
+    public function test_layout_keeps_modules_full_width_without_masking_page_overflow(): void
+    {
+        $stylesheet = file_get_contents(resource_path('css/filament/access-control.css'));
+        $template = file_get_contents(resource_path('views/filament/pages/administration/access-control.blade.php'));
+        $this->assertIsString($stylesheet);
+        $this->assertIsString($template);
+        preg_match_all('/\.ac-module-grid\s*\{([^}]*)\}/s', $stylesheet, $rules);
+        $columns = collect($rules[1])->filter(fn (string $rule): bool => str_contains($rule, 'grid-template-columns'))->values();
+        $this->assertCount(1, $columns);
+        $this->assertStringContainsString('grid-template-columns: minmax(0, 1fr)', $columns->first());
+        $this->assertStringNotContainsString('2xl:grid-cols-2', $template);
+        $this->assertStringNotContainsString('lg:grid-cols-[18rem', $template);
+        $this->assertStringNotContainsString('xl:col-span-', $template);
+        $this->assertStringNotContainsString('overflow-x: hidden', $stylesheet);
+        $this->assertStringContainsString('container-type: inline-size', $stylesheet);
+        $this->assertStringContainsString('.fi-badge-label', $stylesheet);
+        $this->assertStringContainsString('text-overflow: clip', $stylesheet);
+        $this->assertStringContainsString('ac-savebar-actions flex flex-wrap', $template);
+        $this->assertSame($stylesheet, file_get_contents(public_path('css/app/access-control.css')));
+    }
+
+    public function test_responsive_permission_rows_preserve_single_and_bulk_controls_and_expansion(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $first = $this->employee(EmployeeRole::Staff);
+        $second = $this->employee(EmployeeRole::Staff);
+
+        foreach ([false, true] as $bulk) {
+            $component = Livewire::actingAs($owner->user)->test(AccessControl::class);
+            if ($bulk) {
+                $component->call('toggleEmployeeSelection', $first->id)->call('toggleEmployeeSelection', $second->id);
+            } else {
+                $component->call('selectEmployee', $first->id);
+            }
+            $component->set('moduleSearch', 'Inventory')
+                ->call('setGroupExpanded', 'products_inventory', true)
+                ->call('setEditExpanded', 'inventory', true)
+                ->call('setAdvancedExpanded', 'inventory', true)
+                ->call('stagePermission', InventoryPermission::Reserve->value, 'allow')
+                ->assertSee('Reset to Role Default')
+                ->assertSee($bulk ? 'Allow for Selected' : 'Allow for Employee')
+                ->assertSee($bulk ? 'Block for Selected' : 'Block for Employee')
+                ->assertSee('Access:')
+                ->assertSee('Default Access:')
+                ->assertSee('Save Changes')->assertSee('Discard');
+            $this->assertStringContainsString('ac-permission-info', $component->html());
+            $this->assertStringContainsString('ac-permission-title', $component->html());
+            $this->assertStringContainsString('ac-segmented-advanced', $component->html());
+            $previousErrors = libxml_use_internal_errors(true);
+            $document = new DOMDocument;
+            $document->loadHTML($component->html());
+            libxml_clear_errors();
+            libxml_use_internal_errors($previousErrors);
+            $xpath = new DOMXPath($document);
+            $this->assertSame(1, $xpath->query('//details[@data-testid="access-edit-inventory"][@open]')->length);
+            $this->assertSame(1, $xpath->query('//details[@data-testid="access-advanced-inventory"][@open]')->length);
+            $this->assertSame(1, $xpath->query('//*[@data-testid="save-access-bar"]')->length);
+            $this->assertSame(1, $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " ac-selected-summary ")]')->length);
+        }
+        $this->assertDatabaseMissing('employee_permission_overrides', ['permission_key' => InventoryPermission::Reserve->value]);
     }
 
     public function test_tax_invoice_and_quotation_granular_actions_are_reconciled_without_inventing_update_permission(): void

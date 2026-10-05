@@ -2,36 +2,36 @@
     <div
         class="ac-page space-y-5"
         data-testid="module-access-control"
-        x-data="{ employeePanelOpen: window.innerWidth >= 1400, wasDesktop: window.innerWidth >= 1400 }"
-        x-init="$nextTick(() => employeePanelOpen = window.innerWidth >= 1400)"
+        x-data="{ employeePanelOpen: window.innerWidth >= 1280, wasDesktop: window.innerWidth >= 1280 }"
+        x-init="$nextTick(() => employeePanelOpen = window.innerWidth >= 1280)"
         x-on:resize.window.debounce.150ms="
-            const desktop = window.innerWidth >= 1400;
+            const desktop = window.innerWidth >= 1280;
             if (desktop) employeePanelOpen = true;
             if (! desktop && wasDesktop) employeePanelOpen = false;
             wasDesktop = desktop;
         "
     >
         <x-filament::section compact>
-            <div class="ac-filter-grid grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-12">
-                <label class="min-w-0 xl:col-span-4">
+            <div class="ac-filter-grid grid items-end gap-3">
+                <label class="min-w-0">
                     <span class="mb-1.5 block text-sm font-medium text-gray-950 dark:text-white">Search Employee</span>
                     <x-filament::input.wrapper prefix-icon="heroicon-m-magnifying-glass">
                         <x-filament::input wire:model.live.debounce.300ms="search" type="search" placeholder="Name, Employee ID, or email" />
                     </x-filament::input.wrapper>
                 </label>
-                <label class="min-w-0 xl:col-span-2">
+                <label class="min-w-0">
                     <span class="mb-1.5 block text-sm font-medium text-gray-950 dark:text-white">Role</span>
                     <x-filament::input.wrapper><x-filament::input.select wire:model.live="role"><option value="">All roles</option>@foreach ($roleOptions as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper>
                 </label>
-                <label class="min-w-0 xl:col-span-2">
+                <label class="min-w-0">
                     <span class="mb-1.5 block text-sm font-medium text-gray-950 dark:text-white">Team</span>
                     <x-filament::input.wrapper><x-filament::input.select wire:model.live="team"><option value="">All teams</option>@foreach ($teams as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper>
                 </label>
-                <label class="min-w-0 xl:col-span-2">
+                <label class="min-w-0">
                     <span class="mb-1.5 block text-sm font-medium text-gray-950 dark:text-white">Status</span>
                     <x-filament::input.wrapper><x-filament::input.select wire:model.live="status"><option value="active">Active</option><option value="inactive">Inactive</option><option value="all">All statuses</option></x-filament::input.select></x-filament::input.wrapper>
                 </label>
-                <div class="flex xl:col-span-2 xl:justify-end"><x-filament::button color="gray" icon="heroicon-m-x-mark" size="sm" wire:click="resetFilters">Clear Filters</x-filament::button></div>
+                <div class="flex"><x-filament::button color="gray" icon="heroicon-m-x-mark" size="sm" wire:click="resetFilters">Clear Filters</x-filament::button></div>
             </div>
         </x-filament::section>
 
@@ -48,7 +48,7 @@
 
         <div class="ac-employee-drawer-backdrop" x-cloak x-show="employeePanelOpen" x-transition.opacity x-on:click="employeePanelOpen = false" aria-hidden="true"></div>
 
-        <div class="ac-workspace grid min-w-0 gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <div class="ac-workspace grid min-w-0 gap-5">
             <aside class="ac-employee-panel min-w-0" x-cloak x-show="employeePanelOpen" x-transition:enter="ac-drawer-enter" x-transition:enter-start="ac-drawer-enter-start" x-transition:enter-end="ac-drawer-enter-end" x-transition:leave="ac-drawer-leave" x-transition:leave-start="ac-drawer-leave-start" x-transition:leave-end="ac-drawer-leave-end" aria-label="Employee selector">
                 <x-filament::section heading="Employees" description="Open one employee, or select several for Bulk Access." compact>
                     <div class="ac-employee-drawer-close">
@@ -70,7 +70,7 @@
                                 'border-gray-200 bg-white hover:border-primary-300 hover:bg-gray-50 dark:border-white/10 dark:bg-gray-900 dark:hover:border-primary-500/50 dark:hover:bg-white/5' => $selectedEmployeeId !== $employee->id && ! in_array($employee->id, $selectedEmployeeIds, true),
                             ])>
                                 <span class="flex min-w-0 items-start justify-between gap-2">
-                                    <button type="button" class="min-w-0 flex-1 text-left" wire:click="selectEmployee({{ $employee->id }})" x-on:click="if (window.innerWidth < 1400) employeePanelOpen = false">
+                                    <button type="button" class="min-w-0 flex-1 text-left" wire:click="selectEmployee({{ $employee->id }})" x-on:click="if (window.innerWidth < 1280) employeePanelOpen = false">
                                         <span class="block truncate text-sm font-semibold text-gray-950 dark:text-white" title="{{ $employee->name }}">{{ $employee->name }}</span>
                                         <span class="mt-0.5 block text-xs font-medium text-gray-500">{{ $employee->employee_id }}</span>
                                     </button>
@@ -99,7 +99,7 @@
                 @if ($selectedEmployee || $bulkMode)
                     <div class="ac-selected-summary sticky top-20 z-10">
                     <x-filament::section compact>
-                        <div class="ac-selected-card-body flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                        <div class="ac-selected-card-body flex gap-4">
                             <div class="min-w-0">
                                 @if ($bulkMode)
                                     <div class="ac-identity-badges flex flex-wrap items-center gap-2"><h2 class="text-lg font-semibold">Bulk Access</h2><x-filament::badge color="primary">{{ $selectedEmployees->count() }} employees selected</x-filament::badge></div>
@@ -118,7 +118,7 @@
                                     </div>
                                 @endif
                             </div>
-                            <div class="ac-summary-actions flex shrink-0 flex-wrap gap-2">
+                            <div class="ac-summary-actions flex flex-wrap gap-2">
                                 @if ($dirtyCount > 0)
                                     <x-filament::badge color="warning" data-testid="dirty-count">{{ $dirtyCount }} Not Saved Yet</x-filament::badge>
                                     <x-filament::button color="gray" size="sm" wire:click="discardChanges">Discard</x-filament::button>
@@ -139,12 +139,12 @@
                     </div>
 
                     <x-filament::section compact>
-                        <div class="ac-permission-toolbar grid items-end gap-3 md:grid-cols-2 xl:grid-cols-12">
-                            <label class="min-w-0 xl:col-span-5"><span class="mb-1.5 block text-sm font-medium">Search Modules or Permissions</span><x-filament::input.wrapper prefix-icon="heroicon-m-magnifying-glass"><x-filament::input wire:model.live.debounce.250ms="moduleSearch" type="search" placeholder="Products, invoice, export..." /></x-filament::input.wrapper></label>
-                            <label class="min-w-0 xl:col-span-3"><span class="mb-1.5 block text-sm font-medium">Permission Group</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="groupFilter"><option value="all">All groups</option>@foreach ($groups as $groupKey => $groupDefinition)<option value="{{ $groupKey }}">{{ $groupDefinition['label'] }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
-                            <label class="min-w-0 xl:col-span-3"><span class="mb-1.5 block text-sm font-medium">Override State</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="overrideFilter"><option value="all">All modules</option><option value="has_override">Has override</option><option value="allowed">Allowed override</option><option value="denied">Denied override</option></x-filament::input.select></x-filament::input.wrapper></label>
-                            <div class="xl:col-span-1">
-                                <x-filament::button :color="$overrideFilter === 'changed' ? 'primary' : 'gray'" size="sm" wire:click="$set('overrideFilter', '{{ $overrideFilter === 'changed' ? 'all' : 'changed' }}')" class="w-full justify-center xl:w-auto" title="Show only unsaved changes">Changed Only</x-filament::button>
+                        <div class="ac-permission-toolbar grid items-end gap-3">
+                            <label class="min-w-0"><span class="mb-1.5 block text-sm font-medium">Search Modules or Permissions</span><x-filament::input.wrapper prefix-icon="heroicon-m-magnifying-glass"><x-filament::input wire:model.live.debounce.250ms="moduleSearch" type="search" placeholder="Products, invoice, export..." /></x-filament::input.wrapper></label>
+                            <label class="min-w-0"><span class="mb-1.5 block text-sm font-medium">Permission Group</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="groupFilter"><option value="all">All groups</option>@foreach ($groups as $groupKey => $groupDefinition)<option value="{{ $groupKey }}">{{ $groupDefinition['label'] }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                            <label class="min-w-0"><span class="mb-1.5 block text-sm font-medium">Override State</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="overrideFilter"><option value="all">All modules</option><option value="has_override">Has override</option><option value="allowed">Allowed override</option><option value="denied">Denied override</option></x-filament::input.select></x-filament::input.wrapper></label>
+                            <div>
+                                <x-filament::button :color="$overrideFilter === 'changed' ? 'primary' : 'gray'" size="sm" wire:click="$set('overrideFilter', '{{ $overrideFilter === 'changed' ? 'all' : 'changed' }}')" class="w-full justify-center" title="Show only unsaved changes">Changed Only</x-filament::button>
                             </div>
                         </div>
                     </x-filament::section>
@@ -171,14 +171,14 @@
                                     </x-filament::button.group>
                                 </div>
                             @endif
-                            <div class="ac-module-grid grid min-w-0 gap-3 border-t border-gray-100 bg-gray-50/50 p-3 2xl:grid-cols-2 dark:border-white/10 dark:bg-black/10 sm:p-4">
+                            <div class="ac-module-grid grid min-w-0 gap-3 border-t border-gray-100 bg-gray-50/50 p-3 dark:border-white/10 dark:bg-black/10 sm:p-4">
                                 @foreach ($modules as $module)
                                     @php($allowOverrideCount = collect($module['permissions'])->where('setting', 'allow')->count())
                                     @php($denyOverrideCount = collect($module['permissions'])->where('setting', 'deny')->count())
                                     <article class="ac-module-card min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900" data-testid="access-module-{{ $module['key'] }}" wire:key="access-module-{{ $module['key'] }}">
                                         <div class="ac-module-heading flex min-w-0 items-start justify-between gap-3">
                                             <div class="min-w-0"><h4 class="font-semibold">{{ $module['label'] }}</h4>@if ($module['description'])<p class="mt-1 text-xs leading-5 text-gray-500">{{ $module['description'] }}</p>@endif</div>
-                                            <div class="ac-module-badges flex shrink-0 flex-wrap justify-end gap-1">
+                                            <div class="ac-module-badges flex flex-wrap justify-end gap-1">
                                                 @if ($module['changed_count'] > 0)<x-filament::badge size="sm" color="warning">Not Saved Yet</x-filament::badge>@endif
                                                 @if ($allowOverrideCount > 0)<x-filament::badge size="sm" color="success">Allowed for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@endif
                                                 @if ($denyOverrideCount > 0)<x-filament::badge size="sm" color="danger">Blocked for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@endif
@@ -216,9 +216,9 @@
                                                         @foreach ($module[$section.'_permissions'] as $permissionDefinition)
                                                             @php($permission = $module['permissions'][$permissionDefinition['key']])
                                                             <div class="ac-advanced-row ac-permission-row grid min-w-0 gap-3 rounded-lg bg-gray-50 p-3 dark:bg-white/5" data-testid="{{ $section }}-permission-{{ sha1($permission['key']) }}">
-                                                                <div class="min-w-0">
+                                                                <div class="ac-permission-info min-w-0">
                                                                     <div class="ac-permission-badges flex flex-wrap items-center gap-1.5">
-                                                                        <span class="text-sm font-medium">{{ $permission['label'] }}</span>
+                                                                        <span class="ac-permission-title text-sm font-medium">{{ $permission['label'] }}</span>
                                                                         @if ($permission['financial'])<x-filament::badge size="sm" color="warning">Financial</x-filament::badge>@endif
                                                                         <x-filament::badge size="sm" :color="$permission['effective'] === null ? 'gray' : ($permission['effective'] ? 'success' : 'danger')">Access: {{ $permission['effective'] === null ? 'Mixed' : ($permission['effective'] ? 'Yes' : 'No') }}</x-filament::badge>
                                                                         @if ($permission['setting'] === 'mixed')<x-filament::badge size="sm" color="gray">Mixed — unchanged</x-filament::badge>@elseif ($permission['setting'] === 'inherit')<x-filament::badge size="sm" color="gray">Using Role Default</x-filament::badge>@elseif ($permission['setting'] === 'allow')<x-filament::badge size="sm" color="success">Allowed for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@else<x-filament::badge size="sm" color="danger">Blocked for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@endif
@@ -252,7 +252,7 @@
                     @endforelse
 
                     @if ($dirtyCount > 0)
-                        <div class="ac-savebar sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning-300 bg-white/95 p-3 shadow-xl backdrop-blur dark:border-warning-500/40 dark:bg-gray-900/95" data-testid="save-access-bar"><p class="text-sm"><strong>{{ $dirtyCount }}</strong> permission {{ str('change')->plural($dirtyCount) }} not saved yet</p><div class="flex gap-2"><x-filament::button color="gray" size="sm" wire:click="discardChanges">Discard</x-filament::button><x-filament::button size="sm" wire:click="saveChanges" wire:loading.attr="disabled" wire:target="saveChanges">Save Changes</x-filament::button></div></div>
+                        <div class="ac-savebar sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning-300 bg-white/95 p-3 shadow-xl backdrop-blur dark:border-warning-500/40 dark:bg-gray-900/95" data-testid="save-access-bar"><p class="text-sm"><strong>{{ $dirtyCount }}</strong> permission {{ str('change')->plural($dirtyCount) }} not saved yet</p><div class="ac-savebar-actions flex flex-wrap gap-2"><x-filament::button color="gray" size="sm" wire:click="discardChanges">Discard</x-filament::button><x-filament::button size="sm" wire:click="saveChanges" wire:loading.attr="disabled" wire:target="saveChanges">Save Changes</x-filament::button></div></div>
                     @endif
                 @else
                     <x-filament::section><p class="py-10 text-center text-sm text-gray-500">Select an Employee to manage access.</p></x-filament::section>

@@ -1,0 +1,1 @@
+{{ collect([ $final['cpu'] ?? null, isset($final['ram_mb']) ? ($final['ram_mb'] / 1024).' GB RAM' : null, ($final['storage_gb'] ?? '').' GB Storage', $final['os'] ?? null ])->filter()->implode(' · ') }}

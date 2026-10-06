@@ -46,7 +46,7 @@ class QcInspectionService
         $data = Validator::make($data, [
             'product_id' => ['required', 'integer', 'exists:products,id'], 'serial' => ['required', 'string', 'min:3', 'max:100', 'regex:/\A[A-Za-z0-9._ -]+\z/'],
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'], 'order_item_id' => ['nullable', 'integer', 'exists:order_items,id'],
-            'features' => ['array'], 'features.*' => ['string', 'in:'.implode(',', array_keys($this->template->features()))],
+            'features' => ['array'], 'features.*' => ['string'],
             'special_requirement' => ['nullable', 'string', 'max:500'], 'idempotency_key' => ['required', 'uuid'],
         ])->validate();
         $fingerprint = hash('sha256', json_encode(Arr::except($data, 'idempotency_key'), JSON_THROW_ON_ERROR));
@@ -73,7 +73,9 @@ class QcInspectionService
                 if ($item && ($item->product_id !== $product->id || $item->order->warehouse_id !== (int) $data['warehouse_id'])) {
                     throw ValidationException::withMessages(['order_item_id' => 'The Order item must match this Product and location.']);
                 }
-                $device = QcDevice::query()->create(['reference' => $reference, 'serial' => trim($data['serial']), 'serial_key' => $key, 'device_type' => 'laptop', 'product_id' => $product->id]);
+                $template = app(QcTemplateResolver::class)->resolve($product);
+                Validator::make($data, ['features.*' => ['in:'.implode(',', array_keys($template['features']))]])->validate();
+                $device = QcDevice::query()->create(['reference' => $reference, 'serial' => trim($data['serial']), 'serial_key' => $key, 'device_type' => $template['device_type'], 'product_id' => $product->id]);
                 $requested = $item?->upgradeSelection ? Arr::only($item->upgradeSelection->configuration_snapshot, ['display_name', 'target_ram_mb', 'target_storage_total_gb', 'target_storage_layout']) : null;
                 if (filled($data['special_requirement'] ?? null)) {
                     $requested = ($requested ?? []) + ['special_requirement' => $data['special_requirement']];
@@ -91,7 +93,7 @@ class QcInspectionService
                     'warehouse_id' => $data['warehouse_id'], 'order_id' => $item?->order_id, 'order_item_id' => $item?->id,
                     'order_snapshot' => $item ? ['reference' => $item->order->reference, 'line_key' => $item->line_key, 'line_number' => $item->line_number] : null,
                     'status' => QcInspectionStatus::Pending, 'idempotency_key' => $data['idempotency_key'], 'request_fingerprint' => $fingerprint,
-                    'product_snapshot' => ['sku' => $product->sku, 'title' => app(ProductTitleService::class)->accounting($product), 'brand' => $product->brandRelation?->name ?? $product->brand, 'category' => $product->categoryRelation?->name, 'condition' => $product->condition?->value, 'touch_screen' => $product->touch_screen],
+                    'product_snapshot' => ['sku' => $product->sku, 'title' => app(ProductTitleService::class)->accounting($product), 'brand' => $product->brandRelation?->name ?? $product->brand, 'category' => $product->categoryRelation?->name, 'condition' => $product->condition?->value, 'touch_screen' => $product->touch_screen, 'qc_template' => $template],
                     'original_configuration' => $original, 'final_configuration' => $original, 'requested_configuration' => $requested, 'features' => array_values(array_unique($features)),
                 ]);
                 $this->initializeChecks($inspection);
@@ -114,7 +116,7 @@ class QcInspectionService
     private function initializeChecks(QcInspection $inspection): void
     {
         $position = 0;
-        foreach ($this->template->checks() as $key => $definition) {
+        foreach (app(QcTemplateResolver::class)->forInspection($inspection)['checks'] as $key => $definition) {
             if ($key === 'touchscreen' && ($inspection->product_snapshot['touch_screen'] ?? false)) {
                 $definition['mandatory'] = true;
                 $definition['allows_na'] = false;
@@ -211,7 +213,8 @@ class QcInspectionService
             if ($inspection->status === QcInspectionStatus::Completed) {
                 return $inspection->certificate()->firstOrFail();
             }
-            Validator::make($inspection->toArray(), ['grade' => ['required', 'in:A,B,C'], 'final_configuration.cpu' => ['required', 'string'], 'final_configuration.ram_mb' => ['required', 'integer', 'min:1'], 'final_configuration.storage_gb' => ['required', 'numeric', 'min:1'], 'final_configuration.os' => ['required', 'string']])->validate();
+            $finalFields = app(QcTemplateResolver::class)->forInspection($inspection)['final_fields'];
+            Validator::make($inspection->toArray(), ['grade' => ['required', 'in:A,B,C'], 'final_configuration.cpu' => [in_array('cpu', $finalFields, true) ? 'required' : 'nullable', 'string'], 'final_configuration.ram_mb' => [in_array('ram_mb', $finalFields, true) ? 'required' : 'nullable', 'integer', 'min:1'], 'final_configuration.storage_gb' => ['required', 'numeric', 'min:1'], 'final_configuration.os' => ['required', 'string']])->validate();
             $checks = $inspection->checks()->get();
             $errors = [];
             foreach ($checks->where('applicable', true) as $check) {
@@ -227,13 +230,10 @@ class QcInspectionService
                 $errors['final_configuration.storage_gb'] = 'Final tested storage must match the customer-required configuration.';
             }
             $evidence = $inspection->evidence()->where('customer_visible', true)->get();
-            $kinds = ['serial', 'physical', 'display', 'system'];
-            if ($this->hasUpgrade($inspection)) {
-                $kinds[] = 'upgrade';
-            }
+            $kinds = app(QcEvidenceService::class)->requiredKinds($inspection);
             foreach ($kinds as $kind) {
                 if (! $evidence->contains(fn ($proof) => $proof->kind === $kind && Storage::disk('local')->exists($proof->original_path) && Storage::disk('local')->exists($proof->customer_path))) {
-                    $errors['evidence.'.$kind] = 'Upload customer-visible '.$kind.' proof before completing QC.';
+                    $errors['evidence.'.$kind] = 'Upload customer-visible '.QcEvidenceService::KINDS[$kind].' proof before completing QC.';
                 }
             }
             if ($errors !== []) {
@@ -242,11 +242,17 @@ class QcInspectionService
             $time = now();
             // Render the existing accounting title on an unsaved per-unit copy, using tested specs.
             $displayProduct = clone $inspection->device->product;
-            $displayProduct->forceFill(['category' => 'Laptop', 'accounting_title_override' => null, 'processor' => $inspection->final_configuration['cpu'], 'processor_class' => null, 'processor_generation' => null, 'ram' => ($inspection->final_configuration['ram_mb'] / 1024).'GB', 'storage' => $inspection->final_configuration['storage_gb'].'GB']);
+            $tablet = app(QcTemplateResolver::class)->forInspection($inspection)['device_type'] === 'tablet';
+            // Structured accounting formatting is reused only on this unsaved display copy;
+            // it neither selects the QC template nor changes the Product's actual category.
+            $displayProduct->forceFill(['category' => 'Laptop', 'accounting_title_override' => null, 'processor' => $inspection->final_configuration['cpu'] ?? null, 'processor_class' => null, 'processor_generation' => null, 'ram' => isset($inspection->final_configuration['ram_mb']) ? ($inspection->final_configuration['ram_mb'] / 1024).'GB' : null, 'storage' => $inspection->final_configuration['storage_gb'].'GB']);
             $displayProduct->unsetRelation('categoryRelation');
             $productSnapshot = $inspection->product_snapshot;
             $productSnapshot['title'] = app(ProductTitleService::class)->accounting($displayProduct);
-            $productSnapshot['label_title'] = trim(Str::before($productSnapshot['title'], $inspection->final_configuration['cpu'])) ?: $productSnapshot['title'];
+            $productSnapshot['label_title'] = $tablet ? trim($displayProduct->displayBrandName().' '.$displayProduct->model) ?: $productSnapshot['title'] : (trim(Str::before($productSnapshot['title'], $inspection->final_configuration['cpu'])) ?: $productSnapshot['title']);
+            // Keep public snapshots small: definitions remain on the inspection/check results.
+            unset($productSnapshot['qc_template']);
+            $productSnapshot['device_type'] = app(QcTemplateResolver::class)->forInspection($inspection)['device_type'];
             $certificate = QcCertificate::query()->create(['inspection_id' => $inspection->id, 'device_id' => $inspection->device_id, 'version' => $inspection->version, 'public_token' => bin2hex(random_bytes(32)), 'certified_at' => $time,
                 'snapshot' => ['reference' => $inspection->device->reference, 'serial' => $inspection->device->serial, 'product' => $productSnapshot, 'original' => $inspection->original_configuration, 'requested' => $requested, 'final' => $inspection->final_configuration, 'grade' => $inspection->grade, 'remarks' => $inspection->public_remarks, 'technician' => $actor->employee->name, 'certified_at' => $time->toIso8601String(), 'checks' => $checks->where('applicable', true)->where('result', 'pass')->map(fn ($check) => ['key' => $check->check_key, 'label' => $check->definition['label'], 'group' => $check->definition['group'], 'result' => 'pass', 'detail' => $check->detail, 'measurement' => $check->measurement])->values()->all(), 'evidence' => $evidence->pluck('public_id')->all()]]);
             $inspection->update(['status' => QcInspectionStatus::Completed, 'completed_at' => $time, 'active_device_id' => null]);

@@ -15,8 +15,8 @@ use App\Models\QcCertificate;
 use App\Models\QcInspection;
 use App\Models\Warehouse;
 use App\Services\Authorization\QcAuthorization;
-use App\Services\Qc\LaptopQcTemplate;
 use App\Services\Qc\QcInspectionService;
+use App\Services\Qc\QcTemplateResolver;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
@@ -31,6 +31,8 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -100,27 +102,34 @@ class QcInspectionResource extends Resource
         $record = $schema->getRecord();
         if (! $record) {
             return $schema->components([
-                Section::make('Start Laptop QC')->description('One physical device per Serial / IMEI. QC never changes stock ownership or quantities.')->schema([
+                Section::make('Start Device QC')->description('Windows Laptop, MacBook or Tablet/iPad template is resolved from the Product. QC never changes stock ownership or quantities.')->schema([
                     Select::make('product_id')->label('Product / SKU')->required()->searchable()
-                        ->getSearchResultsUsing(fn (string $search): array => Product::query()->active()->products()->where(fn ($query) => $query->where('name', 'like', '%'.$search.'%')->orWhere('sku', 'like', '%'.$search.'%'))->limit(20)->get()->mapWithKeys(fn (Product $product) => [$product->id => $product->sku.' · '.$product->name])->all())
-                        ->getOptionLabelUsing(fn ($value): ?string => ($product = Product::query()->find($value)) ? $product->sku.' · '.$product->name : null)->live(),
-                    TextInput::make('serial')->label('Serial / IMEI')->required()->minLength(3)->maxLength(100),
+                        ->getSearchResultsUsing(fn (string $search): array => Product::query()->active()->products()->where(fn ($query) => $query->where('name', 'like', '%'.$search.'%')->orWhere('sku', 'like', '%'.$search.'%'))->limit(20)->get()->filter(fn (Product $product) => app(QcTemplateResolver::class)->supports($product))->mapWithKeys(fn (Product $product) => [$product->id => $product->sku.' · '.$product->name])->all())
+                        ->getOptionLabelUsing(fn ($value): ?string => ($product = Product::query()->find($value)) ? $product->sku.' · '.$product->name : null)->live()->afterStateUpdated(function ($state, Set $set): void {
+                            $product = Product::query()->find($state);
+                            $set('features', $product && app(QcTemplateResolver::class)->supports($product) ? app(QcTemplateResolver::class)->resolve($product)['default_features'] : []);
+                            $set('order_item_id', null);
+                        }),
+                    TextInput::make('serial')->label('Serial / IMEI')->required()->minLength(3)->maxLength(100)->helperText('Scan below or enter manually; review the identifier before Start QC.'),
+                    View::make('qc.serial-scanner')->columnSpanFull(),
                     Select::make('warehouse_id')->label('Location')->options(fn () => Warehouse::query()->active()->pluck('name', 'id'))->required()->searchable(),
                     Select::make('order_item_id')->label('Order / Item (optional)')->searchable()
                         ->getSearchResultsUsing(fn (string $search, Get $get): array => OrderItem::query()->with('order')->where('product_id', $get('product_id'))->whereHas('order', fn ($query) => $query->where('reference', 'like', '%'.$search.'%')->orWhere('external_order_number', 'like', '%'.$search.'%'))->limit(20)->get()->mapWithKeys(fn ($item) => [$item->id => $item->order->reference.' · Line '.$item->line_number])->all())
                         ->getOptionLabelUsing(fn ($value): ?string => ($item = OrderItem::query()->with('order')->find($value)) ? $item->order->reference.' · Line '.$item->line_number : null),
-                    CheckboxList::make('features')->label('Equipment present / applicable checks')->options(app(LaptopQcTemplate::class)->features())->columns(['default' => 1, 'md' => 2])->default(['backlight', 'usb_a', 'usb_c', 'hdmi', 'headphone', 'camera_indicator'])->helperText('Confirm equipped features. Unequipped checks are recorded as N/A, not silently passed.'),
+                    CheckboxList::make('features')->label('Equipment present / applicable checks')->options(fn (Get $get): array => ($product = Product::query()->find($get('product_id'))) && app(QcTemplateResolver::class)->supports($product) ? app(QcTemplateResolver::class)->resolve($product)['features'] : [])->columns(['default' => 1, 'md' => 2])->default([])->helperText('Confirm optional hardware actually present. Only applicable checks appear.'),
                     Textarea::make('special_requirement')->label('Upgrade / Special Requirement (optional)')->maxLength(500)->helperText('Structured Order upgrades are loaded automatically. Do not enter costs or customer personal data.'),
                 ])->columns(['default' => 1, 'lg' => 2])->columnSpanFull(),
             ]);
         }
+        $template = app(QcTemplateResolver::class)->forInspection($record);
+        $tablet = $template['device_type'] === 'tablet';
         $sections = [
             ViewEntry::make('inspection_context')->view('qc.inspection-context')->columnSpanFull(),
             Section::make('Final Tested Configuration')->description('Enter the actual detected configuration, not the original or requested specification.')->schema([
-                TextInput::make('final_configuration.cpu')->label('Detected Processor')->maxLength(255),
-                TextInput::make('final_configuration.ram_mb')->label('Detected RAM (MB)')->numeric()->live(onBlur: true)->helperText('8 GB = 8192 MB; 16 GB = 16384 MB'),
+                TextInput::make('final_configuration.cpu')->label($tablet ? 'Chipset (optional)' : 'Detected Processor')->maxLength(255),
+                TextInput::make('final_configuration.ram_mb')->label('Detected RAM (MB)')->visible(! $tablet)->numeric()->live(onBlur: true)->helperText('8 GB = 8192 MB; 16 GB = 16384 MB'),
                 TextInput::make('final_configuration.storage_gb')->label('Detected Storage (GB)')->numeric()->live(onBlur: true),
-                TextInput::make('final_configuration.os')->label('Installed OS')->maxLength(120),
+                TextInput::make('final_configuration.os')->label($template['device_type'] === 'macbook' ? 'Installed macOS' : ($tablet ? 'Installed iPadOS / Tablet OS' : 'Installed Windows / OS'))->maxLength(120),
             ])->columns(['default' => 1, 'md' => 2])->columnSpanFull(),
         ];
         $upgradePreview = app(QcInspectionService::class)->hasUpgrade($record, $schema->getLivewire()->data['final_configuration'] ?? $record->final_configuration);

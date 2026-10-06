@@ -119,7 +119,7 @@ class QcDevicePassportTest extends TestCase
     {
         $create = Livewire::actingAs($this->technician)->test(CreateQcInspection::class)->fillForm(['product_id' => $this->product->id, 'warehouse_id' => $this->warehouse->id, 'serial' => 'UI-SERIAL-001', 'features' => []])->call('create')->assertHasNoFormErrors();
         $inspection = QcInspection::query()->sole();
-        $edit = Livewire::actingAs($this->technician)->test(EditQcInspection::class, ['record' => $inspection->id])->assertOk()->assertSee('Final Tested Configuration')->assertSee('Complete QC')->assertSee('Add Critical Evidence');
+        $edit = Livewire::actingAs($this->technician)->test(EditQcInspection::class, ['record' => $inspection->id])->assertOk()->assertSee('Final Tested Configuration')->assertSee('Complete QC')->assertSee('Upload Multiple Evidence')->assertSee('Take Photo')->assertSee('Choose Photos');
         $edit->set('data.checks.wifi.result', 'fail')->set('data.checks.wifi.notes', '')->call('save')->assertHasErrors(['data.checks.wifi.notes']);
         $this->assertSame('fail', $edit->instance()->data['checks']['wifi']['result']);
         Livewire::actingAs($this->technician)->test(ViewQcInspection::class, ['record' => $inspection->id])->assertOk()->assertSee('Critical Evidence');

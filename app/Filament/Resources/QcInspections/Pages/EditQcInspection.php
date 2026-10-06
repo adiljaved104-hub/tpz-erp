@@ -4,16 +4,13 @@ namespace App\Filament\Resources\QcInspections\Pages;
 
 use App\Enums\QcPermission;
 use App\Filament\Concerns\HandlesActionFeedback;
+use App\Filament\Resources\QcInspections\Concerns\InteractsWithQcEvidence;
 use App\Filament\Resources\QcInspections\Concerns\QcFormFeedback;
 use App\Filament\Resources\QcInspections\QcInspectionResource;
 use App\Services\Authorization\QcAuthorization;
-use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionService;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
-use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -22,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 class EditQcInspection extends EditRecord
 {
     use HandlesActionFeedback;
+    use InteractsWithQcEvidence;
     use QcFormFeedback;
 
     protected static string $resource = QcInspectionResource::class;
@@ -63,16 +61,7 @@ class EditQcInspection extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [ViewAction::make(), Action::make('uploadEvidence')->label('Add Critical Evidence')->schema([
-            Select::make('kind')->options(QcEvidenceService::KINDS)->required(),
-            FileUpload::make('file')->image()->storeFiles(false)->required()->maxSize(8192),
-            Toggle::make('customer_visible')->label('Customer Visible')->default(true),
-        ])->action(function (array $data): void {
-            $result = $this->runWithActionFeedback(fn () => app(QcEvidenceService::class)->upload($this->record, $data['file'], $data['kind'], (bool) $data['customer_visible'], auth()->user()), 'Evidence was not uploaded');
-            if ($result) {
-                Notification::make()->success()->title('Evidence uploaded and watermarked.')->send();
-            }
-        }), Action::make('completeQc')->label('Complete QC')->color('success')->visible(fn () => app(QcAuthorization::class)->allows(auth()->user(), QcPermission::Complete, $this->record))
+        return [ViewAction::make(), $this->batchEvidenceAction(), Action::make('completeQc')->label('Complete QC')->color('success')->visible(fn () => app(QcAuthorization::class)->allows(auth()->user(), QcPermission::Complete, $this->record))
             ->action(function (): void {
                 $result = $this->runWithActionFeedback(fn () => DB::transaction(function () {
                     $service = app(QcInspectionService::class);

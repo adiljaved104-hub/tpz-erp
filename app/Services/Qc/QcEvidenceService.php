@@ -19,14 +19,72 @@ class QcEvidenceService
 {
     public const KINDS = ['serial' => 'Serial / IMEI', 'physical' => 'Physical Condition', 'display' => 'Screen On / Display', 'system' => 'System / Health / Final Specification', 'upgrade' => 'Upgrade / Final Configuration', 'additional' => 'Additional Evidence'];
 
-    public function upload(QcInspection $inspection, UploadedFile $file, string $kind, bool $customerVisible, User $actor): QcEvidence
+    public function requiredKinds(QcInspection $inspection, ?array $final = null): array
+    {
+        return ['serial', 'physical', 'display', 'system', ...(app(QcInspectionService::class)->hasUpgrade($inspection, $final) ? ['upgrade'] : [])];
+    }
+
+    public function progress(QcInspection $inspection, ?array $final = null): array
+    {
+        $required = $this->requiredKinds($inspection, $final);
+        $proofs = $inspection->evidence()->get();
+        $complete = array_values(array_filter($required, fn ($kind) => $proofs->contains(fn ($proof) => $proof->kind === $kind && $proof->customer_visible && Storage::disk('local')->exists($proof->original_path) && Storage::disk('local')->exists($proof->customer_path))));
+
+        return ['required' => $required, 'complete' => $complete, 'missing' => array_values(array_diff($required, $complete)), 'proofs' => $proofs];
+    }
+
+    public function uploadMany(QcInspection $inspection, array $files, string $kind, bool $customerVisible, User $actor): array
+    {
+        return $this->uploadBatch($inspection, [$kind => $files], $customerVisible, $actor);
+    }
+
+    public function uploadBatch(QcInspection $inspection, array $categories, bool $additionalVisible, User $actor): array
     {
         app(QcAuthorization::class)->authorize($actor, QcPermission::Update, $inspection);
-        Validator::make(['file' => $file, 'kind' => $kind], ['file' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192', 'dimensions:max_width=5000,max_height=5000'], 'kind' => ['required', 'in:'.implode(',', array_keys(self::KINDS))]])->validate();
+        Validator::make(['categories' => $categories], ['categories' => ['required', 'array', 'min:1', 'max:6'], 'categories.*' => ['required', 'array', 'min:1', 'max:10']], ['categories.required' => 'Choose at least one evidence photo before uploading.', 'categories.min' => 'Choose at least one evidence photo before uploading.', 'categories.*.max' => 'Choose no more than 10 photos per category per submission.'])->validate();
+        foreach ($categories as $kind => $files) {
+            Validator::make(['kind' => $kind], ['kind' => ['in:'.implode(',', array_keys(self::KINDS))]])->validate();
+            foreach ($files as $index => $file) {
+                try {
+                    $this->validateFile($file);
+                } catch (ValidationException $exception) {
+                    throw ValidationException::withMessages(['categories.'.$kind.'.'.$index => self::KINDS[$kind].' photo '.($index + 1).': '.collect($exception->errors())->flatten()->first()]);
+                }
+            }
+        }
+        $saved = [];
+        try {
+            return DB::transaction(function () use ($inspection, $categories, $additionalVisible, $actor, &$saved): array {
+                $inspection = app(QcInspectionService::class)->editable($inspection);
+                foreach ($categories as $kind => $files) {
+                    foreach ($files as $file) {
+                        $saved[] = $this->upload($inspection, $file, $kind, $additionalVisible, $actor);
+                    }
+                }
+
+                return $saved;
+            });
+        } catch (Throwable $exception) {
+            Storage::disk('local')->delete(collect($saved)->flatMap(fn ($proof) => [$proof->original_path, $proof->customer_path])->all());
+            throw $exception;
+        }
+    }
+
+    private function validateFile(mixed $file): void
+    {
+        Validator::make(['file' => $file], ['file' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192', 'dimensions:max_width=5000,max_height=5000']])->validate();
         $info = getimagesize($file->getRealPath());
         if (! $info || $info[0] * $info[1] > 16000000) {
             throw ValidationException::withMessages(['file' => 'Use an image no larger than 16 megapixels.']);
         }
+    }
+
+    public function upload(QcInspection $inspection, UploadedFile $file, string $kind, bool $customerVisible, User $actor): QcEvidence
+    {
+        app(QcAuthorization::class)->authorize($actor, QcPermission::Update, $inspection);
+        Validator::make(['kind' => $kind], ['kind' => ['required', 'in:'.implode(',', array_keys(self::KINDS))]])->validate();
+        $this->validateFile($file);
+        $customerVisible = $kind === 'additional' ? $customerVisible : true;
         $id = (string) str()->uuid();
         $original = 'qc/originals/'.$id.'.bin';
         $customer = 'qc/customer/'.$id.'.jpg';
@@ -52,11 +110,13 @@ class QcEvidenceService
                 if (! $image) {
                     throw ValidationException::withMessages(['file' => 'This image could not be read. Try another JPG or PNG.']);
                 }
-                $width = max(700, min(1600, imagesx($image)));
-                $height = (int) round(imagesy($image) * $width / imagesx($image));
+                // Never upscale narrow photos: watermark padding must not amplify pixel/memory use.
+                $photoWidth = min(1600, imagesx($image));
+                $width = max(700, $photoWidth);
+                $height = max(1, (int) round(imagesy($image) * $photoWidth / imagesx($image)));
                 $canvas = imagecreatetruecolor($width, $height + 120);
                 imagefill($canvas, 0, 0, imagecolorallocate($canvas, 18, 32, 54));
-                imagecopyresampled($canvas, $image, 0, 0, 0, 0, $width, $height, imagesx($image), imagesy($image));
+                imagecopyresampled($canvas, $image, 0, 0, 0, 0, $photoWidth, $height, imagesx($image), imagesy($image));
                 $logo = imagecreatefrompng(public_path('branding/tech-point-zone-logo.png'));
                 if ($logo) {
                     $logoHeight = min(85, (int) round(imagesy($logo) * 85 / imagesx($logo)));

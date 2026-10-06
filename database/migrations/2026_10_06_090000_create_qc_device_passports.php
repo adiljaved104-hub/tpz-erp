@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -101,7 +102,15 @@ return new class extends Migration
             if (DB::getDriverName() === 'sqlite') {
                 DB::unprepared("CREATE TRIGGER qcc_{$suffix}_guard BEFORE {$operation} ON qc_certificates BEGIN SELECT RAISE(ABORT, 'QC certificates are immutable'); END");
             } elseif (DB::getDriverName() === 'mysql') {
-                DB::unprepared("CREATE TRIGGER qcc_{$suffix}_guard BEFORE {$operation} ON qc_certificates FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'QC certificates are immutable'");
+                try {
+                    DB::unprepared("CREATE TRIGGER qcc_{$suffix}_guard BEFORE {$operation} ON qc_certificates FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'QC certificates are immutable'");
+                } catch (QueryException $exception) {
+                    // Triggers are defense-in-depth and may be unavailable on restricted MySQL
+                    // hosting with binary logging. Application immutability remains mandatory.
+                    if ((int) ($exception->errorInfo[1] ?? 0) !== 1419) {
+                        throw $exception;
+                    }
+                }
             }
         }
     }

@@ -34,8 +34,18 @@ class QcPassportController extends Controller
         $evidence = QcEvidence::query()->where('inspection_id', $certificate->inspection_id)->where('customer_visible', true)->whereIn('public_id', $certificate->snapshot['evidence'])->get();
         $current = QcCertificate::query()->where('device_id', $certificate->device_id)->orderByDesc('version')->firstOrFail();
 
-        return response()->view('qc.passport', ['snapshot' => $certificate->snapshot, 'certificate' => $certificate, 'evidence' => $evidence, 'currentUrl' => app(QcDocumentService::class)->url($current)])
+        return response()->view('qc.passport', app(QcDocumentService::class)->data($certificate) + ['evidence' => $evidence, 'currentUrl' => app(QcDocumentService::class)->url($current)])
             ->header('Cache-Control', 'no-store')->header('X-Robots-Tag', 'noindex, nofollow')->header('X-Content-Type-Options', 'nosniff');
+    }
+
+    public function download(string $token)
+    {
+        $certificate = $this->certificate($token);
+
+        return app(QcDocumentService::class)->certificatePdf($certificate)
+            ->download($certificate->snapshot['reference'].'-v'.$certificate->version.'.pdf')
+            ->header('Cache-Control', 'no-store')->header('X-Robots-Tag', 'noindex, nofollow')
+            ->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function evidence(string $token, string $id)

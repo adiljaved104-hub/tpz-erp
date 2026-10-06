@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/verify/qc', [QcPassportController::class, 'search'])->middleware('throttle:20,1,qc-search')->name('qc.search');
 Route::get('/verify/qc/{token}', [QcPassportController::class, 'show'])->middleware('throttle:60,1,qc-passport')->where('token', '[a-f0-9]{64}')->name('qc.verify');
+Route::get('/verify/qc/{token}/certificate', [QcPassportController::class, 'download'])->middleware('throttle:10,1,qc-public-pdf')->where('token', '[a-f0-9]{64}')->name('qc.certificate.public');
 Route::get('/verify/qc/{token}/evidence/{id}', [QcPassportController::class, 'evidence'])->middleware('throttle:120,1,qc-image')->where('token', '[a-f0-9]{64}')->whereUuid('id')->name('qc.evidence.public');
 Route::middleware(['auth', EnforceWebSecurityPolicy::class])->group(function (): void {
     Route::get('/admin/qc-documents/labels', [QcDocumentController::class, 'labels'])->name('qc.labels');

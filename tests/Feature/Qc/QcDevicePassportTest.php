@@ -429,6 +429,111 @@ class QcDevicePassportTest extends TestCase
         $migration->down();
     }
 
+    public function test_customer_polish_exposes_only_snapshot_derivatives_with_correct_metadata_and_no_stock_mutation(): void
+    {
+        $inspection = $this->start();
+        $this->ready($inspection);
+        $this->proofs($inspection);
+        $internal = app(QcEvidenceService::class)->upload($inspection, UploadedFile::fake()->image('private.jpg'), 'additional', false, $this->technician);
+        $certificate = app(QcInspectionService::class)->complete($inspection, $this->technician);
+        $before = $this->stockSnapshot();
+        $product = $this->product->fresh()->toArray();
+        $snapshot = $certificate->snapshot;
+        $fingerprint = app(QcDocumentService::class)->fingerprint($certificate);
+        $page = $this->get(route('qc.verify', $certificate->public_token))->assertOk()
+            ->assertSee('CURRENT / VERIFIED')->assertSee('Download Certificate PDF')->assertSee('Print Certificate')
+            ->assertSee('Certificate Fingerprint')->assertSee($fingerprint)->assertSee('Valid only when the QR code resolves to the matching TPZ QC ID and certificate version.')
+            ->assertSee('class="watermarks"', false)->assertSee('<dialog', false)->assertSee('data-viewer-next', false)
+            ->assertDontSee($internal->public_id)->assertDontSee($internal->original_path)->assertDontSee($internal->customer_path)
+            ->assertDontSee('PRIVATE_INTERNAL_SENTINEL')->assertDontSee('original_path')->assertDontSee('customer_path');
+        $dom = new \DOMDocument;
+        @$dom->loadHTML($page->getContent());
+        $xpath = new \DOMXPath($dom);
+        $buttons = $xpath->query('//button[@data-evidence]');
+        $this->assertCount(4, $buttons);
+        foreach ($inspection->evidence()->where('customer_visible', true)->get() as $index => $proof) {
+            $button = $buttons->item($index);
+            $this->assertSame(QcEvidenceService::KINDS[$proof->kind], $button->getAttribute('data-kind'));
+            $this->assertSame($proof->uploaded_at->format('d M Y H:i:s T'), $button->getAttribute('data-uploaded'));
+            $this->assertSame($snapshot['reference'].' · v1', $button->getAttribute('data-reference'));
+            $this->assertSame(route('qc.evidence.public', ['token' => $certificate->public_token, 'id' => $proof->public_id]), $button->getElementsByTagName('img')->item(0)->getAttribute('src'));
+            $page->assertDontSee($proof->original_path)->assertDontSee($proof->customer_path);
+        }
+        $this->get(route('qc.certificate.public', $certificate->public_token))->assertOk()->assertHeader('Content-Type', 'application/pdf')->assertDownload($snapshot['reference'].'-v1.pdf');
+        $html = view('qc.certificate', app(QcDocumentService::class)->data($certificate))->render();
+        foreach ([$fingerprint, 'TECH POINT ZONE', 'watermark-top', 'watermark-middle', 'watermark-bottom', 'Verification QR', 'Alterations invalidate this document', 'Valid only when the QR code resolves'] as $content) {
+            $this->assertStringContainsString($content, $html);
+        }
+        $this->assertStringNotContainsString($internal->public_id, $html);
+        $this->assertStringNotContainsString('PRIVATE_INTERNAL_SENTINEL', $html);
+        $this->assertSame($snapshot, $certificate->fresh()->snapshot);
+        $this->assertSame($before, $this->stockSnapshot());
+        $this->assertSame($product, $this->product->fresh()->toArray());
+    }
+
+    public function test_public_pdf_requires_exact_valid_token_and_is_rate_limited(): void
+    {
+        [$inspection, $certificate] = $this->certified();
+        $this->get('/verify/qc/1/certificate')->assertNotFound();
+        $this->get(route('qc.certificate.public', str_repeat('0', 64)))->assertNotFound();
+        $url = route('qc.certificate.public', $certificate->public_token);
+        for ($i = 0; $i < 9; $i++) {
+            $this->get($url)->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertHeader('X-Content-Type-Options', 'nosniff');
+        }
+        $this->get($url)->assertStatus(429);
+    }
+
+    public function test_fingerprint_and_historical_download_are_stable_across_reqc_without_snapshot_changes(): void
+    {
+        [$inspection, $first] = $this->certified();
+        $document = app(QcDocumentService::class);
+        $snapshot = $first->snapshot;
+        $fingerprint = $document->fingerprint($first);
+        $this->assertMatchesRegularExpression('/^[A-F0-9]{4}(?:-[A-F0-9]{4}){3}$/', $fingerprint);
+        $this->assertSame($fingerprint, $document->fingerprint($first->fresh()));
+        $reordered = clone $first;
+        $reordered->snapshot = array_reverse($snapshot, true);
+        $this->assertSame($fingerprint, $document->fingerprint($reordered));
+        $new = app(QcInspectionService::class)->reopen($inspection, 'New verified version', $this->owner);
+        $this->get(route('qc.verify', $first->public_token))->assertSee('SUPERSEDED / HISTORICAL')->assertSee('Reinspection is in progress');
+        $this->ready($new, $this->owner);
+        $this->proofs($new, actor: $this->owner);
+        $second = app(QcInspectionService::class)->complete($new, $this->owner);
+        $this->assertNotSame($fingerprint, $document->fingerprint($second));
+        $this->get(route('qc.verify', $first->public_token))->assertSee('SUPERSEDED / HISTORICAL')->assertSee($document->url($second))->assertSee($fingerprint);
+        $this->get(route('qc.verify', $second->public_token))->assertSee('CURRENT / VERIFIED')->assertSee($document->fingerprint($second));
+        $this->get(route('qc.certificate.public', $first->public_token))->assertOk()->assertDownload($snapshot['reference'].'-v1.pdf');
+        $this->assertSame($snapshot, $first->fresh()->snapshot);
+        $this->assertSame($fingerprint, $document->fingerprint($first->fresh()));
+    }
+
+    public function test_thermal_labels_keep_distinct_device_qr_mapping_and_concise_long_titles(): void
+    {
+        $this->product->update(['name' => str_repeat('Detailed customer marketplace laptop title ', 15), 'model' => str_repeat('Long laptop model ', 12)]);
+        [$one, $first] = $this->certified(['serial' => str_repeat('A', 100)]);
+        [$two, $second] = $this->certified(['serial' => 'SECOND-LABEL-SERIAL']);
+        $labels = app(QcDocumentService::class)->labels([$one->id, $two->id], $this->technician);
+        $html = view('qc.labels', ['labels' => $labels])->render();
+        $this->assertStringContainsString('@page{size:100mm 50mm;margin:0}', $html);
+        $this->assertStringContainsString('break-after:page', $html);
+        $dom = new \DOMDocument;
+        @$dom->loadHTML($html);
+        $xpath = new \DOMXPath($dom);
+        $sections = $xpath->query('//section[@class="label"]');
+        $this->assertCount(2, $sections);
+        foreach ([$first, $second] as $index => $certificate) {
+            $section = $sections->item($index);
+            $this->assertStringContainsString($certificate->snapshot['serial'], $section->textContent);
+            $this->assertStringContainsString($certificate->snapshot['reference'].' · v1', $section->textContent);
+            $this->assertStringContainsString('TECH POINT ZONE', $section->textContent);
+            $this->assertStringContainsString('Scan to Verify QC', $section->textContent);
+            $title = $xpath->query('.//div[@class="title"]', $section)->item(0)->textContent;
+            $this->assertLessThanOrEqual(54, mb_strlen($title));
+            $qr = $xpath->query('.//img[@class="qr"]', $section)->item(0)->getAttribute('src');
+            $this->assertSame(app(QcDocumentService::class)->url($certificate), (new QRCode)->readFromBlob(base64_decode(explode(',', $qr, 2)[1]))->data);
+        }
+    }
+
     private function actor(EmployeeRole $role): User
     {
         $employee = Employee::factory()->role($role)->create();

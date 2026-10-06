@@ -25,6 +25,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\ProductIntelligence\ProductMatchService;
 use App\Services\Purchases\PurchaseDocumentService;
 use App\Services\Purchases\PurchaseProductContextService;
@@ -52,6 +53,136 @@ class QuickStockPurchaseResponsibilityPrivacyTest extends TestCase
     public static function employeeRoles(): array
     {
         return [[EmployeeRole::Staff], [EmployeeRole::Manager]];
+    }
+
+    public static function receivingWarehouseCases(): array
+    {
+        return [
+            'Staff Main Warehouse' => [EmployeeRole::Staff, false],
+            'Manager Main Warehouse' => [EmployeeRole::Manager, false],
+            'Staff different platform warehouse' => [EmployeeRole::Staff, true],
+            'Manager different platform warehouse' => [EmployeeRole::Manager, true],
+        ];
+    }
+
+    #[DataProvider('receivingWarehouseCases')]
+    public function test_asus_laptop_new_platform_responsibility_can_receive_into_physical_warehouse(EmployeeRole $role, bool $differentPlatform): void
+    {
+        [$owner, $staff, $warehouse, $product] = $this->foundation($role);
+        $brand = ProductBrand::factory()->create(['name' => 'Asus', 'normalized_name' => 'asus']);
+        $category = ProductCategory::factory()->create(['name' => 'Laptops']);
+        $product->update(['brand_id' => $brand->id, 'brand' => 'Asus', 'category_id' => $category->id,
+            'condition' => ProductCondition::New, 'model' => 'CX1405CTA',
+            'name' => 'testASUS - CX1405CTA 14" FHD Chromebook Laptop - Intel N50 (2023) - 4GB Memory - 64GB Storage - Dusk Gray (199291342897)']);
+        $platform = MarketplacePlatform::factory()->create(['name' => 'Amazon UAE', 'normalized_name' => 'amazon uae']);
+        $warehouse->update(['marketplace_platform_id' => $differentPlatform ? MarketplacePlatform::factory()->create()->id : null]);
+        $assignment = ResponsibilityAssignment::factory()->create(['employee_id' => $staff->employee->id, 'assign_stock_by_default' => true]);
+        $assignment->brandScope()->create(['product_brand_id' => $brand->id]);
+        $assignment->categoryScope()->create(['product_category_id' => $category->id]);
+        $assignment->conditionScope()->create(['product_condition' => ProductCondition::New->value]);
+        $assignment->platformScope()->create(['marketplace_platform_id' => $platform->id]);
+
+        $this->actingAs($staff);
+        $component = Livewire::test(QuickStockPurchase::class)->fillForm(['warehouse_id' => $warehouse->id]);
+        $this->assertArrayHasKey($product->id, $this->productField($component)->getSearchResults('CX1405CT'));
+        $this->assertSame($product->id, app(ProductMatchService::class)->match(new ProductMatchRequest('CX1405CT', ProductMatchContext::Receiving,
+            $staff, warehouseId: $warehouse->id))->sole()->productId);
+
+        $component->mountAction(TestAction::make('bulkAddProducts')->schemaComponent(true, 'content'));
+        $bulk = collect($component->instance()->getSchema($component->instance()->getMountedActionSchemaName())->getFlatFields(withHidden: true))
+            ->first(fn ($field): bool => $field->getName() === 'product_ids');
+        $this->assertArrayHasKey($product->id, $bulk->getSearchResults('CX1405CT'));
+        $component->setActionData(['product_ids' => [$product->id]])->callMountedAction()->assertHasNoActionErrors();
+        $this->assertContains($product->id, array_map('intval', array_column($component->instance()->data['items'], 'product_id')));
+        $preselected = Livewire::withQueryParams(['warehouse_id' => $warehouse->id, 'product_id' => $product->id])->test(QuickStockPurchase::class);
+        $this->assertSame($product->id, (int) collect($preselected->instance()->data['items'])->first()['product_id']);
+
+        $inventory = ProductInventory::factory()->create(['product_id' => $product->id, 'warehouse_id' => $warehouse->id,
+            'available_quantity' => 9, 'reserved_quantity' => 0, 'damaged_quantity' => 0, 'average_cost' => '10.0000']);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $owner);
+        $other = $this->responsibilityUser(EmployeeRole::Staff);
+        $allocations->reconcile($inventory, $allocations->employeeAccount($other->employee->id), 5, $owner, 'Other holder stock');
+        $before = $this->stockSnapshot();
+        $context = app(PurchaseProductContextService::class)->forQuickStockPurchase($staff, $warehouse->id, [$product->id])[$product->id];
+        $this->assertSame([0, 0, 0], [$context->availableQuantity, $context->reservedQuantity, $context->sellableQuantity()]);
+        $this->assertSame(0, app(ProductMatchService::class)->match(new ProductMatchRequest('CX1405CT', ProductMatchContext::Receiving,
+            $staff, warehouseId: $warehouse->id))->sole()->sellableQuantity);
+        $this->assertSame($before, $this->stockSnapshot());
+        $allocations->reconcile($inventory, $allocations->employeeAccount($staff->employee->id), 3, $owner, 'Actual own stock');
+        $context = app(PurchaseProductContextService::class)->forQuickStockPurchase($staff, $warehouse->id, [$product->id])[$product->id];
+        $this->assertSame(3, $context->sellableQuantity());
+
+        $data = $this->purchaseData($warehouse, [$product]);
+        $result = app(PostQuickStockPurchase::class)->handle($data, $staff);
+        $this->assertSame(11, $inventory->fresh()->available_quantity);
+        $this->assertSame(2, $result->purchase->items->sole()->received_quantity);
+        $this->assertSame(5, InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)
+            ->whereHas('account', fn ($query) => $query->where('employee_id', $staff->employee->id))->sole()->allocated_quantity);
+        $this->assertTrue(app(PostQuickStockPurchase::class)->handle($data, $staff)->replayed);
+    }
+
+    #[DataProvider('employeeRoles')]
+    public function test_receiving_platform_neutrality_preserves_combined_dimensions_and_warehouse_restrictions(EmployeeRole $role): void
+    {
+        [$owner, $staff, $warehouse, $product] = $this->foundation($role);
+        $assignment = ResponsibilityAssignment::factory()->create(['employee_id' => $staff->employee->id]);
+        $this->combinedScope($assignment, $product, $warehouse);
+        $assignment->platformScope()->create(['marketplace_platform_id' => MarketplacePlatform::factory()->create()->id]);
+        $this->actingAs($staff);
+        $component = Livewire::test(QuickStockPurchase::class)->fillForm(['warehouse_id' => $warehouse->id]);
+        $this->assertArrayHasKey($product->id, $this->productField($component)->getSearchResults($product->sku));
+        foreach (['brand_id' => ProductBrand::factory()->create()->id,
+            'category_id' => ProductCategory::factory()->create()->id,
+            'condition' => $product->condition === ProductCondition::New ? ProductCondition::Renewed : ProductCondition::New] as $field => $value) {
+            $outside = Product::factory()->create(array_merge(['brand_id' => $product->brand_id, 'category_id' => $product->category_id,
+                'condition' => $product->condition], [$field => $value]));
+            $this->assertArrayNotHasKey($outside->id, $this->productField($component)->getSearchResults($outside->sku));
+            try {
+                app(PostQuickStockPurchase::class)->handle($this->purchaseData($warehouse, [$outside]), $staff);
+                $this->fail('Receiving must preserve '.$field.' scope.');
+            } catch (ValidationException $exception) {
+                $this->assertArrayHasKey('items', $exception->errors());
+            }
+        }
+        $otherWarehouse = Warehouse::factory()->create();
+        $component->set('data.warehouse_id', $otherWarehouse->id);
+        $this->assertArrayNotHasKey($product->id, $this->productField($component)->getSearchResults($product->sku));
+        try {
+            app(PostQuickStockPurchase::class)->handle($this->purchaseData($otherWarehouse, [$product]), $staff);
+            $this->fail('Explicit Warehouse restriction must remain enforced.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('items', $exception->errors());
+        }
+        $this->assertNoPosting();
+    }
+
+    #[DataProvider('employeeRoles')]
+    public function test_platform_only_does_not_grant_receiving_search_preselection_context_or_posting(EmployeeRole $role): void
+    {
+        [$owner, $staff, $warehouse, $product] = $this->foundation($role);
+        $platform = MarketplacePlatform::factory()->create();
+        $warehouse->update(['marketplace_platform_id' => $platform->id]);
+        $assignment = ResponsibilityAssignment::factory()->create(['employee_id' => $staff->employee->id]);
+        $assignment->platformScope()->create(['marketplace_platform_id' => $platform->id]);
+        $this->actingAs($staff);
+        $component = Livewire::withQueryParams(['warehouse_id' => $warehouse->id, 'product_id' => $product->id])->test(QuickStockPurchase::class);
+        $this->assertEmpty(collect($component->instance()->data['items'])->first()['product_id']);
+        $this->assertSame([], $this->productField($component)->getSearchResults($product->sku));
+        $this->assertSame([], app(PurchaseProductContextService::class)->forQuickStockPurchase($staff, $warehouse->id, [$product->id]));
+        $component->mountAction(TestAction::make('bulkAddProducts')->schemaComponent(true, 'content'));
+        $bulk = collect($component->instance()->getSchema($component->instance()->getMountedActionSchemaName())->getFlatFields(withHidden: true))
+            ->first(fn ($field): bool => $field->getName() === 'product_ids');
+        $this->assertSame([], $bulk->getSearchResults($product->sku));
+        $component->setActionData(['product_ids' => [$product->id]])->callMountedAction()->assertHasActionErrors(['product_ids.0']);
+        $this->assertTrue(app(OrderResponsibilityScopeService::class)->canAccessProduct($staff, $product->id, $platform->id, $warehouse->id));
+        try {
+            app(PostQuickStockPurchase::class)->handle($this->purchaseData($warehouse, [$product]), $staff);
+            $this->fail('Platform alone must not grant receiving eligibility.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('items', $exception->errors());
+        }
+        $this->assertNoPosting();
     }
 
     #[DataProvider('scopeCases')]
@@ -118,15 +249,19 @@ class QuickStockPurchaseResponsibilityPrivacyTest extends TestCase
         $this->assertContains($product->id, array_map('intval', array_column($component->instance()->data['items'], 'product_id')));
     }
 
-    public function test_platform_context_is_taken_from_selected_warehouse_not_caller_metadata(): void
+    public function test_receiving_ignores_platform_metadata_without_changing_order_platform_scope(): void
     {
         [$owner, $staff, $warehouse, $product] = $this->foundation();
         $platform = MarketplacePlatform::factory()->create();
         $assignment = $this->productScope($staff, $product);
         $assignment->platformScope()->create(['marketplace_platform_id' => $platform->id]);
         $matcher = app(ProductMatchService::class);
-        $this->assertCount(0, $matcher->match(new ProductMatchRequest($product->sku, ProductMatchContext::Receiving, $staff,
-            warehouseId: $warehouse->id, platformId: $platform->id)));
+        $this->assertSame($product->id, $matcher->match(new ProductMatchRequest($product->sku, ProductMatchContext::Receiving, $staff,
+            warehouseId: $warehouse->id, platformId: MarketplacePlatform::factory()->create()->id))->sole()->productId);
+        $scope = app(OrderResponsibilityScopeService::class);
+        $this->assertFalse($scope->canAccessProduct($staff, $product->id, null, $warehouse->id));
+        $this->assertFalse($scope->canAccessProduct($staff, $product->id, MarketplacePlatform::factory()->create()->id, $warehouse->id));
+        $this->assertTrue($scope->canAccessProduct($staff, $product->id, $platform->id, $warehouse->id));
         $warehouse->update(['marketplace_platform_id' => $platform->id]);
         $this->assertSame($product->id, $matcher->match(new ProductMatchRequest($product->sku, ProductMatchContext::Receiving, $staff,
             warehouseId: $warehouse->id))->sole()->productId);
@@ -252,11 +387,12 @@ class QuickStockPurchaseResponsibilityPrivacyTest extends TestCase
         $calls = 0;
         $transactionLevel = DB::transactionLevel();
         $this->mock(PurchaseDocumentService::class)->shouldReceive('prepare')->twice()
-            ->andReturnUsing(function ($data, $purchase = null, $actor = null) use ($documents, $staff, $assignment, $transactionLevel, &$calls) {
+            ->andReturnUsing(function ($data, $purchase = null, $actor = null, $receivingScope = false) use ($documents, $staff, $assignment, $transactionLevel, &$calls) {
                 $this->assertSame($staff->id, $actor?->id);
+                $this->assertTrue($receivingScope);
                 $this->assertSame($transactionLevel + ($calls === 0 ? 0 : 1), DB::transactionLevel());
                 $calls++;
-                $prepared = $documents->prepare($data, $purchase, $actor);
+                $prepared = $documents->prepare($data, $purchase, $actor, $receivingScope);
                 if ($calls === 1) {
                     $assignment->update(['status' => ResponsibilityAssignmentStatus::Inactive, 'ended_at' => now()]);
                 }

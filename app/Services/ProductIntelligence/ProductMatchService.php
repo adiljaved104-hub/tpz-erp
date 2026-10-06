@@ -20,7 +20,6 @@ use App\Models\ProductBrand;
 use App\Models\ProductInventory;
 use App\Models\SalesConfiguration;
 use App\Models\UpgradeRecipe;
-use App\Models\Warehouse;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
@@ -162,10 +161,9 @@ class ProductMatchService
                 return collect();
             }
             if ($request->warehouseId) {
-                $platformId = $request->context === ProductMatchContext::Receiving
-                    ? Warehouse::query()->whereKey($request->warehouseId)->value('marketplace_platform_id')
-                    : $request->platformId;
-                $query = $this->responsibilities->applyProducts($query, $request->user, $platformId, $request->warehouseId);
+                $query = $request->context === ProductMatchContext::Receiving
+                    ? $this->responsibilities->applyReceivingProducts($query, $request->user, $request->warehouseId)
+                    : $this->responsibilities->applyProducts($query, $request->user, $request->platformId, $request->warehouseId);
             }
         }
 

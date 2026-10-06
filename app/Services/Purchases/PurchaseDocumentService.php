@@ -25,7 +25,7 @@ class PurchaseDocumentService
     ) {}
 
     /** @return array{header: array<string,mixed>, lines: array<int,array<string,mixed>>} */
-    public function prepare(CreatePurchaseData|UpdatePurchaseData $data, ?Purchase $purchase = null, ?User $actor = null): array
+    public function prepare(CreatePurchaseData|UpdatePurchaseData $data, ?Purchase $purchase = null, ?User $actor = null, bool $receivingScope = false): array
     {
         Validator::make([
             'supplier_id' => $data->supplierId,
@@ -69,12 +69,9 @@ class PurchaseDocumentService
         }
 
         if ($actor !== null && $this->responsibilities->requiresScope($actor)) {
-            $outsideScope = $productIds->first(fn (int $productId): bool => ! $this->responsibilities->canAccessProduct(
-                $actor,
-                $productId,
-                $warehouse->marketplace_platform_id,
-                $data->warehouseId,
-            ));
+            $outsideScope = $productIds->first(fn (int $productId): bool => ! ($receivingScope
+                ? $this->responsibilities->canReceiveProduct($actor, $productId, $data->warehouseId)
+                : $this->responsibilities->canAccessProduct($actor, $productId, $warehouse->marketplace_platform_id, $data->warehouseId)));
 
             if ($outsideScope !== null) {
                 throw ValidationException::withMessages(['items' => 'Every Purchase line must be within your active Responsibility scope.']);

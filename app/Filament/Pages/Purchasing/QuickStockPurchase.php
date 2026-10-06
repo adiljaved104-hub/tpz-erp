@@ -79,7 +79,7 @@ class QuickStockPurchase extends Page
         $warehouse = $warehouseId > 0 ? Warehouse::query()->active()->find($warehouseId) : null;
         $product = $productId > 0 ? Product::query()->where('status', 'active')->find($productId) : null;
         $item = ['ordered_quantity' => 1, 'unit_cost_touched' => false];
-        if ($warehouse !== null && $product !== null && app(OrderResponsibilityScopeService::class)->canAccessProduct(auth()->user(), $product->id, $warehouse->marketplace_platform_id, $warehouse->id)) {
+        if ($warehouse !== null && $product !== null && app(OrderResponsibilityScopeService::class)->canReceiveProduct(auth()->user(), $product->id, $warehouse->id)) {
             $item['product_id'] = $product->id;
         }
         $this->getSchema('content')->fill([
@@ -311,8 +311,8 @@ class QuickStockPurchase extends Page
         if ($warehouseId < 1 && $scope->requiresScope(auth()->user())) {
             return [];
         }
-        $products = $scope->applyProducts(Product::query()->active()->with('categoryRelation')->whereKey($ids), auth()->user(),
-            Warehouse::query()->whereKey($warehouseId)->value('marketplace_platform_id'), $warehouseId)->get()->keyBy('id');
+        $products = $scope->applyReceivingProducts(Product::query()->active()->with('categoryRelation')->whereKey($ids), auth()->user(),
+            $warehouseId)->get()->keyBy('id');
 
         return collect($ids)->mapWithKeys(function (int $id) use ($products): array {
             $product = $products->get($id);

@@ -51,7 +51,7 @@ class QuickStockPurchaseService
             return $existing;
         }
 
-        $prepared = $this->documents->prepare($this->documentData($data), actor: $actor);
+        $prepared = $this->documents->prepare($this->documentData($data), actor: $actor, receivingScope: true);
         $purchaseReference = $this->references->nextPurchaseReference();
         $receiptReference = $this->references->nextPurchaseReceiptReference();
         $productIds = collect($data->items)->pluck('productId')->map(fn ($id): int => (int) $id)->sort()->values();
@@ -73,7 +73,7 @@ class QuickStockPurchaseService
                 if (app(OrderResponsibilityScopeService::class)->requiresScope($actor)) {
                     ResponsibilityAssignment::query()->active()->where('employee_id', $actor->employee->id)->orderBy('id')->lockForUpdate()->get();
                 }
-                $prepared = $this->documents->prepare($this->documentData($data), actor: $actor);
+                $prepared = $this->documents->prepare($this->documentData($data), actor: $actor, receivingScope: true);
                 $purchase = Purchase::query()->create(array_merge($prepared['header'], [
                     'reference' => $purchaseReference,
                     'entry_type' => PurchaseEntryType::QuickStock,

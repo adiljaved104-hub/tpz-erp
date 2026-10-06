@@ -10,7 +10,6 @@ use App\Enums\PurchaseStatus;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\User;
-use App\Models\Warehouse;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
@@ -46,8 +45,8 @@ class PurchaseProductContextService
     public function forQuickStockPurchase(User $actor, int $warehouseId, array $productIds): array
     {
         $this->purchases->authorize($actor, PurchasePermission::QuickReceive);
-        $products = app(OrderResponsibilityScopeService::class)->applyProducts(Product::query()->active()->whereKey($productIds),
-            $actor, Warehouse::query()->whereKey($warehouseId)->value('marketplace_platform_id'), $warehouseId);
+        $products = app(OrderResponsibilityScopeService::class)->applyReceivingProducts(Product::query()->active()->whereKey($productIds),
+            $actor, $warehouseId);
 
         return $this->contexts($actor, $warehouseId, $products->pluck('products.id')->all(), ownedStockOnly: true);
     }

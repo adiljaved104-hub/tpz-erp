@@ -19,6 +19,25 @@ class OrderResponsibilityScopeService
 
     public function applyProducts(Builder $query, User $user, ?int $platformId, int $warehouseId): Builder
     {
+        return $this->applyProductScope($query, $user, $platformId, $warehouseId);
+    }
+
+    public function applyReceivingProducts(Builder $query, User $user, int $warehouseId): Builder
+    {
+        if ($warehouseId < 1 && $this->requiresScope($user)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $this->applyProductScope($query, $user, null, $warehouseId, receiving: true);
+    }
+
+    public function canReceiveProduct(User $user, int $productId, int $warehouseId): bool
+    {
+        return $this->applyReceivingProducts(Product::query()->whereKey($productId), $user, $warehouseId)->exists();
+    }
+
+    private function applyProductScope(Builder $query, User $user, ?int $platformId, int $warehouseId, bool $receiving = false): Builder
+    {
         if (! $this->requiresScope($user)) {
             return $query;
         }
@@ -38,6 +57,7 @@ class OrderResponsibilityScopeService
             'products.condition',
             $platformId,
             $warehouseId,
+            $receiving,
         ));
     }
 
@@ -304,26 +324,28 @@ class OrderResponsibilityScopeService
         return $query;
     }
 
-    private function matchingAssignment(QueryBuilder $query, int $employeeId, string $productColumn, string $brandColumn, string $categoryColumn, string $conditionColumn, string|int|null $platformId, int $warehouseId): QueryBuilder
+    private function matchingAssignment(QueryBuilder $query, int $employeeId, string $productColumn, string $brandColumn, string $categoryColumn, string $conditionColumn, string|int|null $platformId, int $warehouseId, bool $receiving = false): QueryBuilder
     {
         $query->selectRaw('1')
             ->from('responsibility_assignments as order_ra')
             ->where('order_ra.employee_id', $employeeId)
             ->where('order_ra.status', ResponsibilityAssignmentStatus::Active->value)
             ->whereNull('order_ra.ended_at')
-            ->where(function (QueryBuilder $platform) use ($platformId): void {
-                $platform->whereNotExists(function (QueryBuilder $scope): void {
-                    $scope->selectRaw('1')->from('responsibility_assignment_platforms as order_platform_scope')
-                        ->whereColumn('order_platform_scope.assignment_id', 'order_ra.id');
-                });
-
-                if ($platformId !== null) {
-                    $platform->orWhereExists(function (QueryBuilder $scope) use ($platformId): void {
-                        $scope->selectRaw('1')->from('responsibility_assignment_platforms as order_platform_match')
-                            ->whereColumn('order_platform_match.assignment_id', 'order_ra.id')
-                            ->where('order_platform_match.marketplace_platform_id', $platformId);
+            ->when(! $receiving, function (QueryBuilder $query) use ($platformId): void {
+                $query->where(function (QueryBuilder $platform) use ($platformId): void {
+                    $platform->whereNotExists(function (QueryBuilder $scope): void {
+                        $scope->selectRaw('1')->from('responsibility_assignment_platforms as order_platform_scope')
+                            ->whereColumn('order_platform_scope.assignment_id', 'order_ra.id');
                     });
-                }
+
+                    if ($platformId !== null) {
+                        $platform->orWhereExists(function (QueryBuilder $scope) use ($platformId): void {
+                            $scope->selectRaw('1')->from('responsibility_assignment_platforms as order_platform_match')
+                                ->whereColumn('order_platform_match.assignment_id', 'order_ra.id')
+                                ->where('order_platform_match.marketplace_platform_id', $platformId);
+                        });
+                    }
+                });
             })
             ->where(function (QueryBuilder $condition) use ($conditionColumn): void {
                 $condition->whereNotExists(fn (QueryBuilder $scope) => $scope->selectRaw('1')
@@ -334,7 +356,7 @@ class OrderResponsibilityScopeService
                         ->whereColumn('order_condition_match.assignment_id', 'order_ra.id')
                         ->whereColumn('order_condition_match.product_condition', $conditionColumn));
             })
-            ->where(function (QueryBuilder $product) use ($productColumn, $brandColumn, $categoryColumn, $conditionColumn, $warehouseId): void {
+            ->where(function (QueryBuilder $product) use ($productColumn, $brandColumn, $categoryColumn, $conditionColumn, $warehouseId, $receiving): void {
                 $product->whereExists(function (QueryBuilder $scope) use ($productColumn): void {
                     $scope->selectRaw('1')->from('responsibility_assignment_products as order_product_scope')
                         ->whereColumn('order_product_scope.assignment_id', 'order_ra.id')
@@ -351,7 +373,13 @@ class OrderResponsibilityScopeService
                     $scope->selectRaw('1')->from('responsibility_assignment_warehouses as order_warehouse_scope')
                         ->whereColumn('order_warehouse_scope.assignment_id', 'order_ra.id')
                         ->where('order_warehouse_scope.warehouse_id', $warehouseId);
-                })->orWhere(function (QueryBuilder $platformOnly): void {
+                })->orWhere(function (QueryBuilder $platformOnly) use ($receiving): void {
+                    if ($receiving) {
+                        $platformOnly->whereRaw('1 = 0');
+
+                        return;
+                    }
+
                     $platformOnly->whereExists(function (QueryBuilder $scope): void {
                         $scope->selectRaw('1')->from('responsibility_assignment_platforms as order_platform_only')
                             ->whereColumn('order_platform_only.assignment_id', 'order_ra.id');

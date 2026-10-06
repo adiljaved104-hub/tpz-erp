@@ -43,6 +43,7 @@ class AdminPanelProvider extends PanelProvider
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login(Login::class)
             ->brandName(fn (): string => app(ApplicationBranding::class)->fullName())
+            ->favicon(asset('branding/tech-point-zone-logo.png'))
             ->multiFactorAuthentication([
                 app(EmailOtpAuthenticationProvider::class),
             ], isRequired: false)

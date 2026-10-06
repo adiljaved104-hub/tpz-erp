@@ -1,0 +1,1 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QC document not printed</title></head><body><h1>QC document was not printed</h1><p>{{ $message }}</p><p>Return to Quality Control, review the record and try again.</p></body></html>

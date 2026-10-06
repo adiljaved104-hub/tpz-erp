@@ -112,6 +112,10 @@ use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
 use App\Models\PurchaseReceiptCorrection;
 use App\Models\PurchaseReceiptItem;
+use App\Models\QcCertificate;
+use App\Models\QcDevice;
+use App\Models\QcEvidence;
+use App\Models\QcInspection;
 use App\Models\Quotation;
 use App\Models\QuotationEmailDelivery;
 use App\Models\QuotationItem;
@@ -495,6 +499,10 @@ class AppServiceProvider extends ServiceProvider
         CustomerReturn::observe(CustomerReturnAlertObserver::class);
 
         Relation::enforceMorphMap([
+            'qc_device' => QcDevice::class,
+            'qc_inspection' => QcInspection::class,
+            'qc_evidence' => QcEvidence::class,
+            'qc_certificate' => QcCertificate::class,
             'user' => User::class,
             'employee' => Employee::class,
             'team' => Team::class,

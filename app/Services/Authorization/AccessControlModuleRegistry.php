@@ -26,6 +26,7 @@ use App\Enums\PeoplePermission;
 use App\Enums\PerformancePermission;
 use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
+use App\Enums\QcPermission;
 use App\Enums\QuotationPermission;
 use App\Enums\ResponsibilityPermission;
 use App\Enums\SafetClaimPermission;
@@ -69,6 +70,7 @@ class AccessControlModuleRegistry
     public function modules(): array
     {
         $modules = [
+            $this->module('quality_control', 'Quality Control', 'returns_service', [QcPermission::View], [QcPermission::Start, QcPermission::Update, QcPermission::Complete, QcPermission::PrintCertificate, QcPermission::PrintLabel, QcPermission::ViewCustomerEvidence], [QcPermission::ViewAll, QcPermission::Reopen, QcPermission::ManageTemplates, QcPermission::ViewInternalEvidence]),
             $this->derived('dashboard', 'My Dashboard & My Work', 'dashboard', 'Access follows the employee’s authorized source modules and personal Task assignments.'),
 
             $this->module('employees', 'Employees', 'people_hr', [PeoplePermission::EmployeeView], [PeoplePermission::EmployeeCreate, PeoplePermission::EmployeeUpdate], [PeoplePermission::EmployeeChangeRole, PeoplePermission::EmployeeChangeStatus, PeoplePermission::EmployeeLinkUser, PeoplePermission::EmployeeUnlinkUser]),

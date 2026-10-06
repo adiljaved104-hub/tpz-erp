@@ -11,6 +11,13 @@ use RuntimeException;
 
 class ReferenceSequenceService
 {
+    public function nextQcReference(): string
+    {
+        $year = (int) now()->format('Y');
+
+        return "TPZ-QC-{$year}-".str_pad((string) $this->next("qc_certificate:{$year}"), 6, '0', STR_PAD_LEFT);
+    }
+
     public function nextEmployeeReference(): string
     {
         $number = $this->next('employee', $this->firstEmployeeNumber());

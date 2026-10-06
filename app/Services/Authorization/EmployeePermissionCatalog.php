@@ -26,6 +26,7 @@ use App\Enums\PeoplePermission;
 use App\Enums\PerformancePermission;
 use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
+use App\Enums\QcPermission;
 use App\Enums\QuotationPermission;
 use App\Enums\ResponsibilityPermission;
 use App\Enums\SafetClaimPermission;
@@ -43,6 +44,7 @@ class EmployeePermissionCatalog
     public function groups(): array
     {
         return [
+            'Quality Control' => array_map(fn (QcPermission $permission): array => $this->item($permission, str($permission->name)->headline()->toString(), in_array($permission, [QcPermission::ViewAll, QcPermission::Reopen, QcPermission::ManageTemplates, QcPermission::ViewInternalEvidence], true)), QcPermission::cases()),
             'People & Access' => [
                 $this->item(PeoplePermission::EmployeeView, 'View Employees'),
                 $this->item(PeoplePermission::EmployeeCreate, 'Create Employees', true),
@@ -363,6 +365,7 @@ class EmployeePermissionCatalog
                 ->roleDefault($user, ComponentPermission::from($key)),
             UpgradePermission::tryFrom($key) !== null => app(UpgradeAuthorization::class)
                 ->roleDefault($user, UpgradePermission::from($key)),
+            QcPermission::tryFrom($key) !== null => app(QcAuthorization::class)->roleDefault($user, QcPermission::from($key)),
             InventoryPermission::tryFrom($key) !== null => app(RoleBasedInventoryPermissionResolver::class)
                 ->roleDefault($user, InventoryPermission::from($key)),
             InventoryLocationPermission::tryFrom($key) !== null => app(RoleBasedInventoryLocationPermissionResolver::class)

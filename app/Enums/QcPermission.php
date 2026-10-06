@@ -15,4 +15,7 @@ enum QcPermission: string
     case Reopen = 'qc.reopen';
     case ManageTemplates = 'qc.manage_templates';
     case ViewInternalEvidence = 'qc.view_internal_evidence';
+    case ViewOrderAssignments = 'qc.view_order_assignments';
+    case AssignOrderDevice = 'qc.assign_order_device';
+    case ReleaseOrderAssignment = 'qc.release_order_assignment';
 }

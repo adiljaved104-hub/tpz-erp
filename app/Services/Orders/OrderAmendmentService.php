@@ -337,6 +337,9 @@ class OrderAmendmentService
             foreach ($items as $item) {
                 $change = $changes->get($item->id, []);
                 $quantity = (int) ($change['quantity'] ?? $item->ordered_quantity);
+                if ($quantity < $item->qcAssignments()->active()->count()) {
+                    throw ValidationException::withMessages(['items' => 'Release excess QC device assignments before reducing this Order Item quantity.']);
+                }
                 $price = isset($change['selling_price']) ? bcadd((string) $change['selling_price'], '0', 2) : (string) $item->selling_price;
                 if ($invoiceExists && ($quantity !== $item->ordered_quantity || bccomp($price, (string) $item->selling_price, 2) !== 0)) {
                     throw ValidationException::withMessages(['items' => 'An issued Tax Invoice prevents quantity and selling price amendments.']);

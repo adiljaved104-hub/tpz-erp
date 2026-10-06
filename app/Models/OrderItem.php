@@ -85,6 +85,11 @@ class OrderItem extends Model
         return $this->hasOne(OrderFulfillmentItem::class);
     }
 
+    public function qcAssignments(): HasMany
+    {
+        return $this->hasMany(QcOrderAssignment::class)->orderBy('assigned_at')->orderBy('id');
+    }
+
     public function customerDescription(): string
     {
         $configuration = $this->upgradeSelection?->description();

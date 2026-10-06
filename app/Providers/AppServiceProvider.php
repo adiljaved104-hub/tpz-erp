@@ -116,6 +116,7 @@ use App\Models\QcCertificate;
 use App\Models\QcDevice;
 use App\Models\QcEvidence;
 use App\Models\QcInspection;
+use App\Models\QcOrderAssignment;
 use App\Models\Quotation;
 use App\Models\QuotationEmailDelivery;
 use App\Models\QuotationItem;
@@ -503,6 +504,7 @@ class AppServiceProvider extends ServiceProvider
             'qc_inspection' => QcInspection::class,
             'qc_evidence' => QcEvidence::class,
             'qc_certificate' => QcCertificate::class,
+            'qc_order_assignment' => QcOrderAssignment::class,
             'user' => User::class,
             'employee' => Employee::class,
             'team' => Team::class,

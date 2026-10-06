@@ -32,7 +32,7 @@ window.tpzQcUpload = (wire, kind) => ({
     }
 });
 
-window.tpzQcScanner = wire => ({
+window.tpzQcScanner = (wire, options = {}) => ({
     stream: null, timer: null, generation: 0, starting: false, running: false, detected: '',
     message: 'Manual Serial / IMEI entry is always available. Camera scanning requires a supported secure browser.',
     async start() {
@@ -64,7 +64,18 @@ window.tpzQcScanner = wire => ({
                     if (!this.running || generation !== this.generation) return;
                     const value = codes[0]?.rawValue?.trim();
                     if (value) {
-                        if (!/^[A-Za-z0-9._ -]{3,100}$/.test(value)) {
+                        if (options.accept) {
+                            try {
+                                const accepted = await options.accept(value);
+                                if (generation !== this.generation) return;
+                                this.stop();
+                                this.message = accepted ? 'QC device selected. Review the certificate before assigning.' : 'No eligible QC device was selected. Review the highlighted fields or search manually.';
+                            } catch (_) {
+                                this.stop();
+                                this.message = 'QC device was not selected. Review the highlighted fields or search manually.';
+                            }
+                            return;
+                        } else if (!/^[A-Za-z0-9._ -]{3,100}$/.test(value)) {
                             this.message = 'This code is not a valid Serial / IMEI. Try the device label or enter it manually.';
                         } else {
                             this.detected = value;

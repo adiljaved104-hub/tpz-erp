@@ -30,4 +30,9 @@ class QcDevice extends Model
     {
         return $this->hasMany(QcCertificate::class, 'device_id');
     }
+
+    public function orderAssignments(): HasMany
+    {
+        return $this->hasMany(QcOrderAssignment::class, 'qc_device_id');
+    }
 }

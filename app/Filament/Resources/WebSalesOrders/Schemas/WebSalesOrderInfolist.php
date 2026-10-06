@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WebSalesOrders\Schemas;
 
 use App\Enums\WebSalesPermission;
+use App\Filament\Resources\Orders\Schemas\QcOrderAssignmentSection;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
@@ -48,6 +49,7 @@ class WebSalesOrderInfolist
                     TextEntry::make('line_total')->label('Line Total')->money('AED'),
                 ])->columns(['default' => 1, 'md' => 4]),
             ]),
+            QcOrderAssignmentSection::make(),
             Section::make('Financial Summary')->schema([
                 TextEntry::make('grand_total')->label('Revenue')->money('AED')->visible(fn (): bool => self::allowed(WebSalesPermission::ViewRevenue)),
                 TextEntry::make('cogs_total')->label('COGS')->money('AED')->state(fn (Order $record): string => self::cogs($record))->visible(fn (): bool => self::allowed(WebSalesPermission::ViewCost)),

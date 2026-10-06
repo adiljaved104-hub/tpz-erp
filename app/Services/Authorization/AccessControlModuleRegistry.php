@@ -70,7 +70,7 @@ class AccessControlModuleRegistry
     public function modules(): array
     {
         $modules = [
-            $this->module('quality_control', 'Quality Control', 'returns_service', [QcPermission::View], [QcPermission::Start, QcPermission::Update, QcPermission::Complete, QcPermission::PrintCertificate, QcPermission::PrintLabel, QcPermission::ViewCustomerEvidence], [QcPermission::ViewAll, QcPermission::Reopen, QcPermission::ManageTemplates, QcPermission::ViewInternalEvidence]),
+            $this->module('quality_control', 'Quality Control', 'returns_service', [QcPermission::View, QcPermission::ViewOrderAssignments], [QcPermission::Start, QcPermission::Update, QcPermission::Complete, QcPermission::PrintCertificate, QcPermission::PrintLabel, QcPermission::ViewCustomerEvidence, QcPermission::AssignOrderDevice, QcPermission::ReleaseOrderAssignment], [QcPermission::ViewAll, QcPermission::Reopen, QcPermission::ManageTemplates, QcPermission::ViewInternalEvidence]),
             $this->derived('dashboard', 'My Dashboard & My Work', 'dashboard', 'Access follows the employee’s authorized source modules and personal Task assignments.'),
 
             $this->module('employees', 'Employees', 'people_hr', [PeoplePermission::EmployeeView], [PeoplePermission::EmployeeCreate, PeoplePermission::EmployeeUpdate], [PeoplePermission::EmployeeChangeRole, PeoplePermission::EmployeeChangeStatus, PeoplePermission::EmployeeLinkUser, PeoplePermission::EmployeeUnlinkUser]),

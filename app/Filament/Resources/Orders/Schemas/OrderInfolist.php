@@ -59,6 +59,7 @@ class OrderInfolist
             Section::make('Products')->schema([
                 RepeatableEntry::make('items')->hiddenLabel()->state(fn (Order $record): Collection => self::items($record, $selling))->schema($entries)->table($columns)->columnSpanFull(),
             ]),
+            QcOrderAssignmentSection::make(),
             Section::make('Returns / Service')->columns(4)->schema([
                 TextEntry::make('returns_count')->label('Has Return')->formatStateUsing(fn ($state): string => (int) $state > 0 ? 'Yes' : 'No')->badge(),
                 TextEntry::make('is_refunded')->label('Refunded')->formatStateUsing(fn ($state): string => (bool) $state ? 'Yes' : 'No')->badge(),

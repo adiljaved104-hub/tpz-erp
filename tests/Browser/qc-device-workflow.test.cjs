@@ -27,7 +27,7 @@ function runtime(options = {}) {
         async uploadEvidenceKind(kind) { state.uploads.push(kind); return !options.saveFailure; },
         uploadMultiple(property, files, finish) { state.property = property; state.files = files; finish(); }
     };
-    const scanner = window.tpzQcScanner(wire);
+    const scanner = window.tpzQcScanner(wire, options.scannerOptions || {});
     scanner.$refs = { video: { srcObject: null, async play() {} } };
     const upload = window.tpzQcUpload(wire, 'physical');
     upload.$refs = { camera: { value: 'photo.jpg' }, photos: { value: 'photo.jpg' } };
@@ -47,6 +47,32 @@ test('scanner requests no camera until explicit start; scans locally and release
     assert.equal(r.scanner.running, false);
     assert.equal(r.state.stops, 1);
     assert.deepEqual(r.state.uploads, []);
+});
+
+test('order assignment scanner sends QC URL only to the authorized server resolver, not serial state', async () => {
+    const requests = [];
+    const r = runtime({ codes: [{ rawValue: 'https://tpz.example/verify/qc/' + 'a'.repeat(64) }], scannerOptions: { accept: async value => { requests.push(value); return true; } } });
+    await r.scanner.start();
+    assert.equal(requests.length, 1);
+    assert.equal(r.state.fields.length, 0);
+    assert.equal(r.state.stops, 1);
+    assert.match(r.scanner.message, /Review the certificate/);
+});
+
+test('rejected order scan keeps manual selection available and closes camera safely', async () => {
+    const r = runtime({ codes: [{ rawValue: 'https://external.example/not-tpz' }], scannerOptions: { accept: async () => false } });
+    await r.scanner.start();
+    assert.equal(r.state.fields.length, 0);
+    assert.equal(r.state.stops, 1);
+    assert.match(r.scanner.message, /search manually/);
+});
+
+test('failed order lookup exposes no exception message and always closes camera', async () => {
+    const r = runtime({ scannerOptions: { accept: async () => { throw new Error('Private backend error'); } } });
+    await r.scanner.start();
+    assert.equal(r.state.stops, 1);
+    assert.match(r.scanner.message, /search manually/);
+    assert.doesNotMatch(r.scanner.message, /Private backend/);
 });
 
 test('unsupported scanner keeps manual entry and does not request camera', async () => {

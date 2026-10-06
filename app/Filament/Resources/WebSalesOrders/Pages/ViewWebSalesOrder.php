@@ -10,6 +10,7 @@ use App\Enums\WebSalesDeliveryType;
 use App\Enums\WebSalesPermission;
 use App\Exceptions\DefaultWarehouseException;
 use App\Exceptions\InvalidOrderTransitionException;
+use App\Filament\Concerns\InteractsWithQcOrderAssignments;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
@@ -33,11 +34,14 @@ use Throwable;
 
 class ViewWebSalesOrder extends ViewRecord
 {
+    use InteractsWithQcOrderAssignments;
+
     protected static string $resource = WebSalesOrderResource::class;
 
     protected function getHeaderActions(): array
     {
         return [
+            ...$this->qcOrderActions(),
             Action::make('taxInvoice')
                 ->label(fn (): string => $this->record->taxInvoices()->exists() ? 'View Tax Invoice' : 'Generate Tax Invoice')
                 ->icon('heroicon-o-document-currency-dollar')

@@ -11,6 +11,7 @@ use App\Enums\OrderStatus;
 use App\Enums\TaskLinkedType;
 use App\Filament\Actions\CreateTaskFromSourceAction;
 use App\Filament\Actions\OpenChatDiscussionAction;
+use App\Filament\Concerns\InteractsWithQcOrderAssignments;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Inventory\InventoryAllocationService;
@@ -32,11 +33,14 @@ use Illuminate\Support\Str;
 
 class ViewOrder extends ViewRecord
 {
+    use InteractsWithQcOrderAssignments;
+
     protected static string $resource = OrderResource::class;
 
     protected function getHeaderActions(): array
     {
         return [
+            ...$this->qcOrderActions(),
             OpenChatDiscussionAction::make($this->record),
             CreateTaskFromSourceAction::make(TaskLinkedType::Order, $this->record),
             Action::make('amendOrder')

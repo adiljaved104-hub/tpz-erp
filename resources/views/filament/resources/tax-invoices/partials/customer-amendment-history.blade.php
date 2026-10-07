@@ -23,6 +23,7 @@
                     <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Previous</p>
                     <dl class="mt-2 space-y-2 text-sm">
                         <div><dt class="text-xs text-gray-500 dark:text-gray-400">Customer Name</dt><dd class="break-words text-gray-950 dark:text-white">{{ $amendment->properties['previous_customer_name'] ?? '—' }}</dd></div>
+                        <div><dt class="text-xs text-gray-500 dark:text-gray-400">Customer Phone</dt><dd class="break-words text-gray-950 dark:text-white">{{ $amendment->properties['previous_customer_phone'] ?? '—' }}</dd></div>
                         <div><dt class="text-xs text-gray-500 dark:text-gray-400">Customer TRN</dt><dd class="break-words text-gray-950 dark:text-white">{{ $amendment->properties['previous_customer_trn'] ?? '—' }}</dd></div>
                         <div><dt class="text-xs text-gray-500 dark:text-gray-400">Customer Address</dt><dd class="whitespace-pre-wrap break-words text-gray-950 dark:text-white">{{ $amendment->properties['previous_customer_address'] ?? '—' }}</dd></div>
                     </dl>
@@ -32,6 +33,7 @@
                     <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Updated</p>
                     <dl class="mt-2 space-y-2 text-sm">
                         <div><dt class="text-xs text-gray-500 dark:text-gray-400">Customer Name</dt><dd class="break-words text-gray-950 dark:text-white">{{ $amendment->properties['new_customer_name'] ?? '—' }}</dd></div>
+                        <div><dt class="text-xs text-gray-500 dark:text-gray-400">Customer Phone</dt><dd class="break-words text-gray-950 dark:text-white">{{ $amendment->properties['new_customer_phone'] ?? '—' }}</dd></div>
                         <div><dt class="text-xs text-gray-500 dark:text-gray-400">Customer TRN</dt><dd class="break-words text-gray-950 dark:text-white">{{ $amendment->properties['new_customer_trn'] ?? '—' }}</dd></div>
                         <div><dt class="text-xs text-gray-500 dark:text-gray-400">Customer Address</dt><dd class="whitespace-pre-wrap break-words text-gray-950 dark:text-white">{{ $amendment->properties['new_customer_address'] ?? '—' }}</dd></div>
                     </dl>

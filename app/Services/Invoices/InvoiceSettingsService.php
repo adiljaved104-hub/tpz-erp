@@ -27,6 +27,7 @@ class InvoiceSettingsService
         return InvoiceSetting::query()->find(1) ?? (new InvoiceSetting)->forceFill([
             'id' => 1, 'invoice_prefix' => 'TP-INV', 'starting_number' => 9153, 'vat_rate' => '5.00',
             'terms_en' => self::TERMS_EN, 'terms_ar' => self::TERMS_AR,
+            'renewed_terms_en' => null, 'renewed_terms_ar' => null,
             'quotation_terms_en' => self::TERMS_EN, 'quotation_terms_ar' => self::TERMS_AR,
             'proforma_terms_en' => self::TERMS_EN, 'proforma_terms_ar' => self::TERMS_AR,
         ]);
@@ -42,6 +43,11 @@ class InvoiceSettingsService
     public function save(array $data, User $actor): InvoiceSetting
     {
         $this->authorization->authorize($actor, InvoicePermission::SettingsManage);
+
+        validator($data, [
+            'renewed_terms_en' => ['nullable', 'string', 'max:10000'],
+            'renewed_terms_ar' => ['nullable', 'string', 'max:10000'],
+        ])->validate();
 
         return DB::transaction(function () use ($data, $actor): InvoiceSetting {
             $settings = InvoiceSetting::query()->lockForUpdate()->find(1) ?? (new InvoiceSetting)->forceFill(['id' => 1]);

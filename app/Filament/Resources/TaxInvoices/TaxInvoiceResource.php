@@ -4,6 +4,7 @@ namespace App\Filament\Resources\TaxInvoices;
 
 use App\Enums\InvoicePermission;
 use App\Enums\ProductTitleMode;
+use App\Enums\TaxInvoiceTermsProfile;
 use App\Filament\Resources\TaxInvoices\Pages\CreateTaxInvoice;
 use App\Filament\Resources\TaxInvoices\Pages\ListTaxInvoices;
 use App\Filament\Resources\TaxInvoices\Pages\ViewTaxInvoice;
@@ -121,6 +122,7 @@ class TaxInvoiceResource extends Resource
                             }
 
                             $set('order_reference', $prefill['order_reference']);
+                            $set('customer_phone', $prefill['customer_phone']);
                             if (filled($prefill['customer_name'])) {
                                 $set('customer_name', $prefill['customer_name']);
                             }
@@ -143,6 +145,10 @@ class TaxInvoiceResource extends Resource
                         ->label('Customer Name')
                         ->required()
                         ->maxLength(255),
+                    TextInput::make('customer_phone')
+                        ->label('Customer Phone (Optional)')
+                        ->tel()
+                        ->maxLength(40),
                     TextInput::make('customer_trn')
                         ->label('Customer TRN (Optional)')
                         ->maxLength(50),
@@ -155,6 +161,12 @@ class TaxInvoiceResource extends Resource
                         ->label('Order ID / Reference')
                         ->required()
                         ->maxLength(100),
+                    Select::make('terms_profile')
+                        ->label('Terms Profile')
+                        ->options(collect(TaxInvoiceTermsProfile::cases())->mapWithKeys(fn (TaxInvoiceTermsProfile $profile): array => [$profile->value => $profile->label()])->all())
+                        ->default(TaxInvoiceTermsProfile::Auto->value)
+                        ->required()
+                        ->helperText('Auto uses only renewed terms when any source Order product is Renewed. Without an Order, Auto uses Standard. Standard uses only standard terms. Renewed uses only renewed terms.'),
                     DatePicker::make('invoice_date')
                         ->label('Invoice Date')
                         ->default(today())
@@ -215,7 +227,7 @@ class TaxInvoiceResource extends Resource
             Section::make('Tax Invoice')->columns(4)->schema([
                 TextEntry::make('invoice_number')->label('Invoice #'), TextEntry::make('order_reference')->label('Order ID')->placeholder('—'), TextEntry::make('invoice_date')->date('d M Y'), TextEntry::make('status')->badge(),
                 TextEntry::make('title_mode')->label('Title Mode')->formatStateUsing(fn (ProductTitleMode $state): string => $state->label()),
-                TextEntry::make('customer_name'), TextEntry::make('customer_trn')->label('Customer TRN')->placeholder('—'), TextEntry::make('customer_address')->columnSpan(2)->placeholder('—'),
+                TextEntry::make('customer_name'), TextEntry::make('customer_phone')->label('Customer Phone')->visible(fn (TaxInvoice $record): bool => filled($record->customer_phone)), TextEntry::make('customer_trn')->label('Customer TRN')->placeholder('—'), TextEntry::make('customer_address')->columnSpan(2)->placeholder('—'),
                 TextEntry::make('subtotal_excluding_vat')->money('AED'), TextEntry::make('vat_amount')->label('VAT')->money('AED'), TextEntry::make('grand_total')->money('AED')->weight('bold'), TextEntry::make('createdBy.name')->label('Created By'),
             ]),
             Section::make('Record Information')
@@ -252,7 +264,8 @@ class TaxInvoiceResource extends Resource
             TextColumn::make('created_at')->label('Created At')->dateTime('d M Y, h:i A', config('app.timezone'))->sortable(),
             TextColumn::make('customer_name')->label('Customer')->searchable(),
             TextColumn::make('customer_trn')->label('Customer TRN')->searchable()->toggleable(isToggledHiddenByDefault: true),
-            TextColumn::make('createdBy.name')->label('Created By'),
+            TextColumn::make('customer_phone')->label('Customer Phone')->searchable()->toggleable(isToggledHiddenByDefault: true),
+            TextColumn::make('createdBy.name')->label('Created By')->searchable(),
             TextColumn::make('grand_total')->label('Total AED')->money('AED'),
             TextColumn::make('status')->badge(),
         ])->filters([
@@ -391,6 +404,7 @@ class TaxInvoiceResource extends Resource
             ->modalSubmitActionLabel('Save Customer Details')
             ->fillForm(fn (TaxInvoice $record): array => [
                 'customer_name' => $record->customer_name,
+                'customer_phone' => $record->customer_phone,
                 'customer_trn' => $record->customer_trn,
                 'customer_address' => $record->customer_address,
             ])
@@ -399,6 +413,10 @@ class TaxInvoiceResource extends Resource
                     ->label('Customer Name')
                     ->required()
                     ->maxLength(255),
+                TextInput::make('customer_phone')
+                    ->label('Customer Phone (Optional)')
+                    ->tel()
+                    ->maxLength(40),
                 TextInput::make('customer_trn')
                     ->label('Customer TRN')
                     ->maxLength(50),

@@ -44,7 +44,7 @@ class EmployeePermissionCatalog
     public function groups(): array
     {
         return [
-            'Quality Control' => array_map(fn (QcPermission $permission): array => $this->item($permission, str($permission->name)->headline()->toString(), in_array($permission, [QcPermission::ViewAll, QcPermission::Reopen, QcPermission::ManageTemplates, QcPermission::ViewInternalEvidence], true)), QcPermission::cases()),
+            'Quality Control' => array_map(fn (QcPermission $permission): array => $this->item($permission, str($permission->name)->headline()->toString(), in_array($permission, [QcPermission::ViewAll, QcPermission::Reopen, QcPermission::ManageTemplates, QcPermission::ViewInternalEvidence, QcPermission::FocusedWorkspace], true)), QcPermission::cases()),
             'People & Access' => [
                 $this->item(PeoplePermission::EmployeeView, 'View Employees'),
                 $this->item(PeoplePermission::EmployeeCreate, 'Create Employees', true),

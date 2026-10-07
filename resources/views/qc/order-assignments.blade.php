@@ -1,5 +1,7 @@
 @php
-    $items = app(\App\Services\Qc\QcOrderAssignmentService::class)->history($getRecord(), auth()->user());
+    $canDetails = app(\App\Services\Qc\QcOrderAssignmentService::class)->allows(auth()->user(), \App\Enums\QcPermission::ViewOrderAssignments, $getRecord());
+    $items = $canDetails ? app(\App\Services\Qc\QcOrderAssignmentService::class)->history($getRecord(), auth()->user()) : $getRecord()->items()->get();
+    $readiness = app(\App\Services\Qc\RenewedQcDispatchService::class)->readiness($getRecord());
     $authorization = app(\App\Services\Authorization\QcAuthorization::class);
 @endphp
 <div class="space-y-5">
@@ -7,10 +9,17 @@
         <p>QC jobs may be prepared in Draft. Final device assignments are available after this Order leaves Draft.</p>
     @endif
     @foreach($items as $item)
-        @php($active = $item->qcAssignments->whereNull('released_at'))
+        @php($active = $canDetails ? $item->qcAssignments->whereNull('released_at') : collect())
+        @php($line = collect($readiness['lines'])->firstWhere('order_item_id', $item->id))
         <div>
             <h3 class="font-semibold">{{ $item->sku }} · {{ $item->product_name }}</h3>
-            <p class="mb-3">QC Devices: {{ $active->count() }} / {{ $item->ordered_quantity }} Assigned @if($active->count() === $item->ordered_quantity && $active->every(fn ($a) => $a->certificate->isCurrent())) ✓ @endif</p>
+            <p>{{ $line['condition'] }} · Ordered: {{ $line['quantity'] }} · QC Required: {{ $line['required'] }} · QC Assigned: {{ $line['assigned'] }} · {{ str($line['status'])->headline() }}</p>
+            @if($line['errors'] && $canDetails)
+                @foreach($line['errors'] as $error)<p class="text-warning-600">{{ $error }}</p>@endforeach
+            @elseif($line['status'] === 'attention_required')
+                <p class="text-warning-600">A QC unit needs attention before dispatch. Re-QC or reassign it through the authorized QC workflow.</p>
+            @endif
+            @if($canDetails)<p class="mb-3">QC Devices: {{ $active->count() }} / {{ $item->ordered_quantity }} Assigned @if($active->count() === $item->ordered_quantity && $active->every(fn ($a) => $a->certificate->isCurrent())) ✓ @endif</p>@endif
             <div class="grid gap-3 md:grid-cols-2">
                 @foreach($active as $assignment)
                     @php($certificate = $assignment->certificate)
@@ -20,7 +29,7 @@
                         <p>{{ $assignment->device->reference }} · v{{ $assignment->certificate_version }}</p>
                         <p>@include('qc.final-specs', ['final' => $certificate->snapshot['final']])</p>
                         <x-filament::badge :color="$certificate->isCurrent() ? 'success' : 'warning'">{{ $certificate->isCurrent() ? 'Current / Verified' : 'QC pending / superseded — not fulfilment-ready' }}</x-filament::badge>
-                        <p class="mt-2 text-sm">Certified {{ $certificate->certified_at->format('d M Y H:i T') }} · Assigned by {{ $assignment->assignedBy->name }}</p>
+                        <p class="mt-2 text-sm">Certified {{ app(\App\Services\BusinessTimezone::class)->format($certificate->certified_at) }} · Assigned {{ app(\App\Services\BusinessTimezone::class)->format($assignment->assigned_at) }} by {{ $assignment->assignedBy->name }}</p>
                         <div class="mt-3 flex flex-wrap gap-3 text-sm">
                             @if($authorization->allows(auth()->user(), \App\Enums\QcPermission::View, $inspection))
                                 <a class="text-primary-600 underline" href="{{ \App\Filament\Resources\QcInspections\QcInspectionResource::getUrl('view', ['record' => $inspection]) }}">View QC</a>
@@ -36,10 +45,10 @@
                     </div>
                 @endforeach
             </div>
-            @if($item->qcAssignments->whereNotNull('released_at')->isNotEmpty())
+            @if($canDetails && $item->qcAssignments->whereNotNull('released_at')->isNotEmpty())
                 <details class="mt-3"><summary class="cursor-pointer">Released assignment history</summary>
                     @foreach($item->qcAssignments->whereNotNull('released_at') as $assignment)
-                        <p class="mt-2 text-sm">{{ $assignment->device->serial }} · {{ $assignment->device->reference }} · v{{ $assignment->certificate_version }} — Released {{ $assignment->released_at->format('d M Y H:i T') }} by {{ $assignment->releasedBy->name }}: {{ $assignment->release_reason }}</p>
+                        <p class="mt-2 text-sm">{{ $assignment->device->serial }} · {{ $assignment->device->reference }} · v{{ $assignment->certificate_version }} — Released {{ app(\App\Services\BusinessTimezone::class)->format($assignment->released_at) }} by {{ $assignment->releasedBy->name }}: {{ $assignment->release_reason }}</p>
                     @endforeach
                 </details>
             @endif

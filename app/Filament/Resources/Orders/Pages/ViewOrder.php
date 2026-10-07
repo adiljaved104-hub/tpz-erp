@@ -173,9 +173,16 @@ class ViewOrder extends ViewRecord
                 ->action(fn () => app(ReserveDraftOrder::class)->handle($this->record, auth()->user())),
             Action::make('saveAsShipped')
                 ->label('Save as Shipped')->color('success')->requiresConfirmation()
+                ->disabled(fn (): bool => ! $this->qcDispatchReady())
+                ->tooltip('Renewed lines require current QC devices and QC Dispatch Ship permission.')
                 ->modalDescription('Confirm that every Product on this Order has physically left the Warehouse.')
                 ->visible(fn (): bool => $this->record->status === OrderStatus::Reserved && auth()->user()->can('order.fulfill', $this->record))
-                ->action(fn () => app(FulfillOrder::class)->handle($this->record, (string) str()->uuid(), auth()->user())),
+                ->action(function (): void {
+                    $result = $this->runWithActionFeedback(fn () => app(FulfillOrder::class)->handle($this->record, (string) str()->uuid(), auth()->user()), 'Order could not be shipped');
+                    if ($result !== null) {
+                        $this->record->refresh();
+                    }
+                }),
             Action::make('cancel')
                 ->label('Cancel Order')->color('danger')->requiresConfirmation()
                 ->schema([Textarea::make('reason')->required()->maxLength(2000)])

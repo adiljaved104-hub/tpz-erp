@@ -27,7 +27,7 @@
             <div><dt>QC ID / Version</dt><dd>{{ $snapshot['reference'] }} · v{{ $certificate->version }}</dd></div>
             <div><dt>Serial / IMEI</dt><dd>{{ strlen($snapshot['serial']) > 6 ? substr($snapshot['serial'], 0, 3).'••••'.substr($snapshot['serial'], -3) : '••••' }}</dd></div>
             <div><dt>Condition / Grade</dt><dd>{{ ucfirst($snapshot['product']['condition']) }} · {{ $snapshot['grade'] }}</dd></div>
-            <div><dt>Certified At</dt><dd>{{ \Illuminate\Support\Carbon::parse($snapshot['certified_at'])->format('d M Y H:i T') }}</dd></div>
+            <div><dt>Certified At</dt><dd>{{ app(\App\Services\BusinessTimezone::class)->format($snapshot['certified_at']) }}</dd></div>
         </dl>
         <div class="actions">
             <a class="button" href="{{ route('qc.certificate.public', $certificate->public_token) }}">Download Certificate PDF</a>
@@ -44,7 +44,7 @@
             <div class="grid evidence-grid">
                 @foreach($evidence as $image)
                     @php($kind = \App\Services\Qc\QcEvidenceService::KINDS[$image->kind])
-                    @php($uploaded = $image->uploaded_at->format('d M Y H:i:s T'))
+                    @php($uploaded = app(\App\Services\BusinessTimezone::class)->format($image->uploaded_at, 'd M Y H:i:s T'))
                     <figure class="evidence">
                         <button type="button" class="evidence-open" data-evidence data-kind="{{ $kind }}" data-uploaded="{{ $uploaded }}" data-reference="{{ $snapshot['reference'] }} · v{{ $certificate->version }}" aria-label="Enlarge {{ $kind }}">
                             <img loading="lazy" src="{{ route('qc.evidence.public', ['token' => $certificate->public_token, 'id' => $image->public_id]) }}" alt="{{ $kind }}">

@@ -15,6 +15,11 @@ class QcAuthorization
 
     public function roleDefault(User $user, QcPermission $permission): bool
     {
+        // An explicit Owner-configured mobile presentation preference, never a role default.
+        if ($permission === QcPermission::FocusedWorkspace) {
+            return false;
+        }
+
         return in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
     }
 

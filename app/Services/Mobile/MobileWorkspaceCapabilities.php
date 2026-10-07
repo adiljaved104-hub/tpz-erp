@@ -5,6 +5,7 @@ namespace App\Services\Mobile;
 use App\Enums\ChatPermission;
 use App\Enums\ComplaintPermission;
 use App\Enums\CustomerReturnPermission;
+use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\InventoryPermission;
@@ -12,6 +13,7 @@ use App\Enums\InvoicePermission;
 use App\Enums\OrderPermission;
 use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
+use App\Enums\QcPermission;
 use App\Enums\ResponsibilityPermission;
 use App\Enums\SafetClaimPermission;
 use App\Enums\StockTransferPermission;
@@ -30,6 +32,7 @@ use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\StockTransferAuthorization;
@@ -41,6 +44,14 @@ class MobileWorkspaceCapabilities
 {
     public function modules(User $user): array
     {
+        $qc = app(QcAuthorization::class)->allows($user, QcPermission::ViewDispatchQueue)
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::View);
+        // Explicit Owner-controlled presentation mode. It never changes policies
+        // or grants access. Owner/Admin keep their normal broader workspace.
+        if ($qc && in_array($user->employee?->role, [EmployeeRole::Staff, EmployeeRole::Manager], true)
+            && app(QcAuthorization::class)->allows($user, QcPermission::FocusedWorkspace)) {
+            return [$this->module('qc', 'My QC Work / Dispatch', 'Renewed QC and physical unit dispatch', 'QC', true), $this->module('notifications', 'Notifications', 'Important ERP alerts', 'ALT', true)];
+        }
         $inventory = app(InventoryAuthorization::class)->allows($user, InventoryPermission::View)
             || app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::ViewOwn);
         $stockRequests = app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests);
@@ -68,6 +79,7 @@ class MobileWorkspaceCapabilities
             || $hr->allows($user, HrPermission::WarningViewAll);
 
         return array_values(array_filter([
+            $this->module('qc', 'My QC Work / Dispatch', 'Renewed QC and physical unit dispatch', 'QC', $qc),
             $this->module('sales', 'Sales', 'Create and manage authorized sales', 'SALE', $orders),
             $this->module('inventory', 'My Inventory', 'Assigned stock and inventory', 'INV', $inventory),
             $this->module('products', 'Products', 'Search products and SKUs', 'PRD', $products),

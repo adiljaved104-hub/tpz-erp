@@ -5,7 +5,10 @@ namespace App\Filament\Concerns;
 use App\Enums\QcPermission;
 use App\Models\OrderItem;
 use App\Models\QcOrderAssignment;
+use App\Services\Authorization\QcAuthorization;
 use App\Services\Qc\QcOrderAssignmentService;
+use App\Services\Qc\RenewedQcDispatchService;
+use App\Services\Qc\RenewedQcRequirement;
 use Closure;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
@@ -27,12 +30,15 @@ trait InteractsWithQcOrderAssignments
         return [
             Action::make('assignQcDevice')->label('Assign QC Device')->icon('heroicon-o-qr-code')
                 ->visible(fn (): bool => app(QcOrderAssignmentService::class)->allows(auth()->user(), QcPermission::AssignOrderDevice, $this->record)
-                    && app(QcOrderAssignmentService::class)->canChange($this->record))
+                    && app(QcOrderAssignmentService::class)->canChange($this->record)
+                    && app(RenewedQcRequirement::class)->orderHasRequiredLine($this->record))
                 ->modalDescription('Assign one certified physical unit. No stock, allocation or reservation is changed.')
                 ->schema([
                     Select::make('order_item_id')->label('Order Item')->required()->searchable()->live()
                         ->rules([Rule::exists('order_items', 'id')->where('order_id', $this->record->id)])
-                        ->options(fn (): array => $this->record->items()->get()->mapWithKeys(fn ($item): array => [$item->id => $item->sku.' · '.$item->product_name.' · Qty '.$item->ordered_quantity])->all())
+                        ->options(fn (): array => $this->record->items()->with('product')->get()
+                            ->filter(fn ($item): bool => app(RenewedQcRequirement::class)->requires($item))
+                            ->mapWithKeys(fn ($item): array => [$item->id => $item->sku.' · '.$item->product_name.' · Qty '.$item->ordered_quantity])->all())
                         ->afterStateUpdated(fn (Set $set) => $set('certificate_id', null)),
                     View::make('qc.assignment-scanner'),
                     Select::make('certificate_id')->label('QC Device / Certificate')->required()->searchable()
@@ -89,6 +95,14 @@ trait InteractsWithQcOrderAssignments
                     }, 'QC assignment released');
                 }),
         ];
+    }
+
+    protected function qcDispatchReady(): bool
+    {
+        $readiness = app(RenewedQcDispatchService::class)->readiness($this->record);
+
+        return $readiness['status'] === 'not_required' || ($readiness['status'] === 'ready'
+            && app(QcAuthorization::class)->allows(auth()->user(), QcPermission::ShipDispatch));
     }
 
     public function resolveQcAssignmentScan(string $value): bool

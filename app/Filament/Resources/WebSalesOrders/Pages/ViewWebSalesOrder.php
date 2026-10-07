@@ -80,6 +80,8 @@ class ViewWebSalesOrder extends ViewRecord
             ])->fillForm(fn (): array => $this->record->only(['delivery_type', 'courier_name', 'tracking_number']))
                 ->visible(fn (): bool => $this->allowed(WebSalesPermission::Update))->action(fn (array $data) => $this->run('Could not update delivery', fn () => app(WebSalesService::class)->updateDelivery($this->record, $data, auth()->user()))),
             Action::make('ship')->label('Mark Shipped')->color('success')->requiresConfirmation()
+                ->disabled(fn (): bool => ! $this->qcDispatchReady())
+                ->tooltip('Renewed lines require current QC devices and QC Dispatch Ship permission.')
                 ->visible(fn (): bool => $this->record->status === OrderStatus::Reserved && $this->canFulfill())
                 ->action(fn () => $this->run('Cannot ship Web Sale', fn () => app(WebSalesService::class)->ship($this->record, (string) str()->uuid(), auth()->user()))),
             Action::make('deliver')->label('Mark Delivered')->color('success')->requiresConfirmation()

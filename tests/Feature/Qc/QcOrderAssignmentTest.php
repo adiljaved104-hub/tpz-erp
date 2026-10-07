@@ -10,6 +10,7 @@ use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
+use App\Enums\ProductCondition;
 use App\Enums\QcPermission;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Filament\Resources\WebSalesOrders\Pages\ViewWebSalesOrder;
@@ -32,6 +33,7 @@ use App\Services\Qc\QcDocumentService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcOrderAssignmentService;
+use App\Services\Qc\RenewedQcDispatchService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\MySqlConnection;
@@ -68,7 +70,7 @@ class QcOrderAssignmentTest extends TestCase
         $this->foundation = $this->responsibilityFoundation(50);
         $this->owner = $this->foundation['owner'];
         $this->product = $this->foundation['product'];
-        $this->product->update(['model' => 'EliteBook 840', 'processor' => 'Intel Core i5', 'ram' => '8GB', 'storage' => '256GB', 'touch_screen' => false]);
+        $this->product->update(['condition' => ProductCondition::Renewed, 'model' => 'EliteBook 840', 'processor' => 'Intel Core i5', 'ram' => '8GB', 'storage' => '256GB', 'touch_screen' => false]);
         $this->warehouse = $this->foundation['inventory']->warehouse;
     }
 
@@ -240,17 +242,29 @@ class QcOrderAssignmentTest extends TestCase
         $this->assertSame(1, $released->fresh()->certificate_version);
     }
 
-    public function test_fulfilment_remains_ungated_but_shipped_assignment_and_release_are_blocked(): void
+    public function test_renewed_fulfilment_requires_dispatch_readiness_and_shipped_assignment_history_is_locked(): void
     {
         $order = $this->order();
+        try {
+            app(FulfillOrder::class)->handle($order, (string) str()->uuid(), $this->owner);
+            $this->fail('Renewed fulfillment must remain blocked until a current QC device is assigned.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('qc', $exception->errors());
+        }
         $certificate = $this->certify();
         $assignment = $this->assign($order->items->sole(), $certificate);
-        app(FulfillOrder::class)->handle($order, (string) str()->uuid(), $this->owner);
+        $this->assertSame('ready', app(RenewedQcDispatchService::class)->readiness($order)['status']);
+        app(RenewedQcDispatchService::class)->ship($order, (string) str()->uuid(), $this->owner);
         $this->reject(fn () => app(QcOrderAssignmentService::class)->release($assignment, 'Reassign shipped unit', $this->owner), 'assignment_id');
         $this->reject(fn () => $this->assign($order->items->sole(), $certificate), 'order_item_id');
         $unassigned = $this->order();
-        app(FulfillOrder::class)->handle($unassigned, (string) str()->uuid(), $this->owner);
-        $this->assertSame('fulfilled', $unassigned->fresh()->status->value);
+        try {
+            app(FulfillOrder::class)->handle($unassigned, (string) str()->uuid(), $this->owner);
+            $this->fail('Unassigned Renewed stock must not bypass the dispatch gate.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('qc', $exception->errors());
+        }
+        $this->assertSame('reserved', $unassigned->fresh()->status->value);
         $this->assertNull($assignment->fresh()->released_at);
     }
 
@@ -428,7 +442,7 @@ class QcOrderAssignmentTest extends TestCase
         $certificate = $this->certify();
         $staff = $this->foundation['employee']->user;
         app(ResponsibilityAssignmentService::class)->create($this->assignmentData($this->foundation), $this->owner);
-        Livewire::actingAs($staff)->test(ViewOrder::class, ['record' => $order->id])->assertActionHidden('assignQcDevice')->assertDontSee('QC Unit Traceability');
+        Livewire::actingAs($staff)->test(ViewOrder::class, ['record' => $order->id])->assertActionHidden('assignQcDevice')->assertSee('QC Unit Traceability')->assertDontSee($certificate->snapshot['serial']);
         $this->grant($staff, [QcPermission::View, QcPermission::ViewAll, QcPermission::ViewOrderAssignments, QcPermission::AssignOrderDevice]);
         Livewire::actingAs($staff)->test(ViewOrder::class, ['record' => $order->id])->assertActionVisible('assignQcDevice')
             ->callAction('assignQcDevice', ['order_item_id' => $order->items->sole()->id, 'certificate_id' => $certificate->id])->assertHasNoActionErrors()->assertSee('QC Devices: 1 / 1 Assigned');

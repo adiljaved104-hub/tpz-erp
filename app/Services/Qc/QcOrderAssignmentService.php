@@ -8,6 +8,7 @@ use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Product;
 use App\Models\QcCertificate;
 use App\Models\QcDevice;
 use App\Models\QcInspection;
@@ -16,6 +17,7 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\BusinessTimezone;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -57,6 +59,10 @@ class QcOrderAssignmentService
             if (! $this->canChange($order)) {
                 throw ValidationException::withMessages(['order_item_id' => 'Assign devices after Draft and before shipment. Cancelled or shipped Orders cannot receive devices.']);
             }
+            $product = Product::query()->whereKey($item->product_id)->lockForUpdate()->firstOrFail();
+            if (! app(RenewedQcRequirement::class)->conditionRequires($product->condition)) {
+                throw ValidationException::withMessages(['order_item_id' => 'QC device assignments are only available for Renewed Order Items.']);
+            }
             $certificate = QcCertificate::query()->find($certificateId);
             if (! $certificate) {
                 throw ValidationException::withMessages(['certificate_id' => 'Select a completed, current QC certificate.']);
@@ -64,14 +70,18 @@ class QcOrderAssignmentService
             QcDevice::query()->whereKey($certificate->device_id)->lockForUpdate()->firstOrFail();
             $inspection = QcInspection::query()->lockForUpdate()->findOrFail($certificate->inspection_id);
             $certificate->setRelation('inspection', $inspection);
-            app(QcAuthorization::class)->authorize($actor, QcPermission::View, $inspection);
-            $this->assertEligible($item, $order, $certificate);
+            // Dispatch permission grants only the narrow assignment projection,
+            // not access to another technician's internal inspection/evidence.
+            if (! app(QcAuthorization::class)->allows($actor, QcPermission::ScanDispatch)) {
+                app(QcAuthorization::class)->authorize($actor, QcPermission::View, $inspection);
+            }
+            $this->validateCertificate($item, $order, $certificate, locked: true);
             $existing = QcOrderAssignment::query()->where('active_device_id', $certificate->device_id)->lockForUpdate()->first();
             if ($existing) {
                 if ($existing->order_item_id === $item->id && $existing->qc_certificate_id === $certificate->id) {
                     return $existing; // Browser retry/double click: no duplicate audit or row.
                 }
-                throw ValidationException::withMessages(['certificate_id' => 'This device is already actively assigned. Release its existing assignment first.']);
+                throw ValidationException::withMessages(['certificate_id' => 'This QC device is assigned to another Order or Order Item. Release its existing assignment explicitly first.']);
             }
             if ($item->qcAssignments()->active()->count() >= $item->ordered_quantity) {
                 throw ValidationException::withMessages(['order_item_id' => 'All units on this Order Item already have QC devices assigned.']);
@@ -88,11 +98,16 @@ class QcOrderAssignmentService
         }, 5);
     }
 
-    private function assertEligible(OrderItem $item, Order $order, QcCertificate $certificate): void
+    public function validateCertificate(OrderItem $item, Order $order, QcCertificate $certificate, bool $locked = false): void
     {
         $inspection = $certificate->inspection;
-        if ($inspection->status !== QcInspectionStatus::Completed || ! $certificate->isCurrent()
-            || QcInspection::query()->where('active_device_id', $certificate->device_id)->exists()) {
+        // With the device mutex held, use current locking reads rather than a
+        // MySQL repeatable-read snapshot taken before waiting for that mutex.
+        $newer = QcCertificate::query()->where('device_id', $certificate->device_id)->where('version', '>', $certificate->version);
+        $pending = QcInspection::query()->where('active_device_id', $certificate->device_id);
+        $stale = $locked ? $newer->lockForUpdate()->get()->isNotEmpty() : $newer->exists();
+        $reinspection = $locked ? $pending->lockForUpdate()->get()->isNotEmpty() : $pending->exists();
+        if ($inspection->status !== QcInspectionStatus::Completed || $stale || $reinspection) {
             throw ValidationException::withMessages(['certificate_id' => 'QC must be completed and current, with no reinspection pending.']);
         }
         if ($certificate->device->product_id !== $item->product_id) {
@@ -152,13 +167,13 @@ class QcOrderAssignmentService
 
     public function candidates(OrderItem $item, User $actor, string $search = ''): Builder
     {
-        $item = $item->fresh(['order', 'upgradeSelection']);
+        $item = $item->fresh(['order', 'upgradeSelection', 'product']);
         $this->authorize($actor, QcPermission::AssignOrderDevice, $item->order);
         $query = QcCertificate::query()->with(['device', 'inspection.warehouse'])
             ->whereHas('device', fn ($q) => $q->where('product_id', $item->product_id)->whereDoesntHave('orderAssignments', fn ($a) => $a->active()))
             ->whereHas('inspection', function ($q) use ($item, $actor): void {
                 $q->where('status', QcInspectionStatus::Completed->value)->where('warehouse_id', $item->order->warehouse_id);
-                if (! app(QcAuthorization::class)->allows($actor, QcPermission::ViewAll)) {
+                if (! app(QcAuthorization::class)->allows($actor, QcPermission::ViewAll) && ! app(QcAuthorization::class)->allows($actor, QcPermission::ScanDispatch)) {
                     $q->where('technician_user_id', $actor->id);
                 }
             })
@@ -175,7 +190,7 @@ class QcOrderAssignmentService
             $like = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search).'%';
             $query->whereHas('device', fn ($q) => $q->where(fn ($q) => $q->whereRaw("serial LIKE ? ESCAPE '!'", [$like])->orWhereRaw("reference LIKE ? ESCAPE '!'", [$like])));
         }
-        if (! $this->canChange($item->order) || $item->qcAssignments()->active()->count() >= $item->ordered_quantity) {
+        if (! app(RenewedQcRequirement::class)->requires($item) || ! $this->canChange($item->order) || $item->qcAssignments()->active()->count() >= $item->ordered_quantity) {
             $query->whereRaw('1 = 0');
         }
 
@@ -188,11 +203,14 @@ class QcOrderAssignmentService
 
         return $s['reference'].' · v'.$certificate->version.' · '.$s['serial'].' · '.$s['product']['label_title']
             .' · '.($s['final']['ram_mb'] ?? '—').' MB / '.($s['final']['storage_gb'] ?? '—').' GB · Grade '.$s['grade']
-            .' · '.$certificate->inspection->warehouse->name.' · '.$certificate->certified_at->format('d M Y');
+            .' · '.$certificate->inspection->warehouse->name.' · '.app(BusinessTimezone::class)->format($certificate->certified_at, 'd M Y');
     }
 
-    public function resolveScan(OrderItem $item, string $value, User $actor): QcCertificate
+    public function resolveScan(OrderItem $item, string $value, User $actor, bool $dispatch = false): QcCertificate
     {
+        if (! app(RenewedQcRequirement::class)->requires($item->fresh('product'))) {
+            throw ValidationException::withMessages(['order_item_id' => 'QC device assignments are only available for Renewed Order Items.']);
+        }
         Validator::make(['certificate_id' => $value], ['certificate_id' => ['required', 'string', 'max:2048']])->validate();
         $value = trim($value);
         $token = null;
@@ -210,7 +228,10 @@ class QcOrderAssignmentService
         } elseif (! preg_match('/\A[A-Za-z0-9._ -]{3,100}\z/', $value)) {
             throw ValidationException::withMessages(['certificate_id' => 'Enter a valid device Serial / IMEI or QC ID.']);
         }
-        $query = $this->candidates($item, $actor);
+        if ($dispatch) {
+            $this->authorize($actor, QcPermission::ScanDispatch, $item->order);
+        }
+        $query = $dispatch ? QcCertificate::query()->with(['device', 'inspection']) : $this->candidates($item, $actor);
         $token !== null ? $query->where('public_token', $token) : $query->whereHas('device', fn ($q) => $q->where(fn ($q) => $q->where('serial_key', QcInspectionService::serialKey($value))->orWhere('reference', strtoupper($value))));
         $certificate = $query->first();
         if (! $certificate) {

@@ -30,7 +30,7 @@
     @php($canView = $authorization->allows(auth()->user(), $photo->customer_visible ? \App\Enums\QcPermission::ViewCustomerEvidence : \App\Enums\QcPermission::ViewInternalEvidence, $inspection))
     <figure>
         @if($canView)<a href="{{ route('qc.evidence.internal', $photo) }}" target="_blank" rel="noopener"><img loading="lazy" src="{{ route('qc.evidence.internal', $photo) }}" alt="{{ \App\Services\Qc\QcEvidenceService::KINDS[$kind] }} photo"></a>@else<p>Image access restricted</p>@endif
-        <figcaption>{{ $photo->customer_visible ? 'Customer visible' : 'Internal only' }}<br>{{ $photo->uploaded_at->format('d M Y H:i:s T') }}</figcaption>
+        <figcaption>{{ $photo->customer_visible ? 'Customer visible' : 'Internal only' }}<br>{{ app(\App\Services\BusinessTimezone::class)->format($photo->uploaded_at, 'd M Y H:i:s T') }}</figcaption>
     </figure>
     @endforeach
     </div>

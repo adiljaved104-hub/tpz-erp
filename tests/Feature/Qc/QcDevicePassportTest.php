@@ -27,6 +27,7 @@ use App\Services\Authorization\EmployeePermissionCatalog;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\BusinessTimezone;
 use App\Services\Orders\OrderService;
 use App\Services\Qc\LaptopQcTemplate;
 use App\Services\Qc\QcDocumentService;
@@ -74,7 +75,7 @@ class QcDevicePassportTest extends TestCase
         $this->assertSame('Quality Control', app(AccessControlModuleRegistry::class)->keyed()['quality_control']['label']);
         foreach (QcPermission::cases() as $permission) {
             $this->assertNotNull(app(EmployeePermissionCatalog::class)->find($permission->value));
-            $this->assertTrue(app(QcAuthorization::class)->allows($this->owner, $permission));
+            $this->assertSame($permission !== QcPermission::FocusedWorkspace, app(QcAuthorization::class)->allows($this->owner, $permission));
         }
         $this->assertFalse(app(QcAuthorization::class)->allows($this->technician, QcPermission::ViewAll));
         $this->assertFalse(app(QcAuthorization::class)->allows($this->technician, QcPermission::Reopen));
@@ -454,7 +455,7 @@ class QcDevicePassportTest extends TestCase
         foreach ($inspection->evidence()->where('customer_visible', true)->get() as $index => $proof) {
             $button = $buttons->item($index);
             $this->assertSame(QcEvidenceService::KINDS[$proof->kind], $button->getAttribute('data-kind'));
-            $this->assertSame($proof->uploaded_at->format('d M Y H:i:s T'), $button->getAttribute('data-uploaded'));
+            $this->assertSame(app(BusinessTimezone::class)->format($proof->uploaded_at, 'd M Y H:i:s T'), $button->getAttribute('data-uploaded'));
             $this->assertSame($snapshot['reference'].' · v1', $button->getAttribute('data-reference'));
             $this->assertSame(route('qc.evidence.public', ['token' => $certificate->public_token, 'id' => $proof->public_id]), $button->getElementsByTagName('img')->item(0)->getAttribute('src'));
             $page->assertDontSee($proof->original_path)->assertDontSee($proof->customer_path);

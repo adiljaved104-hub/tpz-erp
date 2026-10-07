@@ -30,10 +30,13 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryService;
+use App\Services\Qc\RenewedQcDispatchService;
+use App\Services\Qc\RenewedQcRequirement;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -438,6 +441,11 @@ class OrderService
         $calculated = $this->totals->calculate($data->items);
         $upgradePlans = $this->upgradePlanning->plans($data->items);
         $year = (int) substr($validated['order_date'], 0, 4);
+        $qcRequirement = app(RenewedQcRequirement::class);
+        if (Product::query()->whereKey(collect($data->items)->pluck('productId'))->get(['condition'])
+            ->contains(fn (Product $product): bool => $qcRequirement->conditionRequires($product->condition))) {
+            throw ValidationException::withMessages(['items' => 'Renewed products must be reserved first, then scanned and shipped through QC Pending Dispatch.']);
+        }
         $orderReference = $this->references->nextSalesOrderReference($year);
         $fulfillmentReference = $this->references->nextOrderFulfillmentReference($year);
         $movementReferences = [];
@@ -479,6 +487,9 @@ class OrderService
                     ->with('brandRelation')
                     ->whereKey(collect($data->items)->pluck('productId')->sort()->values())
                     ->lockForUpdate()->get()->keyBy('id');
+                if ($products->contains(fn (Product $product): bool => app(RenewedQcRequirement::class)->conditionRequires($product->condition))) {
+                    throw ValidationException::withMessages(['items' => 'Renewed products must be reserved first, then scanned and shipped through QC Pending Dispatch.']);
+                }
                 $inventories = ProductInventory::query()
                     ->where('warehouse_id', $warehouse->id)
                     ->whereIn('product_id', $products->keys())
@@ -634,6 +645,10 @@ class OrderService
         $this->authorization->authorize($actor, OrderPermission::Fulfill, $order);
 
         if ($existing = OrderFulfillment::query()->where('idempotency_key', $idempotencyKey)->first()) {
+            if ($existing->order_id !== $order->id) {
+                throw ValidationException::withMessages(['idempotency_key' => 'This shipment key belongs to a different Order.']);
+            }
+
             return $existing->order->load(['items.reservations', 'items.upgradeSelection.execution', 'items.fulfillmentItem.upgradeExecution', 'fulfillment.items', 'statusEvents']);
         }
 
@@ -661,90 +676,126 @@ class OrderService
             }
         }
 
-        return DB::transaction(function () use ($order, $idempotencyKey, $actor, $fulfillmentReference, $movementReferences, $postingKeys, $upgradeMovementReferences, $upgradePostingKeys, $upgradeExecutionKeys): Order {
-            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+        try {
+            return DB::transaction(function () use ($order, $idempotencyKey, $actor, $fulfillmentReference, $movementReferences, $postingKeys, $upgradeMovementReferences, $upgradePostingKeys, $upgradeExecutionKeys): Order {
+                $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
-            if ($existing = OrderFulfillment::query()->where('idempotency_key', $idempotencyKey)->first()) {
-                return $existing->order->load(['items.reservations', 'items.upgradeSelection.execution', 'items.fulfillmentItem.upgradeExecution', 'fulfillment.items', 'statusEvents']);
-            }
+                if ($existing = OrderFulfillment::query()->where('idempotency_key', $idempotencyKey)->first()) {
+                    if ($existing->order_id !== $order->id) {
+                        throw ValidationException::withMessages(['idempotency_key' => 'This shipment key belongs to a different Order.']);
+                    }
 
-            $this->authorization->authorize($actor, OrderPermission::Fulfill, $order);
-
-            if ($order->status !== OrderStatus::Reserved) {
-                throw new InvalidOrderTransitionException('Only a fully Reserved Order can be shipped.');
-            }
-
-            $warehouse = Warehouse::query()->lockForUpdate()->findOrFail($order->warehouse_id);
-            $platform = $order->marketplace_platform_id === null ? null : MarketplacePlatform::query()->lockForUpdate()->findOrFail($order->marketplace_platform_id);
-
-            $this->locations->assertSelectable($warehouse, $platform);
-            if ($this->responsibilities->requiresScope($actor)) {
-                ResponsibilityAssignment::query()->active()->where('employee_id', $actor->employee->id)->lockForUpdate()->get();
-            }
-
-            $items = $order->items()->with(['reservation', 'componentReservations', 'upgradeSelection'])->orderBy('line_number')->lockForUpdate()->get();
-
-            if ($items->isEmpty() || $items->contains(fn (OrderItem $item): bool => $item->reservation === null)) {
-                throw new InvalidOrderTransitionException('Every Order Item must have its linked active reservation before shipping.');
-            }
-
-            foreach ($items as $item) {
-                if (! $this->responsibilities->canAccessProduct($actor, $item->product_id, $platform?->id, $warehouse->id)) {
-                    throw ValidationException::withMessages(['items' => 'A Product is outside your active Responsibility Assignments.']);
+                    return $existing->order->load(['items.reservations', 'items.upgradeSelection.execution', 'items.fulfillmentItem.upgradeExecution', 'fulfillment.items', 'statusEvents']);
                 }
-            }
 
-            $this->upgrades->lockFulfillmentInventories($order->setRelation('items', $items));
+                $this->authorization->authorize($actor, OrderPermission::Fulfill, $order);
 
-            $fulfillment = OrderFulfillment::query()->create([
-                'reference' => $fulfillmentReference,
-                'order_id' => $order->id,
-                'movement_group' => (string) Str::uuid(),
-                'idempotency_key' => $idempotencyKey,
-                'fulfilled_by_user_id' => $actor->id,
-                'fulfilled_at' => now(),
-            ]);
-            $quantity = 0;
+                if ($order->status !== OrderStatus::Reserved) {
+                    throw new InvalidOrderTransitionException('Only a fully Reserved Order can be shipped.');
+                }
 
-            foreach ($items as $item) {
-                $fulfillmentItem = $this->inventory->fulfillOrderItem(
-                    $item->setRelation('order', $order),
-                    $fulfillment,
-                    $actor,
-                    $movementReferences[$item->id],
-                    $postingKeys[$item->id],
-                    $item->reservation,
-                );
-                if ($item->upgradeSelection !== null) {
-                    $this->upgrades->execute(
-                        $item->upgradeSelection,
-                        $fulfillmentItem,
+                $warehouse = Warehouse::query()->lockForUpdate()->findOrFail($order->warehouse_id);
+                $platform = $order->marketplace_platform_id === null ? null : MarketplacePlatform::query()->lockForUpdate()->findOrFail($order->marketplace_platform_id);
+
+                $this->locations->assertSelectable($warehouse, $platform);
+                if ($this->responsibilities->requiresScope($actor)) {
+                    ResponsibilityAssignment::query()->active()->where('employee_id', $actor->employee->id)->lockForUpdate()->get();
+                }
+
+                $items = $order->items()->with(['reservation', 'componentReservations', 'upgradeSelection'])->orderBy('line_number')->lockForUpdate()->get();
+
+                if ($items->isEmpty() || $items->contains(fn (OrderItem $item): bool => $item->reservation === null)) {
+                    throw new InvalidOrderTransitionException('Every Order Item must have its linked active reservation before shipping.');
+                }
+
+                foreach ($items as $item) {
+                    if (! $this->responsibilities->canAccessProduct($actor, $item->product_id, $platform?->id, $warehouse->id)) {
+                        throw ValidationException::withMessages(['items' => 'A Product is outside your active Responsibility Assignments.']);
+                    }
+                }
+
+                app(RenewedQcDispatchService::class)->assertCanShip($order, $actor);
+                $this->upgrades->lockFulfillmentInventories($order->setRelation('items', $items));
+
+                $fulfillment = OrderFulfillment::query()->create([
+                    'reference' => $fulfillmentReference,
+                    'order_id' => $order->id,
+                    'movement_group' => (string) Str::uuid(),
+                    'idempotency_key' => $idempotencyKey,
+                    'fulfilled_by_user_id' => $actor->id,
+                    'fulfilled_at' => now(),
+                ]);
+                $quantity = 0;
+
+                foreach ($items as $item) {
+                    $fulfillmentItem = $this->inventory->fulfillOrderItem(
+                        $item->setRelation('order', $order),
+                        $fulfillment,
                         $actor,
-                        $upgradeExecutionKeys[$item->id],
-                        $upgradeMovementReferences[$item->id] ?? [],
-                        $upgradePostingKeys[$item->id] ?? [],
-                        false,
+                        $movementReferences[$item->id],
+                        $postingKeys[$item->id],
+                        $item->reservation,
                     );
+                    if ($item->upgradeSelection !== null) {
+                        $this->upgrades->execute(
+                            $item->upgradeSelection,
+                            $fulfillmentItem,
+                            $actor,
+                            $upgradeExecutionKeys[$item->id],
+                            $upgradeMovementReferences[$item->id] ?? [],
+                            $upgradePostingKeys[$item->id] ?? [],
+                            false,
+                        );
+                    }
+                    $quantity += $item->ordered_quantity;
                 }
-                $quantity += $item->ordered_quantity;
+
+                $order->forceFill(['status' => OrderStatus::Fulfilled])->save();
+                $this->timeline($order, OrderStatus::Reserved, OrderStatus::Fulfilled, $actor, null, [
+                    'item_count' => $items->count(),
+                    'fulfilled_quantity' => $quantity,
+                    'direct' => false,
+                ]);
+                $this->activity->log('order.fulfilled', $actor, $order, [
+                    'order_reference' => $order->reference,
+                    'fulfillment_reference' => $fulfillment->reference,
+                    'item_count' => $items->count(),
+                    'fulfilled_quantity' => $quantity,
+                    'used_reservations' => true,
+                ]);
+
+                return $order->load(['items.reservations', 'items.upgradeSelection.execution', 'items.fulfillmentItem.upgradeExecution', 'fulfillment.items', 'statusEvents']);
+            }, 5);
+        } catch (QueryException $exception) {
+            // A concurrent retry with the same key may collide on databases
+            // without row-level SELECT ... FOR UPDATE support (notably SQLite).
+            // Wait briefly for the winning transaction to commit, then return
+            // only a committed fulfillment for this exact Order/key pair.
+            $existing = null;
+            $deadline = microtime(true) + 5;
+            do {
+                try {
+                    $existing = OrderFulfillment::query()->where('idempotency_key', $idempotencyKey)->first();
+                } catch (QueryException) {
+                    // The competing SQLite transaction may still own the write lock.
+                }
+
+                if ($existing !== null || microtime(true) >= $deadline) {
+                    break;
+                }
+
+                usleep(50_000);
+            } while (true);
+
+            if (! $existing) {
+                throw $exception;
+            }
+            if ($existing->order_id !== $order->id) {
+                throw ValidationException::withMessages(['idempotency_key' => 'This shipment key belongs to a different Order.']);
             }
 
-            $order->forceFill(['status' => OrderStatus::Fulfilled])->save();
-            $this->timeline($order, OrderStatus::Reserved, OrderStatus::Fulfilled, $actor, null, [
-                'item_count' => $items->count(),
-                'fulfilled_quantity' => $quantity,
-                'direct' => false,
-            ]);
-            $this->activity->log('order.fulfilled', $actor, $order, [
-                'order_reference' => $order->reference,
-                'fulfillment_reference' => $fulfillment->reference,
-                'item_count' => $items->count(),
-                'fulfilled_quantity' => $quantity,
-                'used_reservations' => true,
-            ]);
-
-            return $order->load(['items.reservations', 'items.upgradeSelection.execution', 'items.fulfillmentItem.upgradeExecution', 'fulfillment.items', 'statusEvents']);
-        }, 5);
+            return $existing->order->load(['items.reservations', 'items.upgradeSelection.execution', 'items.fulfillmentItem.upgradeExecution', 'fulfillment.items', 'statusEvents']);
+        }
     }
 
     public function cancel(Order $order, CancelOrderData $data, User $actor): Order

@@ -15,6 +15,7 @@ use App\Models\QcCertificate;
 use App\Models\QcInspection;
 use App\Models\Warehouse;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\BusinessTimezone;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcTemplateResolver;
 use Filament\Actions\Action;
@@ -170,7 +171,8 @@ class QcInspectionResource extends Resource
             TextColumn::make('order_snapshot.reference')->label('Order')->searchable(query: fn (Builder $query, string $search) => $query->where('order_snapshot->reference', 'like', '%'.$search.'%')), TextColumn::make('technician.employee.name')->label('Technician'),
             TextColumn::make('status')->badge()->formatStateUsing(fn ($state) => str($state->value)->headline()), TextColumn::make('version')->label('Version'),
             TextColumn::make('validity')->state(fn (QcInspection $record): string => $record->status !== QcInspectionStatus::Completed ? 'Not certified' : ($record->active_reinspection_version !== null ? 'Reinspection pending' : ($record->version === (int) $record->latest_certificate_version ? 'Current / Valid' : 'Superseded')))->badge(),
-            TextColumn::make('grade'), TextColumn::make('completed_at')->dateTime('d M Y H:i'),
+            TextColumn::make('grade'), TextColumn::make('created_at')->label('Created')->formatStateUsing(fn ($state) => app(BusinessTimezone::class)->format($state)),
+            TextColumn::make('completed_at')->formatStateUsing(fn ($state) => app(BusinessTimezone::class)->format($state)),
         ])->filters([
             SelectFilter::make('status')->options(collect(QcInspectionStatus::cases())->mapWithKeys(fn ($state) => [$state->value => str($state->value)->headline()->toString()])->all()),
             SelectFilter::make('grade')->options(['A' => 'A', 'B' => 'B', 'C' => 'C']),

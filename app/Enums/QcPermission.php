@@ -18,4 +18,8 @@ enum QcPermission: string
     case ViewOrderAssignments = 'qc.view_order_assignments';
     case AssignOrderDevice = 'qc.assign_order_device';
     case ReleaseOrderAssignment = 'qc.release_order_assignment';
+    case ViewDispatchQueue = 'qc.view_dispatch_queue';
+    case ScanDispatch = 'qc.scan_dispatch';
+    case ShipDispatch = 'qc.ship_dispatch';
+    case FocusedWorkspace = 'qc.focused_workspace';
 }

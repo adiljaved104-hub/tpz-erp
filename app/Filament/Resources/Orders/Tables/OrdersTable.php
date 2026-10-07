@@ -8,6 +8,7 @@ use App\Filament\Resources\Orders\OrderResource;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Qc\RenewedQcDispatchService;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -26,6 +27,7 @@ class OrdersTable
             TextColumn::make('order_date')->date('d M Y')->sortable(),
             TextColumn::make('handledBy.name')->label('Handled By'),
             TextColumn::make('status')->badge(),
+            TextColumn::make('qc_readiness')->label('Renewed QC')->state(fn (Order $record) => str(app(RenewedQcDispatchService::class)->readiness($record)['status'])->headline())->badge()->toggleable(),
         ];
 
         if (self::allowed(OrderPermission::ViewSellingPrice)) {

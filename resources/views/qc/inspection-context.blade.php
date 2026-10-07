@@ -3,6 +3,7 @@
 <h2>{{ $inspection->device->reference }} · v{{ $inspection->version }} · {{ $inspection->device->serial }}</h2>
 <p>{{ $inspection->product_snapshot['title'] }} · {{ $inspection->product_snapshot['sku'] }} · {{ $inspection->warehouse->name }}</p>
 <p>Template: {{ app(\App\Services\Qc\QcTemplateResolver::class)->forInspection($inspection)['label'] }}</p>
+<p>Created {{ app(\App\Services\BusinessTimezone::class)->format($inspection->created_at) }}</p>
 <p>Original: {{ collect([$inspection->original_configuration['cpu'] ?? null, app(\App\Services\Qc\QcTemplateResolver::class)->forInspection($inspection)['device_type'] === 'tablet' ? null : $inspection->original_configuration['ram'] ?? 'Unknown RAM', $inspection->original_configuration['storage'] ?? 'Unknown storage'])->filter()->implode(' · ') }}</p>
 @if($inspection->requested_configuration)<x-filament::section heading="CUSTOMER REQUIRED CONFIGURATION">
 <strong>{{ $inspection->requested_configuration['display_name'] ?? $inspection->requested_configuration['special_requirement'] ?? 'Upgrade required' }}</strong>

@@ -10,6 +10,7 @@ use App\Models\Employee;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Authorization\WebSalesAuthorization;
+use App\Services\Qc\RenewedQcDispatchService;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
@@ -34,6 +35,7 @@ class WebSalesOrdersTable
                 ->searchable(query: fn (Builder $query, string $search): Builder => $query->whereHas('items', fn (Builder $items): Builder => $items->where('sku', 'like', "%{$search}%")->orWhere('product_name', 'like', "%{$search}%"))),
             TextColumn::make('units')->label('Units')->numeric()->sortable(),
             TextColumn::make('web_status')->label('Status')->state(fn (Order $record): string => $record->webSalesStatusLabel())->badge(),
+            TextColumn::make('qc_readiness')->label('Renewed QC')->state(fn (Order $record) => str(app(RenewedQcDispatchService::class)->readiness($record)['status'])->headline())->badge()->toggleable(),
             TextColumn::make('delivery_type')->label('Delivery')->badge(),
             TextColumn::make('courier_name')->label('Courier')->placeholder('—')->toggleable(),
             TextColumn::make('tracking_number')->label('Tracking / AWB')->placeholder('—')->searchable()->toggleable(),

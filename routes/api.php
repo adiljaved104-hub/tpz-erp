@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\Mobile\V1\PasswordResetController;
 use App\Http\Controllers\Api\Mobile\V1\ProductController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseReceiptController;
+use App\Http\Controllers\Api\Mobile\V1\QcDispatchController;
 use App\Http\Controllers\Api\Mobile\V1\ReportController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
@@ -70,6 +71,13 @@ Route::prefix('mobile/v1')
             Route::post('/{conversation}/read', 'read')->whereNumber('conversation');
         });
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
+            Route::get('/qc', [QcDispatchController::class, 'home']);
+            Route::get('/qc/pending', [QcDispatchController::class, 'index']);
+            Route::get('/qc/dispatch', [QcDispatchController::class, 'index']);
+            Route::get('/qc/orders/{order}', [QcDispatchController::class, 'show'])->whereNumber('order');
+            Route::post('/qc/orders/{order}/scan', [QcDispatchController::class, 'scan'])->whereNumber('order')->middleware('throttle:60,1');
+            Route::post('/qc/orders/{order}/ship', [QcDispatchController::class, 'ship'])->whereNumber('order')->middleware('throttle:30,1');
+            Route::post('/qc/bulk-ship', [QcDispatchController::class, 'bulkShip'])->middleware('throttle:10,1');
             Route::get('/search', SearchController::class);
             Route::get('/inventory', 'inventory');
             Route::get('/products', [ProductController::class, 'index']);

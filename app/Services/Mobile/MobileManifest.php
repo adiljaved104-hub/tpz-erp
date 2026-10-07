@@ -12,6 +12,7 @@ class MobileManifest
     public function forUser(User $user): array
     {
         $definitions = [
+            'qc' => ['qc', null],
             'sales' => ['orders', Enums\OrderStatus::class, 'order-form', Authorization\OrderAuthorization::class, Enums\OrderPermission::Create],
             'products' => ['products', Enums\ProductStatus::class],
             'purchases' => ['purchases', Enums\PurchaseStatus::class, 'purchase-form', Authorization\PurchaseAuthorization::class, Enums\PurchasePermission::Create],
@@ -49,6 +50,17 @@ class MobileManifest
                 $filters[] = ['name' => 'period', 'label' => 'Period', 'type' => 'select', 'options' => $this->options(['today', 'week', 'month'])];
                 $filters[] = ['name' => 'from', 'label' => 'From date', 'type' => 'date'];
                 $filters[] = ['name' => 'to', 'label' => 'To date', 'type' => 'date'];
+            }
+            if ($key === 'qc') {
+                $modules[] = [...$module, 'group' => 'Quality Control', 'order' => ($index + 1) * 10, 'renderer' => 'native',
+                    'api_path' => '/workspace/qc', 'create' => ['enabled' => false], 'features' => ['queue' => true, 'detail' => true],
+                    'capabilities' => ['pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}',
+                        'scan' => app(Authorization\QcAuthorization::class)->allows($user, Enums\QcPermission::ScanDispatch)
+                            && app(Authorization\QcAuthorization::class)->allows($user, Enums\QcPermission::ViewOrderAssignments)
+                            && app(Authorization\QcAuthorization::class)->allows($user, Enums\QcPermission::AssignOrderDevice),
+                        'ship' => app(Authorization\QcAuthorization::class)->allows($user, Enums\QcPermission::ShipDispatch) && app(Authorization\OrderAuthorization::class)->allows($user, Enums\OrderPermission::Fulfill), 'bulk_ship_limit' => 50]];
+
+                continue;
             }
             $modules[] = [...$module,
                 'group' => $module['title'], 'order' => ($index + 1) * 10,

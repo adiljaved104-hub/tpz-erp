@@ -14,6 +14,7 @@
 
         @foreach ([
             ['Tax Invoice Terms', 'termsEn', 'termsAr'],
+            ['Renewed Terms & Conditions', 'renewedTermsEn', 'renewedTermsAr'],
             ['Quotation Terms', 'quotationTermsEn', 'quotationTermsAr'],
             ['Proforma Invoice Terms', 'proformaTermsEn', 'proformaTermsAr'],
         ] as [$heading, $english, $arabic])

@@ -40,6 +40,7 @@
         .closing-section.long-layout { page-break-inside: avoid; }
         .document-page.bottom-footer .footer { bottom: 0; left: 0; margin-top: 0; position: fixed; right: 0; }
         .terms { border-left: 3px solid #0b4478; background: #f7f9fb; padding: 9px 10px; }
+        .extended-terms { margin-bottom: 10px; }
         .terms-title { font-size: 9px; font-weight: 700; margin-bottom: 5px; }
         .term { margin-bottom: 5px; }
         .term-en { font-weight: 600; }
@@ -78,15 +79,19 @@
     $arClass = $isPdf ? 'arabic-pdf' : 'arabic';
     $termsEn = preg_split('/\R/u', trim((string) $invoice->terms_en_snapshot)) ?: [];
     $termsAr = preg_split('/\R/u', trim((string) $invoice->terms_ar_snapshot)) ?: [];
-    $termCount = max(count($termsEn), count($termsAr));
+    $renewedTermsEn = preg_split('/\R/u', trim((string) $invoice->renewed_terms_en_snapshot)) ?: [];
+    $renewedTermsAr = preg_split('/\R/u', trim((string) $invoice->renewed_terms_ar_snapshot)) ?: [];
+    $termsLayoutUnits = collect([...$termsEn, ...$termsAr, ...$renewedTermsEn, ...$renewedTermsAr])
+        ->sum(fn ($line): int => filled($line) ? max(1, (int) ceil(mb_strlen($line) / 50)) : 0);
+    $usesExtendedTerms = $termsLayoutUnits > 24;
     $vatDivisor = bcadd('1', bcdiv((string) $invoice->vat_rate, '100', 8), 8);
     $itemLayoutUnits = $invoice->items->sum(
         fn ($item): int => max(1, (int) ceil(mb_strlen((string) $item->description) / 72)),
     );
-    $usesBottomFooter = $invoice->items->count() <= 3 && $itemLayoutUnits <= 3;
+    $usesBottomFooter = $invoice->items->count() <= 3 && $itemLayoutUnits <= 3 && ! $usesExtendedTerms;
     $verificationHeightMm = ($qrCodeDataUri ?? null) ? 36 : 0;
-    $footerSpacerMm = $usesBottomFooter ? 0 : max(0, 72 - (max(0, $itemLayoutUnits - 1) * 8) - $verificationHeightMm);
-    $usesLongLayout = ! $usesBottomFooter && $footerSpacerMm === 0;
+    $footerSpacerMm = ($usesBottomFooter || $usesExtendedTerms) ? 0 : max(0, 72 - (max(0, $itemLayoutUnits - 1) * 8) - $verificationHeightMm);
+    $usesLongLayout = ! $usesBottomFooter && ! $usesExtendedTerms && $footerSpacerMm === 0;
 @endphp
 
 <div class="document-page{{ $usesBottomFooter ? ' bottom-footer' : '' }}">
@@ -129,6 +134,9 @@
         <td class="bill-to">
             <div class="section-label">BILL TO / <span class="{{ $arClass }}">{{ $ar('إلى') }}</span></div>
             <div class="company-name">{{ $invoice->customer_name }}</div>
+            @if(filled($invoice->customer_phone))
+                <div class="customer-phone">Phone: {{ $invoice->customer_phone }}</div>
+            @endif
             <div>{{ $invoice->customer_address }}</div>
             @if(filled($invoice->customer_trn))
                 <div class="trn">Customer TRN: {{ $invoice->customer_trn }}</div>
@@ -168,22 +176,17 @@
 </table>
 
 <div class="closing-section{{ $usesLongLayout ? ' long-layout' : '' }}">
+@if($usesExtendedTerms)
+    <div class="extended-terms">
+        @include('invoices.partials.tax-invoice-terms')
+    </div>
+@endif
 <table class="summary-layout">
     <tr>
         <td>
-            <div class="terms">
-                <div class="terms-title">Terms &amp; Conditions (<span class="{{ $arClass }}">{{ $ar('الشروط والأحكام') }}</span>)</div>
-                @for($index = 0; $index < $termCount; $index++)
-                    <div class="term">
-                        @if(filled($termsEn[$index] ?? null))
-                            <div class="term-en">• {{ $termsEn[$index] }}</div>
-                        @endif
-                        @if(filled($termsAr[$index] ?? null))
-                            <div class="term-ar {{ $arClass }}">{{ $ar($termsAr[$index]) }}</div>
-                        @endif
-                    </div>
-                @endfor
-            </div>
+            @unless($usesExtendedTerms)
+                @include('invoices.partials.tax-invoice-terms')
+            @endunless
             @if($qrCodeDataUri ?? null)
                 <div class="verification">
                     <div class="verification-caption">Verify Invoice Authenticity</div>

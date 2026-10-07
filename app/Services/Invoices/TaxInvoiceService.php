@@ -3,7 +3,9 @@
 namespace App\Services\Invoices;
 
 use App\Enums\InvoicePermission;
+use App\Enums\ProductCondition;
 use App\Enums\ProductTitleMode;
+use App\Enums\TaxInvoiceTermsProfile;
 use App\Models\TaxInvoice;
 use App\Models\User;
 use App\Services\ActivityLogger;
@@ -22,11 +24,14 @@ class TaxInvoiceService
     {
         $this->authorization->authorize($actor, InvoicePermission::Create);
         $data['title_mode'] ??= ProductTitleMode::Auto->value;
+        $data['terms_profile'] ??= TaxInvoiceTermsProfile::Auto->value;
         $validated = validator($data, [
             'customer_name' => ['required', 'string', 'max:255'], 'customer_address' => ['required', 'string', 'max:2000'],
-            'customer_trn' => ['nullable', 'string', 'max:50'], 'order_reference' => ['required', 'string', 'max:100'],
+            'customer_trn' => ['nullable', 'string', 'max:50'],
+            'customer_phone' => ['nullable', 'string', 'max:40'], 'order_reference' => ['required', 'string', 'max:100'],
             'source_order_id' => ['nullable', 'integer'],
             'title_mode' => ['required', Rule::enum(ProductTitleMode::class)],
+            'terms_profile' => ['required', Rule::enum(TaxInvoiceTermsProfile::class)],
             'invoice_date' => ['required', 'date'], 'idempotency_key' => ['required', 'uuid'], 'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.description' => ['required', 'string', 'max:2000'], 'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.unit_price_including_vat' => ['required', 'decimal:0,2', 'gt:0'],
@@ -35,6 +40,7 @@ class TaxInvoiceService
         if ($existing = TaxInvoice::query()->where('idempotency_key', $validated['idempotency_key'])->first()) {
             return $existing;
         }
+        $source = null;
         if (filled($validated['source_order_id'] ?? null)) {
             $source = $this->orderImport->authorizedOrder($actor, (int) $validated['source_order_id']);
             if ($source === null) {
@@ -49,19 +55,27 @@ class TaxInvoiceService
         } elseif (collect($validated['items'])->contains(fn (array $item): bool => filled($item['source_order_item_id'] ?? null))) {
             throw ValidationException::withMessages(['source_order_id' => 'Select an Order before linking its items.']);
         }
+        $termsProfile = TaxInvoiceTermsProfile::from($validated['terms_profile']);
+        $includesRenewedTerms = $termsProfile === TaxInvoiceTermsProfile::Renewed
+            || ($termsProfile === TaxInvoiceTermsProfile::Auto
+                && $source?->items->contains(fn ($item): bool => $item->product?->condition === ProductCondition::Renewed));
+        $includesStandardTerms = ! $includesRenewedTerms;
         $settings = $this->settings->settings();
         $profile = $this->company->snapshot();
         $number = $this->references->nextTaxInvoiceNumber($settings->invoice_prefix, (int) $settings->starting_number);
         $totals = $this->calculateTotals($validated['items'], (string) $settings->vat_rate);
         ['vat_rate' => $vatRate, 'divisor' => $divisor, 'grand_total' => $gross, 'subtotal' => $net, 'vat' => $vat] = $totals;
 
-        return DB::transaction(function () use ($validated, $actor, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor): TaxInvoice {
+        return DB::transaction(function () use ($validated, $actor, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms): TaxInvoice {
             $invoice = TaxInvoice::query()->create([
                 'invoice_number' => $number, 'order_reference' => $validated['order_reference'] ?? null, 'source_order_id' => $validated['source_order_id'] ?? null, 'invoice_date' => $validated['invoice_date'],
-                'title_mode' => $validated['title_mode'],
+                'title_mode' => $validated['title_mode'], 'terms_profile' => $validated['terms_profile'],
+                'customer_phone' => filled($validated['customer_phone'] ?? null) ? trim($validated['customer_phone']) : null,
                 'customer_name' => trim($validated['customer_name']), 'customer_address' => $validated['customer_address'] ?? null, 'customer_trn' => $validated['customer_trn'] ?? null,
                 'vat_rate' => $vatRate, 'subtotal_excluding_vat' => $net, 'vat_amount' => $vat, 'grand_total' => $gross,
-                'seller_snapshot' => $profile, 'terms_en_snapshot' => $settings->terms_en, 'terms_ar_snapshot' => $settings->terms_ar,
+                'seller_snapshot' => $profile, 'terms_en_snapshot' => $includesStandardTerms ? $settings->terms_en : '', 'terms_ar_snapshot' => $includesStandardTerms ? $settings->terms_ar : null,
+                'renewed_terms_en_snapshot' => $includesRenewedTerms ? $settings->renewed_terms_en : null,
+                'renewed_terms_ar_snapshot' => $includesRenewedTerms ? $settings->renewed_terms_ar : null,
                 'status' => 'issued', 'created_by_user_id' => $actor->id, 'issued_at' => now(), 'idempotency_key' => $validated['idempotency_key'],
                 'verification_token' => bin2hex(random_bytes(32)),
             ]);
@@ -108,6 +122,7 @@ class TaxInvoiceService
         $validated = validator($data, [
             'customer_name' => ['required', 'string', 'max:255'],
             'customer_trn' => ['nullable', 'string', 'max:50'],
+            'customer_phone' => ['nullable', 'string', 'max:40'],
             'customer_address' => ['required', 'string', 'max:2000'],
             'amendment_reason' => ['required', 'string', 'max:2000'],
         ])->validate();
@@ -126,11 +141,15 @@ class TaxInvoiceService
 
             $previous = [
                 'customer_name' => $locked->customer_name,
+                'customer_phone' => $locked->customer_phone,
                 'customer_trn' => $locked->customer_trn,
                 'customer_address' => $locked->customer_address,
             ];
             $updated = [
                 'customer_name' => trim($validated['customer_name']),
+                'customer_phone' => array_key_exists('customer_phone', $validated)
+                    ? (filled($validated['customer_phone']) ? trim($validated['customer_phone']) : null)
+                    : $locked->customer_phone,
                 'customer_trn' => filled($validated['customer_trn'] ?? null) ? trim($validated['customer_trn']) : null,
                 'customer_address' => trim($validated['customer_address']),
                 'updated_at' => now(),
@@ -144,6 +163,8 @@ class TaxInvoiceService
                 'invoice_reference' => $locked->invoice_number,
                 'previous_customer_name' => $previous['customer_name'],
                 'new_customer_name' => $locked->customer_name,
+                'previous_customer_phone' => $previous['customer_phone'],
+                'new_customer_phone' => $locked->customer_phone,
                 'previous_customer_trn' => $previous['customer_trn'],
                 'new_customer_trn' => $locked->customer_trn,
                 'previous_customer_address' => $previous['customer_address'],

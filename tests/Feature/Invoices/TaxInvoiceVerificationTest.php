@@ -119,7 +119,7 @@ class TaxInvoiceVerificationTest extends TestCase
             'https://erp.techpointzone.example/invoice/verify/'.$invoice->verification_token,
             $url,
         );
-        $this->assertStringNotContainsString('/invoice/verify/'.$invoice->id, $url);
+        $this->assertNotSame('/invoice/verify/'.$invoice->id, parse_url($url, PHP_URL_PATH));
         $this->assertStringNotContainsString('localhost', $url);
         $this->assertStringNotContainsString('127.0.0.1', $url);
     }

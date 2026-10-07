@@ -84,7 +84,7 @@ class TaxInvoiceOrderImportService
                     ->select(['id', 'order_id', 'product_id', 'product_name', 'ordered_quantity', 'selling_price', 'line_total', 'line_number'])
                     ->with([
                         'upgradeSelection:id,order_item_id,configuration_snapshot',
-                        'product:id,sku,name,brand,brand_id,category,category_id,model,processor,processor_class,processor_model,processor_generation,ram,storage,screen_size,graphics,color,touch_screen,is_convertible_360,accounting_title_override,website_title_override',
+                        'product:id,sku,name,condition,brand,brand_id,category,category_id,model,processor,processor_class,processor_model,processor_generation,ram,storage,screen_size,graphics,color,touch_screen,is_convertible_360,accounting_title_override,website_title_override',
                         'product.brandRelation:id,name,status', 'product.categoryRelation:id,name,status',
                         'product.marketplaceListings:id,product_id,marketplace_platform_id,listing_title',
                     ])])

@@ -19,6 +19,7 @@ class EditQuotation extends EditRecord
     {
         $instructions = app(QuotationSourcingService::class)->formInstructions($this->record, auth()->user());
         $data['items'] = $this->record->items->map(fn ($item) => [
+            'quotation_item_id' => $item->id,
             ...$item->only([
                 'source_type', 'product_id', 'description', 'manual_brand_id', 'manual_category_id',
                 'manual_condition', 'quantity', 'unit_price_including_vat', 'discount_amount', 'vat_rate',

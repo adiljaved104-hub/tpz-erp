@@ -12,7 +12,9 @@ use App\Enums\QuotationPermission;
 use App\Enums\QuotationStatus;
 use App\Exceptions\ImmutableInventoryRecordException;
 use App\Filament\Resources\Quotations\Pages\CreateQuotation;
+use App\Filament\Resources\Quotations\Pages\EditQuotation;
 use App\Filament\Resources\Quotations\Pages\ViewQuotation;
+use App\Filament\Resources\Quotations\QuotationResource;
 use App\Models\CompanyProfile;
 use App\Models\Employee;
 use App\Models\MarketplacePlatform;
@@ -21,12 +23,14 @@ use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Quotation;
 use App\Models\QuotationSourcingPosting;
+use App\Models\ResponsibilityAssignment;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Inventory\InventoryService;
 use App\Services\Orders\OrderFulfillmentLocationService;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Orders\OrderUpgradeService;
 use App\Services\Orders\WebSalesReadService;
 use App\Services\Quotations\QuotationConversionService;
@@ -564,33 +568,155 @@ class QuotationSourcingTest extends TestCase
         }
     }
 
-    public function test_manual_sourcing_requires_cost_permissions_and_cannot_escape_responsibility_scope(): void
+    public function test_manual_customer_quote_is_separate_from_sourcing_authority_and_internal_fields_are_rejected(): void
     {
-        $admin = $this->actor(EmployeeRole::Admin);
-        app(EmployeePermissionOverrideService::class)->change(
-            $admin->employee,
-            QuotationPermission::ViewSourceCost->value,
-            EmployeePermissionEffect::Deny,
-            'Test manual cost denial',
-            $this->owner,
-        );
-        $this->expectException(AuthorizationException::class);
-        app(QuotationService::class)->create($this->manualData(), $admin);
+        $staff = $this->actor(EmployeeRole::Staff);
+        $this->assertFalse(app(QuotationSourcingService::class)->canManageManualProducts($staff));
+        $quote = app(QuotationService::class)->create($this->salespersonManualData(), $staff);
+        $this->assertSame(QuotationItemSourceType::ManualSourced, $quote->items->sole()->source_type);
+        $this->assertDatabaseCount('quotation_item_sourcing_instructions', 0);
+
+        try {
+            app(QuotationService::class)->create($this->manualData(), $staff);
+            $this->fail('A user without source-cost authorization submitted internal sourcing data.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('items.0.purchase_unit_cost', $exception->errors());
+            $this->assertArrayHasKey('items.0.source_note', $exception->errors());
+            $this->assertDatabaseCount('quotation_item_sourcing_instructions', 0);
+        }
     }
 
-    public function test_responsibility_scoped_user_with_sourcing_permissions_still_cannot_create_manual_line(): void
+    public function test_staff_can_create_manual_quote_without_cost_and_cannot_view_or_forge_sourcing_fields(): void
+    {
+        $staff = $this->actor(EmployeeRole::Staff);
+        $this->actingAs($staff);
+        $this->assertTrue(QuotationResource::manualSourceAllowed());
+
+        Livewire::actingAs($staff)->test(CreateQuotation::class)
+            ->fillForm($this->salespersonManualData())
+            ->assertSet('data.items.0.source_type', QuotationItemSourceType::ManualSourced->value)
+            ->assertSee('Product Name / Description')
+            ->assertDontSee('Purchase Cost per Unit')
+            ->assertDontSee('Source / Supplier Note')
+            ->assertDontSee('Estimated Gross Profit')
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $quote = Quotation::query()->sole()->load('items');
+        $this->assertSame(QuotationItemSourceType::ManualSourced, $quote->items->sole()->source_type);
+        $this->assertNull($quote->items->sole()->product_id);
+        $this->assertDatabaseCount('quotation_item_sourcing_instructions', 0);
+
+        foreach ([
+            ['purchase_unit_cost' => '123.4567'],
+            ['source_note' => 'TAMPERED-SUPPLIER-NOTE'],
+            ['source_inventory' => true],
+        ] as $tamperedFields) {
+            $data = $this->salespersonManualData();
+            $data['idempotency_key'] = (string) Str::uuid();
+            $data['items'][0] = [...$data['items'][0], ...$tamperedFields];
+
+            try {
+                app(QuotationService::class)->create($data, $staff);
+                $this->fail('Unauthorized internal sourcing fields were accepted.');
+            } catch (ValidationException $exception) {
+                $field = array_key_first($tamperedFields);
+                $this->assertArrayHasKey("items.0.{$field}", $exception->errors());
+                $this->assertDatabaseCount('quotation_item_sourcing_instructions', 0);
+            }
+        }
+    }
+
+    public function test_responsibility_scoped_salesperson_can_create_manual_quote_but_cannot_add_sourcing_details(): void
     {
         $staff = $this->actor(EmployeeRole::Staff);
         foreach ([QuotationPermission::SourceInventory, QuotationPermission::ViewSourceCost] as $permission) {
             app(EmployeePermissionOverrideService::class)->change($staff->employee, $permission->value, EmployeePermissionEffect::Allow, 'Test manual scope', $this->owner);
         }
+        ResponsibilityAssignment::factory()->for($staff->employee)->create();
+
+        $this->assertTrue(app(OrderResponsibilityScopeService::class)->requiresScope($staff));
+        $quote = app(QuotationService::class)->create($this->salespersonManualData(), $staff);
+        $this->assertSame(QuotationItemSourceType::ManualSourced, $quote->items->sole()->source_type);
+        $this->assertDatabaseCount('quotation_item_sourcing_instructions', 0);
 
         try {
             app(QuotationService::class)->create($this->manualData(), $staff);
-            $this->fail('Responsibility-scoped actor materialized an unassigned Product.');
+            $this->fail('A Responsibility-scoped salesperson configured an unassigned manual Product for sourcing.');
         } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('items.0.source_type', $exception->errors());
-            $this->assertDatabaseCount('quotations', 0);
+            $this->assertArrayHasKey('items.0.purchase_unit_cost', $exception->errors());
+            $this->assertDatabaseCount('quotation_item_sourcing_instructions', 0);
+        }
+    }
+
+    public function test_sourcing_user_can_configure_manual_line_later_and_salesperson_edit_preserves_private_instruction(): void
+    {
+        $staff = $this->actor(EmployeeRole::Staff);
+        $service = app(QuotationService::class);
+        $quote = $service->create($this->salespersonManualData(), $staff);
+        $lineId = $quote->items->sole()->id;
+
+        $adminData = $this->manualData();
+        $adminData['items'][0]['quotation_item_id'] = $lineId;
+        $adminData['items'][0]['purchase_unit_cost'] = '444.1234';
+        $adminData['items'][0]['source_note'] = 'CONFIDENTIAL-SOURCING-INSTRUCTION';
+        $quote = $service->updateDraft($quote, $adminData, $this->actor(EmployeeRole::Admin));
+        $instruction = $quote->items->sole()->sourcingInstruction()->firstOrFail();
+        $instructionId = $instruction->id;
+
+        Livewire::actingAs($staff)->test(EditQuotation::class, ['record' => $quote->id])
+            ->assertSuccessful()
+            ->assertDontSee('Purchase Cost per Unit')
+            ->assertDontSee('Source / Supplier Note')
+            ->assertDontSee('444.1234')
+            ->assertDontSee('CONFIDENTIAL-SOURCING-INSTRUCTION');
+        $this->assertSame([], app(QuotationSourcingService::class)->formInstructions($quote, $staff));
+
+        $staffData = $this->salespersonManualData();
+        $staffData['items'][0]['quotation_item_id'] = $quote->items->sole()->id;
+        $staffData['items'][0]['description'] = 'Updated customer-facing laptop description';
+        $staffData['items'][0]['unit_price_including_vat'] = '710.00';
+        $quote = $service->updateDraft($quote, $staffData, $staff)->load('items.sourcingInstruction');
+        $preserved = $quote->items->sole()->sourcingInstruction;
+
+        $this->assertSame($instructionId, $preserved->id);
+        $this->assertSame('444.1234', (string) $preserved->purchase_unit_cost);
+        $this->assertSame('CONFIDENTIAL-SOURCING-INSTRUCTION', $preserved->source_note);
+        $this->assertDatabaseCount('quotation_item_sourcing_instructions', 1);
+
+        $service->transition($quote, QuotationStatus::Sent, $this->owner);
+        $quote = $service->transition($quote->fresh(), QuotationStatus::Accepted, $this->owner)->load('items');
+        $order = $this->convert($quote);
+        $this->assertSame($quote->items->sole()->id, $order->items->sole()->quotation_item_id);
+        $this->assertDatabaseCount('quotation_sourcing_postings', 1);
+        $this->assertNotNull($quote->items->sole()->refresh()->materialized_product_id);
+    }
+
+    public function test_manual_customer_quote_cannot_convert_to_invoice_or_order_until_sourcing_is_configured(): void
+    {
+        $staff = $this->actor(EmployeeRole::Staff);
+        $quote = app(QuotationService::class)->create($this->salespersonManualData(), $staff);
+        app(QuotationService::class)->transition($quote, QuotationStatus::Sent, $this->owner);
+        $quote = app(QuotationService::class)->transition($quote->fresh(), QuotationStatus::Accepted, $this->owner)->load('items');
+        $beforeProducts = Product::query()->count();
+
+        try {
+            app(QuotationConversionService::class)->toInvoice($quote, $this->owner);
+            $this->fail('An unsourced manual quotation converted directly to a Tax Invoice.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('conversion', $exception->errors());
+        }
+
+        try {
+            $this->convert($quote);
+            $this->fail('An unsourced manual quotation converted to an Order.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('items', $exception->errors());
+            $this->assertSame($beforeProducts, Product::query()->count());
+            $this->assertNull($quote->items->sole()->refresh()->materialized_product_id);
+            $this->assertNull($quote->refresh()->order_id);
+            $this->assertDatabaseCount('quotation_sourcing_postings', 0);
+            $this->assertDatabaseCount('orders', 0);
         }
     }
 
@@ -862,6 +988,14 @@ class QuotationSourcingTest extends TestCase
             'idempotency_key' => (string) Str::uuid(),
             'items' => [[...$this->manualLine(), ...$line]],
         ];
+    }
+
+    private function salespersonManualData(array $line = []): array
+    {
+        $data = $this->manualData($line);
+        unset($data['items'][0]['purchase_unit_cost'], $data['items'][0]['source_note'], $data['items'][0]['source_inventory']);
+
+        return $data;
     }
 
     private function manualLine(): array

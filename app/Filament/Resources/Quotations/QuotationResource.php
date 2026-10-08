@@ -217,9 +217,14 @@ class QuotationResource extends Resource
                                 ->afterStateUpdated(function ($state, Set $set): void {
                                     if ($state === QuotationItemSourceType::ManualSourced->value) {
                                         $set('product_id', null);
-                                        $set('source_inventory', true);
+                                        $set('source_inventory', false);
+                                        $set('purchase_unit_cost', null);
+                                        $set('source_note', null);
                                         $set('manual_condition', ProductCondition::New->value);
                                     } else {
+                                        $set('source_inventory', false);
+                                        $set('purchase_unit_cost', null);
+                                        $set('source_note', null);
                                         $set('manual_brand_id', null);
                                         $set('manual_category_id', null);
                                         $set('manual_model', null);
@@ -227,6 +232,8 @@ class QuotationResource extends Resource
                                     }
                                 })
                                 ->columnSpanFull(),
+
+                            Hidden::make('quotation_item_id')->dehydrated(),
 
                             Select::make('product_id')
                                 ->label('Product')
@@ -320,18 +327,18 @@ class QuotationResource extends Resource
                             Placeholder::make('planned_sourced_quantity')
                                 ->label('Planned Sourced Qty (estimate)')
                                 ->content(fn (Get $get) => (string) ($get('source_type') === QuotationItemSourceType::ManualSourced->value ? max(0, (int) $get('quantity')) : (self::lineAvailability($get)['missing'] ?? 0)))
-                                ->visible(fn (Get $get) => self::canSource() && ($get('source_type') === QuotationItemSourceType::ManualSourced->value || (bool) $get('source_inventory')))
+                                ->visible(fn (Get $get) => self::canConfigureSourcingForLine($get) && ($get('source_type') === QuotationItemSourceType::ManualSourced->value || (bool) $get('source_inventory')))
                                 ->columnSpan(['default' => 1, 'md' => 3]),
                             TextInput::make('purchase_unit_cost')
                                 ->label('Purchase Cost per Unit')->prefix('AED')->numeric()->minValue('0.0001')
                                 ->live(debounce: 400)
-                                ->required(fn (Get $get) => $get('source_type') === QuotationItemSourceType::ManualSourced->value || ((bool) $get('source_inventory') && (self::lineAvailability($get)['missing'] ?? 0) > 0))
-                                ->visible(fn (Get $get) => self::canSource() && ($get('source_type') === QuotationItemSourceType::ManualSourced->value || (bool) $get('source_inventory')))
-                                ->dehydrated(fn () => self::canSource())->columnSpan(['default' => 1, 'md' => 3]),
+                                ->required(fn (Get $get) => self::canConfigureSourcingForLine($get) && ($get('source_type') === QuotationItemSourceType::ManualSourced->value || ((bool) $get('source_inventory') && (self::lineAvailability($get)['missing'] ?? 0) > 0)))
+                                ->visible(fn (Get $get) => self::canConfigureSourcingForLine($get) && ($get('source_type') === QuotationItemSourceType::ManualSourced->value || (bool) $get('source_inventory')))
+                                ->dehydrated(fn (Get $get) => self::canConfigureSourcingForLine($get))->columnSpan(['default' => 1, 'md' => 3]),
                             TextInput::make('source_note')
                                 ->label('Source / Supplier Note')->maxLength(1000)
-                                ->visible(fn (Get $get) => self::canSource() && ($get('source_type') === QuotationItemSourceType::ManualSourced->value || (bool) $get('source_inventory')))
-                                ->dehydrated(fn () => self::canSource())->columnSpan(['default' => 1, 'md' => 6]),
+                                ->visible(fn (Get $get) => self::canConfigureSourcingForLine($get) && ($get('source_type') === QuotationItemSourceType::ManualSourced->value || (bool) $get('source_inventory')))
+                                ->dehydrated(fn (Get $get) => self::canConfigureSourcingForLine($get))->columnSpan(['default' => 1, 'md' => 6]),
 
                             Placeholder::make('internal_margin_estimate')
                                 ->label('Estimated Gross Profit (internal)')
@@ -1066,10 +1073,26 @@ class QuotationResource extends Resource
         return auth()->user() instanceof User && app(QuotationSourcingService::class)->canManage(auth()->user());
     }
 
-    private static function manualSourceAllowed(): bool
+    private static function canConfigureSourcingForLine(Get $get): bool
     {
-        return auth()->user() instanceof User
-            && app(QuotationSourcingService::class)->canManageManualProducts(auth()->user());
+        $user = auth()->user();
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        $sourcing = app(QuotationSourcingService::class);
+
+        return $get('source_type') === QuotationItemSourceType::ManualSourced->value
+            ? $sourcing->canManageManualProducts($user)
+            : $sourcing->canManage($user);
+    }
+
+    public static function manualSourceAllowed(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && (self::allowed(QuotationPermission::Create) || self::allowed(QuotationPermission::Update));
     }
 
     public static function canConvertDirectlyToInvoice(Quotation $quotation): bool

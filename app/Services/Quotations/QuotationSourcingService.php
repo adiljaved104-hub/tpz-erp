@@ -131,13 +131,30 @@ class QuotationSourcingService
         $instructions = [];
         foreach ($lines as $key => $line) {
             $manual = ($line['source_type'] ?? QuotationItemSourceType::ExistingProduct->value) === QuotationItemSourceType::ManualSourced->value;
+            $canManageManual = $manual && $this->canManageManualProducts($actor, $quotation);
+            $hasInternalInput = ! empty($line['source_inventory'])
+                || filled($line['purchase_unit_cost'] ?? null)
+                || filled($line['source_note'] ?? null);
+
+            if ($manual && ! $canManageManual) {
+                if ($hasInternalInput) {
+                    $message = 'Only authorized sourcing users may submit internal sourcing details.';
+                    $errors = [];
+                    foreach (['source_inventory', 'purchase_unit_cost', 'source_note'] as $field) {
+                        if (($field === 'source_inventory' && ! empty($line[$field])) || filled($line[$field] ?? null)) {
+                            $errors["items.{$key}.{$field}"] = $message;
+                        }
+                    }
+
+                    throw ValidationException::withMessages($errors);
+                }
+
+                // A manual quotation line is customer-facing data, not an instruction to source stock.
+                continue;
+            }
+
             if ($manual || ! empty($line['source_inventory']) || filled($line['purchase_unit_cost'] ?? null) || filled($line['source_note'] ?? null)) {
                 $this->authorizeManage($actor, $quotation);
-            }
-            if ($manual && $this->scope->requiresScope($actor)) {
-                throw ValidationException::withMessages([
-                    "items.{$key}.source_type" => 'Manual sourced Products are unavailable under Responsibility-scoped access.',
-                ]);
             }
             if (! $manual && empty($line['source_inventory'])) {
                 continue;

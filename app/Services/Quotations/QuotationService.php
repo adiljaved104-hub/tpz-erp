@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductCategory;
 use App\Models\Quotation;
+use App\Models\QuotationItem;
 use App\Models\QuotationItemSourcingInstruction;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -97,18 +98,108 @@ class QuotationService
             if ($locked->effectiveStatus() === QuotationStatus::Expired && Carbon::parse($validated['valid_until'])->startOfDay()->isBefore(today())) {
                 throw ValidationException::withMessages(['valid_until' => 'This quotation has expired. Set Valid Until to today or a future date to renew it.']);
             }
-            $existingInstructions = QuotationItemSourcingInstruction::query()->whereIn('quotation_item_id', $locked->items()->select('id'));
-            if ((clone $existingInstructions)->exists()) {
-                $this->sourcing->authorizeManage($actor, $locked);
-                $existingInstructions->get(['id', 'quotation_item_id'])->each->delete();
+
+            $existingItems = $locked->items()->with('sourcingInstruction')->lockForUpdate()->get()->keyBy('id');
+            $submittedItemIds = collect($validated['items'])
+                ->pluck('quotation_item_id')
+                ->filter()
+                ->map(fn ($id): int => (int) $id);
+
+            if ($submittedItemIds->duplicates()->isNotEmpty()) {
+                throw ValidationException::withMessages(['items' => 'A quotation line cannot be submitted more than once.']);
             }
+
+            $existingItemsByIndex = [];
+            $existingInstructionsByIndex = [];
+            $preserveInstructionIndices = [];
+            $matchedInstructionIds = [];
+            foreach ($validated['items'] as $index => $line) {
+                $itemId = (int) ($line['quotation_item_id'] ?? 0);
+                if ($itemId === 0) {
+                    continue;
+                }
+
+                /** @var QuotationItem|null $existingItem */
+                $existingItem = $existingItems->get($itemId);
+                if ($existingItem === null) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.quotation_item_id" => 'This quotation line is not part of the quotation being edited.',
+                    ]);
+                }
+
+                $existingItemsByIndex[$index] = $existingItem;
+
+                $existingInstruction = $existingItem->sourcingInstruction;
+                if ($existingInstruction === null) {
+                    continue;
+                }
+
+                $matchedInstructionIds[] = $existingInstruction->id;
+                $canManageInstruction = $this->sourcing->canManage($actor, $locked)
+                    && ($existingItem->source_type !== QuotationItemSourceType::ManualSourced
+                        || $this->sourcing->canManageManualProducts($actor, $locked));
+                $identityChanged = $existingItem->source_type->value !== $line['source_type']
+                    || ($existingItem->source_type === QuotationItemSourceType::ExistingProduct
+                        && (int) $existingItem->product_id !== (int) ($line['product_id'] ?? 0));
+
+                if ($identityChanged && ! $canManageInstruction) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.source_type" => 'Only an authorized sourcing user may change a quotation line that has a sourcing instruction.',
+                    ]);
+                }
+
+                $existingInstructionsByIndex[$index] = $existingInstruction;
+                $explicitlyDisabled = $existingItem->source_type !== QuotationItemSourceType::ManualSourced
+                    && array_key_exists('source_inventory', $line)
+                    && ! filter_var($line['source_inventory'], FILTER_VALIDATE_BOOLEAN);
+
+                if (! $canManageInstruction || (! $identityChanged && ! $explicitlyDisabled && ! isset($instructions[$index]))) {
+                    $preserveInstructionIndices[] = $index;
+                }
+            }
+
+            $itemsToDelete = [];
+            foreach ($existingItems as $existingItem) {
+                if ($submittedItemIds->contains((int) $existingItem->id)) {
+                    continue;
+                }
+
+                $existingInstruction = $existingItem->sourcingInstruction;
+                if ($existingInstruction !== null && ! in_array($existingInstruction->id, $matchedInstructionIds, true)) {
+                    $canManageInstruction = $this->sourcing->canManage($actor, $locked)
+                        && ($existingItem->source_type !== QuotationItemSourceType::ManualSourced
+                            || $this->sourcing->canManageManualProducts($actor, $locked));
+                    if (! $canManageInstruction) {
+                        throw ValidationException::withMessages([
+                            'items' => 'A quotation line with a sourcing instruction can only be removed by an authorized sourcing user.',
+                        ]);
+                    }
+                }
+
+                $itemsToDelete[] = $existingItem;
+            }
+
             $locked->forceFill([
                 ...collect($validated)->except(['items', 'idempotency_key'])->all(),
                 'subtotal_excluding_vat' => $priced['subtotal'], 'discount_total' => $priced['discount'],
                 'vat_amount' => $priced['vat'], 'grand_total' => $priced['grand'],
             ])->save();
-            $locked->items()->delete();
-            $this->storeItems($locked, $priced['lines'], $products, $catalog, $instructions);
+
+            $this->storeItems(
+                $locked,
+                $priced['lines'],
+                $products,
+                $catalog,
+                $instructions,
+                $existingItemsByIndex,
+                $existingInstructionsByIndex,
+                $preserveInstructionIndices,
+                $existingItems->values()->all(),
+            );
+            foreach ($itemsToDelete as $itemToDelete) {
+                $itemToDelete->sourcingInstruction?->delete();
+                $itemToDelete->delete();
+            }
             $this->activity->log('quotation.updated', $actor, $locked, ['quotation_reference' => $locked->reference, 'item_count' => count($priced['lines']), 'actor_id' => $actor->id]);
 
             return $locked->load('items');
@@ -164,7 +255,6 @@ class QuotationService
             $item['source_type'] ??= QuotationItemSourceType::ExistingProduct->value;
             if ($item['source_type'] === QuotationItemSourceType::ManualSourced->value) {
                 $item['product_id'] = null;
-                $item['source_inventory'] = true;
             }
 
             return $item;
@@ -179,6 +269,7 @@ class QuotationService
             'external_reference' => ['nullable', 'string', 'max:100'], 'notes' => ['nullable', 'string', 'max:4000'],
             'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.source_type' => ['required', Rule::enum(QuotationItemSourceType::class)],
+            'items.*.quotation_item_id' => $creating ? ['nullable', 'prohibited'] : ['nullable', 'integer'],
             'items.*.product_id' => ['nullable', 'integer', 'required_if:items.*.source_type,'.QuotationItemSourceType::ExistingProduct->value],
             'items.*.manual_brand_id' => ['nullable', 'integer', 'required_if:items.*.source_type,'.QuotationItemSourceType::ManualSourced->value, Rule::exists('product_brands', 'id')->where('status', true)],
             'items.*.manual_category_id' => ['nullable', 'integer', 'required_if:items.*.source_type,'.QuotationItemSourceType::ManualSourced->value, Rule::exists('product_categories', 'id')->where('status', true)],
@@ -249,14 +340,31 @@ class QuotationService
         ];
     }
 
-    private function storeItems(Quotation $quote, array $lines, $products, array $catalog, array $instructions = []): void
-    {
+    private function storeItems(
+        Quotation $quote,
+        array $lines,
+        $products,
+        array $catalog,
+        array $instructions = [],
+        array $existingItemsByIndex = [],
+        array $existingInstructionsByIndex = [],
+        array $preserveInstructionIndices = [],
+        array $existingItemsToRenumber = [],
+    ): void {
+        if ($existingItemsToRenumber !== []) {
+            $highestLineNumber = max(array_map(fn (QuotationItem $item): int => $item->line_number, $existingItemsToRenumber));
+            $temporaryLineNumber = $highestLineNumber + count($lines) + 100;
+            foreach ($existingItemsToRenumber as $index => $existingItem) {
+                $existingItem->forceFill(['line_number' => $temporaryLineNumber + $index])->save();
+            }
+        }
+
         foreach ($lines as $index => $line) {
             $manual = $line['source_type'] === QuotationItemSourceType::ManualSourced->value;
             $product = $manual ? null : $products->get($line['product_id']);
             $brand = $manual ? $catalog['brands']->get($line['manual_brand_id']) : null;
             $category = $manual ? $catalog['categories']->get($line['manual_category_id']) : null;
-            $item = $quote->items()->create([
+            $attributes = [
                 'source_type' => $line['source_type'],
                 'product_id' => $product?->id,
                 'sku' => $product?->sku,
@@ -276,9 +384,29 @@ class QuotationService
                 'vat_amount' => $line['vat_amount'],
                 'total_including_vat' => $line['total_including_vat'],
                 'line_number' => $line['line_number'],
-            ]);
+            ];
+            $item = $existingItemsByIndex[$index] ?? null;
+            if ($item instanceof QuotationItem) {
+                $item->forceFill($attributes)->save();
+            } else {
+                $item = $quote->items()->create($attributes);
+            }
+
+            $existingInstruction = $existingInstructionsByIndex[$index] ?? null;
             if (isset($instructions[$index])) {
-                $item->sourcingInstruction()->create($instructions[$index]);
+                if ($existingInstruction instanceof QuotationItemSourcingInstruction) {
+                    $existingInstruction->forceFill([
+                        ...$instructions[$index],
+                    ])->save();
+                } else {
+                    $item->sourcingInstruction()->create($instructions[$index]);
+                }
+            } elseif ($existingInstruction instanceof QuotationItemSourcingInstruction) {
+                if (in_array($index, $preserveInstructionIndices, true)) {
+                    continue;
+                } else {
+                    $existingInstruction->delete();
+                }
             }
         }
     }

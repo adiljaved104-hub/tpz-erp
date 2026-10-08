@@ -44,14 +44,10 @@ class MobileWorkspaceCapabilities
 {
     public function modules(User $user): array
     {
-        $qc = app(QcAuthorization::class)->allows($user, QcPermission::ViewDispatchQueue)
-            && app(OrderAuthorization::class)->allows($user, OrderPermission::View);
-        // Explicit Owner-controlled presentation mode. It never changes policies
-        // or grants access. Owner/Admin keep their normal broader workspace.
-        if ($qc && in_array($user->employee?->role, [EmployeeRole::Staff, EmployeeRole::Manager], true)
-            && app(QcAuthorization::class)->allows($user, QcPermission::FocusedWorkspace)) {
-            return [$this->module('qc', 'My QC Work / Dispatch', 'Renewed QC and physical unit dispatch', 'QC', true), $this->module('notifications', 'Notifications', 'Important ERP alerts', 'ALT', true)];
+        if ($this->isQcFocused($user)) {
+            return [$this->module('qc', 'My QC Work / Dispatch', 'Renewed QC and physical unit dispatch', 'QC', true)];
         }
+        $qc = $this->hasQcAccess($user);
         $inventory = app(InventoryAuthorization::class)->allows($user, InventoryPermission::View)
             || app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::ViewOwn);
         $stockRequests = app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests);
@@ -102,6 +98,27 @@ class MobileWorkspaceCapabilities
             $this->module('notifications', 'Notifications', 'Important ERP alerts', 'ALT', true),
             $this->module('chat', 'Chat', 'Direct and team conversations', 'CHAT', app(ChatAuthorization::class)->allows($user, ChatPermission::View)),
         ]));
+    }
+
+    public function isQcFocused(User $user): bool
+    {
+        // Explicit Owner-controlled presentation mode. It never changes policies
+        // or grants access. Owner/Admin keep their normal broader workspace.
+        return $this->hasQcAccess($user)
+            && in_array($user->employee?->role, [EmployeeRole::Staff, EmployeeRole::Manager], true)
+            && app(QcAuthorization::class)->allows($user, QcPermission::FocusedWorkspace);
+    }
+
+    private function hasQcDispatchAccess(User $user): bool
+    {
+        return app(QcAuthorization::class)->allows($user, QcPermission::ViewDispatchQueue)
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::View);
+    }
+
+    private function hasQcAccess(User $user): bool
+    {
+        return app(QcAuthorization::class)->allows($user, QcPermission::View)
+            || $this->hasQcDispatchAccess($user);
     }
 
     public function has(User $user, string $key): bool

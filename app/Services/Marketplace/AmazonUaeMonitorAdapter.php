@@ -40,7 +40,11 @@ class AmazonUaeMonitorAdapter implements MarketplaceMonitorAdapter
             }
 
             $response = Http::acceptJson()
-                ->withHeaders(['x-amz-access-token' => $accessToken])
+                ->withHeaders([
+                    'x-amz-access-token' => $accessToken,
+                    'x-amz-date' => CarbonImmutable::now('UTC')->format('Ymd\THis\Z'),
+                    'user-agent' => 'TPZ-ERP-Marketplace-Monitor/1.0 (Language=PHP/'.PHP_VERSION.')',
+                ])
                 ->timeout(15)
                 ->get(
                     rtrim((string) ($credentials['endpoint'] ?? ''), '/').'/products/pricing/v0/items/'.rawurlencode((string) $listing->marketplace_identifier).'/offers',

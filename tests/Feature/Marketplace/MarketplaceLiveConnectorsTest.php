@@ -162,6 +162,20 @@ class MarketplaceLiveConnectorsTest extends TestCase
         $adapter = app(AmazonUaeMonitorAdapter::class);
         $this->assertSame('rate_limited', $adapter->observe($listing, $connection)->sourceStatus);
         $this->assertSame('source_error', $adapter->observe($listing, $connection)->sourceStatus);
+        Http::assertSent(function ($request): bool {
+            if (! str_contains($request->url(), '/products/pricing/v0/items/')) {
+                return false;
+            }
+
+            $date = $request->header('x-amz-date')[0] ?? '';
+            $parsed = \DateTimeImmutable::createFromFormat('!Ymd\THis\Z', $date, new \DateTimeZone('UTC'));
+
+            return $request->hasHeader('x-amz-access-token', 'fake-token')
+                && preg_match('/^\d{8}T\d{6}Z$/', $date) === 1
+                && $parsed !== false
+                && $parsed->format('Ymd\THis\Z') === $date
+                && $request->hasHeader('user-agent', 'TPZ-ERP-Marketplace-Monitor/1.0 (Language=PHP/'.PHP_VERSION.')');
+        });
     }
 
     /** @return array{ProductMarketplaceListing, MarketplaceConnection} */

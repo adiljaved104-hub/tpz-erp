@@ -56,7 +56,7 @@
                                     <div><dt class="font-medium">Connection method</dt><dd>{{ str($connection->connection_type->value)->title() }}</dd></div>
                                     <div><dt class="font-medium">Position</dt><dd>{{ $fallbackPosition }} <span class="text-gray-400">(priority {{ $connection->priority }})</span></dd></div>
                                     <div><dt class="font-medium">Driver</dt><dd>{{ match($connection->driver) { 'amazon_sp_api' => 'Amazon SP-API', 'noon_api' => 'Noon API', 'carrefour_maf_api' => 'Carrefour / MAF API', 'sharafdg_browser' => 'Sharaf DG Browser Monitor', 'microless_browser' => 'Microless Browser Monitor', default => str($connection->driver)->replace('_', ' ')->title() } }}</dd></div>
-                                    <div><dt class="font-medium">Credentials</dt><dd>{{ $this->credentialsConfigured($connection) ? 'Configured' : 'Missing' }}</dd></div>
+                                    <div><dt class="font-medium">Credentials</dt><dd>{{ $this->credentialsConfigured($connection) ? 'Configured' : ($connection->driver === 'noon_api' ? 'Not Configured' : 'Missing') }}</dd></div>
                                     <div><dt class="font-medium">Last health check</dt><dd>{{ $connection->last_health_checked_at?->format('d M Y, h:i A') ?? 'Not checked yet' }}</dd></div>
                                     <div><dt class="font-medium">Last healthy</dt><dd>{{ $connection->last_healthy_at?->format('d M Y, h:i A') ?? 'Not yet' }}</dd></div>
                                     <div class="sm:col-span-2"><dt class="font-medium">Capabilities</dt><dd>{{ $connection->capabilities->pluck('capability.value')->map(fn ($capability) => str($capability)->replace('_', ' ')->title())->join(', ') ?: 'No capabilities configured' }}</dd></div>
@@ -68,6 +68,23 @@
                                         <div class="flex flex-wrap gap-2">@foreach(['featured_offer','orders','listing_status','stock_status','direct_product_check','product_search','event_webhook'] as $capability)<label class="text-xs"><input type="checkbox" wire:model="connectionSettings.{{ $connection->id }}.capabilities" value="{{ $capability }}"> {{ str($capability)->replace('_',' ')->title() }}</label>@endforeach</div>
                                         <x-filament::button type="submit" size="xs">Save Connection</x-filament::button>
                                     </form>
+                                @endif
+                                @if($canManage && $connection->driver === 'noon_api' && $connection->getRawOriginal('credential_reference') === 'noon_default')
+                                    <details class="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                                        <summary class="cursor-pointer font-medium">Configure Noon credentials</summary>
+                                        <p class="mt-2 text-xs text-gray-500">Leave Key ID, Project Code, or Private Key blank to keep the saved value. Leave Business Model blank to clear it. Saved values are never shown.</p>
+                                        <form wire:submit="saveNoonCredentials({{ $connection->id }})" class="mt-2 grid gap-2 sm:grid-cols-2">
+                                            <label class="text-xs">Key ID<input type="text" wire:model="noonCredentialForm.{{ $connection->id }}.key_id" autocomplete="off" maxlength="255" class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
+                                            <label class="text-xs">Project Code<input type="text" wire:model="noonCredentialForm.{{ $connection->id }}.project_code" autocomplete="off" maxlength="255" class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
+                                            <label class="text-xs sm:col-span-2">Private Key<textarea wire:model="noonCredentialForm.{{ $connection->id }}.private_key" autocomplete="new-password" rows="4" maxlength="20000" class="fi-input mt-1 w-full rounded-lg border-gray-300"></textarea></label>
+                                            <label class="text-xs sm:col-span-2">Business Model (optional)<input type="text" wire:model="noonCredentialForm.{{ $connection->id }}.business_model" autocomplete="off" maxlength="80" class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
+                                            <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
+                                                <x-filament::button type="submit" size="xs">Save Credentials</x-filament::button>
+                                                <x-filament::button type="button" size="xs" color="gray" wire:click="testNoonConnection({{ $connection->id }})">Test Connection</x-filament::button>
+                                                <span class="text-xs">Connection test: {{ $noonConnectionTestStatuses[$connection->id] ?? 'Not tested' }}</span>
+                                            </div>
+                                        </form>
+                                    </details>
                                 @endif
                                 @if($canManage)<x-filament::button size="xs" color="gray" class="mt-2" wire:click="toggleConnection({{ $connection->id }})">{{ $connection->enabled ? 'Disable' : 'Enable' }}</x-filament::button>@endif
                             </div>
@@ -94,7 +111,7 @@
                 </form>
             </x-filament::section>
 
-            <x-filament::section heading="Add connection" description="Credentials are configured through secure server-backed configuration. Secret values are never displayed.">
+            <x-filament::section heading="Add connection" description="Noon credentials can be configured securely after creating a Noon connection. Secret values are never displayed.">
                 <form wire:submit="createConnection" class="grid gap-3 sm:grid-cols-2">
                     <label class="text-sm">Account<select wire:model="connectionForm.marketplace_account_id" required class="fi-input mt-1 w-full rounded-lg border-gray-300"><option value="">Select</option>@foreach($accounts as $account)<option value="{{ $account->id }}">{{ $account->platform->name }} · {{ $account->name }}</option>@endforeach</select></label>
                     <label class="text-sm">Name<input wire:model="connectionForm.name" required class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>
@@ -103,7 +120,7 @@
                     @if(($connectionForm['driver_option'] ?? null) === 'custom')<label class="text-sm">Custom driver<input wire:model="connectionForm.driver" required class="fi-input mt-1 w-full rounded-lg border-gray-300" placeholder="Custom integration driver"></label>@endif
                     <label class="text-sm">Fallback position<select wire:model.live="connectionForm.priority_position" class="fi-input mt-1 w-full rounded-lg border-gray-300"><option value="primary">Primary</option><option value="fallback_1">Fallback 1</option><option value="fallback_2">Fallback 2</option><option value="custom">Advanced / custom priority</option></select></label>
                     @if(($connectionForm['priority_position'] ?? null) === 'custom')<label class="text-sm">Custom priority<input wire:model="connectionForm.priority" type="number" min="1" max="65535" required class="fi-input mt-1 w-full rounded-lg border-gray-300"></label>@endif
-                    <p class="text-xs text-gray-500 sm:col-span-2">Credentials are configured securely on the server. Secret values are never displayed here.</p>
+                    <p class="text-xs text-gray-500 sm:col-span-2">Noon credentials can be saved below after creating a connection. Secret values are never displayed here.</p>
                     <fieldset class="sm:col-span-2"><legend class="text-sm">Capabilities</legend><div class="mt-1 flex flex-wrap gap-3">@foreach(['featured_offer','orders','listing_status','stock_status','direct_product_check','product_search','event_webhook'] as $capability)<label class="text-sm"><input type="checkbox" wire:model="connectionForm.capabilities" value="{{ $capability }}"> {{ str($capability)->replace('_',' ')->title() }}</label>@endforeach</div></fieldset>
                     <x-filament::button type="submit" wire:loading.attr="disabled">Create Connection</x-filament::button>
                 </form>

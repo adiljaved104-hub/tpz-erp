@@ -12,6 +12,8 @@ use App\Services\Marketplace\MarketplaceCredentialReferenceService;
 use App\Services\Marketplace\MarketplaceIntegrationService;
 use App\Services\Marketplace\MarketplaceMonitoringSettingsService;
 use App\Services\Marketplace\MarketplaceOperationsSummaryService;
+use App\Services\Marketplace\NoonConnectionTester;
+use App\Services\Marketplace\NoonCredentialManagementService;
 use BackedEnum;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -40,6 +42,10 @@ class MarketplaceOperations extends Page
     public array $connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => false, 'credential_reference' => '', 'capabilities' => []];
 
     public array $connectionSettings = [];
+
+    public array $noonCredentialForm = [];
+
+    public array $noonConnectionTestStatuses = [];
 
     public static function canAccess(): bool
     {
@@ -103,6 +109,29 @@ class MarketplaceOperations extends Page
         ], $this->actor(), $connection);
         $this->loadConnectionSettings();
         Notification::make()->success()->title('Connection priority and capabilities saved')->send();
+    }
+
+    public function saveNoonCredentials(int $connectionId, NoonCredentialManagementService $service): void
+    {
+        $actor = $this->actor();
+        app(MarketplaceOperationsAuthorization::class)->authorize($actor, MarketplaceOperationsPermission::Manage);
+        $connection = MarketplaceConnection::query()->findOrFail($connectionId);
+
+        try {
+            $service->save($connection, $this->noonCredentialForm[$connectionId] ?? [], $actor);
+            unset($this->noonConnectionTestStatuses[$connectionId]);
+            Notification::make()->success()->title('Noon credentials saved')->send();
+        } finally {
+            $this->noonCredentialForm = [];
+        }
+    }
+
+    public function testNoonConnection(int $connectionId, NoonConnectionTester $tester): void
+    {
+        $actor = $this->actor();
+        app(MarketplaceOperationsAuthorization::class)->authorize($actor, MarketplaceOperationsPermission::Manage);
+        $connection = MarketplaceConnection::query()->findOrFail($connectionId);
+        $this->noonConnectionTestStatuses[$connectionId] = $tester->test($connection, $actor);
     }
 
     public function toggleAccount(int $accountId, MarketplaceIntegrationService $service): void

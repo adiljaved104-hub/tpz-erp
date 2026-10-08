@@ -11,6 +11,7 @@ class MobileManifest
 {
     public function forUser(User $user): array
     {
+        $focused = app(MobileWorkspaceCapabilities::class)->isQcFocused($user);
         $definitions = [
             'qc' => ['qc', null],
             'sales' => ['orders', Enums\OrderStatus::class, 'order-form', Authorization\OrderAuthorization::class, Enums\OrderPermission::Create],
@@ -52,13 +53,33 @@ class MobileManifest
                 $filters[] = ['name' => 'to', 'label' => 'To date', 'type' => 'date'];
             }
             if ($key === 'qc') {
+                $qcAuthorization = app(Authorization\QcAuthorization::class);
+                $orderAuthorization = app(Authorization\OrderAuthorization::class);
+                $inspections = $qcAuthorization->allows($user, Enums\QcPermission::View);
+                $dispatch = $qcAuthorization->allows($user, Enums\QcPermission::ViewDispatchQueue)
+                    && $orderAuthorization->allows($user, Enums\OrderPermission::View);
+                $scan = $dispatch
+                    && $qcAuthorization->allows($user, Enums\QcPermission::ScanDispatch)
+                    && $qcAuthorization->allows($user, Enums\QcPermission::ViewOrderAssignments)
+                    && $qcAuthorization->allows($user, Enums\QcPermission::AssignOrderDevice);
+                $ship = $dispatch && $qcAuthorization->allows($user, Enums\QcPermission::ShipDispatch)
+                    && $orderAuthorization->allows($user, Enums\OrderPermission::Fulfill);
                 $modules[] = [...$module, 'group' => 'Quality Control', 'order' => ($index + 1) * 10, 'renderer' => 'native',
-                    'api_path' => '/workspace/qc', 'create' => ['enabled' => false], 'features' => ['queue' => true, 'detail' => true],
-                    'capabilities' => ['pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}',
-                        'scan' => app(Authorization\QcAuthorization::class)->allows($user, Enums\QcPermission::ScanDispatch)
-                            && app(Authorization\QcAuthorization::class)->allows($user, Enums\QcPermission::ViewOrderAssignments)
-                            && app(Authorization\QcAuthorization::class)->allows($user, Enums\QcPermission::AssignOrderDevice),
-                        'ship' => app(Authorization\QcAuthorization::class)->allows($user, Enums\QcPermission::ShipDispatch) && app(Authorization\OrderAuthorization::class)->allows($user, Enums\OrderPermission::Fulfill), 'bulk_ship_limit' => 50]];
+                    'api_path' => '/workspace/qc', 'record_module' => 'qc', 'searchable' => false,
+                    'list' => ['pagination' => false, 'fields' => ['title', 'subtitle', 'meta', 'status']],
+                    'detail' => ['fields' => true, 'items' => true, 'history' => true],
+                    'create' => ['enabled' => false, 'renderer' => 'native', 'screen' => null],
+                    'edit' => ['source' => 'record.actions', 'record_authorization_required' => true],
+                    'filters' => [], 'statuses' => [], 'actions' => ['source' => 'record.actions'],
+                    'features' => ['queue' => $dispatch, 'detail' => $dispatch],
+                    'capabilities' => [
+                        'inspections' => $inspections,
+                        'dispatch' => $dispatch,
+                        'scan' => $scan,
+                        'ship' => $ship,
+                        'bulk_ship_limit' => $ship ? 50 : 0,
+                        'endpoints' => ['inspections' => '/workspace/qc/inspections', 'pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}'],
+                    ]];
 
                 continue;
             }
@@ -80,7 +101,13 @@ class MobileManifest
             ];
         }
 
-        return ['schema_version' => 1, 'minimum_runtime_version' => (int) config('mobile.minimum_runtime_version', 1), 'modules' => $modules];
+        return [
+            'schema_version' => 1,
+            'minimum_runtime_version' => (int) config('mobile.minimum_runtime_version', 1),
+            'workspace_mode' => $focused ? 'qc_focused' : 'default',
+            'landing_module' => $focused ? 'qc' : null,
+            'modules' => $modules,
+        ];
     }
 
     private function options(array $values): array

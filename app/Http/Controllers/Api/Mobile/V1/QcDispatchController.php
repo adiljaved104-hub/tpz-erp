@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
-use App\Enums\QcInspectionStatus;
+use App\Enums\OrderPermission;
 use App\Enums\QcPermission;
 use App\Exceptions\InvalidOrderTransitionException;
 use App\Models\Order;
+use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\BusinessTimezone;
-use App\Services\Qc\QcInspectionService;
+use App\Services\Qc\QcInspectionReadService;
 use App\Services\Qc\RenewedQcDispatchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,18 +17,33 @@ use Illuminate\Validation\ValidationException;
 
 class QcDispatchController extends MobileController
 {
-    public function home(Request $request, RenewedQcDispatchService $service): JsonResponse
+    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcAuthorization $qcAuthorization, OrderAuthorization $orderAuthorization): JsonResponse
     {
-        $service->authorizeQueue($request->user());
-        $clock = app(BusinessTimezone::class);
-        $today = $clock->date(now())->startOfDay();
-        $canViewInspections = app(QcAuthorization::class)->allows($request->user(), QcPermission::View);
-        $mine = $canViewInspections ? app(QcInspectionService::class)->visible($request->user())->where('technician_user_id', $request->user()->id) : null;
+        $actor = $request->user();
+        $canInspect = $qcAuthorization->allows($actor, QcPermission::View);
+        $canDispatch = $qcAuthorization->allows($actor, QcPermission::ViewDispatchQueue)
+            && $orderAuthorization->allows($actor, OrderPermission::View);
+        abort_unless($canInspect || $canDispatch, 403);
 
-        return response()->json(['data' => ['reserved_orders' => $service->queueQuery($request->user())->count(),
-            'my_in_progress' => $mine ? (clone $mine)->where('status', QcInspectionStatus::InProgress->value)->count() : 0,
-            'completed_today' => $mine ? (clone $mine)->where('status', QcInspectionStatus::Completed->value)->where('completed_at', '>=', $today->copy()->setTimezone('UTC'))->where('completed_at', '<', $today->copy()->addDay()->setTimezone('UTC'))->count() : 0,
-            'timezone' => $clock->name(), 'capabilities' => ['queue' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'individual_scan' => true, 'explicit_ship' => true, 'bulk_ship_limit' => 50]]]);
+        $canScan = $canDispatch
+            && $qcAuthorization->allows($actor, QcPermission::ScanDispatch)
+            && $qcAuthorization->allows($actor, QcPermission::ViewOrderAssignments)
+            && $qcAuthorization->allows($actor, QcPermission::AssignOrderDevice);
+        $canShip = $canDispatch && $qcAuthorization->allows($actor, QcPermission::ShipDispatch)
+            && $orderAuthorization->allows($actor, OrderPermission::Fulfill);
+        $clock = app(BusinessTimezone::class);
+
+        return response()->json(['data' => ['reserved_orders' => $canDispatch ? $service->queueQuery($actor)->count() : 0,
+            ...$inspections->counters($actor),
+            'timezone' => $clock->name(), 'capabilities' => [
+                'inspections' => '/workspace/qc/inspections',
+                'queue' => '/workspace/qc/pending',
+                'dispatch' => '/workspace/qc/dispatch',
+                'individual_scan' => $canScan,
+                'explicit_ship' => $canShip,
+                'bulk_ship_limit' => $canShip ? 50 : 0,
+                'access' => ['inspections' => $canInspect, 'dispatch' => $canDispatch, 'scan' => $canScan, 'ship' => $canShip],
+            ]]]);
     }
 
     public function index(Request $request, RenewedQcDispatchService $service): JsonResponse

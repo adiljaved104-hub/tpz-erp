@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Mobile\V1\ProductController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseReceiptController;
 use App\Http\Controllers\Api\Mobile\V1\QcDispatchController;
+use App\Http\Controllers\Api\Mobile\V1\QcInspectionController;
 use App\Http\Controllers\Api\Mobile\V1\ReportController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
@@ -72,6 +73,7 @@ Route::prefix('mobile/v1')
         });
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
             Route::get('/qc', [QcDispatchController::class, 'home']);
+            Route::get('/qc/inspections', [QcInspectionController::class, 'index']);
             Route::get('/qc/pending', [QcDispatchController::class, 'index']);
             Route::get('/qc/dispatch', [QcDispatchController::class, 'index']);
             Route::get('/qc/orders/{order}', [QcDispatchController::class, 'show'])->whereNumber('order');

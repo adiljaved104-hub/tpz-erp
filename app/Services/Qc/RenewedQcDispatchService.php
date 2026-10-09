@@ -161,6 +161,66 @@ class RenewedQcDispatchService
         }, 5);
     }
 
+    public function verifiedScan(Order $order, string $code, string $physicalSerial, ?int $itemId, User $actor): array
+    {
+        $this->authorizeQueue($actor);
+        app(OrderAuthorization::class)->authorize($actor, OrderPermission::View, $order);
+        app(QcAuthorization::class)->authorize($actor, QcPermission::ScanDispatch);
+
+        return DB::transaction(function () use ($order, $code, $physicalSerial, $itemId, $actor): array {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            app(OrderAuthorization::class)->authorize($actor, OrderPermission::View, $order);
+            app(QcAuthorization::class)->authorize($actor, QcPermission::ScanDispatch);
+            if ($order->status !== OrderStatus::Reserved) {
+                throw ValidationException::withMessages(['order' => 'QC units can only be scanned while this Order is Reserved.']);
+            }
+
+            $assignmentService = app(QcOrderAssignmentService::class);
+            $certificate = $assignmentService->resolveDispatchCertificate($code, $actor, $order);
+            if (! hash_equals(QcInspectionService::serialKey($certificate->device->serial), QcInspectionService::serialKey($physicalSerial))) {
+                throw ValidationException::withMessages(['physical_serial' => 'Physical device serial does not match the scanned QC label. DO NOT SHIP.']);
+            }
+
+            $items = $order->items()->with(['product', 'upgradeSelection'])->orderBy('line_number')->orderBy('id')->get();
+            if ($itemId !== null) {
+                $item = $items->firstWhere('id', $itemId);
+                $candidates = $item ? collect([$item]) : collect();
+                $matchMode = 'manual';
+            } else {
+                $candidates = $items;
+                $matchMode = 'auto';
+            }
+
+            $matched = null;
+            $requirement = app(RenewedQcRequirement::class);
+            foreach ($candidates as $candidate) {
+                if (! $requirement->requires($candidate)
+                    || $candidate->qcAssignments()->active()->count() >= $requirement->requiredQuantity($candidate)) {
+                    continue;
+                }
+                try {
+                    $assignmentService->validateCertificate($candidate, $order, $certificate);
+                    $matched = $candidate;
+                    break;
+                } catch (ValidationException) {
+                    // Auto-match checks each remaining line against the same authoritative policy.
+                }
+            }
+            if (! $matched) {
+                throw ValidationException::withMessages(['order_item_id' => 'Scanned QC unit does not match any remaining Renewed item on this Order. DO NOT SHIP.']);
+            }
+
+            $already = $matched->qcAssignments()->active()->where('qc_certificate_id', $certificate->id)->exists();
+            $assignment = $assignmentService->assign($matched, $certificate->id, $actor);
+            if (! $already) {
+                app(ActivityLogger::class)->log('qc.dispatch_scanned', $actor, $assignment, ['order_reference' => $order->reference, 'qc_reference' => $certificate->snapshot['reference'], 'certificate_version' => $certificate->version, 'match_mode' => $matchMode]);
+            }
+
+            return ['matched' => ['order_item_id' => $matched->id, 'sku' => $matched->sku, 'product' => $matched->product_name, 'match_mode' => $matchMode],
+                'device' => $this->certificateData($assignment->certificate, $assignment), 'readiness' => $this->readiness($order)];
+        }, 5);
+    }
+
     public function certificateData($certificate, $assignment = null): array
     {
         $s = $certificate->snapshot;

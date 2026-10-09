@@ -56,6 +56,8 @@ class MobileManifest
                 $qcAuthorization = app(Authorization\QcAuthorization::class);
                 $orderAuthorization = app(Authorization\OrderAuthorization::class);
                 $inspections = $qcAuthorization->allows($user, Enums\QcPermission::View);
+                $inspectionUpdate = $qcAuthorization->allows($user, Enums\QcPermission::Update);
+                $inspectionComplete = $qcAuthorization->allows($user, Enums\QcPermission::Complete);
                 $dispatch = $qcAuthorization->allows($user, Enums\QcPermission::ViewDispatchQueue)
                     && $orderAuthorization->allows($user, Enums\OrderPermission::View);
                 $scan = $dispatch
@@ -74,11 +76,18 @@ class MobileManifest
                     'features' => ['queue' => $dispatch, 'detail' => $dispatch],
                     'capabilities' => [
                         'inspections' => $inspections,
+                        'inspection_update' => $inspectionUpdate,
+                        'inspection_complete' => $inspectionComplete,
+                        'inspection_evidence' => $inspectionUpdate,
                         'dispatch' => $dispatch,
                         'scan' => $scan,
                         'ship' => $ship,
                         'bulk_ship_limit' => $ship ? 50 : 0,
-                        'endpoints' => ['inspections' => '/workspace/qc/inspections', 'pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}'],
+                        'endpoints' => ['inspections' => '/workspace/qc/inspections', 'inspection_detail' => '/workspace/qc/inspections/{inspection}',
+                            'inspection_begin' => '/workspace/qc/inspections/{inspection}/begin', 'inspection_update' => '/workspace/qc/inspections/{inspection}',
+                            'inspection_evidence' => '/workspace/qc/inspections/{inspection}/evidence', 'inspection_complete' => '/workspace/qc/inspections/{inspection}/complete',
+                            'pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}',
+                            'verified_scan' => '/workspace/qc/orders/{order}/verified-scan'],
                     ]];
 
                 continue;

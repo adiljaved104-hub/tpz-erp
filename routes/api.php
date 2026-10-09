@@ -74,10 +74,16 @@ Route::prefix('mobile/v1')
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
             Route::get('/qc', [QcDispatchController::class, 'home']);
             Route::get('/qc/inspections', [QcInspectionController::class, 'index']);
+            Route::get('/qc/inspections/{inspection}', [QcInspectionController::class, 'show'])->whereNumber('inspection');
+            Route::post('/qc/inspections/{inspection}/begin', [QcInspectionController::class, 'begin'])->whereNumber('inspection')->middleware('throttle:60,1');
+            Route::patch('/qc/inspections/{inspection}', [QcInspectionController::class, 'update'])->whereNumber('inspection')->middleware('throttle:60,1');
+            Route::post('/qc/inspections/{inspection}/evidence', [QcInspectionController::class, 'evidence'])->whereNumber('inspection')->middleware('throttle:30,1');
+            Route::post('/qc/inspections/{inspection}/complete', [QcInspectionController::class, 'complete'])->whereNumber('inspection')->middleware('throttle:30,1');
             Route::get('/qc/pending', [QcDispatchController::class, 'index']);
             Route::get('/qc/dispatch', [QcDispatchController::class, 'index']);
             Route::get('/qc/orders/{order}', [QcDispatchController::class, 'show'])->whereNumber('order');
             Route::post('/qc/orders/{order}/scan', [QcDispatchController::class, 'scan'])->whereNumber('order')->middleware('throttle:60,1');
+            Route::post('/qc/orders/{order}/verified-scan', [QcDispatchController::class, 'verifiedScan'])->whereNumber('order')->middleware('throttle:60,1');
             Route::post('/qc/orders/{order}/ship', [QcDispatchController::class, 'ship'])->whereNumber('order')->middleware('throttle:30,1');
             Route::post('/qc/bulk-ship', [QcDispatchController::class, 'bulkShip'])->middleware('throttle:10,1');
             Route::get('/search', SearchController::class);

@@ -4,6 +4,7 @@ namespace Tests\Feature\Qc;
 
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
+use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
 use App\Filament\Resources\QcInspections\Pages\CreateQcInspection;
 use App\Filament\Resources\QcInspections\Pages\EditQcInspection;
@@ -214,6 +215,77 @@ class QcEvidenceMobileWorkflowTest extends TestCase
         $proof = $inspection->evidence()->where('kind', 'serial')->sole();
         $this->assertSame(Storage::disk('local')->get($proof->customer_path), $this->get(route('qc.evidence.public', ['token' => $certificate->public_token, 'id' => $proof->public_id]).'?original=1')->getContent());
         $this->assertSame($before, $snapshot());
+    }
+
+    public function test_mobile_inspection_detail_begin_update_and_complete_contract_is_safe(): void
+    {
+        $inspection = $this->start();
+        $prefix = '/api/mobile/v1/workspace/qc/inspections/'.$inspection->id;
+        $this->withToken($this->technician->createToken('QC Mobile Workflow')->plainTextToken);
+
+        $detail = $this->getJson($prefix)->assertOk()
+            ->assertJsonPath('inspection.inspection_id', $inspection->id)
+            ->assertJsonPath('inspection.qc_id', $inspection->device->reference)
+            ->assertJsonPath('inspection.status', 'pending')
+            ->assertJsonPath('inspection.can_update', true)
+            ->assertJsonPath('inspection.can_upload_evidence', true)
+            ->assertJsonPath('inspection.can_complete', true)
+            ->assertJsonMissingPath('inspection.internal_remarks');
+        $this->assertArrayNotHasKey('original_path', $detail->json('inspection.evidence.0') ?? []);
+        $this->assertArrayNotHasKey('customer_path', $detail->json('inspection.evidence.0') ?? []);
+        $this->assertStringNotContainsString('public_token', $detail->getContent());
+
+        $this->postJson($prefix.'/begin')->assertOk()->assertJsonPath('status', 'in_progress');
+        $this->postJson($prefix.'/begin')->assertOk()->assertJsonPath('status', 'in_progress');
+        $measurementCheck = $inspection->checks()->get()->first(fn ($check) => $check->applicable && $check->definition['measurement'] !== null);
+        $this->assertNotNull($measurementCheck);
+        $this->patchJson($prefix, [
+            'final_configuration' => ['cpu' => 'Intel Core i5', 'ram_mb' => 8192, 'storage_gb' => 256, 'os' => 'Windows 11'],
+            'grade' => 'A',
+            'public_remarks' => 'Mobile contract update',
+            'checks' => [$measurementCheck->check_key => ['result' => 'pass', 'measurement' => 80]],
+        ])->assertOk()->assertJsonPath('final_configuration.ram_mb', 8192)->assertJsonPath('public_remarks', 'Mobile contract update');
+        $this->assertSame('80.000', $measurementCheck->fresh()->measurement);
+        $this->patchJson($prefix, ['internal_remarks' => 'not authorized'])->assertForbidden();
+
+        $this->ready($inspection->fresh());
+        $this->proofs($inspection->fresh());
+        $completion = $this->postJson($prefix.'/complete')->assertOk()
+            ->assertJsonPath('certificate.qc_id', $inspection->device->reference)
+            ->assertJsonPath('certificate.serial', $inspection->device->serial)
+            ->assertJsonPath('certificate.status', 'completed');
+        $this->assertStringNotContainsString('public_token', $completion->getContent());
+        $this->assertStringNotContainsString('original_path', $completion->getContent());
+        $this->postJson($prefix.'/begin')->assertStatus(422);
+        $this->patchJson($prefix, ['public_remarks' => 'after completion'])->assertStatus(422);
+    }
+
+    public function test_mobile_begin_does_not_reset_rework_state(): void
+    {
+        $inspection = $this->start();
+        $inspection->forceFill(['status' => QcInspectionStatus::Rework])->save();
+        $this->withToken($this->technician->createToken('QC Mobile Rework')->plainTextToken);
+
+        $this->postJson('/api/mobile/v1/workspace/qc/inspections/'.$inspection->id.'/begin')
+            ->assertOk()->assertJsonPath('status', 'rework_required');
+        $this->assertSame(QcInspectionStatus::Rework, $inspection->fresh()->status);
+    }
+
+    public function test_mobile_inspection_detail_obeys_technician_visibility_and_evidence_upload_is_safe(): void
+    {
+        $inspection = $this->start();
+        $other = $this->start(actor: $this->owner);
+        $other->forceFill(['technician_user_id' => $this->owner->id])->save();
+        $prefix = '/api/mobile/v1/workspace/qc/inspections/'.$inspection->id;
+        $this->withToken($this->technician->createToken('QC Mobile Evidence')->plainTextToken);
+
+        $this->getJson('/api/mobile/v1/workspace/qc/inspections/'.$other->id)->assertNotFound();
+        $uploaded = $this->post($prefix.'/evidence', ['kind' => 'serial', 'customer_visible' => false, 'file' => $this->photo()])->assertCreated();
+        $uploaded->assertJsonPath('evidence.kind', 'serial')->assertJsonPath('evidence.customer_visible', true)
+            ->assertJsonPath('evidence_progress.completed.0', 'serial');
+        $this->assertStringNotContainsString('path', $uploaded->getContent());
+        $this->assertStringNotContainsString('checksum', $uploaded->getContent());
+        $this->getJson($prefix)->assertOk()->assertJsonPath('inspection.evidence_progress.completed.0', 'serial');
     }
 
     public function test_camera_controls_multiple_inputs_and_manual_serial_scanner_render(): void

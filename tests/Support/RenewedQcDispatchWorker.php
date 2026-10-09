@@ -24,7 +24,7 @@ try {
     [$script, $path, $operation, $orderId, $value, $actorId, $slot] = $argv;
     $resolved = realpath($path);
     if (! $resolved || dirname($resolved) !== realpath(sys_get_temp_dir()) || ! str_starts_with(basename($resolved), 'tpz-qc-dispatch-race-')
-        || ! ctype_digit($orderId) || ! ctype_digit($actorId) || ! in_array($slot, ['0', '1'], true) || ! in_array($operation, ['scan', 'ship', 'reopen'], true)) {
+        || ! ctype_digit($orderId) || ! ctype_digit($actorId) || ! in_array($slot, ['0', '1'], true) || ! in_array($operation, ['scan', 'verified-scan', 'ship', 'reopen'], true)) {
         throw new RuntimeException('Disposable fixture required.');
     }
     $phase = 'bootstrap';
@@ -148,13 +148,15 @@ try {
     $phase = $operation;
     try {
         $service = app(RenewedQcDispatchService::class);
+        $scanInput = $operation === 'verified-scan' ? json_decode($value, true, flags: JSON_THROW_ON_ERROR) : [];
         match ($operation) {
             'scan' => $service->scan($order, $order->items->sole()->id, $value, $actor),
+            'verified-scan' => $service->verifiedScan($order, $scanInput['code'], $scanInput['physical_serial'], $scanInput['order_item_id'] ?? null, $actor),
             'ship' => $service->ship($order, $value, $actor),
             'reopen' => app(QcInspectionService::class)->reopen(QcInspection::query()->findOrFail($value), 'Concurrent recheck', $actor),
         };
         echo json_encode(['outcome' => match ($operation) {
-            'scan' => 'assigned', 'ship' => 'shipped', 'reopen' => 'reopened'
+            'scan', 'verified-scan' => 'assigned', 'ship' => 'shipped', 'reopen' => 'reopened'
         }]);
     } catch (ValidationException|InvalidOrderTransitionException) {
         echo json_encode(['outcome' => 'rejected']);

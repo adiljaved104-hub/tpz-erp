@@ -163,6 +163,67 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertDatabaseCount('qc_order_assignments', 3);
     }
 
+    public function test_verified_mobile_scan_auto_matches_first_remaining_equivalent_line_then_next_line(): void
+    {
+        $order = $this->order(items: [new OrderItemData($this->product->id, 1, '500.00'), new OrderItemData($this->product->id, 1, '500.00')]);
+        $items = $order->items()->orderBy('line_number')->orderBy('id')->get();
+        $first = $this->certify('AUTO-MATCH-1');
+        $one = $this->dispatch->verifiedScan($order, $first->snapshot['serial'], $first->snapshot['serial'], null, $this->owner);
+        $this->assertSame($items[0]->id, $one['matched']['order_item_id']);
+        $this->assertSame('auto', $one['matched']['match_mode']);
+        $this->assertSame(1, $one['readiness']['lines'][0]['assigned']);
+
+        $second = $this->certify('AUTO-MATCH-2');
+        $two = $this->dispatch->verifiedScan($order, $second->snapshot['reference'], $second->snapshot['serial'], null, $this->owner);
+        $this->assertSame($items[1]->id, $two['matched']['order_item_id']);
+        $this->assertSame('auto', $two['matched']['match_mode']);
+        $this->assertSame('ready', $two['readiness']['status']);
+    }
+
+    public function test_verified_mobile_scan_rejects_wrong_physical_serial_before_assignment(): void
+    {
+        $order = $this->order();
+        $certificate = $this->certify('LABEL-SERIAL-123');
+        $message = $this->reject(fn () => $this->dispatch->verifiedScan($order, $certificate->snapshot['reference'], 'PHYSICAL-SERIAL-999', null, $this->owner), 'physical_serial');
+        $this->assertSame('Physical device serial does not match the scanned QC label. DO NOT SHIP.', $message);
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+        $this->assertSame('pending_qc', $this->dispatch->readiness($order)['status']);
+    }
+
+    public function test_verified_auto_match_rejects_product_warehouse_and_structured_configuration_mismatches(): void
+    {
+        $order = $this->order();
+        $item = $order->items()->sole();
+        $this->upgrade($item);
+        $wrongProduct = Product::factory()->create(['ram' => '8GB', 'storage' => '256GB']);
+        $certificates = [
+            $this->certify('AUTO-WRONG-PRODUCT', ['product_id' => $wrongProduct->id]),
+            $this->certify('AUTO-WRONG-WAREHOUSE', ['warehouse_id' => Warehouse::factory()->create()->id]),
+            $this->certify('AUTO-WRONG-RAM', final: ['ram_mb' => 8192, 'storage_gb' => 512]),
+            $this->certify('AUTO-WRONG-STORAGE', final: ['ram_mb' => 16384, 'storage_gb' => 256]),
+        ];
+
+        foreach ($certificates as $certificate) {
+            $this->reject(fn () => $this->dispatch->verifiedScan($order, $certificate->snapshot['reference'], $certificate->snapshot['serial'], null, $this->owner), 'order_item_id');
+        }
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+        $this->assertSame('pending_qc', $this->dispatch->readiness($order)['status']);
+    }
+
+    public function test_verified_mobile_scan_manual_item_uses_exact_item_and_cannot_bypass_validation(): void
+    {
+        $order = $this->order(items: [new OrderItemData($this->product->id, 1, '500.00'), new OrderItemData($this->product->id, 1, '500.00')]);
+        $items = $order->items()->orderBy('id')->get();
+        $certificate = $this->certify('MANUAL-SCAN-123');
+        $manual = $this->dispatch->verifiedScan($order, $certificate->snapshot['serial'], $certificate->snapshot['serial'], $items[1]->id, $this->owner);
+        $this->assertSame($items[1]->id, $manual['matched']['order_item_id']);
+        $this->assertSame('manual', $manual['matched']['match_mode']);
+
+        $another = $this->certify('MANUAL-WRONG-SERIAL');
+        $this->reject(fn () => $this->dispatch->verifiedScan($order, $another->snapshot['serial'], 'PHYSICAL-WRONG', $items[0]->id, $this->owner), 'physical_serial');
+        $this->assertDatabaseCount('qc_order_assignments', 1);
+    }
+
     public function test_mixed_order_requires_qc_only_for_renewed_line(): void
     {
         $new = Product::factory()->create(['condition' => ProductCondition::New]);
@@ -393,6 +454,18 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertTrue($qcModule['capabilities']['inspections']);
         $this->assertTrue($qcModule['capabilities']['dispatch']);
         $this->assertTrue($qcModule['capabilities']['scan']);
+        $this->assertFalse($qcModule['capabilities']['inspection_update']);
+        $this->assertFalse($qcModule['capabilities']['inspection_complete']);
+        $this->assertFalse($qcModule['capabilities']['inspection_evidence']);
+        $this->assertSame('/workspace/qc/inspections/{inspection}', $qcModule['capabilities']['endpoints']['inspection_detail']);
+        $this->assertSame('/workspace/qc/inspections/{inspection}/begin', $qcModule['capabilities']['endpoints']['inspection_begin']);
+        $this->assertSame('/workspace/qc/inspections/{inspection}/evidence', $qcModule['capabilities']['endpoints']['inspection_evidence']);
+        $this->override($staff, QcPermission::Update, EmployeePermissionEffect::Allow);
+        $this->override($staff, QcPermission::Complete, EmployeePermissionEffect::Allow);
+        $qcModule = collect($manifest->forUser($staff)['modules'])->firstWhere('key', 'qc');
+        $this->assertTrue($qcModule['capabilities']['inspection_update']);
+        $this->assertTrue($qcModule['capabilities']['inspection_complete']);
+        $this->assertTrue($qcModule['capabilities']['inspection_evidence']);
         $this->override($staff, QcPermission::ViewOrderAssignments, EmployeePermissionEffect::Deny);
         $qcModule = collect($manifest->forUser($staff)['modules'])->firstWhere('key', 'qc');
         $this->assertFalse($qcModule['capabilities']['scan']);
@@ -748,6 +821,29 @@ class RenewedQcDispatchTest extends TestCase
         $one = $this->certify('RACE-FIRST');
         $two = $this->certify('RACE-SECOND');
         foreach ([[['scan', $first->id, $one->snapshot['serial']], ['scan', $second->id, $one->snapshot['serial']]], [['scan', $first->id, $one->snapshot['serial']], ['scan', $first->id, $two->snapshot['serial']]]] as $requests) {
+            $this->race($requests, function (array $outcomes, \PDO $copy): void {
+                sort($outcomes);
+                $this->assertSame(['assigned', 'rejected'], $outcomes);
+                $this->assertSame(1, (int) $copy->query('SELECT COUNT(*) FROM qc_order_assignments WHERE released_at IS NULL')->fetchColumn());
+                $this->assertSame(0, (int) $copy->query('SELECT COUNT(*) FROM order_fulfillments')->fetchColumn());
+            });
+        }
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+    }
+
+    public function test_competing_verified_auto_scans_cannot_duplicate_a_device_or_overfill_a_line(): void
+    {
+        $first = $this->order();
+        $second = $this->order();
+        $one = $this->certify('VERIFIED-RACE-FIRST');
+        $two = $this->certify('VERIFIED-RACE-SECOND');
+        $sameDevice = json_encode(['code' => $one->snapshot['serial'], 'physical_serial' => $one->snapshot['serial']], JSON_THROW_ON_ERROR);
+        $otherDevice = json_encode(['code' => $two->snapshot['serial'], 'physical_serial' => $two->snapshot['serial']], JSON_THROW_ON_ERROR);
+
+        foreach ([
+            [['verified-scan', $first->id, $sameDevice], ['verified-scan', $second->id, $sameDevice]],
+            [['verified-scan', $first->id, $sameDevice], ['verified-scan', $first->id, $otherDevice]],
+        ] as $requests) {
             $this->race($requests, function (array $outcomes, \PDO $copy): void {
                 sort($outcomes);
                 $this->assertSame(['assigned', 'rejected'], $outcomes);

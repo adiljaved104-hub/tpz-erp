@@ -71,9 +71,9 @@ class QcDispatchController extends MobileController
 
     public function verifiedScan(Request $request, Order $order, RenewedQcDispatchService $service): JsonResponse
     {
-        $input = $request->validate(['code' => ['required', 'string', 'max:2048'], 'physical_serial' => ['required', 'string', 'min:3', 'max:100', 'regex:/\A[A-Za-z0-9._ -]+\z/'], 'order_item_id' => ['nullable', 'integer', 'min:1']]);
+        $input = $request->validate(['code' => ['required', 'string', 'max:2048'], 'physical_serial' => ['nullable', 'string', 'min:3', 'max:100', 'regex:/\A[A-Za-z0-9._ -]+\z/'], 'order_item_id' => ['nullable', 'integer', 'min:1']]);
 
-        return response()->json(['data' => $service->verifiedScan($order, $input['code'], $input['physical_serial'], $input['order_item_id'] ?? null, $request->user()), 'message' => 'QC unit matched and assigned. The Order remains Reserved until Mark Shipped.']);
+        return response()->json(['data' => $service->verifiedScan($order, $input['code'], $input['physical_serial'] ?? null, $input['order_item_id'] ?? null, $request->user()), 'message' => 'QC unit matched and assigned. The Order remains Reserved until Mark Shipped.']);
     }
 
     public function ship(Request $request, Order $order, RenewedQcDispatchService $service): JsonResponse

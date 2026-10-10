@@ -29,6 +29,7 @@ use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Products\ProductTitleService;
 use App\Services\Upgrades\UpgradeRecipeValidationService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 
 class ProductMatchService
@@ -164,6 +165,16 @@ class ProductMatchService
             }
         }
 
+        if ($request->context->requiresSellableStock() && $request->warehouseId) {
+            $query->whereExists(function (QueryBuilder $inventory) use ($request): void {
+                $inventory->selectRaw('1')
+                    ->from('product_inventories')
+                    ->whereColumn('product_inventories.product_id', 'products.id')
+                    ->where('product_inventories.warehouse_id', $request->warehouseId)
+                    ->whereRaw('(product_inventories.available_quantity - product_inventories.reserved_quantity) > 0');
+            });
+        }
+
         $tokens = collect($parsed->tokens)->reject(fn (string $token): bool => mb_strlen($token) < 2 || in_array($token, ['gb', 'tb', 'mb', 'core', 'ultra', 'intel', 'nvidia', 'geforce'], true))->take(8)->values();
         $narrowed = clone $query;
         if ($tokens->isNotEmpty()) {
@@ -200,15 +211,6 @@ class ProductMatchService
             $fallback = $query->orderBy('id')->limit($candidateLimit)->get();
             $this->metricQueries++;
             $candidates = $candidates->concat($fallback)->unique('id')->take($candidateLimit)->values();
-        }
-
-        if ($request->context->requiresSellableStock() && $request->warehouseId) {
-            $sellableIds = ProductInventory::query()->where('warehouse_id', $request->warehouseId)
-                ->whereIn('product_id', $candidates->pluck('id'))
-                ->whereRaw('(available_quantity - reserved_quantity) > 0')
-                ->pluck('product_id');
-            $this->metricQueries++;
-            $candidates = $candidates->whereIn('id', $sellableIds)->values();
         }
 
         return $candidates;

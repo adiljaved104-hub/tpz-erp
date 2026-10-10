@@ -161,7 +161,7 @@ class RenewedQcDispatchService
         }, 5);
     }
 
-    public function verifiedScan(Order $order, string $code, string $physicalSerial, ?int $itemId, User $actor): array
+    public function verifiedScan(Order $order, string $code, ?string $physicalSerial, ?int $itemId, User $actor): array
     {
         $this->authorizeQueue($actor);
         app(OrderAuthorization::class)->authorize($actor, OrderPermission::View, $order);
@@ -177,9 +177,11 @@ class RenewedQcDispatchService
 
             $assignmentService = app(QcOrderAssignmentService::class);
             $certificate = $assignmentService->resolveDispatchCertificate($code, $actor, $order);
-            if (! hash_equals(QcInspectionService::serialKey($certificate->device->serial), QcInspectionService::serialKey($physicalSerial))) {
+            $hasPhysicalSerial = $physicalSerial !== null && trim($physicalSerial) !== '';
+            if ($hasPhysicalSerial && ! hash_equals(QcInspectionService::serialKey($certificate->device->serial), QcInspectionService::serialKey($physicalSerial))) {
                 throw ValidationException::withMessages(['physical_serial' => 'Physical device serial does not match the scanned QC label. DO NOT SHIP.']);
             }
+            $verificationMode = $hasPhysicalSerial ? 'qc_label_and_physical_serial' : 'qc_label_only';
 
             $items = $order->items()->with(['product', 'upgradeSelection'])->orderBy('line_number')->orderBy('id')->get();
             if ($itemId !== null) {
@@ -213,11 +215,11 @@ class RenewedQcDispatchService
             $already = $matched->qcAssignments()->active()->where('qc_certificate_id', $certificate->id)->exists();
             $assignment = $assignmentService->assign($matched, $certificate->id, $actor);
             if (! $already) {
-                app(ActivityLogger::class)->log('qc.dispatch_scanned', $actor, $assignment, ['order_reference' => $order->reference, 'qc_reference' => $certificate->snapshot['reference'], 'certificate_version' => $certificate->version, 'match_mode' => $matchMode]);
+                app(ActivityLogger::class)->log('qc.dispatch_scanned', $actor, $assignment, ['order_reference' => $order->reference, 'qc_reference' => $certificate->snapshot['reference'], 'certificate_version' => $certificate->version, 'match_mode' => $matchMode, 'verification_mode' => $verificationMode]);
             }
 
             return ['matched' => ['order_item_id' => $matched->id, 'sku' => $matched->sku, 'product' => $matched->product_name, 'match_mode' => $matchMode],
-                'device' => $this->certificateData($assignment->certificate, $assignment), 'readiness' => $this->readiness($order)];
+                'device' => $this->certificateData($assignment->certificate, $assignment), 'readiness' => $this->readiness($order), 'verification_mode' => $verificationMode];
         }, 5);
     }
 

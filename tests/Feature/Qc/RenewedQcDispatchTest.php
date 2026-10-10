@@ -171,12 +171,14 @@ class RenewedQcDispatchTest extends TestCase
         $one = $this->dispatch->verifiedScan($order, $first->snapshot['serial'], $first->snapshot['serial'], null, $this->owner);
         $this->assertSame($items[0]->id, $one['matched']['order_item_id']);
         $this->assertSame('auto', $one['matched']['match_mode']);
+        $this->assertSame('qc_label_and_physical_serial', $one['verification_mode']);
         $this->assertSame(1, $one['readiness']['lines'][0]['assigned']);
 
         $second = $this->certify('AUTO-MATCH-2');
         $two = $this->dispatch->verifiedScan($order, $second->snapshot['reference'], $second->snapshot['serial'], null, $this->owner);
         $this->assertSame($items[1]->id, $two['matched']['order_item_id']);
         $this->assertSame('auto', $two['matched']['match_mode']);
+        $this->assertSame('qc_label_and_physical_serial', $two['verification_mode']);
         $this->assertSame('ready', $two['readiness']['status']);
     }
 
@@ -215,9 +217,10 @@ class RenewedQcDispatchTest extends TestCase
         $order = $this->order(items: [new OrderItemData($this->product->id, 1, '500.00'), new OrderItemData($this->product->id, 1, '500.00')]);
         $items = $order->items()->orderBy('id')->get();
         $certificate = $this->certify('MANUAL-SCAN-123');
-        $manual = $this->dispatch->verifiedScan($order, $certificate->snapshot['serial'], $certificate->snapshot['serial'], $items[1]->id, $this->owner);
+        $manual = $this->dispatch->verifiedScan($order, $certificate->snapshot['reference'], null, $items[1]->id, $this->owner);
         $this->assertSame($items[1]->id, $manual['matched']['order_item_id']);
         $this->assertSame('manual', $manual['matched']['match_mode']);
+        $this->assertSame('qc_label_only', $manual['verification_mode']);
 
         $another = $this->certify('MANUAL-WRONG-SERIAL');
         $this->reject(fn () => $this->dispatch->verifiedScan($order, $another->snapshot['serial'], 'PHYSICAL-WRONG', $items[0]->id, $this->owner), 'physical_serial');
@@ -707,6 +710,37 @@ class RenewedQcDispatchTest extends TestCase
             $this->postJson($prefix.'/orders/'.$order->id.'/ship', ['idempotency_key' => $key])->assertOk()->assertJsonPath('data.status', 'shipped');
         }
         $this->assertDatabaseCount('order_fulfillments', 1);
+    }
+
+    public function test_mobile_verified_scan_allows_label_only_auto_and_manual_assignment_without_shipping(): void
+    {
+        $autoOrder = $this->order();
+        $autoCertificate = $this->certify('MOBILE-LABEL-ONLY-AUTO');
+        $this->mobile($this->owner);
+        $this->postJson('/api/mobile/v1/workspace/qc/orders/'.$autoOrder->id.'/verified-scan', [
+            'code' => app(QcDocumentService::class)->url($autoCertificate),
+        ])->assertOk()
+            ->assertJsonPath('data.verification_mode', 'qc_label_only')
+            ->assertJsonPath('data.matched.match_mode', 'auto')
+            ->assertJsonPath('data.device.serial', $autoCertificate->snapshot['serial'])
+            ->assertJsonPath('data.readiness.status', 'ready');
+        $this->assertSame(OrderStatus::Reserved, $autoOrder->fresh()->status);
+        $this->assertDatabaseCount('order_fulfillments', 0);
+        $this->assertSame('qc_label_only', DB::table('activity_logs')->where('event', 'qc.dispatch_scanned')->latest('id')->value('properties->verification_mode'));
+
+        $manualOrder = $this->order();
+        $manualItem = $manualOrder->items()->sole();
+        $manualCertificate = $this->certify('MOBILE-LABEL-ONLY-MANUAL');
+        $this->postJson('/api/mobile/v1/workspace/qc/orders/'.$manualOrder->id.'/verified-scan', [
+            'code' => $manualCertificate->snapshot['reference'],
+            'physical_serial' => null,
+            'order_item_id' => $manualItem->id,
+        ])->assertOk()
+            ->assertJsonPath('data.verification_mode', 'qc_label_only')
+            ->assertJsonPath('data.matched.match_mode', 'manual')
+            ->assertJsonPath('data.device.serial', $manualCertificate->snapshot['serial']);
+        $this->assertSame(OrderStatus::Reserved, $manualOrder->fresh()->status);
+        $this->assertDatabaseCount('order_fulfillments', 0);
     }
 
     public function test_mobile_unready_ship_and_tampered_scan_return_clear_validation(): void

@@ -114,9 +114,11 @@ use App\Models\PurchaseReceiptCorrection;
 use App\Models\PurchaseReceiptItem;
 use App\Models\QcCertificate;
 use App\Models\QcDevice;
+use App\Models\QcDeviceClaim;
 use App\Models\QcEvidence;
 use App\Models\QcInspection;
 use App\Models\QcOrderAssignment;
+use App\Models\QcStockTransferAssignment;
 use App\Models\Quotation;
 use App\Models\QuotationEmailDelivery;
 use App\Models\QuotationItem;
@@ -511,6 +513,8 @@ class AppServiceProvider extends ServiceProvider
             'qc_evidence' => QcEvidence::class,
             'qc_certificate' => QcCertificate::class,
             'qc_order_assignment' => QcOrderAssignment::class,
+            'qc_stock_transfer_assignment' => QcStockTransferAssignment::class,
+            'qc_device_claim' => QcDeviceClaim::class,
             'user' => User::class,
             'employee' => Employee::class,
             'team' => Team::class,

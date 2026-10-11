@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\Mobile\V1\PurchaseController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseReceiptController;
 use App\Http\Controllers\Api\Mobile\V1\QcDispatchController;
 use App\Http\Controllers\Api\Mobile\V1\QcInspectionController;
+use App\Http\Controllers\Api\Mobile\V1\QcStockTransferController;
 use App\Http\Controllers\Api\Mobile\V1\ReportController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
@@ -82,6 +83,8 @@ Route::prefix('mobile/v1')
             Route::get('/qc/pending', [QcDispatchController::class, 'index']);
             Route::get('/qc/dispatch', [QcDispatchController::class, 'index']);
             Route::get('/qc/orders/{order}', [QcDispatchController::class, 'show'])->whereNumber('order');
+            Route::get('/qc/transfers/{transfer}', [QcStockTransferController::class, 'show'])->whereNumber('transfer');
+            Route::post('/qc/transfers/{transfer}/verified-scan', [QcStockTransferController::class, 'verifiedScan'])->whereNumber('transfer')->middleware('throttle:60,1');
             Route::post('/qc/orders/{order}/scan', [QcDispatchController::class, 'scan'])->whereNumber('order')->middleware('throttle:60,1');
             Route::post('/qc/orders/{order}/verified-scan', [QcDispatchController::class, 'verifiedScan'])->whereNumber('order')->middleware('throttle:60,1');
             Route::post('/qc/orders/{order}/ship', [QcDispatchController::class, 'ship'])->whereNumber('order')->middleware('throttle:30,1');

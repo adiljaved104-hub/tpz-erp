@@ -10,6 +10,7 @@ use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Qc\QcInspectionReadService;
+use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\RenewedQcDispatchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +18,7 @@ use Illuminate\Validation\ValidationException;
 
 class QcDispatchController extends MobileController
 {
-    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcAuthorization $qcAuthorization, OrderAuthorization $orderAuthorization): JsonResponse
+    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcOrderDemandService $demand, QcAuthorization $qcAuthorization, OrderAuthorization $orderAuthorization): JsonResponse
     {
         $actor = $request->user();
         $canInspect = $qcAuthorization->allows($actor, QcPermission::View);
@@ -35,6 +36,7 @@ class QcDispatchController extends MobileController
 
         return response()->json(['data' => ['reserved_orders' => $canDispatch ? $service->queueQuery($actor)->count() : 0,
             ...$inspections->counters($actor),
+            'qc_order_demand' => $canDispatch ? $demand->calculate($actor) : ['units_needed' => 0, 'orders_affected' => 0],
             'timezone' => $clock->name(), 'capabilities' => [
                 'inspections' => '/workspace/qc/inspections',
                 'queue' => '/workspace/qc/pending',

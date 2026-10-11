@@ -22,6 +22,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderItemUpgradeSelection;
 use App\Models\Product;
+use App\Models\ProductBrand;
 use App\Models\ProductInventory;
 use App\Models\QcCertificate;
 use App\Models\QcInspection;
@@ -39,6 +40,7 @@ use App\Services\Qc\QcDocumentService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcOrderAssignmentService;
+use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\RenewedQcDispatchService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use Carbon\CarbonImmutable;
@@ -122,6 +124,153 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertSame($before, $this->stockSnapshot());
         $this->assertSame(OrderStatus::Reserved, $order->fresh()->status);
         $this->assertDatabaseCount('order_fulfillments', 0);
+    }
+
+    public function test_order_demand_counts_reserved_renewed_units_without_eligible_certificates(): void
+    {
+        $this->order();
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_matching_current_completed_certificate_satisfies_order_demand(): void
+    {
+        $this->order();
+        $this->certify('DEMAND-MATCH');
+
+        $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_one_certificate_is_allocated_to_only_one_of_two_order_demands(): void
+    {
+        $this->order();
+        $this->order();
+        $this->certify('DEMAND-SHARED');
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_two_matching_certificates_satisfy_two_demand_units(): void
+    {
+        $this->order(quantity: 2);
+        $this->certify('DEMAND-TWO-A');
+        $this->certify('DEMAND-TWO-B');
+
+        $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_demand_matching_reassigns_a_flexible_unit_to_avoid_stranding_a_specific_order(): void
+    {
+        $this->order(); // This line accepts either final configuration.
+        $specificOrder = $this->order();
+        $this->upgrade($specificOrder->items->sole());
+        $this->certify('DEMAND-SPECIFIC-FIRST', final: ['ram_mb' => 16384, 'storage_gb' => 512]);
+        $this->certify('DEMAND-FLEXIBLE-SECOND');
+
+        $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_active_assignment_to_another_order_is_not_available_demand_supply(): void
+    {
+        $assignedOrder = $this->order();
+        $remainingOrder = $this->order();
+        $certificate = $this->certify('DEMAND-ASSIGNED');
+        $this->scan($assignedOrder, $certificate->snapshot['serial']);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+        $this->assertSame(OrderStatus::Reserved, $remainingOrder->fresh()->status);
+    }
+
+    public function test_stale_certificate_does_not_satisfy_demand(): void
+    {
+        $order = $this->order();
+        $this->upgrade($order->items->sole());
+        $stale = $this->certify('DEMAND-STALE', final: ['ram_mb' => 16384, 'storage_gb' => 512]);
+        $reinspection = app(QcInspectionService::class)->reopen($stale->inspection, 'Current certificate check', $this->owner);
+        $this->finish($reinspection); // The new current certificate does not match the requested upgraded configuration.
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_active_reinspection_certificate_does_not_satisfy_demand(): void
+    {
+        $this->order();
+        $activeCertificate = $this->certify('DEMAND-REINSPECTION');
+        app(QcInspectionService::class)->reopen($activeCertificate->inspection, 'Reinspection pending', $this->owner);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_wrong_product_and_warehouse_certificates_do_not_satisfy_demand(): void
+    {
+        $this->order();
+        $otherBrand = ProductBrand::factory()->create();
+        $wrongProduct = Product::factory()->create(['condition' => ProductCondition::Renewed, 'brand_id' => $otherBrand->id, 'brand' => $otherBrand->name]);
+        $wrongWarehouse = Warehouse::factory()->create(['status' => true]);
+        $this->certify('DEMAND-WRONG-PRODUCT', ['product_id' => $wrongProduct->id]);
+        $this->certify('DEMAND-WRONG-WAREHOUSE', ['warehouse_id' => $wrongWarehouse->id]);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_ram_and_storage_mismatches_do_not_satisfy_structured_order_demand(): void
+    {
+        $order = $this->order();
+        $this->upgrade($order->items->sole());
+        $this->certify('DEMAND-WRONG-RAM', final: ['ram_mb' => 8192, 'storage_gb' => 512]);
+        $this->certify('DEMAND-WRONG-STORAGE', final: ['ram_mb' => 16384, 'storage_gb' => 256]);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_valid_assigned_quantity_reduces_only_remaining_order_demand(): void
+    {
+        $order = $this->order(quantity: 2);
+        $this->scan($order, $this->certify('DEMAND-ONE-ASSIGNED')->snapshot['serial']);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_non_reserved_and_non_renewed_orders_do_not_create_qc_demand(): void
+    {
+        $fulfilled = $this->order();
+        $cancelled = $this->order();
+        $draft = $this->order();
+        DB::table('orders')->where('id', $fulfilled->id)->update(['status' => OrderStatus::Fulfilled->value]);
+        DB::table('orders')->where('id', $cancelled->id)->update(['status' => OrderStatus::Cancelled->value]);
+        DB::table('orders')->where('id', $draft->id)->update(['status' => OrderStatus::Draft->value]);
+
+        $usedBrand = ProductBrand::factory()->create();
+        $usedProduct = Product::factory()->create(['condition' => ProductCondition::Used, 'brand_id' => $usedBrand->id, 'brand' => $usedBrand->name]);
+        ProductInventory::factory()->create(['product_id' => $usedProduct->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 10]);
+        $this->order(items: [new OrderItemData($usedProduct->id, 1, '500.00')]);
+
+        $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_qc_home_reports_demand_separately_from_actual_pending_inspections(): void
+    {
+        $this->order();
+        $this->mobile($this->owner);
+
+        $this->getJson('/api/mobile/v1/workspace/qc')->assertOk()
+            ->assertJsonPath('data.pending', 0)
+            ->assertJsonPath('data.qc_order_demand.units_needed', 1)
+            ->assertJsonPath('data.qc_order_demand.orders_affected', 1)
+            ->assertJsonPath('data.reserved_orders', 1);
+    }
+
+    public function test_qc_order_demand_uses_the_same_order_responsibility_scope_as_dispatch_queue(): void
+    {
+        $this->order();
+        $otherBrand = ProductBrand::factory()->create();
+        $otherProduct = Product::factory()->create(['condition' => ProductCondition::Renewed, 'brand_id' => $otherBrand->id, 'brand' => $otherBrand->name]);
+        ProductInventory::factory()->create(['product_id' => $otherProduct->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 10]);
+        $this->order(items: [new OrderItemData($otherProduct->id, 1, '500.00')]);
+        $staff = $this->dispatchStaff();
+
+        $this->assertSame(1, $this->dispatch->queueQuery($staff)->count());
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($staff));
     }
 
     public function test_one_current_scanned_unit_ships_and_retry_does_not_consume_twice(): void
@@ -499,6 +648,7 @@ class RenewedQcDispatchTest extends TestCase
 
     public function test_inspection_only_focused_technician_receives_qc_without_dispatch_access(): void
     {
+        $this->order();
         $technician = $this->responsibilityUser(EmployeeRole::Staff);
         foreach ([QcPermission::View, QcPermission::FocusedWorkspace] as $permission) {
             $this->override($technician, $permission, EmployeePermissionEffect::Allow);
@@ -521,6 +671,8 @@ class RenewedQcDispatchTest extends TestCase
             ->assertJsonPath('data.pending', 0)
             ->assertJsonPath('data.my_in_progress', 0)
             ->assertJsonPath('data.completed_today', 0)
+            ->assertJsonPath('data.qc_order_demand.units_needed', 0)
+            ->assertJsonPath('data.qc_order_demand.orders_affected', 0)
             ->assertJsonPath('data.capabilities.access.inspections', true)
             ->assertJsonPath('data.capabilities.access.dispatch', false)
             ->assertJsonPath('data.capabilities.dispatch', '/workspace/qc/dispatch')

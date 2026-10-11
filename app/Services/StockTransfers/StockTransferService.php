@@ -21,6 +21,8 @@ use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Inventory\InventoryService;
+use App\Services\Qc\QcStockTransferAssignmentService;
+use App\Services\Qc\QcStockTransferReadinessService;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -115,6 +117,7 @@ class StockTransferService
             [$source, $destination] = $this->lockLocations($transfer);
             $this->assertSelectableLocations($source, $destination);
             $items = $transfer->items()->orderBy('product_id')->lockForUpdate()->get();
+            app(QcStockTransferReadinessService::class)->assertReadyForDispatch($transfer);
             $inventories = ProductInventory::query()->where('warehouse_id', $source->id)->whereIn('product_id', $items->pluck('product_id'))->orderBy('product_id')->lockForUpdate()->get()->keyBy('product_id');
             $group = (string) Str::uuid();
             foreach ($items as $index => $item) {
@@ -159,6 +162,7 @@ class StockTransferService
             if ($transfer->status !== StockTransferStatus::Draft) {
                 throw new InvalidStockTransferTransitionException('Only a Draft Transfer can be cancelled.');
             }
+            app(QcStockTransferAssignmentService::class)->releaseForDraftCancellation($transfer, trim($reason), $actor);
             $transfer->forceFill(['status' => StockTransferStatus::Cancelled, 'cancellation_reason' => trim($reason), 'cancellation_idempotency_key' => $idempotencyKey, 'cancelled_by_user_id' => $actor->id, 'cancelled_at' => now()])->save();
             $this->event($transfer, StockTransferStatus::Draft, StockTransferStatus::Cancelled, $actor, trim($reason));
             $this->activity->log('stock_transfer.cancelled', $actor, $transfer, $this->safeContext($transfer) + ['reason_recorded' => true]);
@@ -198,6 +202,9 @@ class StockTransferService
                     ? $this->inventory->returnTransferItemToSource($item->setRelation('transfer', $transfer), $actor, $movementReferences[$index], $group)
                     : $this->inventory->receiveTransferItem($item, $destination->id, $actor, $movementReferences[$index], $group);
                 $item->forceFill($returned ? ['returned_quantity' => $item->dispatched_quantity] : ['received_quantity' => $item->dispatched_quantity, 'destination_product_inventory_id' => $inventory->id])->save();
+            }
+            if ($returned) {
+                app(QcStockTransferAssignmentService::class)->releaseAfterReturnToSource($transfer, $reason ?? 'Stock Transfer returned to source.', $actor);
             }
             $transfer->forceFill(['status' => $targetStatus, $keyColumn => $idempotencyKey, $returned ? 'returned_by_user_id' : 'received_by_user_id' => $actor->id, $returned ? 'returned_at' : 'received_at' => now(), 'return_reason' => $returned ? $reason : null])->save();
             $this->event($transfer, StockTransferStatus::Dispatched, $targetStatus, $actor, $reason);

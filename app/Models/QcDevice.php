@@ -35,4 +35,14 @@ class QcDevice extends Model
     {
         return $this->hasMany(QcOrderAssignment::class, 'qc_device_id');
     }
+
+    public function stockTransferAssignments(): HasMany
+    {
+        return $this->hasMany(QcStockTransferAssignment::class, 'qc_device_id');
+    }
+
+    public function claims(): HasMany
+    {
+        return $this->hasMany(QcDeviceClaim::class, 'qc_device_id');
+    }
 }

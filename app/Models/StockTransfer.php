@@ -57,6 +57,11 @@ class StockTransfer extends Model
         return $this->hasMany(StockTransferItem::class);
     }
 
+    public function qcAssignments(): HasMany
+    {
+        return $this->hasMany(QcStockTransferAssignment::class, 'stock_transfer_id');
+    }
+
     public function displayItems(): HasMany
     {
         return $this->hasMany(StockTransferItem::class)->select(['id', 'stock_transfer_id', 'product_id', 'product_name', 'sku', 'quantity', 'dispatched_quantity', 'received_quantity', 'returned_quantity', 'lost_quantity']);

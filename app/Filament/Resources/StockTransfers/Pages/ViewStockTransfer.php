@@ -39,6 +39,8 @@ class ViewStockTransfer extends ViewRecord
                 ->requiresConfirmation()
                 ->modalDescription('Confirm all Transfer lines physically left the source location.')
                 ->visible(fn (): bool => $this->record->status === StockTransferStatus::Draft && auth()->user()->can('dispatch', $this->record))
+                ->disabled(fn (): bool => $this->qcDispatchBlocked())
+                ->tooltip(fn (): ?string => $this->qcDispatchBlocked() ? 'Dispatch is blocked until all Renewed units have current valid QC assignments.' : null)
                 ->action(fn () => $this->runTransferAction(
                     'Cannot dispatch transfer',
                     fn () => app(DispatchStockTransfer::class)->handle($this->record, (string) str()->uuid(), auth()->user()),
@@ -78,7 +80,8 @@ class ViewStockTransfer extends ViewRecord
                     && app(StockTransferAuthorization::class)->allows(auth()->user(), StockTransferPermission::Dispatch, $this->record)
                     && app(QcAuthorization::class)->allows(auth()->user(), QcPermission::ViewOrderAssignments)
                     && app(QcAuthorization::class)->allows(auth()->user(), QcPermission::ReleaseMarketplaceTransferDevice)
-                    && app(QcStockTransferReadinessService::class)->isRequired($this->record))
+                    && app(QcStockTransferReadinessService::class)->isRequired($this->record)
+                    && $this->record->qcAssignments()->active()->exists())
                 ->action(function (array $data): void {
                     $assignment = QcStockTransferAssignment::query()->where('stock_transfer_id', $this->record->id)->findOrFail($data['assignment_id']);
                     app(QcStockTransferAssignmentService::class)->release($this->record, $assignment, $data['release_reason'], auth()->user());
@@ -128,5 +131,12 @@ class ViewStockTransfer extends ViewRecord
         }
 
         return "{$message}.";
+    }
+
+    private function qcDispatchBlocked(): bool
+    {
+        $readiness = app(QcStockTransferReadinessService::class)->forTransfer($this->record);
+
+        return $readiness['required'] > 0 && $readiness['status'] !== 'ready';
     }
 }

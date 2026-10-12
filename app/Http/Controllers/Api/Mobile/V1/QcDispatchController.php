@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Api\Mobile\V1;
 
 use App\Enums\OrderPermission;
 use App\Enums\QcPermission;
+use App\Enums\StockTransferPermission;
 use App\Exceptions\InvalidOrderTransitionException;
 use App\Models\Order;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Qc\QcInspectionReadService;
 use App\Services\Qc\QcOrderDemandService;
+use App\Services\Qc\QcTransferDemandService;
 use App\Services\Qc\RenewedQcDispatchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,13 +21,15 @@ use Illuminate\Validation\ValidationException;
 
 class QcDispatchController extends MobileController
 {
-    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcOrderDemandService $demand, QcAuthorization $qcAuthorization, OrderAuthorization $orderAuthorization): JsonResponse
+    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcOrderDemandService $demand, QcTransferDemandService $transferDemand, QcAuthorization $qcAuthorization, OrderAuthorization $orderAuthorization, StockTransferAuthorization $transferAuthorization): JsonResponse
     {
         $actor = $request->user();
         $canInspect = $qcAuthorization->allows($actor, QcPermission::View);
         $canDispatch = $qcAuthorization->allows($actor, QcPermission::ViewDispatchQueue)
             && $orderAuthorization->allows($actor, OrderPermission::View);
-        abort_unless($canInspect || $canDispatch, 403);
+        $canTransferQueue = $qcAuthorization->allows($actor, QcPermission::ViewOrderAssignments)
+            && $transferAuthorization->allows($actor, StockTransferPermission::View);
+        abort_unless($canInspect || $canDispatch || $canTransferQueue, 403);
 
         $canScan = $canDispatch
             && $qcAuthorization->allows($actor, QcPermission::ScanDispatch)
@@ -32,11 +37,21 @@ class QcDispatchController extends MobileController
             && $qcAuthorization->allows($actor, QcPermission::AssignOrderDevice);
         $canShip = $canDispatch && $qcAuthorization->allows($actor, QcPermission::ShipDispatch)
             && $orderAuthorization->allows($actor, OrderPermission::Fulfill);
+        $transferSummary = $canTransferQueue ? $transferDemand->summary($actor)
+            : ['units_needed' => 0, 'transfers_affected' => 0, 'marketplace_transfers' => 0];
+        $canAssignTransfer = $canTransferQueue
+            && $transferAuthorization->allows($actor, StockTransferPermission::Dispatch)
+            && $qcAuthorization->allows($actor, QcPermission::AssignMarketplaceTransferDevice);
+        $canReleaseTransfer = $canTransferQueue
+            && $transferAuthorization->allows($actor, StockTransferPermission::Dispatch)
+            && $qcAuthorization->allows($actor, QcPermission::ReleaseMarketplaceTransferDevice);
         $clock = app(BusinessTimezone::class);
 
         return response()->json(['data' => ['reserved_orders' => $canDispatch ? $service->queueQuery($actor)->count() : 0,
             ...$inspections->counters($actor),
             'qc_order_demand' => $canDispatch ? $demand->calculate($actor) : ['units_needed' => 0, 'orders_affected' => 0],
+            'qc_transfer_demand' => ['units_needed' => $transferSummary['units_needed'], 'transfers_affected' => $transferSummary['transfers_affected']],
+            'marketplace_transfers' => $transferSummary['marketplace_transfers'],
             'timezone' => $clock->name(), 'capabilities' => [
                 'inspections' => '/workspace/qc/inspections',
                 'queue' => '/workspace/qc/pending',
@@ -44,7 +59,17 @@ class QcDispatchController extends MobileController
                 'individual_scan' => $canScan,
                 'explicit_ship' => $canShip,
                 'bulk_ship_limit' => $canShip ? 50 : 0,
-                'access' => ['inspections' => $canInspect, 'dispatch' => $canDispatch, 'scan' => $canScan, 'ship' => $canShip],
+                'marketplace_transfers' => $canTransferQueue,
+                'transfer_assignment' => $canAssignTransfer,
+                'transfer_release' => $canReleaseTransfer,
+                'endpoints' => [
+                    'transfer_queue' => '/workspace/qc/transfers',
+                    'transfer_detail' => '/workspace/qc/transfers/{transfer}',
+                    'transfer_verified_scan' => '/workspace/qc/transfers/{transfer}/verified-scan',
+                    'transfer_release' => '/workspace/qc/transfers/{transfer}/assignments/{assignment}/release',
+                ],
+                'access' => ['inspections' => $canInspect, 'dispatch' => $canDispatch, 'scan' => $canScan, 'ship' => $canShip,
+                    'marketplace_transfers' => $canTransferQueue, 'transfer_assignment' => $canAssignTransfer, 'transfer_release' => $canReleaseTransfer],
             ]]]);
     }
 

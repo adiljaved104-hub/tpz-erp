@@ -48,6 +48,10 @@ class StockTransferInfolist
                 TextEntry::make('qc_status')->label('QC Status')->state(str($readiness['status'])->replace('_', ' ')->title()->toString())->badge(),
                 TextEntry::make('qc_units')->label('Renewed units')->state("{$readiness['valid']} / {$readiness['required']} QC Ready"),
                 TextEntry::make('qc_remaining')->label('QC Needed')->state((string) $readiness['remaining']),
+                TextEntry::make('qc_dispatch_gate')->label('Dispatch gate')->state($readiness['status'] === 'ready'
+                    ? 'Ready for dispatch.'
+                    : 'Dispatch is blocked until all Renewed units have current valid QC assignments.')
+                    ->color($readiness['status'] === 'ready' ? 'success' : 'danger')->columnSpanFull(),
                 RepeatableEntry::make('qcAssignments')->hiddenLabel()->schema([
                     TextEntry::make('device.reference')->label('QC ID'),
                     TextEntry::make('device.serial')->label('Serial'),

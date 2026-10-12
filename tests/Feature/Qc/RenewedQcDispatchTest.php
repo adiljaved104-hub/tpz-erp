@@ -16,6 +16,8 @@ use App\Enums\StockMovementType;
 use App\Exceptions\InventoryInvariantException;
 use App\Filament\Pages\Inventory\RenewedQcWorkQueue;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
+use App\Filament\Resources\QcInspections\Pages\ListQcInspections;
+use App\Filament\Resources\QcInspections\Widgets\QcProgress;
 use App\Filament\Resources\WebSalesOrders\Pages\ViewWebSalesOrder;
 use App\Models\EmployeePermissionOverride;
 use App\Models\Order;
@@ -44,10 +46,12 @@ use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\RenewedQcDispatchService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use Carbon\CarbonImmutable;
+use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -131,6 +135,35 @@ class RenewedQcDispatchTest extends TestCase
         $this->order();
 
         $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_web_qc_inspection_page_keeps_pending_inspections_separate_from_order_demand(): void
+    {
+        $this->order();
+        $inspection = app(QcInspectionService::class)->start([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'serial' => 'WEB-QC-DEMAND-001',
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $this->owner);
+        $inspectionCount = QcInspection::query()->count();
+
+        $this->assertTrue(Route::has('qc.labels'), 'QC label route should be registered for the web page from '.base_path().'.');
+
+        Livewire::actingAs($this->owner)
+            ->test(ListQcInspections::class)
+            ->assertCanSeeTableRecords([$inspection]);
+
+        $stats = $this->qcProgressStats($this->owner);
+        $this->assertSame(1, $stats['Pending QC']);
+        $this->assertSame(0, $stats['In Progress']);
+        $this->assertSame(0, $stats['Rework Required']);
+        $this->assertSame(0, $stats['Completed Today']);
+        $this->assertSame(1, $stats['QC Needed for Orders']);
+        $this->assertSame(0, $stats['QC Needed for Transfers']);
+        $this->assertSame(0, $stats['Marketplace Transfers']);
+        $this->assertSame($inspectionCount, QcInspection::query()->count(), 'Viewing QC demand must not create inspections.');
     }
 
     public function test_matching_current_completed_certificate_satisfies_order_demand(): void
@@ -1203,6 +1236,18 @@ class RenewedQcDispatchTest extends TestCase
     private function orderData(int $quantity = 1, ?array $items = null): SaveAndReserveOrderData
     {
         return new SaveAndReserveOrderData($this->warehouse->id, null, null, now()->toDateString(), $this->owner->employee->id, null, $items ?? [new OrderItemData($this->product->id, $quantity, '500.00')], (string) str()->uuid());
+    }
+
+    /** @return array<string, mixed> */
+    private function qcProgressStats(User $actor): array
+    {
+        $component = Livewire::actingAs($actor)->test(QcProgress::class);
+        $method = new \ReflectionMethod(QcProgress::class, 'getCachedStats');
+        $method->setAccessible(true);
+
+        return collect($method->invoke($component->instance()))
+            ->mapWithKeys(fn (Stat $stat): array => [$stat->getLabel() => $stat->getValue()])
+            ->all();
     }
 
     private function order(int $quantity = 1, ?array $items = null): Order

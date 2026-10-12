@@ -12,6 +12,7 @@ use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\DTOs\StockTransfers\CreateStockTransferData;
 use App\DTOs\StockTransfers\StockTransferItemData;
+use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationType;
 use App\Enums\ProductCondition;
@@ -19,6 +20,7 @@ use App\Enums\QcPermission;
 use App\Enums\StockMovementType;
 use App\Enums\StockTransferStatus;
 use App\Exceptions\InvalidStockTransferTransitionException;
+use App\Filament\Resources\QcInspections\Widgets\QcProgress;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductInventory;
@@ -30,15 +32,18 @@ use App\Models\StockMovement;
 use App\Models\StockTransfer;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Qc\QcDocumentService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionReadService;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcOrderAssignmentService;
+use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\QcStockTransferAssignmentService;
 use App\Services\Qc\QcStockTransferReadinessService;
 use App\Services\Qc\QcTransferDemandService;
+use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -49,6 +54,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
+use Livewire\Livewire;
 use Symfony\Component\Process\Process;
 use Tests\Support\ResponsibilityTestFoundation;
 use Tests\TestCase;
@@ -435,9 +441,23 @@ class QcMarketplaceTransferTest extends TestCase
         $this->assertSame(0, app(QcInspectionReadService::class)->counters($this->owner)['pending']);
         $this->assertSame(['units_needed' => 1, 'transfers_affected' => 1, 'marketplace_transfers' => 1], app(QcTransferDemandService::class)->summary($this->owner));
 
+        $inspectionCount = QcInspection::query()->count();
+        $pendingTransferStats = $this->qcProgressStats($this->owner);
+        $this->assertSame(0, $pendingTransferStats['Pending QC']);
+        $this->assertSame(1, $pendingTransferStats['QC Needed for Transfers']);
+        $this->assertSame(1, $pendingTransferStats['Marketplace Transfers']);
+        $this->assertSame($inspectionCount, QcInspection::query()->count());
+
         $certificate = $this->certify('DEMAND-FREE-001');
         $this->assertSame(0, app(QcInspectionReadService::class)->counters($this->owner)['pending']);
         $this->assertSame(['units_needed' => 0, 'transfers_affected' => 0, 'marketplace_transfers' => 1], app(QcTransferDemandService::class)->summary($this->owner));
+
+        $unassignedTransferStats = $this->qcProgressStats($this->owner);
+        $this->assertSame(0, $unassignedTransferStats['Pending QC']);
+        $this->assertSame(0, $unassignedTransferStats['QC Needed for Transfers']);
+        $this->assertSame(1, $unassignedTransferStats['Marketplace Transfers']);
+        $this->assertSame('pending_qc', app(QcStockTransferReadinessService::class)->forTransfer($first)['status']);
+        $this->assertSame(StockTransferStatus::Draft, $first->fresh()->status);
 
         $second = $this->transfer($this->product, 1);
         $this->assertSame(['units_needed' => 1, 'transfers_affected' => 1, 'marketplace_transfers' => 2], app(QcTransferDemandService::class)->summary($this->owner));
@@ -447,6 +467,29 @@ class QcMarketplaceTransferTest extends TestCase
         $this->assertSame(StockTransferStatus::Draft, $first->fresh()->status);
         $this->assertSame(StockTransferStatus::Draft, $second->fresh()->status);
         $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_web_qc_demand_cards_do_not_expose_order_or_transfer_counts_without_capability(): void
+    {
+        $this->orderItem();
+        $this->transfer($this->product, 1);
+        $this->assertSame(1, app(QcOrderDemandService::class)->calculate($this->owner)['units_needed']);
+        $this->assertSame(['units_needed' => 1, 'transfers_affected' => 1, 'marketplace_transfers' => 1], app(QcTransferDemandService::class)->summary($this->owner));
+
+        $staff = $this->responsibilityUser(EmployeeRole::Staff);
+        app(EmployeePermissionOverrideService::class)->change(
+            $staff->employee,
+            QcPermission::View->value,
+            EmployeePermissionEffect::Allow,
+            'View QC inspections only',
+            $this->owner,
+        );
+
+        $stats = $this->qcProgressStats($staff);
+
+        $this->assertSame(0, $stats['QC Needed for Orders']);
+        $this->assertSame(0, $stats['QC Needed for Transfers']);
+        $this->assertSame(0, $stats['Marketplace Transfers']);
     }
 
     public function test_order_claimed_certificate_is_not_forecast_as_marketplace_transfer_supply(): void
@@ -562,5 +605,17 @@ class QcMarketplaceTransferTest extends TestCase
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey($field, $exception->errors(), json_encode($exception->errors()));
         }
+    }
+
+    /** @return array<string, mixed> */
+    private function qcProgressStats(User $actor): array
+    {
+        $component = Livewire::actingAs($actor)->test(QcProgress::class);
+        $method = new \ReflectionMethod(QcProgress::class, 'getCachedStats');
+        $method->setAccessible(true);
+
+        return collect($method->invoke($component->instance()))
+            ->mapWithKeys(fn (Stat $stat): array => [$stat->getLabel() => $stat->getValue()])
+            ->all();
     }
 }

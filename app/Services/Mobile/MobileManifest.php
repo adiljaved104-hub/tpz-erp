@@ -66,6 +66,14 @@ class MobileManifest
                     && $qcAuthorization->allows($user, Enums\QcPermission::AssignOrderDevice);
                 $ship = $dispatch && $qcAuthorization->allows($user, Enums\QcPermission::ShipDispatch)
                     && $orderAuthorization->allows($user, Enums\OrderPermission::Fulfill);
+                $marketplaceTransfers = $qcAuthorization->allows($user, Enums\QcPermission::ViewOrderAssignments)
+                    && app(Authorization\StockTransferAuthorization::class)->allows($user, Enums\StockTransferPermission::View);
+                $transferAssignment = $marketplaceTransfers
+                    && app(Authorization\StockTransferAuthorization::class)->allows($user, Enums\StockTransferPermission::Dispatch)
+                    && $qcAuthorization->allows($user, Enums\QcPermission::AssignMarketplaceTransferDevice);
+                $transferRelease = $marketplaceTransfers
+                    && app(Authorization\StockTransferAuthorization::class)->allows($user, Enums\StockTransferPermission::Dispatch)
+                    && $qcAuthorization->allows($user, Enums\QcPermission::ReleaseMarketplaceTransferDevice);
                 $modules[] = [...$module, 'group' => 'Quality Control', 'order' => ($index + 1) * 10, 'renderer' => 'native',
                     'api_path' => '/workspace/qc', 'record_module' => 'qc', 'searchable' => false,
                     'list' => ['pagination' => false, 'fields' => ['title', 'subtitle', 'meta', 'status']],
@@ -73,7 +81,8 @@ class MobileManifest
                     'create' => ['enabled' => false, 'renderer' => 'native', 'screen' => null],
                     'edit' => ['source' => 'record.actions', 'record_authorization_required' => true],
                     'filters' => [], 'statuses' => [], 'actions' => ['source' => 'record.actions'],
-                    'features' => ['queue' => $dispatch, 'detail' => $dispatch],
+                    'features' => ['queue' => $dispatch || $marketplaceTransfers, 'detail' => $dispatch || $marketplaceTransfers,
+                        'marketplace_transfers' => $marketplaceTransfers],
                     'capabilities' => [
                         'inspections' => $inspections,
                         'inspection_update' => $inspectionUpdate,
@@ -83,11 +92,18 @@ class MobileManifest
                         'scan' => $scan,
                         'ship' => $ship,
                         'bulk_ship_limit' => $ship ? 50 : 0,
+                        'marketplace_transfers' => $marketplaceTransfers,
+                        'transfer_assignment' => $transferAssignment,
+                        'transfer_release' => $transferRelease,
                         'endpoints' => ['inspections' => '/workspace/qc/inspections', 'inspection_detail' => '/workspace/qc/inspections/{inspection}',
                             'inspection_begin' => '/workspace/qc/inspections/{inspection}/begin', 'inspection_update' => '/workspace/qc/inspections/{inspection}',
                             'inspection_evidence' => '/workspace/qc/inspections/{inspection}/evidence', 'inspection_complete' => '/workspace/qc/inspections/{inspection}/complete',
                             'pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}',
-                            'verified_scan' => '/workspace/qc/orders/{order}/verified-scan'],
+                            'verified_scan' => '/workspace/qc/orders/{order}/verified-scan',
+                            'transfer_queue' => '/workspace/qc/transfers',
+                            'transfer_detail' => '/workspace/qc/transfers/{transfer}',
+                            'transfer_verified_scan' => '/workspace/qc/transfers/{transfer}/verified-scan',
+                            'transfer_release' => '/workspace/qc/transfers/{transfer}/assignments/{assignment}/release'],
                     ]];
 
                 continue;

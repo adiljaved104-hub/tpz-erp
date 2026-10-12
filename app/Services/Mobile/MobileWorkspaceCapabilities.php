@@ -118,7 +118,9 @@ class MobileWorkspaceCapabilities
     private function hasQcAccess(User $user): bool
     {
         return app(QcAuthorization::class)->allows($user, QcPermission::View)
-            || $this->hasQcDispatchAccess($user);
+            || $this->hasQcDispatchAccess($user)
+            || (app(QcAuthorization::class)->allows($user, QcPermission::ViewOrderAssignments)
+                && app(StockTransferAuthorization::class)->allows($user, StockTransferPermission::View));
     }
 
     public function has(User $user, string $key): bool

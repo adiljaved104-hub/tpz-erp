@@ -2,12 +2,10 @@
 
 namespace App\Services\Qc;
 
-use App\Enums\QcInspectionStatus;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\QcCertificate;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -18,6 +16,7 @@ class QcOrderDemandService
         private readonly RenewedQcDispatchService $dispatch,
         private readonly QcOrderAssignmentService $assignments,
         private readonly RenewedQcRequirement $requirement,
+        private readonly QcAvailableCertificateService $availableSupply,
     ) {}
 
     /** @return array{units_needed: int, orders_affected: int} */
@@ -28,7 +27,7 @@ class QcOrderDemandService
             return ['units_needed' => 0, 'orders_affected' => 0];
         }
 
-        $certificates = $this->availableCertificates();
+        $certificates = $this->availableSupply->currentUnclaimed();
         if ($certificates->isEmpty()) {
             $affectedOrders = [];
             foreach ($slots as $slot) {
@@ -93,27 +92,6 @@ class QcOrderDemandService
         }
 
         return $slots;
-    }
-
-    /** @return Collection<int, QcCertificate> */
-    private function availableCertificates(): Collection
-    {
-        return QcCertificate::query()
-            ->with(['device', 'inspection'])
-            ->whereHas('inspection', fn (Builder $query) => $query->where('status', QcInspectionStatus::Completed->value))
-            ->whereDoesntHave('device.orderAssignments', fn (Builder $query) => $query->active())
-            ->whereDoesntHave('device.inspections', fn (Builder $query) => $query->whereNotNull('active_device_id'))
-            ->whereNotExists(fn ($query) => $query->selectRaw('1')
-                ->from('qc_certificates as newer')
-                ->whereColumn('newer.device_id', 'qc_certificates.device_id')
-                ->whereColumn('newer.version', '>', 'qc_certificates.version'))
-            ->orderBy('device_id')
-            ->orderBy('id')
-            // Guard against malformed historical data with multiple current
-            // certificate rows for one physical device.
-            ->get()
-            ->unique('device_id')
-            ->values();
     }
 
     /**

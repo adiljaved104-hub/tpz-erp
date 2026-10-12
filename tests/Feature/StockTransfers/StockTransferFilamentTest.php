@@ -10,6 +10,7 @@ use App\DTOs\StockTransfers\CreateStockTransferData;
 use App\DTOs\StockTransfers\StockTransferItemData;
 use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationType;
+use App\Enums\ProductCondition;
 use App\Enums\StockTransferStatus;
 use App\Exceptions\InactiveInventorySubjectException;
 use App\Filament\Pages\Administration\AccessControl;
@@ -17,6 +18,7 @@ use App\Filament\Resources\StockTransfers\Pages\CreateStockTransfer;
 use App\Filament\Resources\StockTransfers\Pages\ViewStockTransfer;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\Employee;
+use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\StockMovement;
@@ -123,6 +125,37 @@ class StockTransferFilamentTest extends TestCase
         $this->assertSame(1, $inventory->refresh()->available_quantity);
         $this->assertSame(1, $inventory->reserved_quantity);
         $this->assertDatabaseCount('stock_movements', 1);
+    }
+
+    public function test_renewed_marketplace_transfer_shows_dispatch_block_and_hides_release_without_active_assignment(): void
+    {
+        [$owner, $source, , $product] = $this->foundation();
+        $product->update(['condition' => ProductCondition::Renewed]);
+        $platform = MarketplacePlatform::factory()->create();
+        $destination = Warehouse::factory()->create([
+            'name' => 'Amazon FBA UAE',
+            'code' => 'AMZ-FBA',
+            'location_type' => InventoryLocationType::MarketplaceFulfilment,
+            'marketplace_platform_id' => $platform->id,
+            'status' => true,
+        ]);
+        ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $source->id,
+            'available_quantity' => 2,
+            'reserved_quantity' => 0,
+            'average_cost' => '100.0000',
+        ]);
+        $transfer = $this->draft($owner, $source, $destination, $product, 1);
+
+        Livewire::actingAs($owner)
+            ->test(ViewStockTransfer::class, ['record' => $transfer->getRouteKey()])
+            ->assertActionDisabled('dispatch')
+            ->assertActionHidden('releaseQcAssignment')
+            ->assertSee('Dispatch is blocked until all Renewed units have current valid QC assignments.');
+
+        $this->assertSame(StockTransferStatus::Draft, $transfer->fresh()->status);
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     public function test_receive_and_return_known_failures_are_shown_without_changing_the_transfer(): void

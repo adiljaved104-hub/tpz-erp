@@ -33,10 +33,12 @@ use App\Models\Warehouse;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Qc\QcDocumentService;
 use App\Services\Qc\QcEvidenceService;
+use App\Services\Qc\QcInspectionReadService;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcOrderAssignmentService;
 use App\Services\Qc\QcStockTransferAssignmentService;
 use App\Services\Qc\QcStockTransferReadinessService;
+use App\Services\Qc\QcTransferDemandService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -406,6 +408,9 @@ class QcMarketplaceTransferTest extends TestCase
         $transfer = $this->transfer($this->product, 1);
         $certificate = $this->certify('API-QC-001');
         Sanctum::actingAs($this->owner);
+        $this->getJson('/api/mobile/v1/workspace/qc/transfers?page=1&per_page=10')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.reference', $transfer->reference)
+            ->assertJsonPath('data.0.readiness.status', 'pending_qc');
         $this->getJson("/api/mobile/v1/workspace/qc/transfers/{$transfer->id}")
             ->assertOk()->assertJsonPath('data.readiness.status', 'pending_qc');
         $this->postJson("/api/mobile/v1/workspace/qc/transfers/{$transfer->id}/verified-scan", [
@@ -415,6 +420,63 @@ class QcMarketplaceTransferTest extends TestCase
             ->assertJsonPath('data.readiness.status', 'ready');
         $this->assertSame(StockTransferStatus::Draft, $transfer->fresh()->status);
         $this->assertDatabaseCount('stock_movements', 0);
+        $show = $this->getJson("/api/mobile/v1/workspace/qc/transfers/{$transfer->id}")->assertOk();
+        $assignmentId = $show->json('data.assignments.0.assignment_id');
+        $this->assertNotEmpty($assignmentId);
+        $this->postJson("/api/mobile/v1/workspace/qc/transfers/{$transfer->id}/assignments/{$assignmentId}/release", ['reason' => 'Wrong physical unit'])
+            ->assertOk()->assertJsonPath('data.assignment_state', 'released')->assertJsonPath('data.readiness.status', 'pending_qc');
+        $this->assertSame(StockTransferStatus::Draft, $transfer->fresh()->status);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_transfer_demand_is_separate_from_pending_qc_and_free_certificates_are_matched_once(): void
+    {
+        $first = $this->transfer($this->product, 1);
+        $this->assertSame(0, app(QcInspectionReadService::class)->counters($this->owner)['pending']);
+        $this->assertSame(['units_needed' => 1, 'transfers_affected' => 1, 'marketplace_transfers' => 1], app(QcTransferDemandService::class)->summary($this->owner));
+
+        $certificate = $this->certify('DEMAND-FREE-001');
+        $this->assertSame(0, app(QcInspectionReadService::class)->counters($this->owner)['pending']);
+        $this->assertSame(['units_needed' => 0, 'transfers_affected' => 0, 'marketplace_transfers' => 1], app(QcTransferDemandService::class)->summary($this->owner));
+
+        $second = $this->transfer($this->product, 1);
+        $this->assertSame(['units_needed' => 1, 'transfers_affected' => 1, 'marketplace_transfers' => 2], app(QcTransferDemandService::class)->summary($this->owner));
+
+        $this->assign($first, $certificate);
+        $this->assertSame(['units_needed' => 1, 'transfers_affected' => 1, 'marketplace_transfers' => 1], app(QcTransferDemandService::class)->summary($this->owner));
+        $this->assertSame(StockTransferStatus::Draft, $first->fresh()->status);
+        $this->assertSame(StockTransferStatus::Draft, $second->fresh()->status);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_order_claimed_certificate_is_not_forecast_as_marketplace_transfer_supply(): void
+    {
+        $certificate = $this->certify('DEMAND-ORDER-CLAIM');
+        app(QcOrderAssignmentService::class)->assign($this->orderItem(), $certificate->id, $this->owner);
+        $transfer = $this->transfer($this->product, 1);
+
+        $this->assertSame(['units_needed' => 1, 'transfers_affected' => 1, 'marketplace_transfers' => 1], app(QcTransferDemandService::class)->summary($this->owner));
+        $this->assertSame(1, QcDeviceClaim::query()->active()->where('active_device_id', $certificate->device_id)->count());
+    }
+
+    public function test_qc_home_exposes_distinct_order_transfer_and_pending_inspection_counts(): void
+    {
+        $this->transfer($this->product, 1);
+        $email = 'qc-mobile-'.$this->owner->id.'@techpointzone.com';
+        $this->owner->update(['email' => $email]);
+        $this->owner->employee->update(['email' => $email]);
+        $this->withToken($this->owner->createToken('QC Dispatch Test')->plainTextToken);
+
+        $response = $this->getJson('/api/mobile/v1/workspace/qc');
+        $response->assertOk()
+            ->assertJsonPath('data.pending', 0)
+            ->assertJsonPath('data.qc_order_demand.units_needed', 0)
+            ->assertJsonPath('data.qc_transfer_demand.units_needed', 1)
+            ->assertJsonPath('data.qc_transfer_demand.transfers_affected', 1)
+            ->assertJsonPath('data.marketplace_transfers', 1)
+            ->assertJsonPath('data.capabilities.marketplace_transfers', true)
+            ->assertJsonPath('data.capabilities.transfer_assignment', true)
+            ->assertJsonPath('data.capabilities.transfer_release', true);
     }
 
     public function test_stock_transfer_qc_permission_is_narrow_and_staff_needs_explicit_action_access(): void

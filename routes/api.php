@@ -83,8 +83,10 @@ Route::prefix('mobile/v1')
             Route::get('/qc/pending', [QcDispatchController::class, 'index']);
             Route::get('/qc/dispatch', [QcDispatchController::class, 'index']);
             Route::get('/qc/orders/{order}', [QcDispatchController::class, 'show'])->whereNumber('order');
+            Route::get('/qc/transfers', [QcStockTransferController::class, 'index']);
             Route::get('/qc/transfers/{transfer}', [QcStockTransferController::class, 'show'])->whereNumber('transfer');
             Route::post('/qc/transfers/{transfer}/verified-scan', [QcStockTransferController::class, 'verifiedScan'])->whereNumber('transfer')->middleware('throttle:60,1');
+            Route::post('/qc/transfers/{transfer}/assignments/{assignment}/release', [QcStockTransferController::class, 'release'])->whereNumber(['transfer', 'assignment'])->middleware('throttle:30,1');
             Route::post('/qc/orders/{order}/scan', [QcDispatchController::class, 'scan'])->whereNumber('order')->middleware('throttle:60,1');
             Route::post('/qc/orders/{order}/verified-scan', [QcDispatchController::class, 'verifiedScan'])->whereNumber('order')->middleware('throttle:60,1');
             Route::post('/qc/orders/{order}/ship', [QcDispatchController::class, 'ship'])->whereNumber('order')->middleware('throttle:30,1');

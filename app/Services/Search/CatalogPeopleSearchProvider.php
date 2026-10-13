@@ -18,7 +18,6 @@ use App\Services\Authorization\InventoryLocationAuthorization;
 use App\Services\Authorization\PeopleAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
-use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -43,10 +42,7 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
             ->where('products.inventory_item_type', 'product')
             ->select(['products.id', 'products.sku', 'products.name', 'products.model', 'products.status']);
         $authorization = app(ProductAuthorization::class);
-        $authorization->applyCreatorScope($query, $user);
-        if (! $authorization->requiresCreatorScope($user)) {
-            app(ResponsibilityProductScopeService::class)->apply($query, 'products.id', $user);
-        }
+        $authorization->applyVisibilityScope($query, $user);
         SearchQuery::match($query, ['products.sku', 'products.name', 'products.model', 'products.brand', 'search_product_brands.name'], $term);
         SearchQuery::rank($query, 'products.sku', $term);
         SearchQuery::rank($query, 'products.name', $term);

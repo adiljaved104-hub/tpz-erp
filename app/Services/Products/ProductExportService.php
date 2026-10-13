@@ -31,7 +31,7 @@ class ProductExportService
         $this->authorization->authorize($actor, ProductPermission::Export);
         $fields = $this->fieldsFor($actor);
         $query = $this->query($data, $fields);
-        $this->authorization->applyCreatorScope($query, $actor);
+        $this->authorization->applyVisibilityScope($query, $actor);
         $rowCount = (clone $query)->count();
         $filters = $data->filters();
 

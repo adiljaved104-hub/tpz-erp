@@ -56,7 +56,7 @@ class ProductResource extends Resource
 
         $query->select($fields)->with(['brandRelation:id,name,status', 'categoryRelation:id,name,status']);
         if ($user instanceof User) {
-            app(ProductAuthorization::class)->applyCreatorScope($query, $user);
+            app(ProductAuthorization::class)->applyVisibilityScope($query, $user);
         }
 
         if ($user instanceof User && app(PurchaseAuthorization::class)->allows($user, PurchasePermission::ViewCostHistory)) {

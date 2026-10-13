@@ -91,7 +91,11 @@ class MarketplaceOperationsWatchdogTest extends TestCase
         $second = $this->responsibilityUser(EmployeeRole::Staff);
         app(ResponsibilityAssignmentService::class)->create($this->assignmentData(
             ['employee' => $second->employee, 'brand' => $context['brand'], 'platform' => $context['platform'], 'product' => $context['product'], 'inventory' => $context['inventory']],
-            overrides: ['platformId' => $context['platform']->id],
+            overrides: [
+                'brandId' => null,
+                'categoryId' => $context['product']->category_id,
+                'platformId' => $context['platform']->id,
+            ],
         ), $context['owner']);
         app(ResponsibilityAssignmentService::class)->create($this->assignmentData(
             ['employee' => $context['responsible']->employee, 'brand' => $context['brand'], 'platform' => $context['platform'], 'product' => $context['product'], 'inventory' => $context['inventory']],

@@ -13,6 +13,7 @@ use App\DTOs\Purchases\PurchaseReceiptItemData;
 use App\DTOs\Purchases\QuickStockPurchaseData;
 use App\DTOs\Purchases\ReceivePurchaseData;
 use App\Enums\EmployeeRole;
+use App\Enums\ProductCondition;
 use App\Exceptions\DuplicateActiveResponsibilityException;
 use App\Models\MarketplacePlatform;
 use App\Models\ProductBrand;
@@ -66,6 +67,80 @@ class PlatformOnlySharedResponsibilityTest extends TestCase
         $this->expectException(ValidationException::class);
         $this->expectExceptionMessage('overlapping operational responsibility');
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: ['employeeId' => $other->employee->id, 'categoryId' => $f['product']->category_id, 'platformId' => $f['platform']->id]), $f['owner']);
+    }
+
+    public function test_same_platform_distinct_conditions_coexist_but_identical_specific_condition_conflicts(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $renewedHandler = $this->responsibilityUser(EmployeeRole::Staff);
+        $anotherRenewedHandler = $this->responsibilityUser(EmployeeRole::Staff);
+
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: [
+            'platformId' => $f['platform']->id,
+            'condition' => ProductCondition::New,
+        ]), $f['owner']);
+
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: [
+            'employeeId' => $renewedHandler->employee->id,
+            'platformId' => $f['platform']->id,
+            'condition' => ProductCondition::Renewed,
+        ]), $f['owner']);
+
+        $duplicate = $this->assignmentData($f, overrides: [
+            'employeeId' => $anotherRenewedHandler->employee->id,
+            'platformId' => $f['platform']->id,
+            'condition' => ProductCondition::Renewed,
+        ]);
+
+        $this->assertTrue(app(ResponsibilityScopeConflictEvaluator::class)->conflicts($duplicate)->contains(
+            fn (array $conflict): bool => $conflict['operational'],
+        ));
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('overlapping operational responsibility');
+        app(CreateResponsibilityAssignment::class)->handle($duplicate, $f['owner']);
+    }
+
+    public function test_marketplace_condition_fallback_does_not_suppress_default_stock_conflicts(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $renewedHandler = $this->responsibilityUser(EmployeeRole::Staff);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: [
+            'platformId' => $f['platform']->id,
+            'assignStockByDefault' => true,
+        ]), $f['owner']);
+
+        $specific = $this->assignmentData($f, overrides: [
+            'employeeId' => $renewedHandler->employee->id,
+            'platformId' => $f['platform']->id,
+            'condition' => ProductCondition::Renewed,
+            'assignStockByDefault' => true,
+        ]);
+        $conflicts = app(ResponsibilityScopeConflictEvaluator::class)->conflicts($specific);
+
+        $this->assertCount(1, $conflicts);
+        $this->assertFalse($conflicts->sole()['operational']);
+        $this->assertTrue($conflicts->sole()['defaultStock']);
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('matching default stock holder');
+        app(CreateResponsibilityAssignment::class)->handle($specific, $f['owner']);
+    }
+
+    public function test_condition_fallback_overlap_without_platform_remains_a_conflict(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $other = $this->responsibilityUser(EmployeeRole::Staff);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
+
+        $specific = $this->assignmentData($f, overrides: [
+            'employeeId' => $other->employee->id,
+            'condition' => ProductCondition::Renewed,
+        ]);
+
+        $this->assertTrue(app(ResponsibilityScopeConflictEvaluator::class)->conflicts($specific)->contains(
+            fn (array $conflict): bool => $conflict['operational'],
+        ));
+        $this->expectException(ValidationException::class);
+        app(CreateResponsibilityAssignment::class)->handle($specific, $f['owner']);
     }
 
     public function test_different_brands_on_same_platform_remain_independent(): void

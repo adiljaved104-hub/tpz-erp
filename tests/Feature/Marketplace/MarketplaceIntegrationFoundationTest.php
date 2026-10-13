@@ -109,8 +109,10 @@ class MarketplaceIntegrationFoundationTest extends TestCase
         $new = $this->account($platform, 'New', 'new');
         $foundation = ['brand' => $brand, 'platform' => $platform, 'product' => $product, 'inventory' => null];
 
-        app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation + ['employee' => $general->employee], overrides: ['platformId' => $platform->id]), $owner);
-        app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation + ['employee' => $renewedHandler->employee], overrides: ['platformId' => $platform->id, 'condition' => ProductCondition::Renewed]), $owner);
+        $fallbackAssignment = app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation + ['employee' => $general->employee], overrides: ['platformId' => $platform->id]), $owner);
+        $renewedAssignment = app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation + ['employee' => $renewedHandler->employee], overrides: ['platformId' => $platform->id, 'condition' => ProductCondition::Renewed]), $owner);
+
+        $this->assertNotSame($fallbackAssignment->active_fingerprint, $renewedAssignment->active_fingerprint);
 
         $resolver = app(MarketplaceResponsibilityResolver::class);
         $this->assertSame([$renewedHandler->employee->id], $resolver->assignments($this->listing($product, $renewed, 'R-1', 'R-SKU'))->pluck('employee_id')->all());

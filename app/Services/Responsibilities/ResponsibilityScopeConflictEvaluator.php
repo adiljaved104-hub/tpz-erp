@@ -44,7 +44,8 @@ class ResponsibilityScopeConflictEvaluator
                 && ! $this->isWarehouseOnly($existing)
                 && ! $this->isSharedOperationalScope($candidate)
                 && ! $this->isSharedOperationalScope($existing)
-                && $this->intersects($candidate, $existing, includePlatform: true);
+                && $this->intersects($candidate, $existing, includePlatform: true)
+                && ! $this->isMarketplaceConditionFallbackPair($candidate, $existing);
             $defaultStock = $proposed->assignStockByDefault
                 && $assignment->assign_stock_by_default
                 && ! $this->isSharedOperationalScope($candidate)
@@ -220,6 +221,23 @@ class ResponsibilityScopeConflictEvaluator
         }
 
         return true;
+    }
+
+    /**
+     * Marketplace routing permits a general assignment to act as the fallback
+     * when no assignment exists for the listing's exact condition. The caller
+     * has already established that the two operational scopes otherwise
+     * overlap; this exception only applies to the same explicit marketplace
+     * platform and exactly one unspecified condition.
+     *
+     * This is deliberately limited to operational conflicts. Default stock
+     * ownership is evaluated separately against physical product dimensions.
+     */
+    private function isMarketplaceConditionFallbackPair(array $left, array $right): bool
+    {
+        return $left['platform_id'] !== null
+            && (string) $left['platform_id'] === (string) $right['platform_id']
+            && (($left['condition'] === null) !== ($right['condition'] === null));
     }
 
     /** Warehouse-wide visibility is shared, not exclusive product accountability. */

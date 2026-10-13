@@ -22,4 +22,6 @@ enum QcPermission: string
     case ScanDispatch = 'qc.scan_dispatch';
     case ShipDispatch = 'qc.ship_dispatch';
     case FocusedWorkspace = 'qc.focused_workspace';
+    case AssignMarketplaceTransferDevice = 'qc.assign_marketplace_transfer_device';
+    case ReleaseMarketplaceTransferDevice = 'qc.release_marketplace_transfer_device';
 }

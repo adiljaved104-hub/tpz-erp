@@ -224,6 +224,44 @@ class ResponsibilityTransferTest extends TestCase
         $this->assertSame($before, [$f['inventory']->refresh()->available_quantity, $f['inventory']->reserved_quantity, InventoryAllocationBalance::query()->count()]);
     }
 
+    public function test_condition_fallback_is_preserved_through_scope_change_and_transfer(): void
+    {
+        $f = $this->responsibilityFoundation();
+        $renewedHandler = $this->responsibilityUser(EmployeeRole::Staff);
+        $fallbackSuccessor = $this->responsibilityUser(EmployeeRole::Staff);
+
+        $source = app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: [
+            'platformId' => $f['platform']->id,
+            'condition' => ProductCondition::New,
+        ]), $f['owner']);
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: [
+            'employeeId' => $renewedHandler->employee->id,
+            'platformId' => $f['platform']->id,
+            'condition' => ProductCondition::Renewed,
+        ]), $f['owner']);
+
+        $fallback = app(ChangeResponsibilityScope::class)->handle($source, $this->changeData($source->employee_id, [
+            'brandId' => $f['brand']->id,
+            'platformId' => $f['platform']->id,
+            'condition' => null,
+        ], 'Make marketplace condition fallback'), $f['owner']);
+
+        $this->assertSame(ResponsibilityAssignmentStatus::Superseded, $source->refresh()->status);
+        $this->assertNull($fallback->conditionScope);
+        $this->assertSame(2, ResponsibilityAssignment::query()->active()->count());
+
+        $transferred = app(TransferResponsibilityAssignment::class)->handle($fallback, new TransferResponsibilityAssignmentData(
+            $fallbackSuccessor->employee->id,
+            'Transfer marketplace condition fallback',
+            (string) Str::uuid(),
+        ), $f['owner']);
+
+        $this->assertSame(ResponsibilityAssignmentStatus::Transferred, $fallback->refresh()->status);
+        $this->assertNull($transferred->conditionScope);
+        $this->assertSame($f['platform']->id, $transferred->platformScope->marketplace_platform_id);
+        $this->assertSame(2, ResponsibilityAssignment::query()->active()->count());
+    }
+
     public function test_assign_stock_default_change_is_versioned_and_rejects_another_physical_holder(): void
     {
         $f = $this->responsibilityFoundation();

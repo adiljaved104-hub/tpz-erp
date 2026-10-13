@@ -6,18 +6,25 @@ use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
+use App\Enums\InventoryReservationStatus;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\ProductCondition;
+use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
+use App\Enums\StockMovementType;
 use App\Exceptions\InventoryInvariantException;
 use App\Filament\Pages\Inventory\RenewedQcWorkQueue;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
+use App\Filament\Resources\QcInspections\Pages\ListQcInspections;
+use App\Filament\Resources\QcInspections\Widgets\QcProgress;
 use App\Filament\Resources\WebSalesOrders\Pages\ViewWebSalesOrder;
+use App\Models\EmployeePermissionOverride;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderItemUpgradeSelection;
 use App\Models\Product;
+use App\Models\ProductBrand;
 use App\Models\ProductInventory;
 use App\Models\QcCertificate;
 use App\Models\QcInspection;
@@ -35,12 +42,16 @@ use App\Services\Qc\QcDocumentService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcOrderAssignmentService;
+use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\RenewedQcDispatchService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
+use Carbon\CarbonImmutable;
+use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -119,6 +130,182 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertDatabaseCount('order_fulfillments', 0);
     }
 
+    public function test_order_demand_counts_reserved_renewed_units_without_eligible_certificates(): void
+    {
+        $this->order();
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_web_qc_inspection_page_keeps_pending_inspections_separate_from_order_demand(): void
+    {
+        $this->order();
+        $inspection = app(QcInspectionService::class)->start([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'serial' => 'WEB-QC-DEMAND-001',
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $this->owner);
+        $inspectionCount = QcInspection::query()->count();
+
+        $this->assertTrue(Route::has('qc.labels'), 'QC label route should be registered for the web page from '.base_path().'.');
+
+        Livewire::actingAs($this->owner)
+            ->test(ListQcInspections::class)
+            ->assertCanSeeTableRecords([$inspection]);
+
+        $stats = $this->qcProgressStats($this->owner);
+        $this->assertSame(1, $stats['Pending QC']);
+        $this->assertSame(0, $stats['In Progress']);
+        $this->assertSame(0, $stats['Rework Required']);
+        $this->assertSame(0, $stats['Completed Today']);
+        $this->assertSame(1, $stats['QC Needed for Orders']);
+        $this->assertSame(0, $stats['QC Needed for Transfers']);
+        $this->assertSame(0, $stats['Marketplace Transfers']);
+        $this->assertSame($inspectionCount, QcInspection::query()->count(), 'Viewing QC demand must not create inspections.');
+    }
+
+    public function test_matching_current_completed_certificate_satisfies_order_demand(): void
+    {
+        $this->order();
+        $this->certify('DEMAND-MATCH');
+
+        $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_one_certificate_is_allocated_to_only_one_of_two_order_demands(): void
+    {
+        $this->order();
+        $this->order();
+        $this->certify('DEMAND-SHARED');
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_two_matching_certificates_satisfy_two_demand_units(): void
+    {
+        $this->order(quantity: 2);
+        $this->certify('DEMAND-TWO-A');
+        $this->certify('DEMAND-TWO-B');
+
+        $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_demand_matching_reassigns_a_flexible_unit_to_avoid_stranding_a_specific_order(): void
+    {
+        $this->order(); // This line accepts either final configuration.
+        $specificOrder = $this->order();
+        $this->upgrade($specificOrder->items->sole());
+        $this->certify('DEMAND-SPECIFIC-FIRST', final: ['ram_mb' => 16384, 'storage_gb' => 512]);
+        $this->certify('DEMAND-FLEXIBLE-SECOND');
+
+        $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_active_assignment_to_another_order_is_not_available_demand_supply(): void
+    {
+        $assignedOrder = $this->order();
+        $remainingOrder = $this->order();
+        $certificate = $this->certify('DEMAND-ASSIGNED');
+        $this->scan($assignedOrder, $certificate->snapshot['serial']);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+        $this->assertSame(OrderStatus::Reserved, $remainingOrder->fresh()->status);
+    }
+
+    public function test_stale_certificate_does_not_satisfy_demand(): void
+    {
+        $order = $this->order();
+        $this->upgrade($order->items->sole());
+        $stale = $this->certify('DEMAND-STALE', final: ['ram_mb' => 16384, 'storage_gb' => 512]);
+        $reinspection = app(QcInspectionService::class)->reopen($stale->inspection, 'Current certificate check', $this->owner);
+        $this->finish($reinspection); // The new current certificate does not match the requested upgraded configuration.
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_active_reinspection_certificate_does_not_satisfy_demand(): void
+    {
+        $this->order();
+        $activeCertificate = $this->certify('DEMAND-REINSPECTION');
+        app(QcInspectionService::class)->reopen($activeCertificate->inspection, 'Reinspection pending', $this->owner);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_wrong_product_and_warehouse_certificates_do_not_satisfy_demand(): void
+    {
+        $this->order();
+        $otherBrand = ProductBrand::factory()->create();
+        $wrongProduct = Product::factory()->create(['condition' => ProductCondition::Renewed, 'brand_id' => $otherBrand->id, 'brand' => $otherBrand->name]);
+        $wrongWarehouse = Warehouse::factory()->create(['status' => true]);
+        $this->certify('DEMAND-WRONG-PRODUCT', ['product_id' => $wrongProduct->id]);
+        $this->certify('DEMAND-WRONG-WAREHOUSE', ['warehouse_id' => $wrongWarehouse->id]);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_ram_and_storage_mismatches_do_not_satisfy_structured_order_demand(): void
+    {
+        $order = $this->order();
+        $this->upgrade($order->items->sole());
+        $this->certify('DEMAND-WRONG-RAM', final: ['ram_mb' => 8192, 'storage_gb' => 512]);
+        $this->certify('DEMAND-WRONG-STORAGE', final: ['ram_mb' => 16384, 'storage_gb' => 256]);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_valid_assigned_quantity_reduces_only_remaining_order_demand(): void
+    {
+        $order = $this->order(quantity: 2);
+        $this->scan($order, $this->certify('DEMAND-ONE-ASSIGNED')->snapshot['serial']);
+
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_non_reserved_and_non_renewed_orders_do_not_create_qc_demand(): void
+    {
+        $fulfilled = $this->order();
+        $cancelled = $this->order();
+        $draft = $this->order();
+        DB::table('orders')->where('id', $fulfilled->id)->update(['status' => OrderStatus::Fulfilled->value]);
+        DB::table('orders')->where('id', $cancelled->id)->update(['status' => OrderStatus::Cancelled->value]);
+        DB::table('orders')->where('id', $draft->id)->update(['status' => OrderStatus::Draft->value]);
+
+        $usedBrand = ProductBrand::factory()->create();
+        $usedProduct = Product::factory()->create(['condition' => ProductCondition::Used, 'brand_id' => $usedBrand->id, 'brand' => $usedBrand->name]);
+        ProductInventory::factory()->create(['product_id' => $usedProduct->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 10]);
+        $this->order(items: [new OrderItemData($usedProduct->id, 1, '500.00')]);
+
+        $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_qc_home_reports_demand_separately_from_actual_pending_inspections(): void
+    {
+        $this->order();
+        $this->mobile($this->owner);
+
+        $this->getJson('/api/mobile/v1/workspace/qc')->assertOk()
+            ->assertJsonPath('data.pending', 0)
+            ->assertJsonPath('data.qc_order_demand.units_needed', 1)
+            ->assertJsonPath('data.qc_order_demand.orders_affected', 1)
+            ->assertJsonPath('data.reserved_orders', 1);
+    }
+
+    public function test_qc_order_demand_uses_the_same_order_responsibility_scope_as_dispatch_queue(): void
+    {
+        $this->order();
+        $otherBrand = ProductBrand::factory()->create();
+        $otherProduct = Product::factory()->create(['condition' => ProductCondition::Renewed, 'brand_id' => $otherBrand->id, 'brand' => $otherBrand->name]);
+        ProductInventory::factory()->create(['product_id' => $otherProduct->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 10]);
+        $this->order(items: [new OrderItemData($otherProduct->id, 1, '500.00')]);
+        $staff = $this->dispatchStaff();
+
+        $this->assertSame(1, $this->dispatch->queueQuery($staff)->count());
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($staff));
+    }
+
     public function test_one_current_scanned_unit_ships_and_retry_does_not_consume_twice(): void
     {
         $order = $this->order();
@@ -156,6 +343,70 @@ class RenewedQcDispatchTest extends TestCase
         $this->reject(fn () => $this->scan($order, $extra->snapshot['serial']), 'order_item_id');
         $this->assertSame(OrderStatus::Fulfilled, $this->fulfill($order)->status);
         $this->assertDatabaseCount('qc_order_assignments', 3);
+    }
+
+    public function test_verified_mobile_scan_auto_matches_first_remaining_equivalent_line_then_next_line(): void
+    {
+        $order = $this->order(items: [new OrderItemData($this->product->id, 1, '500.00'), new OrderItemData($this->product->id, 1, '500.00')]);
+        $items = $order->items()->orderBy('line_number')->orderBy('id')->get();
+        $first = $this->certify('AUTO-MATCH-1');
+        $one = $this->dispatch->verifiedScan($order, $first->snapshot['serial'], $first->snapshot['serial'], null, $this->owner);
+        $this->assertSame($items[0]->id, $one['matched']['order_item_id']);
+        $this->assertSame('auto', $one['matched']['match_mode']);
+        $this->assertSame('qc_label_and_physical_serial', $one['verification_mode']);
+        $this->assertSame(1, $one['readiness']['lines'][0]['assigned']);
+
+        $second = $this->certify('AUTO-MATCH-2');
+        $two = $this->dispatch->verifiedScan($order, $second->snapshot['reference'], $second->snapshot['serial'], null, $this->owner);
+        $this->assertSame($items[1]->id, $two['matched']['order_item_id']);
+        $this->assertSame('auto', $two['matched']['match_mode']);
+        $this->assertSame('qc_label_and_physical_serial', $two['verification_mode']);
+        $this->assertSame('ready', $two['readiness']['status']);
+    }
+
+    public function test_verified_mobile_scan_rejects_wrong_physical_serial_before_assignment(): void
+    {
+        $order = $this->order();
+        $certificate = $this->certify('LABEL-SERIAL-123');
+        $message = $this->reject(fn () => $this->dispatch->verifiedScan($order, $certificate->snapshot['reference'], 'PHYSICAL-SERIAL-999', null, $this->owner), 'physical_serial');
+        $this->assertSame('Physical device serial does not match the scanned QC label. DO NOT SHIP.', $message);
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+        $this->assertSame('pending_qc', $this->dispatch->readiness($order)['status']);
+    }
+
+    public function test_verified_auto_match_rejects_product_warehouse_and_structured_configuration_mismatches(): void
+    {
+        $order = $this->order();
+        $item = $order->items()->sole();
+        $this->upgrade($item);
+        $wrongProduct = Product::factory()->create(['ram' => '8GB', 'storage' => '256GB']);
+        $certificates = [
+            $this->certify('AUTO-WRONG-PRODUCT', ['product_id' => $wrongProduct->id]),
+            $this->certify('AUTO-WRONG-WAREHOUSE', ['warehouse_id' => Warehouse::factory()->create()->id]),
+            $this->certify('AUTO-WRONG-RAM', final: ['ram_mb' => 8192, 'storage_gb' => 512]),
+            $this->certify('AUTO-WRONG-STORAGE', final: ['ram_mb' => 16384, 'storage_gb' => 256]),
+        ];
+
+        foreach ($certificates as $certificate) {
+            $this->reject(fn () => $this->dispatch->verifiedScan($order, $certificate->snapshot['reference'], $certificate->snapshot['serial'], null, $this->owner), 'order_item_id');
+        }
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+        $this->assertSame('pending_qc', $this->dispatch->readiness($order)['status']);
+    }
+
+    public function test_verified_mobile_scan_manual_item_uses_exact_item_and_cannot_bypass_validation(): void
+    {
+        $order = $this->order(items: [new OrderItemData($this->product->id, 1, '500.00'), new OrderItemData($this->product->id, 1, '500.00')]);
+        $items = $order->items()->orderBy('id')->get();
+        $certificate = $this->certify('MANUAL-SCAN-123');
+        $manual = $this->dispatch->verifiedScan($order, $certificate->snapshot['reference'], null, $items[1]->id, $this->owner);
+        $this->assertSame($items[1]->id, $manual['matched']['order_item_id']);
+        $this->assertSame('manual', $manual['matched']['match_mode']);
+        $this->assertSame('qc_label_only', $manual['verification_mode']);
+
+        $another = $this->certify('MANUAL-WRONG-SERIAL');
+        $this->reject(fn () => $this->dispatch->verifiedScan($order, $another->snapshot['serial'], 'PHYSICAL-WRONG', $items[0]->id, $this->owner), 'physical_serial');
+        $this->assertDatabaseCount('qc_order_assignments', 1);
     }
 
     public function test_mixed_order_requires_qc_only_for_renewed_line(): void
@@ -375,20 +626,243 @@ class RenewedQcDispatchTest extends TestCase
     public function test_qc_only_manifest_is_explicit_and_does_not_remove_broader_owner_admin_access(): void
     {
         $staff = $this->dispatchStaff();
-        $keys = fn (User $user) => array_column(app(MobileManifest::class)->forUser($user)['modules'], 'key');
+        $manifest = app(MobileManifest::class);
+        $keys = fn (User $user) => array_column($manifest->forUser($user)['modules'], 'key');
+        $normalManifest = $manifest->forUser($staff);
         $this->assertContains('sales', $keys($staff));
         $this->override($staff, QcPermission::FocusedWorkspace, EmployeePermissionEffect::Allow);
-        $this->assertSame(['qc', 'notifications'], $keys($staff));
-        $qcModule = collect(app(MobileManifest::class)->forUser($staff)['modules'])->firstWhere('key', 'qc');
+        $focusedManifest = $manifest->forUser($staff);
+        $this->assertSame(['qc'], $keys($staff));
+        $this->assertSame('qc_focused', $focusedManifest['workspace_mode']);
+        $this->assertSame('qc', $focusedManifest['landing_module']);
+        $qcModule = collect($focusedManifest['modules'])->firstWhere('key', 'qc');
+        $this->assertTrue($qcModule['capabilities']['inspections']);
+        $this->assertTrue($qcModule['capabilities']['dispatch']);
         $this->assertTrue($qcModule['capabilities']['scan']);
+        $this->assertFalse($qcModule['capabilities']['inspection_update']);
+        $this->assertFalse($qcModule['capabilities']['inspection_complete']);
+        $this->assertFalse($qcModule['capabilities']['inspection_evidence']);
+        $this->assertSame('/workspace/qc/inspections/{inspection}', $qcModule['capabilities']['endpoints']['inspection_detail']);
+        $this->assertSame('/workspace/qc/inspections/{inspection}/begin', $qcModule['capabilities']['endpoints']['inspection_begin']);
+        $this->assertSame('/workspace/qc/inspections/{inspection}/evidence', $qcModule['capabilities']['endpoints']['inspection_evidence']);
+        $this->override($staff, QcPermission::Update, EmployeePermissionEffect::Allow);
+        $this->override($staff, QcPermission::Complete, EmployeePermissionEffect::Allow);
+        $qcModule = collect($manifest->forUser($staff)['modules'])->firstWhere('key', 'qc');
+        $this->assertTrue($qcModule['capabilities']['inspection_update']);
+        $this->assertTrue($qcModule['capabilities']['inspection_complete']);
+        $this->assertTrue($qcModule['capabilities']['inspection_evidence']);
         $this->override($staff, QcPermission::ViewOrderAssignments, EmployeePermissionEffect::Deny);
-        $qcModule = collect(app(MobileManifest::class)->forUser($staff)['modules'])->firstWhere('key', 'qc');
+        $qcModule = collect($manifest->forUser($staff)['modules'])->firstWhere('key', 'qc');
         $this->assertFalse($qcModule['capabilities']['scan']);
+        $this->assertSame('default', $normalManifest['workspace_mode']);
+        $this->assertNull($normalManifest['landing_module']);
+
+        $manager = $this->responsibilityUser(EmployeeRole::Manager);
+        foreach ([QcPermission::View, QcPermission::ViewDispatchQueue, QcPermission::FocusedWorkspace, OrderPermission::View] as $permission) {
+            EmployeePermissionOverride::query()->create([
+                'employee_id' => $manager->employee->id,
+                'permission_key' => $permission->value,
+                'effect' => EmployeePermissionEffect::Allow,
+                'granted_by_user_id' => $this->owner->id,
+                'reason' => 'QC mobile presentation test',
+            ]);
+        }
+        $this->assertSame(['qc'], $keys($manager));
+        $this->assertSame('qc_focused', $manifest->forUser($manager)['workspace_mode']);
+
         foreach ([$this->owner, $this->responsibilityUser(EmployeeRole::Admin)] as $user) {
             $this->assertContains('qc', $keys($user));
             $this->assertContains('sales', $keys($user));
             $this->assertContains('purchases', $keys($user));
+            $this->assertSame('default', $manifest->forUser($user)['workspace_mode']);
+            $this->assertNull($manifest->forUser($user)['landing_module']);
         }
+    }
+
+    public function test_inspection_only_focused_technician_receives_qc_without_dispatch_access(): void
+    {
+        $this->order();
+        $technician = $this->responsibilityUser(EmployeeRole::Staff);
+        foreach ([QcPermission::View, QcPermission::FocusedWorkspace] as $permission) {
+            $this->override($technician, $permission, EmployeePermissionEffect::Allow);
+        }
+
+        $manifest = app(MobileManifest::class)->forUser($technician);
+        $this->assertSame(['qc'], array_column($manifest['modules'], 'key'));
+        $this->assertSame('qc_focused', $manifest['workspace_mode']);
+        $this->assertSame('qc', $manifest['landing_module']);
+        $qc = $manifest['modules'][0];
+        $this->assertSame(['inspections' => true, 'dispatch' => false, 'scan' => false, 'ship' => false], array_intersect_key(
+            $qc['capabilities'], array_flip(['inspections', 'dispatch', 'scan', 'ship']),
+        ));
+
+        $this->mobile($technician);
+        $home = $this->getJson('/api/mobile/v1/workspace/qc');
+        $home->assertOk();
+        $home
+            ->assertJsonPath('data.reserved_orders', 0)
+            ->assertJsonPath('data.pending', 0)
+            ->assertJsonPath('data.my_in_progress', 0)
+            ->assertJsonPath('data.completed_today', 0)
+            ->assertJsonPath('data.qc_order_demand.units_needed', 0)
+            ->assertJsonPath('data.qc_order_demand.orders_affected', 0)
+            ->assertJsonPath('data.capabilities.access.inspections', true)
+            ->assertJsonPath('data.capabilities.access.dispatch', false)
+            ->assertJsonPath('data.capabilities.dispatch', '/workspace/qc/dispatch')
+            ->assertJsonPath('data.capabilities.individual_scan', false)
+            ->assertJsonPath('data.capabilities.explicit_ship', false);
+        $this->getJson('/api/mobile/v1/workspace/qc/inspections?scope=pending')->assertOk();
+        $this->getJson('/api/mobile/v1/workspace/qc/dispatch')->assertForbidden();
+    }
+
+    public function test_mobile_qc_inspection_scopes_are_visible_paginated_and_safe(): void
+    {
+        $actor = $this->owner;
+        $other = $this->responsibilityUser(EmployeeRole::Staff);
+
+        $start = fn (User $actor, string $serial) => app(QcInspectionService::class)->start([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'serial' => $serial,
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $actor);
+
+        $ownPending = $start($actor, 'MOBILE-PENDING-OWN');
+        $otherPending = $start($actor, 'MOBILE-PENDING-OTHER');
+        $ownInProgress = $start($actor, 'MOBILE-IN-PROGRESS');
+        $ownInProgress->forceFill(['status' => QcInspectionStatus::InProgress])->save();
+        $ownRework = $start($actor, 'MOBILE-REWORK');
+        $ownRework->forceFill(['status' => QcInspectionStatus::Rework])->save();
+        $otherPending->forceFill(['technician_user_id' => $other->id])->save();
+        $otherInProgress = $start($actor, 'MOBILE-OTHER-IN-PROGRESS');
+        $otherInProgress->forceFill(['status' => QcInspectionStatus::InProgress])->save();
+        $otherInProgress->forceFill(['technician_user_id' => $other->id])->save();
+
+        $this->mobile($actor);
+        $prefix = '/api/mobile/v1/workspace/qc/inspections';
+
+        $pending = $this->getJson($prefix.'?scope=pending&per_page=1')->assertOk()
+            ->assertJsonPath('scope', 'pending')
+            ->assertJsonPath('per_page', 1)
+            ->assertJsonPath('total', 2);
+        $this->assertContains($pending->json('data.0.inspection_id'), [$ownPending->id, $otherPending->id]);
+        $this->assertSame('pending', $pending->json('data.0.status'));
+
+        $mine = $this->getJson($prefix.'?scope=mine')->assertOk()
+            ->assertJsonPath('total', 2);
+        $mineIds = collect($mine->json('data'))->pluck('inspection_id')->all();
+        $this->assertEqualsCanonicalizing([$ownInProgress->id, $ownRework->id], $mineIds);
+        $this->assertNotContains($otherInProgress->id, $mineIds);
+        $this->assertSame('Asia/Dubai', $mine->json('timezone'));
+        $this->assertArrayNotHasKey('internal_remarks', $mine->json('data.0'));
+        $this->assertArrayNotHasKey('private_path', $mine->json('data.0'));
+        $this->assertArrayNotHasKey('evidence', $mine->json('data.0'));
+
+        $this->getJson($prefix.'?scope=unknown')->assertUnprocessable();
+    }
+
+    public function test_mobile_qc_inspection_api_returns_403_without_qc_view_permission(): void
+    {
+        $unauthorized = $this->responsibilityUser(EmployeeRole::Staff);
+        $this->assertFalse(app(QcAuthorization::class)->allows($unauthorized, QcPermission::View));
+        $this->mobile($unauthorized);
+        $this->getJson('/api/mobile/v1/workspace/qc/inspections?scope=pending')->assertForbidden();
+    }
+
+    public function test_mobile_qc_inspection_visibility_uses_existing_technician_scope(): void
+    {
+        $staff = $this->dispatchStaff();
+        $other = $this->responsibilityUser(EmployeeRole::Staff);
+        $own = app(QcInspectionService::class)->start([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'serial' => 'VISIBLE-PENDING-OWN',
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $this->owner);
+        $foreign = app(QcInspectionService::class)->start([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'serial' => 'VISIBLE-PENDING-FOREIGN',
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $this->owner);
+        DB::table('qc_inspections')->where('id', $own->id)->update(['technician_user_id' => $staff->id]);
+        DB::table('qc_inspections')->where('id', $foreign->id)->update(['technician_user_id' => $other->id]);
+
+        $this->mobile($staff);
+        $response = $this->getJson('/api/mobile/v1/workspace/qc/inspections?scope=pending')->assertOk()
+            ->assertJsonPath('total', 1);
+        $this->assertSame($own->id, $response->json('data.0.inspection_id'));
+    }
+
+    public function test_mobile_qc_completed_today_uses_business_timezone_and_home_counters_match_lists(): void
+    {
+        config(['business.timezone' => 'Asia/Karachi']);
+        $this->travelTo(CarbonImmutable::parse('2026-10-07 12:00:00', 'Asia/Karachi'));
+
+        $staff = $this->dispatchStaff();
+        $pending = app(QcInspectionService::class)->start([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'serial' => 'COUNTER-PENDING',
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $this->owner);
+        DB::table('qc_inspections')->where('id', $pending->id)->update(['technician_user_id' => $staff->id]);
+        $inProgress = app(QcInspectionService::class)->start([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'serial' => 'COUNTER-IN-PROGRESS',
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $this->owner);
+        DB::table('qc_inspections')->where('id', $inProgress->id)->update(['technician_user_id' => $staff->id]);
+        $inProgress->forceFill(['status' => QcInspectionStatus::InProgress])->save();
+        $rework = app(QcInspectionService::class)->start([
+            'product_id' => $this->product->id,
+            'warehouse_id' => $this->warehouse->id,
+            'serial' => 'COUNTER-REWORK',
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $this->owner);
+        DB::table('qc_inspections')->where('id', $rework->id)->update(['technician_user_id' => $staff->id]);
+        $rework->forceFill(['status' => QcInspectionStatus::Rework])->save();
+
+        $todayCertificate = $this->certify('COUNTER-COMPLETED-TODAY');
+        $previousCertificate = $this->certify('COUNTER-COMPLETED-PREVIOUS-DAY');
+        $startUtc = CarbonImmutable::parse('2026-10-07 00:00:00', 'Asia/Karachi')->utc();
+        DB::table('qc_inspections')->where('id', $todayCertificate->inspection_id)->update([
+            'technician_user_id' => $staff->id,
+            'completed_at' => $startUtc->toDateTimeString(),
+        ]);
+        DB::table('qc_inspections')->where('id', $previousCertificate->inspection_id)->update([
+            'technician_user_id' => $staff->id,
+            'completed_at' => $startUtc->subSecond()->toDateTimeString(),
+        ]);
+
+        $this->mobile($staff);
+        $prefix = '/api/mobile/v1/workspace/qc';
+        $home = $this->getJson($prefix)->assertOk();
+        $this->assertArrayHasKey('reserved_orders', $home->json('data'));
+        $this->assertArrayHasKey('timezone', $home->json('data'));
+        $this->assertSame('/workspace/qc/pending', $home->json('data.capabilities.queue'));
+        $this->assertSame('/workspace/qc/dispatch', $home->json('data.capabilities.dispatch'));
+        $this->assertArrayHasKey('individual_scan', $home->json('data.capabilities'));
+        $this->assertArrayHasKey('explicit_ship', $home->json('data.capabilities'));
+        $this->assertArrayHasKey('bulk_ship_limit', $home->json('data.capabilities'));
+        $this->getJson($prefix.'/inspections?scope=completed_today')->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.inspection_id', $todayCertificate->inspection_id)
+            ->assertJsonPath('timezone', 'Asia/Karachi');
+        $this->getJson($prefix.'/inspections?scope=mine')->assertOk()->assertJsonPath('total', 2);
+        $this->getJson($prefix.'/inspections?scope=pending')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson($prefix)->assertOk()
+            ->assertJsonPath('data.pending', 1)
+            ->assertJsonPath('data.my_in_progress', 2)
+            ->assertJsonPath('data.completed_today', 1)
+            ->assertJsonPath('data.timezone', 'Asia/Karachi');
     }
 
     public function test_mobile_qc_endpoints_require_real_eligible_authentication(): void
@@ -421,6 +895,37 @@ class RenewedQcDispatchTest extends TestCase
             $this->postJson($prefix.'/orders/'.$order->id.'/ship', ['idempotency_key' => $key])->assertOk()->assertJsonPath('data.status', 'shipped');
         }
         $this->assertDatabaseCount('order_fulfillments', 1);
+    }
+
+    public function test_mobile_verified_scan_allows_label_only_auto_and_manual_assignment_without_shipping(): void
+    {
+        $autoOrder = $this->order();
+        $autoCertificate = $this->certify('MOBILE-LABEL-ONLY-AUTO');
+        $this->mobile($this->owner);
+        $this->postJson('/api/mobile/v1/workspace/qc/orders/'.$autoOrder->id.'/verified-scan', [
+            'code' => app(QcDocumentService::class)->url($autoCertificate),
+        ])->assertOk()
+            ->assertJsonPath('data.verification_mode', 'qc_label_only')
+            ->assertJsonPath('data.matched.match_mode', 'auto')
+            ->assertJsonPath('data.device.serial', $autoCertificate->snapshot['serial'])
+            ->assertJsonPath('data.readiness.status', 'ready');
+        $this->assertSame(OrderStatus::Reserved, $autoOrder->fresh()->status);
+        $this->assertDatabaseCount('order_fulfillments', 0);
+        $this->assertSame('qc_label_only', DB::table('activity_logs')->where('event', 'qc.dispatch_scanned')->latest('id')->value('properties->verification_mode'));
+
+        $manualOrder = $this->order();
+        $manualItem = $manualOrder->items()->sole();
+        $manualCertificate = $this->certify('MOBILE-LABEL-ONLY-MANUAL');
+        $this->postJson('/api/mobile/v1/workspace/qc/orders/'.$manualOrder->id.'/verified-scan', [
+            'code' => $manualCertificate->snapshot['reference'],
+            'physical_serial' => null,
+            'order_item_id' => $manualItem->id,
+        ])->assertOk()
+            ->assertJsonPath('data.verification_mode', 'qc_label_only')
+            ->assertJsonPath('data.matched.match_mode', 'manual')
+            ->assertJsonPath('data.device.serial', $manualCertificate->snapshot['serial']);
+        $this->assertSame(OrderStatus::Reserved, $manualOrder->fresh()->status);
+        $this->assertDatabaseCount('order_fulfillments', 0);
     }
 
     public function test_mobile_unready_ship_and_tampered_scan_return_clear_validation(): void
@@ -545,17 +1050,67 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertDatabaseCount('qc_order_assignments', 0);
     }
 
+    public function test_competing_verified_auto_scans_cannot_duplicate_a_device_or_overfill_a_line(): void
+    {
+        $first = $this->order();
+        $second = $this->order();
+        $one = $this->certify('VERIFIED-RACE-FIRST');
+        $two = $this->certify('VERIFIED-RACE-SECOND');
+        $sameDevice = json_encode(['code' => $one->snapshot['serial'], 'physical_serial' => $one->snapshot['serial']], JSON_THROW_ON_ERROR);
+        $otherDevice = json_encode(['code' => $two->snapshot['serial'], 'physical_serial' => $two->snapshot['serial']], JSON_THROW_ON_ERROR);
+
+        foreach ([
+            [['verified-scan', $first->id, $sameDevice], ['verified-scan', $second->id, $sameDevice]],
+            [['verified-scan', $first->id, $sameDevice], ['verified-scan', $first->id, $otherDevice]],
+        ] as $requests) {
+            $this->race($requests, function (array $outcomes, \PDO $copy): void {
+                sort($outcomes);
+                $this->assertSame(['assigned', 'rejected'], $outcomes);
+                $this->assertSame(1, (int) $copy->query('SELECT COUNT(*) FROM qc_order_assignments WHERE released_at IS NULL')->fetchColumn());
+                $this->assertSame(0, (int) $copy->query('SELECT COUNT(*) FROM order_fulfillments')->fetchColumn());
+            });
+        }
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+    }
+
     public function test_simultaneous_scan_and_ship_cannot_create_partial_fulfilment(): void
     {
         $order = $this->order();
         $certificate = $this->certify();
-        $this->race([['scan', $order->id, $certificate->snapshot['serial']], ['ship', $order->id, (string) str()->uuid()]], function (array $outcomes, \PDO $copy): void {
+        $shipmentKey = (string) str()->uuid();
+        $this->race([['scan', $order->id, $certificate->snapshot['serial']], ['ship', $order->id, $shipmentKey]], function (array $outcomes, \PDO $copy) use ($order): void {
             $this->assertSame('assigned', $outcomes[0]);
             $this->assertContains($outcomes[1], ['shipped', 'rejected']);
-            $count = (int) $copy->query('SELECT COUNT(*) FROM order_fulfillments')->fetchColumn();
-            $this->assertSame($outcomes[1] === 'shipped' ? 1 : 0, $count);
-            $this->assertSame($count, (int) $copy->query('SELECT COUNT(*) FROM order_fulfillment_items')->fetchColumn());
-            $this->assertSame($count, (int) $copy->query("SELECT COUNT(*) FROM stock_movements WHERE movement_type = 'sale'")->fetchColumn());
+            $shipped = $outcomes[1] === 'shipped';
+            $orderState = $copy->prepare('SELECT status FROM orders WHERE id = ?');
+            $orderState->execute([$order->id]);
+            $this->assertSame($shipped ? OrderStatus::Fulfilled->value : OrderStatus::Reserved->value, $orderState->fetchColumn());
+
+            $fulfillments = $copy->prepare('SELECT id, movement_group FROM order_fulfillments WHERE order_id = ?');
+            $fulfillments->execute([$order->id]);
+            $rows = $fulfillments->fetchAll(\PDO::FETCH_ASSOC);
+            $this->assertCount($shipped ? 1 : 0, $rows);
+
+            $items = $copy->prepare('SELECT COUNT(*) FROM order_fulfillment_items i JOIN order_fulfillments f ON f.id = i.order_fulfillment_id WHERE f.order_id = ?');
+            $items->execute([$order->id]);
+            $this->assertSame($shipped ? 1 : 0, (int) $items->fetchColumn());
+
+            $movements = $copy->prepare('SELECT COUNT(*) FROM stock_movements m JOIN order_fulfillments f ON f.movement_group = m.movement_group WHERE f.order_id = ? AND m.movement_type = ?');
+            $movements->execute([$order->id, StockMovementType::OrderFulfillment->value]);
+            $this->assertSame($shipped ? 1 : 0, (int) $movements->fetchColumn());
+
+            $reservations = $copy->prepare('SELECT status, released_at, fulfilled_at FROM inventory_reservations r JOIN order_items i ON i.id = r.order_item_id WHERE i.order_id = ?');
+            $reservations->execute([$order->id]);
+            $reservationRows = $reservations->fetchAll(\PDO::FETCH_ASSOC);
+            $this->assertCount(1, $reservationRows);
+            if ($shipped) {
+                $this->assertSame(InventoryReservationStatus::Fulfilled->value, $reservationRows[0]['status']);
+                $this->assertNotNull($reservationRows[0]['fulfilled_at']);
+            } else {
+                $this->assertSame(InventoryReservationStatus::Active->value, $reservationRows[0]['status']);
+                $this->assertNull($reservationRows[0]['released_at']);
+                $this->assertNull($reservationRows[0]['fulfilled_at']);
+            }
         });
     }
 
@@ -659,13 +1214,18 @@ class RenewedQcDispatchTest extends TestCase
                 }
                 gc_collect_cycles();
             }
-            foreach ([$path, $path.'-wal', $path.'-shm', $path.'-journal', $path.'.go', $path.'.ready.0', $path.'.ready.1'] as $temporary) {
+            // Remove SQLite's sidecars and barrier markers before the database so
+            // Windows can release the WAL mapping before the main file is unlinked.
+            $temporaryFiles = [$path.'.go', $path.'.ready.0', $path.'.ready.1', $path.'-journal', $path.'-wal', $path.'-shm', $path];
+            foreach ($temporaryFiles as $temporary) {
                 for ($attempt = 0; is_file($temporary) && $attempt < 80; $attempt++) {
                     @unlink($temporary);
                     if (is_file($temporary)) {
                         usleep(50_000);
                     }
                 }
+            }
+            foreach ($temporaryFiles as $temporary) {
                 if (is_file($temporary)) {
                     throw new \RuntimeException('A disposable QC dispatch race fixture could not be removed.');
                 }
@@ -676,6 +1236,18 @@ class RenewedQcDispatchTest extends TestCase
     private function orderData(int $quantity = 1, ?array $items = null): SaveAndReserveOrderData
     {
         return new SaveAndReserveOrderData($this->warehouse->id, null, null, now()->toDateString(), $this->owner->employee->id, null, $items ?? [new OrderItemData($this->product->id, $quantity, '500.00')], (string) str()->uuid());
+    }
+
+    /** @return array<string, mixed> */
+    private function qcProgressStats(User $actor): array
+    {
+        $component = Livewire::actingAs($actor)->test(QcProgress::class);
+        $method = new \ReflectionMethod(QcProgress::class, 'getCachedStats');
+        $method->setAccessible(true);
+
+        return collect($method->invoke($component->instance()))
+            ->mapWithKeys(fn (Stat $stat): array => [$stat->getLabel() => $stat->getValue()])
+            ->all();
     }
 
     private function order(int $quantity = 1, ?array $items = null): Order

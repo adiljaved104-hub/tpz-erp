@@ -92,6 +92,7 @@ class QcOrderAssignmentService
                 'qc_certificate_id' => $certificate->id, 'certificate_version' => $certificate->version,
                 'assigned_by_user_id' => $actor->id, 'assigned_at' => now(),
             ]);
+            app(QcDeviceClaimService::class)->claimOrderAssignment($assignment, $actor);
             $this->audit('qc.order_device_assigned', $assignment, $actor);
 
             return $assignment;
@@ -101,15 +102,7 @@ class QcOrderAssignmentService
     public function validateCertificate(OrderItem $item, Order $order, QcCertificate $certificate, bool $locked = false): void
     {
         $inspection = $certificate->inspection;
-        // With the device mutex held, use current locking reads rather than a
-        // MySQL repeatable-read snapshot taken before waiting for that mutex.
-        $newer = QcCertificate::query()->where('device_id', $certificate->device_id)->where('version', '>', $certificate->version);
-        $pending = QcInspection::query()->where('active_device_id', $certificate->device_id);
-        $stale = $locked ? $newer->lockForUpdate()->get()->isNotEmpty() : $newer->exists();
-        $reinspection = $locked ? $pending->lockForUpdate()->get()->isNotEmpty() : $pending->exists();
-        if ($inspection->status !== QcInspectionStatus::Completed || $stale || $reinspection) {
-            throw ValidationException::withMessages(['certificate_id' => 'QC must be completed and current, with no reinspection pending.']);
-        }
+        app(QcCertificateEligibilityService::class)->assertCurrent($certificate, locked: $locked);
         if ($certificate->device->product_id !== $item->product_id) {
             throw ValidationException::withMessages(['certificate_id' => 'The QC device Product does not match this Order Item.']);
         }
@@ -142,6 +135,7 @@ class QcOrderAssignmentService
                 return $assignment;
             }
             $assignment->fill(['active_device_id' => null, 'released_at' => now(), 'released_by_user_id' => $actor->id, 'release_reason' => trim($reason)])->save();
+            app(QcDeviceClaimService::class)->releaseOrderAssignment($assignment, $reason, $actor);
             $this->audit('qc.order_device_released', $assignment, $actor, ['release_reason' => trim($reason)]);
 
             return $assignment;
@@ -170,7 +164,7 @@ class QcOrderAssignmentService
         $item = $item->fresh(['order', 'upgradeSelection', 'product']);
         $this->authorize($actor, QcPermission::AssignOrderDevice, $item->order);
         $query = QcCertificate::query()->with(['device', 'inspection.warehouse'])
-            ->whereHas('device', fn ($q) => $q->where('product_id', $item->product_id)->whereDoesntHave('orderAssignments', fn ($a) => $a->active()))
+            ->whereHas('device', fn ($q) => $q->where('product_id', $item->product_id)->whereDoesntHave('claims', fn ($a) => $a->active()))
             ->whereHas('inspection', function ($q) use ($item, $actor): void {
                 $q->where('status', QcInspectionStatus::Completed->value)->where('warehouse_id', $item->order->warehouse_id);
                 if (! app(QcAuthorization::class)->allows($actor, QcPermission::ViewAll) && ! app(QcAuthorization::class)->allows($actor, QcPermission::ScanDispatch)) {
@@ -236,6 +230,37 @@ class QcOrderAssignmentService
         $certificate = $query->first();
         if (! $certificate) {
             throw ValidationException::withMessages(['certificate_id' => 'No eligible, authorized current QC device matches this Order Item.']);
+        }
+
+        return $certificate;
+    }
+
+    public function resolveDispatchCertificate(string $value, User $actor, Order $order): QcCertificate
+    {
+        $this->authorize($actor, QcPermission::ScanDispatch, $order);
+        Validator::make(['certificate_id' => $value], ['certificate_id' => ['required', 'string', 'max:2048']])->validate();
+        $value = trim($value);
+        $token = null;
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            $expected = parse_url(app(QcDocumentService::class)->url(new QcCertificate(['public_token' => str_repeat('0', 64)])));
+            $url = parse_url($value);
+            $path = preg_quote($expected['path'], '~');
+            $path = str_replace(str_repeat('0', 64), '([a-f0-9]{64})', $path);
+            if (($url['scheme'] ?? '') !== ($expected['scheme'] ?? '') || ($url['host'] ?? '') !== ($expected['host'] ?? '')
+                || ($url['port'] ?? null) !== ($expected['port'] ?? null) || isset($url['user']) || isset($url['pass'])
+                || isset($url['query']) || isset($url['fragment']) || ! preg_match('~\A'.$path.'\z~', $url['path'] ?? '', $match)) {
+                throw ValidationException::withMessages(['code' => 'Scan a TPZ QC verification QR or enter a device Serial / QC ID. External URLs are not accepted.']);
+            }
+            $token = $match[1];
+        } elseif (! preg_match('/\A[A-Za-z0-9._ -]{3,100}\z/', $value)) {
+            throw ValidationException::withMessages(['code' => 'Enter a valid device Serial / IMEI or QC ID.']);
+        }
+
+        $query = QcCertificate::query()->with(['device', 'inspection']);
+        $token !== null ? $query->where('public_token', $token) : $query->whereHas('device', fn ($q) => $q->where(fn ($q) => $q->where('serial_key', QcInspectionService::serialKey($value))->orWhere('reference', strtoupper($value))));
+        $certificate = $query->first();
+        if (! $certificate) {
+            throw ValidationException::withMessages(['code' => 'No eligible current QC device matches the scanned label.']);
         }
 
         return $certificate;

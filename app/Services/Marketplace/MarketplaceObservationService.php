@@ -22,16 +22,20 @@ class MarketplaceObservationService
                 'marketplace_account_id' => $observation->accountId ?? $locked->marketplace_account_id,
                 'marketplace_connection_id' => $observation->connectionId,
                 'listing_active_state' => $observation->listingActive->value, 'featured_offer_state' => $observation->featuredOfferHeld->value,
+                'stock_available_state' => $observation->stockAvailable->value,
                 'observed_at' => $observation->observedAt, 'source_status' => $observation->sourceStatus,
                 'safe_error' => $this->safe($observation->safeError),
             ]);
-            $successful = $observation->listingActive !== MarketplaceObservationState::Unknown || $observation->featuredOfferHeld !== MarketplaceObservationState::Unknown;
+            $successful = $observation->listingActive !== MarketplaceObservationState::Unknown
+                || $observation->featuredOfferHeld !== MarketplaceObservationState::Unknown
+                || $observation->stockAvailable !== MarketplaceObservationState::Unknown;
             $locked->forceFill([
                 'last_checked_at' => now(), 'last_successful_observation_at' => $successful ? $observation->observedAt : $locked->last_successful_observation_at,
                 'last_check_status' => $observation->sourceStatus ?? ($successful ? 'ok' : 'unavailable'),
                 'last_check_error' => $this->safe($observation->safeError),
                 'listing_active_state' => $observation->listingActive === MarketplaceObservationState::Unknown ? $locked->listing_active_state : $observation->listingActive->value,
                 'featured_offer_state' => $observation->featuredOfferHeld === MarketplaceObservationState::Unknown ? $locked->featured_offer_state : $observation->featuredOfferHeld->value,
+                'stock_available_state' => $observation->stockAvailable === MarketplaceObservationState::Unknown ? $locked->stock_available_state : $observation->stockAvailable->value,
             ])->save();
 
             if ($observation->featuredOfferHeld === MarketplaceObservationState::No && $previousFeatured === MarketplaceObservationState::Yes->value) {
@@ -41,7 +45,7 @@ class MarketplaceObservationService
             }
         });
 
-        if ($observation->listingActive !== MarketplaceObservationState::Unknown) {
+        if ($observation->listingActive !== MarketplaceObservationState::Unknown || $observation->stockAvailable !== MarketplaceObservationState::Unknown) {
             $this->exposure->reconcile($listing->refresh());
         }
     }

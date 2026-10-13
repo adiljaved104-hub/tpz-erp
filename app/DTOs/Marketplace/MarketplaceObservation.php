@@ -18,6 +18,7 @@ final readonly class MarketplaceObservation
         public ?string $safeError = null,
         public ?int $accountId = null,
         public ?int $connectionId = null,
+        public MarketplaceObservationState $stockAvailable = MarketplaceObservationState::Unknown,
     ) {}
 
     public static function unavailable(int $listingId, int $platformId, string $source, string $status, ?string $safeError = null, ?int $accountId = null, ?int $connectionId = null): self

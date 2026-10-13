@@ -109,8 +109,10 @@ class MarketplaceIntegrationFoundationTest extends TestCase
         $new = $this->account($platform, 'New', 'new');
         $foundation = ['brand' => $brand, 'platform' => $platform, 'product' => $product, 'inventory' => null];
 
-        app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation + ['employee' => $general->employee], overrides: ['platformId' => $platform->id]), $owner);
-        app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation + ['employee' => $renewedHandler->employee], overrides: ['platformId' => $platform->id, 'condition' => ProductCondition::Renewed]), $owner);
+        $fallbackAssignment = app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation + ['employee' => $general->employee], overrides: ['platformId' => $platform->id]), $owner);
+        $renewedAssignment = app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation + ['employee' => $renewedHandler->employee], overrides: ['platformId' => $platform->id, 'condition' => ProductCondition::Renewed]), $owner);
+
+        $this->assertNotSame($fallbackAssignment->active_fingerprint, $renewedAssignment->active_fingerprint);
 
         $resolver = app(MarketplaceResponsibilityResolver::class);
         $this->assertSame([$renewedHandler->employee->id], $resolver->assignments($this->listing($product, $renewed, 'R-1', 'R-SKU'))->pluck('employee_id')->all());
@@ -174,6 +176,11 @@ class MarketplaceIntegrationFoundationTest extends TestCase
 
     public function test_owner_connection_ui_uses_friendly_labels_without_exposing_credential_reference(): void
     {
+        config()->set('marketplace_credentials.references.amazon-production-secret-reference', [
+            'enabled' => true, 'endpoint' => 'https://example.test', 'marketplace_id' => 'fake-market',
+            'seller_id' => 'fake-seller', 'lwa_client_id' => 'fake-client',
+            'lwa_client_secret' => 'fake-secret', 'refresh_token' => 'fake-refresh',
+        ]);
         $owner = $this->responsibilityUser(EmployeeRole::Owner);
         $platform = MarketplacePlatform::factory()->create();
         $account = $this->account($platform, 'New', 'new');

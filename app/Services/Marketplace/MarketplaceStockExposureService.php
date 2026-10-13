@@ -31,6 +31,7 @@ class MarketplaceStockExposureService
     {
         $query = ProductMarketplaceListing::query()->where('product_id', $productId)->where('monitor_enabled', true)
             ->where('listing_active_state', 'yes')
+            ->where('stock_available_state', '!=', 'no')
             ->when($assignment?->platformScope !== null, fn ($listings) => $listings->where('marketplace_platform_id', $assignment->platformScope->marketplace_platform_id));
 
         return $query->get()->reject(fn (ProductMarketplaceListing $candidate): bool => ProductInventory::query()

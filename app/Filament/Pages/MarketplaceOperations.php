@@ -8,9 +8,12 @@ use App\Models\MarketplaceConnection;
 use App\Models\MarketplacePlatform;
 use App\Models\User;
 use App\Services\Authorization\MarketplaceOperationsAuthorization;
+use App\Services\Marketplace\MarketplaceCredentialReferenceService;
 use App\Services\Marketplace\MarketplaceIntegrationService;
 use App\Services\Marketplace\MarketplaceMonitoringSettingsService;
 use App\Services\Marketplace\MarketplaceOperationsSummaryService;
+use App\Services\Marketplace\NoonConnectionTester;
+use App\Services\Marketplace\NoonCredentialManagementService;
 use BackedEnum;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -36,9 +39,13 @@ class MarketplaceOperations extends Page
 
     public array $accountForm = ['marketplace_platform_id' => null, 'name' => '', 'code' => '', 'product_condition' => null, 'enabled' => true];
 
-    public array $connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
+    public array $connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => false, 'credential_reference' => '', 'capabilities' => []];
 
     public array $connectionSettings = [];
+
+    public array $noonCredentialForm = [];
+
+    public array $noonConnectionTestStatuses = [];
 
     public static function canAccess(): bool
     {
@@ -75,10 +82,13 @@ class MarketplaceOperations extends Page
     {
         $data = $this->connectionForm;
         $data['driver'] = $data['driver_option'] === 'custom' ? trim((string) $data['driver']) : $data['driver_option'];
+        if (in_array($data['driver'], ['sharafdg_browser', 'microless_browser'], true)) {
+            $data['connection_type'] = 'browser';
+        }
         $data['priority'] = $this->priorityFromPosition((string) $data['priority_position'], (int) $data['priority']);
         unset($data['driver_option'], $data['priority_position']);
         $service->saveConnection($data, $this->actor());
-        $this->connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => true, 'credential_reference' => '', 'capabilities' => []];
+        $this->connectionForm = ['marketplace_account_id' => null, 'name' => '', 'connection_type' => 'api', 'driver_option' => 'amazon_sp_api', 'driver' => '', 'priority_position' => 'primary', 'priority' => 10, 'enabled' => false, 'credential_reference' => '', 'capabilities' => []];
         $this->loadConnectionSettings();
         Notification::make()->success()->title('Marketplace connection created')->send();
     }
@@ -101,6 +111,29 @@ class MarketplaceOperations extends Page
         Notification::make()->success()->title('Connection priority and capabilities saved')->send();
     }
 
+    public function saveNoonCredentials(int $connectionId, NoonCredentialManagementService $service): void
+    {
+        $actor = $this->actor();
+        app(MarketplaceOperationsAuthorization::class)->authorize($actor, MarketplaceOperationsPermission::Manage);
+        $connection = MarketplaceConnection::query()->findOrFail($connectionId);
+
+        try {
+            $service->save($connection, $this->noonCredentialForm[$connectionId] ?? [], $actor);
+            unset($this->noonConnectionTestStatuses[$connectionId]);
+            Notification::make()->success()->title('Noon credentials saved')->send();
+        } finally {
+            $this->noonCredentialForm = [];
+        }
+    }
+
+    public function testNoonConnection(int $connectionId, NoonConnectionTester $tester): void
+    {
+        $actor = $this->actor();
+        app(MarketplaceOperationsAuthorization::class)->authorize($actor, MarketplaceOperationsPermission::Manage);
+        $connection = MarketplaceConnection::query()->findOrFail($connectionId);
+        $this->noonConnectionTestStatuses[$connectionId] = $tester->test($connection, $actor);
+    }
+
     public function toggleAccount(int $accountId, MarketplaceIntegrationService $service): void
     {
         $service->toggleAccount(MarketplaceAccount::query()->findOrFail($accountId), $this->actor());
@@ -120,6 +153,24 @@ class MarketplaceOperations extends Page
             'platforms' => MarketplacePlatform::query()->active()->orderBy('name')->get(),
             'accounts' => MarketplaceAccount::query()->with(['platform', 'connections.capabilities'])->orderBy('marketplace_platform_id')->orderBy('name')->get(),
         ];
+    }
+
+    public function credentialsConfigured(MarketplaceConnection $connection): bool
+    {
+        if (in_array($connection->driver, ['sharafdg_browser', 'microless_browser'], true)) {
+            return (bool) config('marketplace_monitoring.browser_worker.enabled') && filled(config('marketplace_monitoring.browser_worker.url'));
+        }
+        $credentials = app(MarketplaceCredentialReferenceService::class)->credentials($connection);
+        $required = match ($connection->driver) {
+            'amazon_sp_api' => ['endpoint', 'marketplace_id', 'seller_id', 'lwa_client_id', 'lwa_client_secret', 'refresh_token'],
+            'noon_api' => ['key_id', 'project_code', 'private_key'],
+            'carrefour_maf_api' => [],
+            default => null,
+        };
+
+        return $required === null
+            ? filled($connection->getRawOriginal('credential_reference'))
+            : (bool) ($credentials['enabled'] ?? false) && collect($required)->every(fn (string $key): bool => filled($credentials[$key] ?? null));
     }
 
     private function actor(): User

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Exceptions\InvalidStockTransferTransitionException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockTransferItem extends Model
 {
@@ -38,6 +39,11 @@ class StockTransferItem extends Model
     public function destinationInventory(): BelongsTo
     {
         return $this->belongsTo(ProductInventory::class, 'destination_product_inventory_id');
+    }
+
+    public function qcAssignments(): HasMany
+    {
+        return $this->hasMany(QcStockTransferAssignment::class, 'stock_transfer_item_id');
     }
 
     public function inTransitQuantity(): int

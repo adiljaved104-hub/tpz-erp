@@ -6,12 +6,20 @@ use App\Actions\StockTransfers\CancelStockTransfer;
 use App\Actions\StockTransfers\DispatchStockTransfer;
 use App\Actions\StockTransfers\ReceiveStockTransfer;
 use App\Actions\StockTransfers\ReturnStockTransferToSource;
+use App\Enums\QcPermission;
+use App\Enums\StockTransferPermission;
 use App\Enums\StockTransferStatus;
 use App\Exceptions\InsufficientInventoryException;
 use App\Exceptions\InvalidStockTransferTransitionException;
 use App\Exceptions\InventoryInvariantException;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
+use App\Models\QcStockTransferAssignment;
+use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\StockTransferAuthorization;
+use App\Services\Qc\QcStockTransferAssignmentService;
+use App\Services\Qc\QcStockTransferReadinessService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
@@ -31,6 +39,8 @@ class ViewStockTransfer extends ViewRecord
                 ->requiresConfirmation()
                 ->modalDescription('Confirm all Transfer lines physically left the source location.')
                 ->visible(fn (): bool => $this->record->status === StockTransferStatus::Draft && auth()->user()->can('dispatch', $this->record))
+                ->disabled(fn (): bool => $this->qcDispatchBlocked())
+                ->tooltip(fn (): ?string => $this->qcDispatchBlocked() ? 'Dispatch is blocked until all Renewed units have current valid QC assignments.' : null)
                 ->action(fn () => $this->runTransferAction(
                     'Cannot dispatch transfer',
                     fn () => app(DispatchStockTransfer::class)->handle($this->record, (string) str()->uuid(), auth()->user()),
@@ -56,6 +66,28 @@ class ViewStockTransfer extends ViewRecord
                     'Cannot cancel transfer',
                     fn () => app(CancelStockTransfer::class)->handle($this->record, $data['reason'], (string) str()->uuid(), auth()->user()),
                 )),
+            Action::make('releaseQcAssignment')
+                ->label('Release QC Device')
+                ->color('danger')
+                ->schema([
+                    Select::make('assignment_id')->label('Assigned QC Device')->required()->options(fn (): array => $this->record->qcAssignments()
+                        ->active()->with('device')->orderBy('id')->get()
+                        ->mapWithKeys(fn (QcStockTransferAssignment $assignment): array => [$assignment->id => $assignment->device->reference.' · '.$assignment->device->serial])->all()),
+                    Textarea::make('release_reason')->label('Reason')->required()->maxLength(2000),
+                ])
+                ->visible(fn (): bool => $this->record->status === StockTransferStatus::Draft
+                    && auth()->user() !== null
+                    && app(StockTransferAuthorization::class)->allows(auth()->user(), StockTransferPermission::Dispatch, $this->record)
+                    && app(QcAuthorization::class)->allows(auth()->user(), QcPermission::ViewOrderAssignments)
+                    && app(QcAuthorization::class)->allows(auth()->user(), QcPermission::ReleaseMarketplaceTransferDevice)
+                    && app(QcStockTransferReadinessService::class)->isRequired($this->record)
+                    && $this->record->qcAssignments()->active()->exists())
+                ->action(function (array $data): void {
+                    $assignment = QcStockTransferAssignment::query()->where('stock_transfer_id', $this->record->id)->findOrFail($data['assignment_id']);
+                    app(QcStockTransferAssignmentService::class)->release($this->record, $assignment, $data['release_reason'], auth()->user());
+                    $this->record->refresh();
+                    Notification::make()->success()->title('QC device released from this Draft transfer.')->send();
+                }),
             Action::make('return')
                 ->label('Confirm Returned to Source')
                 ->color('danger')
@@ -99,5 +131,12 @@ class ViewStockTransfer extends ViewRecord
         }
 
         return "{$message}.";
+    }
+
+    private function qcDispatchBlocked(): bool
+    {
+        $readiness = app(QcStockTransferReadinessService::class)->forTransfer($this->record);
+
+        return $readiness['required'] > 0 && $readiness['status'] !== 'ready';
     }
 }

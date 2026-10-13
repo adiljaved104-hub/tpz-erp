@@ -188,6 +188,24 @@ class QcInspectionService
         return $locked;
     }
 
+    public function begin(QcInspection $inspection, User $actor): QcInspection
+    {
+        $this->authorization->authorize($actor, QcPermission::Update, $inspection);
+
+        return DB::transaction(function () use ($inspection, $actor): QcInspection {
+            $locked = QcInspection::query()->lockForUpdate()->findOrFail($inspection->id);
+            if ($locked->status === QcInspectionStatus::Completed) {
+                throw ValidationException::withMessages(['inspection' => 'Completed QC cannot be reopened. Use authorized Re-QC.']);
+            }
+            if ($locked->status === QcInspectionStatus::Pending) {
+                $locked->update(['status' => QcInspectionStatus::InProgress]);
+                $this->activity->log('qc.updated', $actor, $locked, ['action' => 'mobile_begin']);
+            }
+
+            return $locked->refresh();
+        }, 5);
+    }
+
     public function hasUpgrade(QcInspection $inspection, ?array $final = null): bool
     {
         if (filled($inspection->requested_configuration)) {

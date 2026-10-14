@@ -11,7 +11,10 @@ use Illuminate\Auth\Access\AuthorizationException;
 
 class QcAuthorization
 {
-    public function __construct(private readonly EmployeePermissionOverrideResolver $overrides) {}
+    public function __construct(
+        private readonly EmployeePermissionOverrideResolver $overrides,
+        private readonly TechnicianPermissionPolicy $technicianPolicy,
+    ) {}
 
     public function roleDefault(User $user, QcPermission $permission): bool
     {
@@ -20,7 +23,11 @@ class QcAuthorization
             return false;
         }
 
-        return in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
+        return match ($user->employee?->role) {
+            EmployeeRole::Owner, EmployeeRole::Admin => true,
+            EmployeeRole::Technician => $this->technicianPolicy->allowsPermissionKey($permission->value),
+            default => false,
+        };
     }
 
     public function allows(User $user, QcPermission $permission, ?QcInspection $inspection = null): bool

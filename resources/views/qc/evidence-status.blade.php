@@ -4,6 +4,7 @@
     $progress = app(\App\Services\Qc\QcEvidenceService::class)->progress($inspection, $final);
     $authorization = app(\App\Services\Authorization\QcAuthorization::class);
     $canUpload = $inspection->status !== \App\Enums\QcInspectionStatus::Completed && $authorization->allows(auth()->user(), \App\Enums\QcPermission::Update, $inspection);
+    $canViewInternalEvidence = $authorization->allows(auth()->user(), \App\Enums\QcPermission::ViewInternalEvidence, $inspection);
 @endphp
 @assets
 <script src="{{ asset('js/qc-device-workflow.js') }}"></script>
@@ -16,13 +17,13 @@
 <div class="tpz-qc-evidence-grid">
 @foreach([...$progress['required'], 'additional'] as $kind)
 @php
-    $photos = $progress['proofs']->where('kind', $kind);
+    $photos = $progress['proofs']->where('kind', $kind)->filter(fn ($photo) => $photo->customer_visible || $canViewInternalEvidence);
     $complete = in_array($kind, $progress['complete'], true);
     $additional = $kind === 'additional';
 @endphp
 <section class="tpz-qc-evidence-card {{ ! $additional && ! $complete ? 'tpz-qc-evidence-missing' : '' }}" wire:key="qc-evidence-{{ $inspection->id }}-{{ $kind }}" data-testid="qc-evidence-{{ $kind }}" x-data="tpzQcUpload($wire, @js($kind))">
     <h3><strong>{{ \App\Services\Qc\QcEvidenceService::KINDS[$kind] }}</strong></h3>
-    <p>{{ $additional ? 'Optional · Customer visible or internal only' : ($complete ? '✓ Uploaded' : 'Required / Missing') }} · {{ $photos->count() }} photo(s)</p>
+    <p>{{ $additional ? ($canViewInternalEvidence ? 'Optional · Customer visible or internal only' : 'Optional · Customer visible') : ($complete ? '✓ Uploaded' : 'Required / Missing') }} · {{ $photos->count() }} photo(s)</p>
     @error('data.evidence.'.$kind)<p class="tpz-qc-error" role="alert">{{ $message }}</p>@enderror
     @error('evidenceUploads.'.$kind)<p class="tpz-qc-error" role="alert">{{ $message }}</p>@enderror
     <div class="tpz-qc-thumbnails">
@@ -35,7 +36,7 @@
     @endforeach
     </div>
     @if($canUpload)
-    @if($additional)<label class="tpz-qc-upload-controls"><input type="checkbox" wire:model="additionalCustomerVisible"> Customer Visible (otherwise Internal Only)</label>@endif
+    @if($additional && $canViewInternalEvidence)<label class="tpz-qc-upload-controls"><input type="checkbox" wire:model="additionalCustomerVisible"> Customer Visible (otherwise Internal Only)</label>@endif
     <div class="tpz-qc-upload-controls">
         <input x-ref="camera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" class="tpz-qc-file-input" @change="upload($event.target.files)" aria-label="Take {{ \App\Services\Qc\QcEvidenceService::KINDS[$kind] }} photo">
         <input x-ref="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple class="tpz-qc-file-input" @change="upload($event.target.files)" aria-label="Choose {{ \App\Services\Qc\QcEvidenceService::KINDS[$kind] }} photos">

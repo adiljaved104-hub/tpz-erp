@@ -41,6 +41,9 @@ class QcEvidenceService
     public function uploadBatch(QcInspection $inspection, array $categories, bool $additionalVisible, User $actor): array
     {
         app(QcAuthorization::class)->authorize($actor, QcPermission::Update, $inspection);
+        if (array_key_exists('additional', $categories) && ! $additionalVisible) {
+            app(QcAuthorization::class)->authorize($actor, QcPermission::ViewInternalEvidence, $inspection);
+        }
         Validator::make(['categories' => $categories], ['categories' => ['required', 'array', 'min:1', 'max:6'], 'categories.*' => ['required', 'array', 'min:1', 'max:10']], ['categories.required' => 'Choose at least one evidence photo before uploading.', 'categories.min' => 'Choose at least one evidence photo before uploading.', 'categories.*.max' => 'Choose no more than 10 photos per category per submission.'])->validate();
         foreach ($categories as $kind => $files) {
             Validator::make(['kind' => $kind], ['kind' => ['in:'.implode(',', array_keys(self::KINDS))]])->validate();
@@ -85,6 +88,9 @@ class QcEvidenceService
         Validator::make(['kind' => $kind], ['kind' => ['required', 'in:'.implode(',', array_keys(self::KINDS))]])->validate();
         $this->validateFile($file);
         $customerVisible = $kind === 'additional' ? $customerVisible : true;
+        if (! $customerVisible) {
+            app(QcAuthorization::class)->authorize($actor, QcPermission::ViewInternalEvidence, $inspection);
+        }
         $id = (string) str()->uuid();
         $original = 'qc/originals/'.$id.'.bin';
         $customer = 'qc/customer/'.$id.'.jpg';

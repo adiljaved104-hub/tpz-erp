@@ -15,6 +15,7 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Products\ProductTitleService;
 use App\Services\ReferenceSequenceService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
@@ -129,6 +130,10 @@ class QcInspectionService
     public function update(QcInspection $inspection, array $data, User $actor): QcInspection
     {
         $this->authorization->authorize($actor, QcPermission::Update, $inspection);
+
+        if (array_key_exists('internal_remarks', $data) && ! $this->authorization->allows($actor, QcPermission::ViewInternalEvidence, $inspection)) {
+            throw new AuthorizationException;
+        }
 
         return DB::transaction(function () use ($inspection, $data, $actor): QcInspection {
             $inspection = $this->editable($inspection);

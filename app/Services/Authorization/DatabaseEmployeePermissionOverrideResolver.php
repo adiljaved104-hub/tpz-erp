@@ -12,12 +12,18 @@ class DatabaseEmployeePermissionOverrideResolver implements EmployeePermissionOv
     /** @var array<int, array<string, bool>> */
     private array $memoized = [];
 
+    public function __construct(private readonly TechnicianPermissionPolicy $technicianPolicy) {}
+
     public function decision(User $user, string $permissionKey): ?bool
     {
         $employeeId = $user->employee?->getKey();
 
         if ($employeeId === null) {
             return null;
+        }
+
+        if ($this->technicianPolicy->restricts($user->employee, $permissionKey)) {
+            return false;
         }
 
         if (! array_key_exists($employeeId, $this->memoized)) {

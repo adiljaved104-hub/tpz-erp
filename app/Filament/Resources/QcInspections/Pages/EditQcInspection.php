@@ -28,6 +28,10 @@ class EditQcInspection extends EditRecord
     {
         $data['checks'] = $this->record->checks()->get()->where('applicable', true)->mapWithKeys(fn ($check) => [$check->check_key => ['result' => $check->result, 'measurement' => $check->measurement, 'notes' => $check->notes]])->all();
 
+        if (! app(QcAuthorization::class)->allows(auth()->user(), QcPermission::ViewInternalEvidence, $this->record)) {
+            unset($data['internal_remarks']);
+        }
+
         return $data;
     }
 

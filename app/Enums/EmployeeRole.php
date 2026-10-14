@@ -11,6 +11,7 @@ enum EmployeeRole: string implements HasColor, HasLabel
     case Admin = 'admin';
     case Manager = 'manager';
     case Staff = 'staff';
+    case Technician = 'technician';
 
     public function getLabel(): string
     {
@@ -19,6 +20,7 @@ enum EmployeeRole: string implements HasColor, HasLabel
             self::Admin => 'Admin',
             self::Manager => 'Manager',
             self::Staff => 'Staff',
+            self::Technician => 'Technician',
         };
     }
 
@@ -29,6 +31,7 @@ enum EmployeeRole: string implements HasColor, HasLabel
             self::Admin => 'warning',
             self::Manager => 'success',
             self::Staff => 'gray',
+            self::Technician => 'info',
         };
     }
 }

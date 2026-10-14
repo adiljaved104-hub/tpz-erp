@@ -149,11 +149,14 @@ class QcInspectionResource extends Resource
             ])->schema($fields)->columnSpanFull();
         }
         $sections[] = ViewEntry::make('critical_evidence_status')->view('qc.evidence-status')->columnSpanFull();
-        $sections[] = Section::make('Grade & Remarks')->schema([
+        $remarks = [
             Select::make('grade')->options(['A' => 'A', 'B' => 'B', 'C' => 'C']),
             Textarea::make('public_remarks')->label('Customer-visible remarks')->maxLength(2000)->helperText('No costs, customer personal data or internal notes.'),
-            Textarea::make('internal_remarks')->label('Internal remarks (never public)')->maxLength(4000),
-        ])->columnSpanFull();
+        ];
+        if (auth()->user() && app(QcAuthorization::class)->allows(auth()->user(), QcPermission::ViewInternalEvidence, $record)) {
+            $remarks[] = Textarea::make('internal_remarks')->label('Internal remarks (never public)')->maxLength(4000);
+        }
+        $sections[] = Section::make('Grade & Remarks')->schema($remarks)->columnSpanFull();
 
         return $schema->components($sections);
     }

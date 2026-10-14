@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Authorization\AccessControlModuleRegistry;
 use App\Services\Authorization\EmployeePermissionCatalog;
 use App\Services\Authorization\EmployeePermissionOverrideService;
+use App\Services\Authorization\TechnicianPermissionPolicy;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
@@ -571,6 +572,9 @@ class AccessControl extends Page
         abort_unless(static::canAccess(), 403);
         abort_unless(in_array($setting, ['inherit', 'allow', 'deny'], true), 422);
         abort_unless(in_array($permissionKey, app(AccessControlModuleRegistry::class)->managedPermissionKeys(), true), 404);
+        if ($setting === 'allow' && app(TechnicianPermissionPolicy::class)->restricts($employee, $permissionKey)) {
+            throw ValidationException::withMessages(['permission' => 'The Technician role is restricted to its approved Quality Control permissions.']);
+        }
         $actor = auth()->user();
         if (! $actor?->can('managePermissions', $employee)) {
             throw new AuthorizationException('This employee’s access is protected.');
@@ -603,9 +607,13 @@ class AccessControl extends Page
             ->map(function (array $module) use ($employees, $catalog, $actor): array {
                 $module['permissions'] = collect($module['permission_keys'])->mapWithKeys(function (string $key) use ($employees, $catalog, $actor): array {
                     $setting = $this->draftSettings[$key] ?? 'inherit';
+                    $technicianRestricted = $employees->contains(fn (Employee $employee): bool => app(TechnicianPermissionPolicy::class)->restricts($employee, $key));
                     $roleDefaults = $employees->map(fn (Employee $employee): bool => $catalog->roleDefault($employee, $key))->unique()->values();
                     $roleDefault = $roleDefaults->count() === 1 ? $roleDefaults->first() : null;
                     $currentEffective = $employees->map(function (Employee $employee) use ($catalog, $key): bool {
+                        if (app(TechnicianPermissionPolicy::class)->restricts($employee, $key)) {
+                            return false;
+                        }
                         $override = $employee->permissionOverrides->firstWhere('permission_key', $key)?->effect?->value;
 
                         return match ($override) {
@@ -615,7 +623,7 @@ class AccessControl extends Page
                         };
                     })->unique()->values();
                     $effective = match ($setting) {
-                        'allow' => true,
+                        'allow' => $technicianRestricted ? false : true,
                         'deny' => false,
                         'inherit' => $roleDefault,
                         default => $currentEffective->count() === 1 ? $currentEffective->first() : null,
@@ -624,7 +632,7 @@ class AccessControl extends Page
                     $canManage = $employees->every(fn (Employee $employee): bool => $actor?->can('managePermissions', $employee) === true)
                         && (! ($definition['financial'] ?? false) || $actor->employee?->role === EmployeeRole::Owner);
 
-                    return [$key => [...$definition, 'setting' => $setting, 'original_setting' => $this->originalSettings[$key] ?? 'inherit', 'role_default' => $roleDefault, 'effective' => $effective, 'can_manage' => $canManage, 'changed' => ($this->originalSettings[$key] ?? 'inherit') !== $setting]];
+                    return [$key => [...$definition, 'setting' => $setting, 'original_setting' => $this->originalSettings[$key] ?? 'inherit', 'role_default' => $roleDefault, 'effective' => $effective, 'can_manage' => $canManage, 'technician_restricted' => $technicianRestricted, 'changed' => ($this->originalSettings[$key] ?? 'inherit') !== $setting]];
                 })->all();
                 $module['primary_level'] = $this->primaryLevel($module);
                 $module['role_level'] = $this->primaryLevel($module, true);

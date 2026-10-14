@@ -88,6 +88,7 @@ class QcEvidenceMobileWorkflowTest extends TestCase
 
     public function test_mandatory_single_photo_ignores_false_visibility_but_additional_can_be_internal(): void
     {
+        $this->grantInternalEvidence();
         $inspection = $this->start();
         $service = app(QcEvidenceService::class);
         foreach (['serial', 'physical', 'display', 'system', 'upgrade'] as $kind) {
@@ -201,6 +202,7 @@ class QcEvidenceMobileWorkflowTest extends TestCase
 
     public function test_complete_and_public_view_do_not_expose_internal_originals_or_mutate_stock(): void
     {
+        $this->grantInternalEvidence();
         ProductInventory::factory()->create(['product_id' => $this->product->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 12]);
         $inspection = $this->start();
         $tables = ['product_inventories', 'inventory_allocation_balances', 'inventory_allocation_events', 'inventory_reservations', 'stock_movements', 'orders', 'order_items', 'products'];
@@ -399,6 +401,17 @@ class QcEvidenceMobileWorkflowTest extends TestCase
         $employee->user->update(['email' => $email]);
 
         return $employee->user;
+    }
+
+    private function grantInternalEvidence(): void
+    {
+        app(EmployeePermissionOverrideService::class)->change(
+            $this->technician->employee,
+            QcPermission::ViewInternalEvidence->value,
+            EmployeePermissionEffect::Allow,
+            'Internal evidence test fixture',
+            $this->owner,
+        );
     }
 
     private function deviceProduct(string $category, string $model): Product

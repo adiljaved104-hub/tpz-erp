@@ -102,6 +102,10 @@ class MobileWorkspaceCapabilities
 
     public function isQcFocused(User $user): bool
     {
+        if ($user->employee?->role === EmployeeRole::Technician) {
+            return $this->hasQcAccess($user);
+        }
+
         // Explicit Owner-controlled presentation mode. It never changes policies
         // or grants access. Owner/Admin keep their normal broader workspace.
         return $this->hasQcAccess($user)

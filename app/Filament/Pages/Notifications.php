@@ -3,8 +3,13 @@
 namespace App\Filament\Pages;
 
 use App\Models\User;
+use App\Services\Notifications\AppUpdateNotificationService;
 use App\Services\Notifications\InventoryAlertPreferenceService;
 use App\Services\Notifications\NotificationInboxService;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification as FilamentNotification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -66,6 +71,86 @@ class Notifications extends Page
         $this->validate(['receiveInventoryAlerts' => ['required', 'boolean']]);
         app(InventoryAlertPreferenceService::class)->set($this->user(), $this->receiveInventoryAlerts);
         FilamentNotification::make()->success()->title('Inventory alert preference saved')->send();
+    }
+
+    protected function getHeaderActions(): array
+    {
+        $canSend = fn (): bool => ($user = auth()->user()) instanceof User
+            && app(AppUpdateNotificationService::class)->canSend($user);
+
+        return [
+            Action::make('sendAppUpdateAlert')
+                ->label('Send App Update Alert')
+                ->icon(Heroicon::OutlinedMegaphone)
+                ->visible($canSend)
+                ->authorize($canSend)
+                ->schema([
+                    Select::make('platform')
+                        ->label('Platform / Audience')
+                        ->options([
+                            'all' => 'All Mobile Devices',
+                            'android' => 'Android',
+                            'ios' => 'iOS',
+                        ])
+                        ->default('all')
+                        ->required(),
+                    Select::make('release_type')
+                        ->label('Update Type')
+                        ->options([
+                            'app_build' => 'App Build',
+                            'ota_update' => 'OTA Update',
+                            'general_mobile_update' => 'General Mobile Update',
+                        ])
+                        ->default('general_mobile_update')
+                        ->required(),
+                    TextInput::make('title')
+                        ->default('Tech Point Zone Update Available')
+                        ->maxLength(120),
+                    Textarea::make('message')
+                        ->required()
+                        ->maxLength(240)
+                        ->rows(3),
+                    TextInput::make('release_label')
+                        ->label('Release label')
+                        ->maxLength(80),
+                ])
+                ->requiresConfirmation()
+                ->modalHeading('Send App Update Alert')
+                ->modalDescription('One notification will be created per eligible employee. Push delivery uses the existing queue.')
+                ->modalSubmitActionLabel('Send Alert')
+                ->action(function (array $data): void {
+                    $user = auth()->user();
+                    abort_unless($user instanceof User, 403);
+
+                    $result = app(AppUpdateNotificationService::class)->send($user, $data);
+
+                    if ($result['duplicate']) {
+                        FilamentNotification::make()
+                            ->info()
+                            ->title('This alert was already submitted')
+                            ->body('Wait briefly before submitting the same alert again.')
+                            ->send();
+
+                        return;
+                    }
+
+                    if (! $result['sent']) {
+                        FilamentNotification::make()
+                            ->warning()
+                            ->title('No eligible mobile devices found')
+                            ->body('No active employee with a matching registered mobile device was available.')
+                            ->send();
+
+                        return;
+                    }
+
+                    FilamentNotification::make()
+                        ->success()
+                        ->title('App update alert queued')
+                        ->body($result['recipient_user_count'].' employees · '.$result['target_device_count'].' devices')
+                        ->send();
+                }),
+        ];
     }
 
     public function setFilter(string $filter): void

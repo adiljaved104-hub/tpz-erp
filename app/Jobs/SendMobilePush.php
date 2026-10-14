@@ -38,7 +38,14 @@ class SendMobilePush implements ShouldQueue
         if (! $n || $n->read_at !== null) {
             return;
         }
-        if (app(NotificationTarget::class)->resolve($user, $n->data) === null) {
+        $isAppUpdate = $n->type === 'app.update';
+        $platform = $isAppUpdate ? ($n->data['platform'] ?? null) : null;
+
+        if ($isAppUpdate) {
+            if (! in_array($platform, ['all', 'android', 'ios'], true)) {
+                return;
+            }
+        } elseif (app(NotificationTarget::class)->resolve($user, $n->data) === null) {
             return;
         }
 
@@ -48,7 +55,13 @@ class SendMobilePush implements ShouldQueue
         $body = trim((string) ($messages[(string) $n->id] ?? ''));
         $body = $body !== '' ? Str::limit($body, 240) : 'You have a new ERP notification.';
 
-        MobileDevice::query()->where('user_id', $user->id)->whereNull('disabled_at')->with('accessToken')->chunkById(100, function ($devices) use ($title, $body) {
+        $devices = MobileDevice::query()->where('user_id', $user->id)->whereNull('disabled_at');
+
+        if ($isAppUpdate) {
+            $devices->whereIn('platform', $platform === 'all' ? ['android', 'ios'] : [$platform]);
+        }
+
+        $devices->with('accessToken')->chunkById(100, function ($devices) use ($title, $body) {
             foreach ($devices as $device) {
                 $session = $device->accessToken;
                 if (! $session || ($session->expires_at !== null && $session->expires_at->isPast())) {

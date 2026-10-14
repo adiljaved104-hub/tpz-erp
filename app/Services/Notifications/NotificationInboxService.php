@@ -11,6 +11,7 @@ use App\Enums\WarrantyRepairPermission;
 use App\Filament\Pages\Chat;
 use App\Filament\Pages\Hr\LeaveManagement;
 use App\Filament\Pages\MarketplaceOperations;
+use App\Filament\Pages\Notifications;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\EmployeeWarnings\EmployeeWarningResource;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
@@ -123,6 +124,10 @@ class NotificationInboxService
         $notification = $this->own($user, $id);
         $notification->markAsRead();
         $data = $notification->data;
+
+        if ($notification->type === 'app.update') {
+            return ['url' => Notifications::getUrl(), 'available' => true];
+        }
 
         if (! is_numeric($data['target_id'] ?? null)) {
             return ['url' => null, 'available' => false];

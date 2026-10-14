@@ -20,15 +20,16 @@ class NotificationController extends MobileController
         // Never return stored sensitive previews after access has been revoked.
         $messages = $inbox->displayMessages($page->getCollection(), $user);
         $page->through(function ($n) use ($user, $messages) {
-            $target = app(NotificationTarget::class)->resolve($user, $n->data);
+            $isAppUpdate = $n->type === 'app.update';
+            $target = $isAppUpdate ? null : app(NotificationTarget::class)->resolve($user, $n->data);
             $acknowledgment = $target ? (app(StockAlertAcknowledgementService::class)->context($user, $n)
                 ?? app(MarketplaceIncidentAcknowledgementService::class)->context($user, $n)) : null;
 
-            return ['id' => $n->id, 'title' => $target ? ($n->data['title'] ?? 'ERP notification') : 'ERP notification',
-                'subtitle' => $target ? ($messages[$n->id] ?? null) : 'Open the ERP for details, or access is no longer available.',
+            return ['id' => $n->id, 'title' => $isAppUpdate ? ($n->data['title'] ?? 'ERP notification') : ($target ? ($n->data['title'] ?? 'ERP notification') : 'ERP notification'),
+                'subtitle' => $isAppUpdate ? ($messages[$n->id] ?? null) : ($target ? ($messages[$n->id] ?? null) : 'Open the ERP for details, or access is no longer available.'),
                 'meta' => $n->created_at?->toIso8601String(), 'created_at' => $n->created_at?->toIso8601String(),
                 'status' => $n->read_at ? 'read' : 'unread', 'read_at' => $n->read_at?->toIso8601String(),
-                'type' => $target ? $n->type : null, 'target' => $target,
+                'type' => ($isAppUpdate || $target) ? $n->type : null, 'target' => $target,
                 'acknowledgment_required' => $acknowledgment !== null,
                 'acknowledged' => $acknowledgment['acknowledged'] ?? false,
                 'acknowledged_at' => $acknowledgment['acknowledged_at'] ?? null,
@@ -42,7 +43,9 @@ class NotificationController extends MobileController
     {
         $inbox = app(NotificationInboxService::class);
         $n = $inbox->own($request->user(), $notification);
-        $target = app(NotificationTarget::class)->resolve($request->user(), $n->data);
+        $target = $n->type === 'app.update'
+            ? null
+            : app(NotificationTarget::class)->resolve($request->user(), $n->data);
         $inbox->markRead($request->user(), $notification);
 
         return response()->json(['data' => ['target' => $target], 'unread_count' => $inbox->unreadCount($request->user())]);

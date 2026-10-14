@@ -56,6 +56,7 @@ class MobileManifest
                 $qcAuthorization = app(Authorization\QcAuthorization::class);
                 $orderAuthorization = app(Authorization\OrderAuthorization::class);
                 $inspections = $qcAuthorization->allows($user, Enums\QcPermission::View);
+                $inspectionStart = $inspections && $qcAuthorization->allows($user, Enums\QcPermission::Start);
                 $inspectionUpdate = $qcAuthorization->allows($user, Enums\QcPermission::Update);
                 $inspectionComplete = $qcAuthorization->allows($user, Enums\QcPermission::Complete);
                 $recordedStockIntake = $inspections && $qcAuthorization->allows($user, Enums\QcPermission::Start);
@@ -86,6 +87,7 @@ class MobileManifest
                         'marketplace_transfers' => $marketplaceTransfers, 'recorded_renewed_stock_intake' => $recordedStockIntake],
                     'capabilities' => [
                         'inspections' => $inspections,
+                        'inspection_start' => $inspectionStart,
                         'inspection_update' => $inspectionUpdate,
                         'inspection_complete' => $inspectionComplete,
                         'inspection_evidence' => $inspectionUpdate,
@@ -98,7 +100,7 @@ class MobileManifest
                         'marketplace_transfers' => $marketplaceTransfers,
                         'transfer_assignment' => $transferAssignment,
                         'transfer_release' => $transferRelease,
-                        'endpoints' => ['inspections' => '/workspace/qc/inspections', 'inspection_detail' => '/workspace/qc/inspections/{inspection}',
+                        'endpoints' => ['inspections' => '/workspace/qc/inspections', 'inspection_options' => '/workspace/qc/inspections/options', 'inspection_start' => '/workspace/qc/inspections', 'inspection_detail' => '/workspace/qc/inspections/{inspection}',
                             'inspection_begin' => '/workspace/qc/inspections/{inspection}/begin', 'inspection_update' => '/workspace/qc/inspections/{inspection}',
                             'inspection_evidence' => '/workspace/qc/inspections/{inspection}/evidence', 'inspection_complete' => '/workspace/qc/inspections/{inspection}/complete',
                             'pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}',

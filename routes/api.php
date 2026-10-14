@@ -74,6 +74,8 @@ Route::prefix('mobile/v1')
         });
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
             Route::get('/qc', [QcDispatchController::class, 'home']);
+            Route::get('/qc/inspections/options', [QcInspectionController::class, 'options']);
+            Route::post('/qc/inspections', [QcInspectionController::class, 'start'])->middleware('throttle:30,1');
             Route::get('/qc/inspections', [QcInspectionController::class, 'index']);
             Route::get('/qc/inspections/{inspection}', [QcInspectionController::class, 'show'])->whereNumber('inspection');
             Route::post('/qc/inspections/{inspection}/begin', [QcInspectionController::class, 'begin'])->whereNumber('inspection')->middleware('throttle:60,1');

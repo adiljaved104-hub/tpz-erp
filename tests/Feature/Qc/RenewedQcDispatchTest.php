@@ -667,6 +667,7 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertSame('qc', $focusedManifest['landing_module']);
         $qcModule = collect($focusedManifest['modules'])->firstWhere('key', 'qc');
         $this->assertTrue($qcModule['capabilities']['inspections']);
+        $this->assertFalse($qcModule['capabilities']['inspection_start']);
         $this->assertTrue($qcModule['capabilities']['dispatch']);
         $this->assertTrue($qcModule['capabilities']['scan']);
         $this->assertFalse($qcModule['capabilities']['inspection_update']);
@@ -677,7 +678,11 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertSame('/workspace/qc/inspections/{inspection}/evidence', $qcModule['capabilities']['endpoints']['inspection_evidence']);
         $this->override($staff, QcPermission::Update, EmployeePermissionEffect::Allow);
         $this->override($staff, QcPermission::Complete, EmployeePermissionEffect::Allow);
+        $this->override($staff, QcPermission::Start, EmployeePermissionEffect::Allow);
         $qcModule = collect($manifest->forUser($staff)['modules'])->firstWhere('key', 'qc');
+        $this->assertTrue($qcModule['capabilities']['inspection_start']);
+        $this->assertSame('/workspace/qc/inspections/options', $qcModule['capabilities']['endpoints']['inspection_options']);
+        $this->assertSame('/workspace/qc/inspections', $qcModule['capabilities']['endpoints']['inspection_start']);
         $this->assertTrue($qcModule['capabilities']['inspection_update']);
         $this->assertTrue($qcModule['capabilities']['inspection_complete']);
         $this->assertTrue($qcModule['capabilities']['inspection_evidence']);
@@ -722,6 +727,7 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertSame('qc_focused', $manifest['workspace_mode']);
         $this->assertSame('qc', $manifest['landing_module']);
         $qc = $manifest['modules'][0];
+        $this->assertFalse($qc['capabilities']['inspection_start']);
         $this->assertSame(['inspections' => true, 'dispatch' => false, 'scan' => false, 'ship' => false], array_intersect_key(
             $qc['capabilities'], array_flip(['inspections', 'dispatch', 'scan', 'ship']),
         ));

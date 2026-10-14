@@ -4,12 +4,16 @@ namespace App\Http\Controllers\Api\Mobile\V1;
 
 use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
+use App\Models\Product;
 use App\Models\QcInspection;
+use App\Models\Warehouse;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\BusinessTimezone;
+use App\Services\Products\ProductTitleService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionReadService;
 use App\Services\Qc\QcInspectionService;
+use App\Services\Qc\QcTemplateResolver;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +21,80 @@ use Illuminate\Support\Arr;
 
 class QcInspectionController extends MobileController
 {
+    public function options(Request $request, QcAuthorization $authorization, QcTemplateResolver $templates, ProductTitleService $titles): JsonResponse
+    {
+        $actor = $request->user();
+        $authorization->authorize($actor, QcPermission::View);
+        $authorization->authorize($actor, QcPermission::Start);
+        $input = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'selected_product_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $search = trim((string) ($input['search'] ?? ''));
+        $products = collect();
+        if ($search !== '') {
+            $products = Product::query()->active()->products()
+                ->where(fn ($query) => $query
+                    ->where('sku', 'like', '%'.$search.'%')
+                    ->orWhere('name', 'like', '%'.$search.'%')
+                    ->orWhere('model', 'like', '%'.$search.'%'))
+                ->with(['brandRelation', 'categoryRelation'])
+                ->limit(100)
+                ->get()
+                ->filter(fn (Product $product) => $templates->supports($product))
+                ->take(30)
+                ->values();
+        }
+        $selected = isset($input['selected_product_id'])
+            ? Product::query()->active()->products()->with(['brandRelation', 'categoryRelation'])->find($input['selected_product_id'])
+            : null;
+        if ($selected && ! $templates->supports($selected)) {
+            $selected = null;
+        }
+
+        return response()->json(['data' => [
+            'products' => $products->map(fn (Product $product): array => [
+                'id' => $product->id,
+                'sku' => $product->sku,
+                'title' => $titles->accounting($product),
+                'brand' => $product->displayBrandName(),
+                'model' => $product->model,
+                'condition' => $product->condition?->value,
+            ])->values(),
+            'warehouses' => Warehouse::query()->active()->orderBy('name')->get(['id', 'name'])->map(fn (Warehouse $warehouse): array => ['id' => $warehouse->id, 'name' => $warehouse->name]),
+            'selected_product_id' => $selected?->id,
+            'features' => $selected ? collect($templates->resolve($selected)['features'])->map(fn (string $label, string $key): array => ['key' => $key, 'label' => $label])->values() : [],
+            'default_features' => $selected ? array_values($templates->resolve($selected)['default_features']) : [],
+        ]]);
+    }
+
+    public function start(Request $request, QcInspectionService $service, QcAuthorization $authorization): JsonResponse
+    {
+        $actor = $request->user();
+        $authorization->authorize($actor, QcPermission::View);
+        $authorization->authorize($actor, QcPermission::Start);
+        $input = $request->validate([
+            'product_id' => ['required', 'integer', 'min:1'],
+            'serial' => ['required', 'string', 'min:3', 'max:100', 'regex:/\A[A-Za-z0-9._ -]+\z/'],
+            'warehouse_id' => ['required', 'integer', 'min:1'],
+            'features' => ['sometimes', 'array'],
+            'features.*' => ['string'],
+            'special_requirement' => ['nullable', 'string', 'max:500'],
+            'idempotency_key' => ['required', 'uuid'],
+        ]);
+        $inspection = $service->start($input, $actor)->load(['device:id,reference,serial', 'warehouse:id,name']);
+
+        return response()->json(['data' => [
+            'inspection_id' => $inspection->id,
+            'qc_id' => $inspection->device->reference,
+            'serial' => $inspection->device->serial,
+            'product' => data_get($inspection->product_snapshot, 'title'),
+            'sku' => data_get($inspection->product_snapshot, 'sku'),
+            'warehouse' => $inspection->warehouse?->name,
+            'status' => $inspection->status->value,
+        ]], 201);
+    }
+
     public function index(Request $request, QcInspectionReadService $inspections, QcAuthorization $authorization, BusinessTimezone $timezone): JsonResponse
     {
         $input = $request->validate([
@@ -136,7 +214,7 @@ class QcInspectionController extends MobileController
 
         return response()->json(['certificate' => ['qc_id' => $snapshot['reference'], 'serial' => $snapshot['serial'], 'version' => $certificate->version,
             'product' => data_get($snapshot, 'product.title'), 'grade' => data_get($snapshot, 'grade'),
-            'certified_at' => $timezone->iso($certificate->certified_at), 'status' => 'completed']]);
+            'certified_at' => $timezone->iso($certificate->certified_at), 'status' => 'completed', 'label_ready' => true]]);
     }
 
     private function present(QcInspection $inspection, bool $canViewTechnician, BusinessTimezone $timezone): array

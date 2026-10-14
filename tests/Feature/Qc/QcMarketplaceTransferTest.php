@@ -34,6 +34,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Qc\QcAvailableCertificateService;
 use App\Services\Qc\QcDocumentService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionReadService;
@@ -433,6 +434,58 @@ class QcMarketplaceTransferTest extends TestCase
             ->assertOk()->assertJsonPath('data.assignment_state', 'released')->assertJsonPath('data.readiness.status', 'pending_qc');
         $this->assertSame(StockTransferStatus::Draft, $transfer->fresh()->status);
         $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_mobile_standalone_qc_becomes_a_permanent_label_then_fills_a_later_five_unit_transfer(): void
+    {
+        Sanctum::actingAs($this->owner);
+        $start = $this->postJson('/api/mobile/v1/workspace/qc/inspections', [
+            'product_id' => $this->product->id,
+            'serial' => 'STANDALONE-FBA-001',
+            'warehouse_id' => $this->source->id,
+            'features' => [],
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertCreated()->assertJsonPath('data.status', 'pending');
+        $inspection = QcInspection::query()->with('device')->findOrFail($start->json('data.inspection_id'));
+        $this->assertNull($inspection->order_id);
+        $this->assertNull($inspection->order_item_id);
+        $certificate = $this->finish($inspection);
+
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+        $this->assertDatabaseCount('qc_stock_transfer_assignments', 0);
+        $this->assertDatabaseCount('qc_device_claims', 0);
+        $this->assertTrue(app(QcAvailableCertificateService::class)->currentUnclaimed()->contains('id', $certificate->id));
+
+        $transfer = $this->transfer($this->product, 5);
+        $this->assertSame('pending_qc', app(QcStockTransferReadinessService::class)->forTransfer($transfer)['status']);
+        $certificates = [$certificate];
+        for ($index = 2; $index <= 5; $index++) {
+            $certificates[] = $this->certify('STANDALONE-FBA-00'.$index);
+        }
+        $labels = app(QcDocumentService::class)->labels(collect($certificates)->map(fn (QcCertificate $record) => $record->inspection_id)->all(), $this->owner);
+        $this->assertCount(5, $labels);
+        $this->assertStringContainsString('/verify/qc/', $labels[0]['verificationUrl']);
+        $movementsBeforeScans = StockMovement::query()->count();
+        foreach ($certificates as $index => $record) {
+            $this->postJson('/api/mobile/v1/workspace/qc/transfers/'.$transfer->id.'/verified-scan', [
+                'code' => $labels[$index]['verificationUrl'],
+                'physical_serial' => $record->snapshot['serial'],
+            ])->assertCreated()
+                ->assertJsonPath('data.device.qc_id', $record->snapshot['reference'])
+                ->assertJsonPath('data.device.serial', $record->snapshot['serial'])
+                ->assertJsonPath('data.readiness.valid', $index + 1)
+                ->assertJsonPath('data.readiness.required', 5)
+                ->assertJsonPath('data.readiness.status', $index === 4 ? 'ready' : 'partially_assigned');
+        }
+
+        $sixth = $this->certify('STANDALONE-FBA-006');
+        $this->postJson('/api/mobile/v1/workspace/qc/transfers/'.$transfer->id.'/verified-scan', [
+            'code' => app(QcDocumentService::class)->url($sixth),
+        ])->assertUnprocessable();
+        $this->assertSame(5, $transfer->qcAssignments()->active()->count());
+        $this->assertSame(StockTransferStatus::Draft, $transfer->fresh()->status);
+        $this->assertSame($movementsBeforeScans, StockMovement::query()->count());
+        $this->assertDatabaseCount('qc_order_assignments', 0);
     }
 
     public function test_transfer_demand_is_separate_from_pending_qc_and_free_certificates_are_matched_once(): void

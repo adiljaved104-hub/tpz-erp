@@ -4,6 +4,7 @@ namespace Tests\Feature\Qc;
 
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
+use App\Enums\ProductStatus;
 use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
 use App\Filament\Resources\QcInspections\Pages\CreateQcInspection;
@@ -255,11 +256,78 @@ class QcEvidenceMobileWorkflowTest extends TestCase
         $completion = $this->postJson($prefix.'/complete')->assertOk()
             ->assertJsonPath('certificate.qc_id', $inspection->device->reference)
             ->assertJsonPath('certificate.serial', $inspection->device->serial)
-            ->assertJsonPath('certificate.status', 'completed');
+            ->assertJsonPath('certificate.status', 'completed')
+            ->assertJsonPath('certificate.label_ready', true);
         $this->assertStringNotContainsString('public_token', $completion->getContent());
         $this->assertStringNotContainsString('original_path', $completion->getContent());
         $this->postJson($prefix.'/begin')->assertStatus(422);
         $this->patchJson($prefix, ['public_remarks' => 'after completion'])->assertStatus(422);
+    }
+
+    public function test_mobile_standalone_start_uses_server_template_idempotency_and_active_location_rules(): void
+    {
+        $this->withToken($this->technician->createToken('QC Standalone Start')->plainTextToken);
+        $options = $this->getJson('/api/mobile/v1/workspace/qc/inspections/options?search='.urlencode((string) $this->product->sku))->assertOk();
+        $productOption = collect($options->json('data.products'))->firstWhere('id', $this->product->id);
+        $this->assertNotNull($productOption);
+        $this->assertSame($this->product->sku, $productOption['sku']);
+        $this->assertArrayHasKey('title', $productOption);
+        $this->assertContains($this->warehouse->id, collect($options->json('data.warehouses'))->pluck('id')->all());
+
+        $selected = $this->getJson('/api/mobile/v1/workspace/qc/inspections/options?selected_product_id='.$this->product->id)->assertOk();
+        $this->assertSame($this->product->id, $selected->json('data.selected_product_id'));
+        $this->assertNotEmpty($selected->json('data.features'));
+        $this->assertIsArray($selected->json('data.default_features'));
+
+        $payload = [
+            'product_id' => $this->product->id,
+            'serial' => 'MOBILE-STANDALONE-001',
+            'warehouse_id' => $this->warehouse->id,
+            'features' => [],
+            'special_requirement' => null,
+            'idempotency_key' => (string) str()->uuid(),
+        ];
+        $started = $this->postJson('/api/mobile/v1/workspace/qc/inspections', $payload)->assertCreated()
+            ->assertJsonPath('data.serial', $payload['serial'])
+            ->assertJsonPath('data.sku', $this->product->sku)
+            ->assertJsonPath('data.warehouse', $this->warehouse->name)
+            ->assertJsonPath('data.status', 'pending');
+        $inspection = QcInspection::query()->with('device')->findOrFail($started->json('data.inspection_id'));
+        $this->assertNull($inspection->order_id);
+        $this->assertNull($inspection->order_item_id);
+        $this->assertSame($this->product->sku, $inspection->product_snapshot['sku']);
+        $this->assertSame($started->json('data.product'), $inspection->product_snapshot['title']);
+        $this->assertSame($this->warehouse->id, $inspection->warehouse_id);
+        $this->assertSame($inspection->id, $this->postJson('/api/mobile/v1/workspace/qc/inspections', $payload)->assertCreated()->json('data.inspection_id'));
+        $this->assertDatabaseCount('qc_devices', 1);
+        $this->assertDatabaseCount('qc_inspections', 1);
+
+        $duplicate = $this->postJson('/api/mobile/v1/workspace/qc/inspections', [...$payload, 'idempotency_key' => (string) str()->uuid()])->assertUnprocessable();
+        $this->assertStringContainsString('already', strtolower(collect($duplicate->json('errors'))->flatten()->first()));
+
+        $unsupportedCategory = ProductCategory::factory()->create(['name' => 'Mobile Phones', 'normalized_name' => 'mobile-phones']);
+        $unsupported = Product::factory()->create(['name' => 'Unsupported Phone', 'model' => 'Phone Model', 'category' => 'Mobile Phones', 'category_id' => $unsupportedCategory->id]);
+        $this->postJson('/api/mobile/v1/workspace/qc/inspections', [...$payload, 'product_id' => $unsupported->id, 'serial' => 'UNSUPPORTED-001', 'idempotency_key' => (string) str()->uuid()])->assertUnprocessable();
+        $inactive = Product::factory()->create(['name' => 'Inactive Laptop', 'category' => 'Laptop', 'status' => ProductStatus::Inactive]);
+        $this->postJson('/api/mobile/v1/workspace/qc/inspections', [...$payload, 'product_id' => $inactive->id, 'serial' => 'INACTIVE-PRODUCT-001', 'idempotency_key' => (string) str()->uuid()])->assertUnprocessable();
+        $inactiveWarehouse = Warehouse::factory()->inactive()->create();
+        $this->postJson('/api/mobile/v1/workspace/qc/inspections', [...$payload, 'serial' => 'INACTIVE-LOCATION-001', 'warehouse_id' => $inactiveWarehouse->id, 'idempotency_key' => (string) str()->uuid()])->assertUnprocessable();
+    }
+
+    public function test_mobile_standalone_start_and_options_require_qc_view_and_start_permissions(): void
+    {
+        $unauthorized = $this->actor(EmployeeRole::Staff);
+        $this->withToken($unauthorized->createToken('QC Unauthorized Start')->plainTextToken);
+        $this->getJson('/api/mobile/v1/workspace/qc/inspections/options')->assertForbidden();
+        $this->postJson('/api/mobile/v1/workspace/qc/inspections', [
+            'product_id' => $this->product->id,
+            'serial' => 'UNAUTHORIZED-001',
+            'warehouse_id' => $this->warehouse->id,
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ])->assertForbidden();
+        $this->assertDatabaseCount('qc_devices', 0);
+        $this->assertDatabaseCount('qc_inspections', 0);
     }
 
     public function test_mobile_begin_does_not_reset_rework_state(): void

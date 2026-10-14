@@ -28,6 +28,7 @@ use App\Enums\PeoplePermission;
 use App\Enums\PerformancePermission;
 use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
+use App\Enums\QcPermission;
 use App\Enums\QuotationPermission;
 use App\Enums\ResponsibilityPermission;
 use App\Enums\SafetClaimPermission;
@@ -65,7 +66,7 @@ class PermissionCatalogCompletenessTest extends TestCase
             TaskPermission::class, ChatPermission::class, HrPermission::class, PerformancePermission::class,
             EmailSettingsPermission::class, NotificationRulePermission::class,
             CompanyProfilePermission::class, InvoicePermission::class, QuotationPermission::class, AuthSecurityPermission::class,
-            ComponentPermission::class, UpgradePermission::class,
+            ComponentPermission::class, UpgradePermission::class, QcPermission::class,
         ];
         $expected = collect($enumClasses)->flatMap(fn (string $enum): array => array_column($enum::cases(), 'value'))->values()->all();
         $actual = collect(app(EmployeePermissionCatalog::class)->groups())->flatten(1)->pluck('key')->values()->all();

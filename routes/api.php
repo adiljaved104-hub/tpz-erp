@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\Mobile\V1\TaskController;
 use App\Http\Controllers\Api\Mobile\V1\WarrantyController;
 use App\Http\Controllers\Api\Mobile\V1\WorkspaceController;
 use App\Http\Middleware\EnsureEligibleEmployee;
+use App\Http\Middleware\EnsureTechnicianQcOnlyMobile;
 use Illuminate\Support\Facades\Route;
 
 Route::get('mobile/v1/app/version', AppVersionController::class)->middleware('throttle:60,1');
@@ -55,7 +56,7 @@ Route::prefix('mobile/v1/auth')->group(function (): void {
 });
 
 Route::prefix('mobile/v1')
-    ->middleware(['auth:sanctum', EnsureEligibleEmployee::class])
+    ->middleware(['auth:sanctum', EnsureEligibleEmployee::class, EnsureTechnicianQcOnlyMobile::class])
     ->group(function (): void {
         Route::get('/dashboard', DashboardController::class);
         Route::get('/workspace/modules', [WorkspaceController::class, 'modules']);

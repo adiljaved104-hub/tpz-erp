@@ -297,9 +297,9 @@ class QcDevicePassportTest extends TestCase
     public function test_public_passport_and_evidence_exclude_internal_private_and_financial_data(): void
     {
         $inspection = $this->start();
-        $this->ready($inspection);
+        $this->ready($inspection, $this->owner);
         $this->proofs($inspection);
-        $sameQcInternal = app(QcEvidenceService::class)->upload($inspection, UploadedFile::fake()->image('private-same-qc.jpg'), 'additional', false, $this->technician);
+        $sameQcInternal = app(QcEvidenceService::class)->upload($inspection, UploadedFile::fake()->image('private-same-qc.jpg'), 'additional', false, $this->owner);
         $certificate = app(QcInspectionService::class)->complete($inspection, $this->technician);
         $this->assertNotContains($sameQcInternal->public_id, $certificate->snapshot['evidence']);
         $this->get(route('qc.evidence.public', ['token' => $certificate->public_token, 'id' => $sameQcInternal->public_id]))->assertNotFound();
@@ -309,7 +309,7 @@ class QcDevicePassportTest extends TestCase
         $this->assertSame(Storage::disk('local')->get($proof->customer_path), $response->getContent());
         $this->assertNotSame(Storage::disk('local')->get($proof->original_path), $response->getContent());
         $internalInspection = $this->start(['serial' => 'INTERNAL-DEVICE']);
-        $internal = app(QcEvidenceService::class)->upload($internalInspection, UploadedFile::fake()->image('private.jpg'), 'additional', false, $this->technician);
+        $internal = app(QcEvidenceService::class)->upload($internalInspection, UploadedFile::fake()->image('private.jpg'), 'additional', false, $this->owner);
         $this->get(route('qc.evidence.public', ['token' => $certificate->public_token, 'id' => $internal->public_id]))->assertNotFound();
         $this->actingAs($this->technician)->get(route('qc.evidence.internal', ['evidence' => $proof->id, 'original' => 1]))->assertForbidden();
         $this->actingAs($this->owner)->get(route('qc.evidence.internal', ['evidence' => $proof->id, 'original' => 1]))->assertOk();
@@ -433,9 +433,9 @@ class QcDevicePassportTest extends TestCase
     public function test_customer_polish_exposes_only_snapshot_derivatives_with_correct_metadata_and_no_stock_mutation(): void
     {
         $inspection = $this->start();
-        $this->ready($inspection);
+        $this->ready($inspection, $this->owner);
         $this->proofs($inspection);
-        $internal = app(QcEvidenceService::class)->upload($inspection, UploadedFile::fake()->image('private.jpg'), 'additional', false, $this->technician);
+        $internal = app(QcEvidenceService::class)->upload($inspection, UploadedFile::fake()->image('private.jpg'), 'additional', false, $this->owner);
         $certificate = app(QcInspectionService::class)->complete($inspection, $this->technician);
         $before = $this->stockSnapshot();
         $product = $this->product->fresh()->toArray();
@@ -564,7 +564,12 @@ class QcDevicePassportTest extends TestCase
     {
         $checks = $inspection->checks()->get()->where('applicable', true)->mapWithKeys(fn ($check) => [$check->check_key => ['result' => 'pass'] + ($check->definition['measurement'] ? ['measurement' => $check->check_key === 'temperature' ? 70 : 90] : [])])->all();
         $requested = $inspection->requested_configuration ?? [];
-        app(QcInspectionService::class)->update($inspection, ['checks' => $checks, 'grade' => 'A', 'final_configuration' => ['cpu' => 'Intel Core i5 8th Gen', 'ram_mb' => $requested['target_ram_mb'] ?? (isset($requested['special_requirement']) ? 16384 : 8192), 'storage_gb' => $requested['target_storage_total_gb'] ?? (isset($requested['special_requirement']) ? 512 : 256), 'os' => 'Windows 11'], 'public_remarks' => 'Verified device', 'internal_remarks' => 'PRIVATE_INTERNAL_SENTINEL'], $actor ?? $this->technician);
+        $actor ??= $this->technician;
+        $data = ['checks' => $checks, 'grade' => 'A', 'final_configuration' => ['cpu' => 'Intel Core i5 8th Gen', 'ram_mb' => $requested['target_ram_mb'] ?? (isset($requested['special_requirement']) ? 16384 : 8192), 'storage_gb' => $requested['target_storage_total_gb'] ?? (isset($requested['special_requirement']) ? 512 : 256), 'os' => 'Windows 11'], 'public_remarks' => 'Verified device'];
+        if (app(QcAuthorization::class)->allows($actor, QcPermission::ViewInternalEvidence, $inspection)) {
+            $data['internal_remarks'] = 'PRIVATE_INTERNAL_SENTINEL';
+        }
+        app(QcInspectionService::class)->update($inspection, $data, $actor);
     }
 
     private function proofs(QcInspection $inspection, array $kinds = ['serial', 'physical', 'display', 'system'], ?User $actor = null): void
@@ -577,7 +582,7 @@ class QcDevicePassportTest extends TestCase
     private function certified(array $changes = []): array
     {
         $inspection = $this->start($changes);
-        $this->ready($inspection);
+        $this->ready($inspection, $this->owner);
         $this->proofs($inspection, ['serial', 'physical', 'display', 'system', ...($inspection->requested_configuration ? ['upgrade'] : [])]);
 
         return [$inspection, app(QcInspectionService::class)->complete($inspection, $this->technician)];

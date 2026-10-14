@@ -3,14 +3,19 @@
 namespace App\Providers\Filament;
 
 use App\Auth\EmailOtpAuthenticationProvider;
+use App\Enums\EmployeeRole;
 use App\Filament\Auth\Login;
+use App\Filament\Resources\QcInspections\QcInspectionResource;
 use App\Filament\Widgets\ErpDashboardOverview;
 use App\Http\Middleware\EnforceWebSecurityPolicy;
+use App\Http\Middleware\EnsureTechnicianQcOnlyWeb;
 use App\Services\Branding\ApplicationBranding;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationBuilder;
+use Filament\Navigation\NavigationItem;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -37,6 +42,18 @@ class AdminPanelProvider extends PanelProvider
                 'Workspace', 'Sales', 'Purchasing', 'Inventory', 'Marketplace', 'Returns & Service',
                 'Products', 'People', 'HR', 'Finance', 'Reports', 'Administration',
             ])
+            ->navigation(function (NavigationBuilder $builder): NavigationBuilder|bool {
+                if (auth()->user()?->employee?->role !== EmployeeRole::Technician) {
+                    return true;
+                }
+
+                return $builder->group('Quality Control', [
+                    NavigationItem::make('Quality Control')
+                        ->url(QcInspectionResource::getUrl('index'))
+                        ->icon('heroicon-o-clipboard-document-check')
+                        ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.resources.qc-inspections.*')),
+                ]);
+            })
             ->assets([
                 Css::make('access-control', resource_path('css/filament/access-control.css')),
             ])
@@ -94,6 +111,7 @@ class AdminPanelProvider extends PanelProvider
             ->authMiddleware([
                 Authenticate::class,
                 EnforceWebSecurityPolicy::class,
+                EnsureTechnicianQcOnlyWeb::class,
             ], isPersistent: true);
     }
 }

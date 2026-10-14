@@ -21,16 +21,17 @@ class EmployeePermissionOverrideService
         private readonly EmployeePermissionCatalog $catalog,
         private readonly EmployeePermissionOverrideResolver $resolver,
         private readonly ActivityLogger $activityLogger,
+        private readonly TechnicianPermissionPolicy $technicianPolicy,
     ) {}
 
     public function change(Employee $employee, string $permissionKey, ?EmployeePermissionEffect $effect, ?string $reason, User $actor): void
     {
         $reason = filled($reason) ? trim((string) $reason) : null;
-        $this->validateChange($employee, $permissionKey, $reason, $actor);
+        $this->validateChange($employee, $permissionKey, $effect, $reason, $actor);
 
         DB::transaction(function () use ($employee, $permissionKey, $effect, $reason, $actor): void {
             $lockedEmployee = Employee::query()->lockForUpdate()->findOrFail($employee->getKey());
-            $this->validateChange($lockedEmployee, $permissionKey, $reason, $actor);
+            $this->validateChange($lockedEmployee, $permissionKey, $effect, $reason, $actor);
             $this->applyLockedChange($lockedEmployee, $permissionKey, $effect, $reason, $actor);
         });
 
@@ -74,7 +75,7 @@ class EmployeePermissionOverrideService
         return $changed;
     }
 
-    private function validateChange(Employee $employee, string $permissionKey, ?string $reason, User $actor): void
+    private function validateChange(Employee $employee, string $permissionKey, ?EmployeePermissionEffect $effect, ?string $reason, User $actor): void
     {
         if (! $actor->can('managePermissions', $employee)) {
             throw new AuthorizationException('This employee’s access is protected.');
@@ -84,6 +85,10 @@ class EmployeePermissionOverrideService
 
         if ($definition === null) {
             throw ValidationException::withMessages(['permission' => 'This permission is not managed by this screen.']);
+        }
+
+        if ($effect === EmployeePermissionEffect::Allow && $this->technicianPolicy->restricts($employee, $permissionKey)) {
+            throw ValidationException::withMessages(['permission' => 'The Technician role is restricted to its approved Quality Control permissions.']);
         }
 
         // This is the role-transition capability. Other employee permissions retain their rules.
@@ -122,7 +127,7 @@ class EmployeePermissionOverrideService
                     throw ValidationException::withMessages(['permission' => 'One of the selected access settings is invalid.']);
                 }
 
-                $this->validateChange($employee, $permissionKey, $reason, $actor);
+                $this->validateChange($employee, $permissionKey, $effect, $reason, $actor);
             }
         }
     }

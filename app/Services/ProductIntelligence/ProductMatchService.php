@@ -157,7 +157,7 @@ class ProductMatchService
         if (! $request->context->allowsComponents()) {
             $query->products();
         }
-        if (in_array($request->context, [ProductMatchContext::Order, ProductMatchContext::WebSales, ProductMatchContext::Quotation, ProductMatchContext::Purchase, ProductMatchContext::Receiving], true)) {
+        if (in_array($request->context, [ProductMatchContext::Order, ProductMatchContext::OrderDraft, ProductMatchContext::WebSales, ProductMatchContext::Quotation, ProductMatchContext::Purchase, ProductMatchContext::Receiving], true)) {
             if ($this->responsibilities->requiresScope($request->user) && ! $request->warehouseId) {
                 return collect();
             }
@@ -345,7 +345,7 @@ class ProductMatchService
         }
 
         return match ($request->context) {
-            ProductMatchContext::Order => $this->orders->allows($request->user, OrderPermission::Create) || $this->orders->allows($request->user, OrderPermission::UpdateDraft),
+            ProductMatchContext::Order, ProductMatchContext::OrderDraft => $this->orders->allows($request->user, OrderPermission::Create) || $this->orders->allows($request->user, OrderPermission::UpdateDraft),
             ProductMatchContext::WebSales => $this->webSales->allows($request->user, WebSalesPermission::Create) || $this->webSales->allows($request->user, WebSalesPermission::Update),
             ProductMatchContext::Purchase => $this->purchases->allows($request->user, PurchasePermission::Create) || $this->purchases->allows($request->user, PurchasePermission::View),
             ProductMatchContext::Receiving => $this->purchases->allows($request->user, PurchasePermission::Receive) || $this->purchases->allows($request->user, PurchasePermission::QuickReceive),

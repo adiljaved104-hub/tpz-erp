@@ -143,6 +143,37 @@ class ProductMatchServiceTest extends TestCase
         $this->assertSame(0, StockMovement::query()->count());
     }
 
+    public function test_order_draft_search_includes_zero_sellable_products_inside_responsibility_only(): void
+    {
+        $foundation = $this->responsibilityFoundation(5);
+        $staff = $foundation['employee']->user;
+        $warehouse = $foundation['inventory']->warehouse;
+        $product = $foundation['product']->forceFill(['name' => 'HP Renewed Draft Laptop', 'model' => '840 G8'])->save();
+        ProductInventory::query()->whereKey($foundation['inventory']->id)->update([
+            'available_quantity' => 0,
+            'reserved_quantity' => 0,
+            'qc_pending_quantity' => 4,
+        ]);
+        $outside = $this->laptop('TPZ-DRAFT-OUTSIDE', 'Dell Outside Draft Laptop', ['brand' => 'Dell', 'model' => '5420']);
+        ProductInventory::factory()->create(['product_id' => $outside->id, 'warehouse_id' => $warehouse->id, 'available_quantity' => 5]);
+        app(EmployeePermissionOverrideService::class)->change(
+            $foundation['employee'],
+            OrderPermission::Create->value,
+            EmployeePermissionEffect::Allow,
+            'Draft product search regression.',
+            $foundation['owner'],
+        );
+        app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation), $foundation['owner']);
+
+        $draftResults = $this->match($staff, 'HP Renewed Draft Laptop', ProductMatchContext::OrderDraft, $warehouse);
+        $reserveResults = $this->match($staff, 'HP Renewed Draft Laptop', ProductMatchContext::Order, $warehouse);
+
+        $this->assertTrue($draftResults->contains(fn ($result): bool => $result->productId === $foundation['product']->id));
+        $this->assertSame(0, $draftResults->firstWhere('productId', $foundation['product']->id)?->sellableQuantity);
+        $this->assertFalse($draftResults->contains(fn ($result): bool => $result->productId === $outside->id));
+        $this->assertFalse($reserveResults->contains(fn ($result): bool => $result->productId === $foundation['product']->id));
+    }
+
     public function test_search_queries_omit_financial_and_recovery_fields(): void
     {
         $owner = $this->owner();

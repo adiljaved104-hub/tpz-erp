@@ -10,6 +10,7 @@ use App\Enums\OrderPermission;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Models\User;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Orders\OrderService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
@@ -24,6 +25,8 @@ class CreateOrder extends CreateRecord
     protected static bool $canCreateAnother = false;
 
     public bool $shipDirectly = false;
+
+    public bool $saveAsDraft = false;
 
     protected function handleRecordCreation(array $data): Model
     {
@@ -49,8 +52,12 @@ class CreateOrder extends CreateRecord
                 idempotencyKey: (string) $data['idempotency_key'],
             );
 
-            return $this->shipDirectly
-                ? app(SaveAsShippedOrder::class)->handle($dto, auth()->user())
+            if ($this->shipDirectly) {
+                return app(SaveAsShippedOrder::class)->handle($dto, auth()->user());
+            }
+
+            return $this->saveAsDraft
+                ? app(OrderService::class)->saveDraft($dto, auth()->user())
                 : app(SaveAndReserveOrder::class)->handle($dto, auth()->user());
         } catch (ValidationException $exception) {
             $this->surfaceDomainValidation($exception);
@@ -68,6 +75,10 @@ class CreateOrder extends CreateRecord
     {
         return [
             $this->getCreateFormAction(),
+            Action::make('saveDraft')
+                ->label('Save Draft')
+                ->color('gray')
+                ->action(fn () => $this->createDraft()),
             Action::make('saveAsShipped')
                 ->label('Save as Shipped')
                 ->color('success')
@@ -81,13 +92,22 @@ class CreateOrder extends CreateRecord
 
     protected function createShipped(): void
     {
+        $this->saveAsDraft = false;
         $this->shipDirectly = true;
+        parent::create();
+    }
+
+    protected function createDraft(): void
+    {
+        $this->shipDirectly = false;
+        $this->saveAsDraft = true;
         parent::create();
     }
 
     public function create(bool $another = false): void
     {
         $this->shipDirectly = false;
+        $this->saveAsDraft = false;
         parent::create($another);
     }
 

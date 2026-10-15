@@ -16,10 +16,12 @@ use App\Models\Product;
 use App\Models\ProductHardwareProfile;
 use App\Models\ProductInventory;
 use App\Models\SalesConfiguration;
+use App\Models\StockMovement;
 use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
+use App\Services\Qc\QcOrderDemandService;
 use Filament\Forms\Components\Select;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -48,16 +50,126 @@ class OrderFilamentTest extends TestCase
 
         $this->assertInstanceOf(Select::class, $productField);
         $this->assertSame('Search by SKU or product name', $productField->getPlaceholder());
-        $this->assertSame('Type at least 2 characters to search available products.', (string) $productField->getSearchPrompt());
-        $this->assertSame('No sellable products found for the selected warehouse/platform.', (string) $productField->getNoSearchResultsMessage());
+        $this->assertSame('Type at least 2 characters to search active Products in your authorized scope.', (string) $productField->getSearchPrompt());
+        $this->assertSame('No active Products found within your authorized Responsibility and fulfilment scope.', (string) $productField->getNoSearchResultsMessage());
         $this->assertSame([], $productField->getSearchResults('T'));
 
         $results = $productField->getSearchResults('deliberately');
         $this->assertArrayHasKey($product->id, $results);
         $this->assertStringStartsWith("{$product->sku} · A deliberately long laptop product title", $results[$product->id]);
         $this->assertStringContainsString($product->name, $results[$product->id]);
-        $this->assertStringEndsWith('· Sellable: 7', $results[$product->id]);
-        $component->assertSee('Only products with available sellable stock are shown.');
+        $this->assertStringContainsString('Available: 10 | Reserved: 3 | Sellable: 7 | QC Pending: 0', $results[$product->id]);
+        $component->assertSee('Active Products in your authorized scope can be drafted; Save & Reserve still requires sellable stock.');
+    }
+
+    public function test_save_draft_is_inventory_neutral_and_includes_qc_pending_products(): void
+    {
+        [$owner, $product, $warehouse] = $this->foundation();
+        $product->update(['condition' => 'renewed']);
+        ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->update([
+            'available_quantity' => 0,
+            'reserved_quantity' => 0,
+            'qc_pending_quantity' => 5,
+            'qc_pending_value' => '500.0000',
+        ]);
+        $inventoryBefore = ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->firstOrFail()->only([
+            'available_quantity', 'reserved_quantity', 'qc_pending_quantity', 'qc_pending_value',
+        ]);
+        $movementCount = StockMovement::query()->count();
+        $this->actingAs($owner);
+
+        $component = Livewire::test(CreateOrder::class);
+        $productField = collect($component->instance()->form->getFlatFields(withHidden: true))
+            ->first(fn ($field): bool => $field->getName() === 'product_id');
+        $results = $productField->getSearchResults($product->sku);
+        $this->assertArrayHasKey($product->id, $results);
+        $this->assertStringContainsString('Available: 0 | Reserved: 0 | Sellable: 0 | QC Pending: 5 — Awaiting QC', $results[$product->id]);
+        $component->set('data.items.0.product_id', $product->id)
+            ->assertSee('QC Pending: 5 — Awaiting QC');
+
+        $saveDraft = ['name' => 'saveDraft', 'context' => ['schemaComponent' => 'content.form-actions']];
+        $component->assertSee('Save Draft')
+            ->fillForm($this->validFormData($owner, $product, $warehouse))
+            ->mountAction($saveDraft)
+            ->callMountedAction()
+            ->assertHasNoFormErrors();
+
+        $order = Order::query()->sole();
+        $this->assertSame('draft', $order->status->value);
+        $this->assertSame(1, $order->items()->sole()->ordered_quantity);
+        $this->assertSame($inventoryBefore, ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->firstOrFail()->only([
+            'available_quantity', 'reserved_quantity', 'qc_pending_quantity', 'qc_pending_value',
+        ]));
+        $this->assertSame($movementCount, StockMovement::query()->count());
+        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($owner));
+    }
+
+    public function test_save_and_reserve_still_rejects_zero_sellable_qc_pending_product(): void
+    {
+        [$owner, $product, $warehouse] = $this->foundation();
+        ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->update([
+            'available_quantity' => 0,
+            'reserved_quantity' => 0,
+            'qc_pending_quantity' => 5,
+        ]);
+        $this->actingAs($owner);
+
+        Livewire::test(CreateOrder::class)
+            ->fillForm($this->validFormData($owner, $product, $warehouse))
+            ->call('create')
+            ->assertNotified('Order could not be saved');
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+        $this->assertDatabaseHas('product_inventories', [
+            'product_id' => $product->id,
+            'warehouse_id' => $warehouse->id,
+            'available_quantity' => 0,
+            'reserved_quantity' => 0,
+            'qc_pending_quantity' => 5,
+        ]);
+    }
+
+    public function test_save_draft_allows_active_plain_product_without_an_inventory_row(): void
+    {
+        [$owner, $product, $warehouse] = $this->foundation();
+        ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->delete();
+        $this->actingAs($owner);
+
+        Livewire::test(CreateOrder::class)
+            ->fillForm($this->validFormData($owner, $product, $warehouse))
+            ->mountAction(['name' => 'saveDraft', 'context' => ['schemaComponent' => 'content.form-actions']])
+            ->callMountedAction()
+            ->assertHasNoFormErrors();
+
+        $this->assertSame('draft', Order::query()->sole()->status->value);
+        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_save_draft_rejects_upgrade_lines_without_creating_an_order(): void
+    {
+        [$owner, $product, $warehouse] = $this->foundation();
+        [$configuration, $recipe] = $this->validConfiguration($owner, $product, '16GB / 512GB');
+        $this->actingAs($owner);
+        $saveDraft = ['name' => 'saveDraft', 'context' => ['schemaComponent' => 'content.form-actions']];
+
+        $component = Livewire::test(CreateOrder::class)
+            ->fillForm($this->validFormData($owner, $product, $warehouse))
+            ->set('data.items.0.upgraded_configuration', true);
+        $state = $component->instance()->form->getRawState()['items'][0];
+        $this->assertSame($configuration->id, (int) $state['sales_configuration_id']);
+        $this->assertSame($recipe->id, (int) $state['upgrade_recipe_id']);
+
+        $component->mountAction($saveDraft)
+            ->callMountedAction()
+            ->assertNotified('Order could not be saved');
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     public function test_upgrade_fields_are_progressive_and_a_sole_valid_configuration_is_selected_automatically(): void
@@ -122,6 +234,7 @@ class OrderFilamentTest extends TestCase
             ->assertSee('Handled By')
             ->assertSee('Add Product')
             ->assertSee('Save & Reserve')
+            ->assertSee('Save Draft')
             ->assertSee('Save as Shipped')
             ->assertSeeHtml('wire:submit="create"')
             ->assertDontSee('Average Cost')

@@ -16,6 +16,7 @@ use App\Services\ActivityLogger;
 use App\Services\Inventory\DamagedStockEventService;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryService;
+use App\Services\Qc\QcRecordedRenewedStockIntakeService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -29,6 +30,7 @@ class PurchaseReceiptPostingService
         private readonly InventoryAllocationService $allocation,
         private readonly DamagedStockEventService $damagedStock,
         private readonly ActivityLogger $activity,
+        private readonly QcRecordedRenewedStockIntakeService $qcIntakes,
     ) {}
 
     /**
@@ -125,7 +127,16 @@ class PurchaseReceiptPostingService
 
                 $movement = $this->inventory->receivePurchaseItem($receiptItem, $actor, $movementReference, $movementGroup);
                 if ($request->acceptedQuantity > 0 && $movement !== null) {
-                    $this->allocation->recordReceipt($receiptItem, $movement->inventory()->firstOrFail(), $actor, $request->allocationAccountId);
+                    $inventory = $movement->inventory()->firstOrFail();
+                    $intake = $this->qcIntakes->recordRenewedReceipt(
+                        $receiptItem,
+                        $purchase->warehouse_id,
+                        $inventory,
+                        $request->allocationAccountId,
+                    );
+                    if ($intake === null) {
+                        $this->allocation->recordReceipt($receiptItem, $inventory, $actor, $request->allocationAccountId);
+                    }
                 }
                 if ($request->damagedQuantity > 0) {
                     $damageReference = $damageReferences[$purchaseItem->id] ?? null;

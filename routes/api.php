@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\Mobile\V1\PurchaseController;
 use App\Http\Controllers\Api\Mobile\V1\PurchaseReceiptController;
 use App\Http\Controllers\Api\Mobile\V1\QcDispatchController;
 use App\Http\Controllers\Api\Mobile\V1\QcInspectionController;
+use App\Http\Controllers\Api\Mobile\V1\QcRecordedStockIntakeController;
 use App\Http\Controllers\Api\Mobile\V1\QcStockTransferController;
 use App\Http\Controllers\Api\Mobile\V1\ReportController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
@@ -76,6 +77,8 @@ Route::prefix('mobile/v1')
         Route::prefix('workspace')->controller(WorkspaceController::class)->group(function (): void {
             Route::get('/qc', [QcDispatchController::class, 'home']);
             Route::get('/qc/inspections', [QcInspectionController::class, 'index']);
+            Route::get('/qc/recorded-renewed-stock', [QcRecordedStockIntakeController::class, 'index']);
+            Route::post('/qc/recorded-renewed-stock/{intake}/start', [QcRecordedStockIntakeController::class, 'start'])->whereNumber('intake')->middleware('throttle:30,1');
             Route::get('/qc/inspections/{inspection}', [QcInspectionController::class, 'show'])->whereNumber('inspection');
             Route::post('/qc/inspections/{inspection}/begin', [QcInspectionController::class, 'begin'])->whereNumber('inspection')->middleware('throttle:60,1');
             Route::patch('/qc/inspections/{inspection}', [QcInspectionController::class, 'update'])->whereNumber('inspection')->middleware('throttle:60,1');

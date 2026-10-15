@@ -95,6 +95,30 @@ class QcDevicePassportTest extends TestCase
         app(QcInspectionService::class)->start($this->startData(), $other);
     }
 
+    public function test_technician_cannot_attach_manual_qc_to_an_order_by_tampering_with_order_item_id(): void
+    {
+        $order = app(OrderService::class)->saveDraft(new SaveAndReserveOrderData(
+            $this->warehouse->id,
+            null,
+            null,
+            now()->toDateString(),
+            $this->owner->employee->id,
+            null,
+            [new OrderItemData($this->product->id, 1, '250.00')],
+            (string) str()->uuid(),
+        ), $this->owner);
+
+        try {
+            app(QcInspectionService::class)->start($this->startData([
+                'order_item_id' => $order->items->sole()->id,
+            ]), $this->technician);
+            $this->fail('Technician without Order View must not create Order-linked QC.');
+        } catch (AuthorizationException) {
+            $this->assertDatabaseCount('qc_inspections', 0);
+            $this->assertDatabaseCount('qc_devices', 0);
+        }
+    }
+
     public function test_start_records_identity_configuration_72_stable_checks_and_retry_without_stock_mutations(): void
     {
         $inventory = ProductInventory::factory()->create(['product_id' => $this->product->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 5, 'average_cost' => '100.0000']);
@@ -196,22 +220,24 @@ class QcDevicePassportTest extends TestCase
         $configuration = SalesConfiguration::query()->create(['product_id' => $this->product->id, 'hardware_profile_version' => 1, 'display_name' => '16GB / 512GB', 'target_ram_mb' => 16384, 'target_storage_total_gb' => 512, 'target_storage_layout' => [], 'created_by_user_id' => $this->owner->id, 'updated_by_user_id' => $this->owner->id]);
         $recipe = UpgradeRecipe::query()->create(['sales_configuration_id' => $configuration->id, 'hardware_profile_version' => 1, 'name' => 'QC fixture', 'created_by_user_id' => $this->owner->id, 'updated_by_user_id' => $this->owner->id]);
         OrderItemUpgradeSelection::query()->create(['order_item_id' => $order->items->sole()->id, 'sales_configuration_id' => $configuration->id, 'upgrade_recipe_id' => $recipe->id, 'hardware_profile_version' => 1, 'configuration_snapshot' => ['display_name' => '16GB / 512GB', 'target_ram_mb' => 16384, 'target_storage_total_gb' => 512, 'private_cost' => 'SECRET_COST'], 'recipe_snapshot' => [], 'recovery_snapshot' => [], 'selected_by_user_id' => $this->owner->id]);
-        $inspection = $this->start(['order_item_id' => $order->items->sole()->id]);
+        // This fixture links QC to a real Order item, so use an actor with normal
+        // Order View authorization rather than weakening the service's boundary.
+        $inspection = app(QcInspectionService::class)->start($this->startData(['order_item_id' => $order->items->sole()->id]), $this->owner);
         $this->assertSame($order->id, $inspection->order_id);
         $this->assertSame(16384, $inspection->requested_configuration['target_ram_mb']);
         $this->assertArrayNotHasKey('private_cost', $inspection->requested_configuration);
-        $this->ready($inspection);
-        $this->proofs($inspection);
-        $this->assertValidation(fn () => app(QcInspectionService::class)->complete($inspection, $this->technician), 'evidence.upgrade');
-        $this->proofs($inspection, ['upgrade']);
-        app(QcInspectionService::class)->update($inspection, ['final_configuration' => ['cpu' => 'i5', 'ram_mb' => 8192, 'storage_gb' => 512, 'os' => 'Windows 11']], $this->technician);
-        $this->assertValidation(fn () => app(QcInspectionService::class)->complete($inspection, $this->technician), 'final_configuration.ram_mb');
-        $this->ready($inspection);
-        $certificate = app(QcInspectionService::class)->complete($inspection, $this->technician);
+        $this->ready($inspection, $this->owner);
+        $this->proofs($inspection, actor: $this->owner);
+        $this->assertValidation(fn () => app(QcInspectionService::class)->complete($inspection, $this->owner), 'evidence.upgrade');
+        $this->proofs($inspection, ['upgrade'], $this->owner);
+        app(QcInspectionService::class)->update($inspection, ['final_configuration' => ['cpu' => 'i5', 'ram_mb' => 8192, 'storage_gb' => 512, 'os' => 'Windows 11']], $this->owner);
+        $this->assertValidation(fn () => app(QcInspectionService::class)->complete($inspection, $this->owner), 'final_configuration.ram_mb');
+        $this->ready($inspection, $this->owner);
+        $certificate = app(QcInspectionService::class)->complete($inspection, $this->owner);
         $this->assertCount(5, $certificate->snapshot['evidence']);
         $this->assertCount(62, $certificate->snapshot['checks']);
         $this->assertSame('8GB', $this->product->fresh()->ram);
-        Livewire::actingAs($this->technician)->test(ViewQcInspection::class, ['record' => $inspection->id])->assertSee('CUSTOMER REQUIRED CONFIGURATION')->assertDontSee('SECRET_COST');
+        Livewire::actingAs($this->owner)->test(ViewQcInspection::class, ['record' => $inspection->id])->assertSee('CUSTOMER REQUIRED CONFIGURATION')->assertDontSee('SECRET_COST');
     }
 
     public function test_completed_records_cannot_be_mutated_by_service_livewire_or_certificate_sql(): void
@@ -263,7 +289,7 @@ class QcDevicePassportTest extends TestCase
     {
         $data = new SaveAndReserveOrderData($this->warehouse->id, null, null, now()->toDateString(), $this->owner->employee->id, null, [new OrderItemData($this->product->id, 1, '250.00')], (string) str()->uuid());
         $order = app(OrderService::class)->saveDraft($data, $this->owner);
-        $inspection = $this->start(['order_item_id' => $order->items->sole()->id]);
+        $inspection = app(QcInspectionService::class)->start($this->startData(['order_item_id' => $order->items->sole()->id]), $this->owner);
         app(OrderService::class)->saveDraft($data, $this->owner, $order);
         $this->assertSame($order->reference, $inspection->fresh()->order_snapshot['reference']);
         $this->assertDatabaseCount('inventory_reservations', 0);

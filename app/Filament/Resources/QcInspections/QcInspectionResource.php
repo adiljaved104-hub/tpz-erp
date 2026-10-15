@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\QcInspections;
 
+use App\Enums\OrderPermission;
 use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
 use App\Filament\Resources\QcInspections\Pages\CreateQcInspection;
@@ -14,9 +15,11 @@ use App\Models\Product;
 use App\Models\QcCertificate;
 use App\Models\QcInspection;
 use App\Models\Warehouse;
+use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Qc\QcInspectionService;
+use App\Services\Qc\QcRecordedRenewedStockIntakeService;
 use App\Services\Qc\QcTemplateResolver;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -95,31 +98,44 @@ class QcInspectionResource extends Resource
         return app(QcInspectionService::class)->visible(auth()->user())->select('qc_inspections.*')
             ->addSelect(['latest_certificate_version' => QcCertificate::query()->selectRaw('MAX(version)')->whereColumn('device_id', 'qc_inspections.device_id')])
             ->addSelect(['active_reinspection_version' => QcInspection::query()->from('qc_inspections as active_qc')->select('active_qc.version')->whereColumn('active_qc.active_device_id', 'qc_inspections.device_id')->limit(1)])
-            ->with(['device', 'technician.employee', 'warehouse', 'order', 'certificate']);
+            ->with(['device', 'technician.employee', 'warehouse', 'order', 'certificate', 'recordedStockIntake.receiptItem.receipt']);
     }
 
     public static function form(Schema $schema): Schema
     {
         $record = $schema->getRecord();
         if (! $record) {
+            $livewire = $schema->getLivewire();
+            $recordedIntakeId = $livewire instanceof CreateQcInspection ? $livewire->recordedStockIntakeId : null;
+            $recordedIntake = $recordedIntakeId
+                ? app(QcRecordedRenewedStockIntakeService::class)->findForStart($recordedIntakeId, auth()->user())
+                : null;
+            $showOrderSelector = ! $recordedIntake && auth()->user()
+                && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::View);
+
             return $schema->components([
-                Section::make('Start Device QC')->description('Windows Laptop, MacBook or Tablet/iPad template is resolved from the Product. QC never changes stock ownership or quantities.')->schema([
-                    Select::make('product_id')->label('Product / SKU')->required()->searchable()
-                        ->getSearchResultsUsing(fn (string $search): array => Product::query()->active()->products()->where(fn ($query) => $query->where('name', 'like', '%'.$search.'%')->orWhere('sku', 'like', '%'.$search.'%'))->limit(20)->get()->filter(fn (Product $product) => app(QcTemplateResolver::class)->supports($product))->mapWithKeys(fn (Product $product) => [$product->id => $product->sku.' · '.$product->name])->all())
-                        ->getOptionLabelUsing(fn ($value): ?string => ($product = Product::query()->find($value)) ? $product->sku.' · '.$product->name : null)->live()->afterStateUpdated(function ($state, Set $set): void {
-                            $product = Product::query()->find($state);
-                            $set('features', $product && app(QcTemplateResolver::class)->supports($product) ? app(QcTemplateResolver::class)->resolve($product)['default_features'] : []);
-                            $set('order_item_id', null);
-                        }),
-                    TextInput::make('serial')->label('Serial / IMEI')->required()->minLength(3)->maxLength(100)->helperText('Scan below or enter manually; review the identifier before Start QC.'),
-                    View::make('qc.serial-scanner')->columnSpanFull(),
-                    Select::make('warehouse_id')->label('Location')->options(fn () => Warehouse::query()->active()->pluck('name', 'id'))->required()->searchable(),
-                    Select::make('order_item_id')->label('Order / Item (optional)')->searchable()
-                        ->getSearchResultsUsing(fn (string $search, Get $get): array => OrderItem::query()->with('order')->where('product_id', $get('product_id'))->whereHas('order', fn ($query) => $query->where('reference', 'like', '%'.$search.'%')->orWhere('external_order_number', 'like', '%'.$search.'%'))->limit(20)->get()->mapWithKeys(fn ($item) => [$item->id => $item->order->reference.' · Line '.$item->line_number])->all())
-                        ->getOptionLabelUsing(fn ($value): ?string => ($item = OrderItem::query()->with('order')->find($value)) ? $item->order->reference.' · Line '.$item->line_number : null),
-                    CheckboxList::make('features')->label('Equipment present / applicable checks')->options(fn (Get $get): array => ($product = Product::query()->find($get('product_id'))) && app(QcTemplateResolver::class)->supports($product) ? app(QcTemplateResolver::class)->resolve($product)['features'] : [])->columns(['default' => 1, 'md' => 2])->default([])->helperText('Confirm optional hardware actually present. Only applicable checks appear.'),
-                    Textarea::make('special_requirement')->label('Upgrade / Special Requirement (optional)')->maxLength(500)->helperText('Structured Order upgrades are loaded automatically. Do not enter costs or customer personal data.'),
-                ])->columns(['default' => 1, 'lg' => 2])->columnSpanFull(),
+                Section::make($recordedIntake ? 'Recorded Renewed Stock QC' : 'Manual / Unlinked QC')
+                    ->description($recordedIntake
+                        ? 'Product and location are locked to the recorded GRN line. Starting QC reserves one unit from its pending intake.'
+                        : 'Use for a physical unit not yet recorded in ERP stock. Manual / Unlinked QC never changes inventory.')
+                    ->schema([
+                        Select::make('product_id')->label('Product / SKU')->required()->searchable()
+                            ->getSearchResultsUsing(fn (string $search): array => Product::query()->active()->products()->where(fn ($query) => $query->where('name', 'like', '%'.$search.'%')->orWhere('sku', 'like', '%'.$search.'%'))->limit(20)->get()->filter(fn (Product $product) => app(QcTemplateResolver::class)->supports($product))->mapWithKeys(fn (Product $product) => [$product->id => $product->sku.' · '.$product->name])->all())
+                            ->getOptionLabelUsing(fn ($value): ?string => ($product = Product::query()->find($value)) ? $product->sku.' · '.$product->name : null)
+                            ->disabled((bool) $recordedIntake)->dehydrated()->live()->afterStateUpdated(function ($state, Set $set): void {
+                                $product = Product::query()->find($state);
+                                $set('features', $product && app(QcTemplateResolver::class)->supports($product) ? app(QcTemplateResolver::class)->resolve($product)['default_features'] : []);
+                                $set('order_item_id', null);
+                            }),
+                        TextInput::make('serial')->label('Serial / IMEI')->required()->minLength(3)->maxLength(100)->helperText('Scan below or enter manually; review the identifier before Start QC.'),
+                        View::make('qc.serial-scanner')->columnSpanFull(),
+                        Select::make('warehouse_id')->label('Location')->options(fn () => Warehouse::query()->active()->pluck('name', 'id'))->required()->searchable()->disabled((bool) $recordedIntake)->dehydrated(),
+                        Select::make('order_item_id')->label('Order / Item (optional)')->searchable()->visible($showOrderSelector)
+                            ->getSearchResultsUsing(fn (string $search, Get $get): array => OrderItem::query()->with('order')->where('product_id', $get('product_id'))->whereHas('order', fn ($query) => $query->where('reference', 'like', '%'.$search.'%')->orWhere('external_order_number', 'like', '%'.$search.'%'))->limit(20)->get()->mapWithKeys(fn ($item) => [$item->id => $item->order->reference.' · Line '.$item->line_number])->all())
+                            ->getOptionLabelUsing(fn ($value): ?string => ($item = OrderItem::query()->with('order')->find($value)) ? $item->order->reference.' · Line '.$item->line_number : null),
+                        CheckboxList::make('features')->label('Equipment present / applicable checks')->options(fn (Get $get): array => ($product = Product::query()->find($get('product_id'))) && app(QcTemplateResolver::class)->supports($product) ? app(QcTemplateResolver::class)->resolve($product)['features'] : [])->columns(['default' => 1, 'md' => 2])->default([])->helperText('Confirm optional hardware actually present. Only applicable checks appear.'),
+                        Textarea::make('special_requirement')->label('Upgrade / Special Requirement (optional)')->maxLength(500)->helperText('Structured Order upgrades are loaded automatically. Do not enter costs or customer personal data.'),
+                    ])->columns(['default' => 1, 'lg' => 2])->columnSpanFull(),
             ]);
         }
         $template = app(QcTemplateResolver::class)->forInspection($record);

@@ -15,7 +15,7 @@ class QcInspection extends Model
 
     protected function casts(): array
     {
-        return ['status' => QcInspectionStatus::class, 'device_id' => 'integer', 'technician_user_id' => 'integer', 'warehouse_id' => 'integer', 'order_id' => 'integer', 'order_item_id' => 'integer', 'version' => 'integer', 'product_snapshot' => 'array', 'order_snapshot' => 'array', 'original_configuration' => 'array', 'requested_configuration' => 'array', 'final_configuration' => 'array', 'features' => 'array', 'completed_at' => 'immutable_datetime'];
+        return ['status' => QcInspectionStatus::class, 'device_id' => 'integer', 'technician_user_id' => 'integer', 'warehouse_id' => 'integer', 'order_id' => 'integer', 'order_item_id' => 'integer', 'recorded_stock_intake_id' => 'integer', 'version' => 'integer', 'product_snapshot' => 'array', 'order_snapshot' => 'array', 'original_configuration' => 'array', 'requested_configuration' => 'array', 'final_configuration' => 'array', 'features' => 'array', 'completed_at' => 'immutable_datetime'];
     }
 
     protected static function booted(): void
@@ -52,6 +52,11 @@ class QcInspection extends Model
     public function orderItem(): BelongsTo
     {
         return $this->belongsTo(OrderItem::class);
+    }
+
+    public function recordedStockIntake(): BelongsTo
+    {
+        return $this->belongsTo(QcRecordedStockIntake::class, 'recorded_stock_intake_id');
     }
 
     public function checks(): HasMany

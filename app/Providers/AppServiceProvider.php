@@ -118,6 +118,8 @@ use App\Models\QcDeviceClaim;
 use App\Models\QcEvidence;
 use App\Models\QcInspection;
 use App\Models\QcOrderAssignment;
+use App\Models\QcRecordedStockIntake;
+use App\Models\QcRecordedStockIntakeAdjustment;
 use App\Models\QcStockTransferAssignment;
 use App\Models\Quotation;
 use App\Models\QuotationEmailDelivery;
@@ -514,6 +516,8 @@ class AppServiceProvider extends ServiceProvider
             'qc_certificate' => QcCertificate::class,
             'qc_order_assignment' => QcOrderAssignment::class,
             'qc_stock_transfer_assignment' => QcStockTransferAssignment::class,
+            'qc_recorded_stock_intake' => QcRecordedStockIntake::class,
+            'qc_recorded_stock_intake_adjustment' => QcRecordedStockIntakeAdjustment::class,
             'qc_device_claim' => QcDeviceClaim::class,
             'user' => User::class,
             'employee' => Employee::class,

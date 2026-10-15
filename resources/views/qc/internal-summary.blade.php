@@ -3,6 +3,7 @@
 <x-filament::section heading="Device Summary">
 <h2>{{ $inspection->device->reference }} · Version {{ $inspection->version }} · {{ str($inspection->status->value)->headline() }}</h2>
 <p>{{ $inspection->product_snapshot['title'] }} · {{ $inspection->product_snapshot['sku'] }}</p><p>Serial / IMEI: {{ $inspection->device->serial }} · {{ $inspection->warehouse->name }}</p>
+@if($inspection->qc_source === 'recorded_renewed_stock' && $inspection->recordedStockIntake)<p>Source: Recorded Renewed Stock · GRN {{ $inspection->recordedStockIntake->receiptItem->receipt->reference }} · receipt line {{ $inspection->recordedStockIntake->purchase_receipt_item_id }}</p>@elseif($inspection->qc_source === 'manual_unlinked')<p>Source: Manual / Unlinked QC · no recorded inventory was consumed</p>@endif
 <p>{{ $checks->whereNotNull('result')->count() }} / {{ $checks->count() }} applicable checks completed</p>
 <p>Created {{ app(\App\Services\BusinessTimezone::class)->format($inspection->created_at) }} @if($inspection->completed_at) · Completed {{ app(\App\Services\BusinessTimezone::class)->format($inspection->completed_at) }} @endif @if($inspection->certificate) · Certified {{ app(\App\Services\BusinessTimezone::class)->format($inspection->certificate->certified_at) }} @endif</p>
 @if($inspection->requested_configuration)<x-filament::section heading="CUSTOMER REQUIRED CONFIGURATION">@foreach($inspection->requested_configuration as $key => $value)@if(!is_array($value))<p>{{ str($key)->headline() }}: {{ $value }}</p>@endif @endforeach</x-filament::section>@endif

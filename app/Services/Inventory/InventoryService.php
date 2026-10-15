@@ -11,8 +11,10 @@ use App\DTOs\Inventory\RestoreDamagedData;
 use App\Enums\InventoryPermission;
 use App\Enums\InventoryReservationKind;
 use App\Enums\InventoryReservationStatus;
+use App\Enums\ProductCondition;
 use App\Enums\ProductStatus;
 use App\Enums\QuotationPermission;
+use App\Enums\StockMovementBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\DuplicateInventoryPostingException;
 use App\Exceptions\ExactDecimalUnavailableException;
@@ -35,6 +37,7 @@ use App\Models\ProductInventory;
 use App\Models\PurchaseReceiptItem;
 use App\Models\QuotationSourcingPosting;
 use App\Models\StockMovement;
+use App\Models\StockMovementBucketChange;
 use App\Models\StockTransferItem;
 use App\Models\UpgradeRecipeLine;
 use App\Models\User;
@@ -360,6 +363,8 @@ class InventoryService
 
         $receiptItem->loadMissing('receipt.purchase');
         $purchase = $receiptItem->receipt->purchase;
+        $receiptItem->loadMissing('product');
+        $isRenewed = $receiptItem->product->condition === ProductCondition::Renewed && $receiptItem->accepted_quantity > 0;
         $warehouse = Warehouse::query()->lockForUpdate()->findOrFail($purchase->warehouse_id);
 
         if (! $warehouse->status) {
@@ -368,34 +373,61 @@ class InventoryService
 
         $inventory = $this->balances->lockOrCreate($receiptItem->product_id, $purchase->warehouse_id);
         $before = $this->snapshot($inventory);
-        $newAverage = $this->costs->weightedAverage(
-            $inventory->totalOnHand(),
-            $inventory->average_cost,
-            $valuationQuantity,
-            $receiptItem->inventory_unit_cost,
-        );
+        // QC Pending has its own carried value and joins weighted-average stock only
+        // when QC releases it to Available, matching the existing return-QC custody flow.
+        $averageQuantity = $isRenewed
+            ? $receiptItem->damaged_quantity
+            : $valuationQuantity;
+        $newAverage = $averageQuantity > 0
+            ? $this->costs->weightedAverage(
+                $inventory->totalOnHand(),
+                $inventory->average_cost,
+                $averageQuantity,
+                $receiptItem->inventory_unit_cost,
+            )
+            : $inventory->average_cost;
         $inventory->forceFill([
-            'available_quantity' => $inventory->available_quantity + $receiptItem->accepted_quantity,
+            'available_quantity' => $inventory->available_quantity + ($isRenewed ? 0 : $receiptItem->accepted_quantity),
             'damaged_quantity' => $inventory->damaged_quantity + $receiptItem->damaged_quantity,
+            'qc_pending_quantity' => $inventory->qc_pending_quantity + ($isRenewed ? $receiptItem->accepted_quantity : 0),
+            'qc_pending_value' => $isRenewed
+                ? bcadd((string) $inventory->qc_pending_value, bcmul((string) $receiptItem->inventory_unit_cost, (string) $receiptItem->accepted_quantity, 4), 4)
+                : $inventory->qc_pending_value,
             'average_cost' => $newAverage,
         ])->save();
 
-        return $this->createMovement(
+        $movement = $this->createMovement(
             $inventory,
             $actor,
             $movementReference,
             $movementGroup,
-            StockMovementType::PurchaseReceipt,
+            $isRenewed ? StockMovementType::RenewedQcIntake : StockMovementType::PurchaseReceipt,
             $valuationQuantity,
-            $receiptItem->accepted_quantity,
+            $isRenewed ? 0 : $receiptItem->accepted_quantity,
             0,
             $receiptItem->damaged_quantity,
             $before,
             $receiptItem,
-            'Purchase receipt',
+            $isRenewed ? 'Renewed purchase receipt accepted into QC Pending' : 'Purchase receipt',
             $receiptItem->posting_key,
             $receiptItem->inventory_unit_cost,
         );
+
+        if ($isRenewed) {
+            $value = bcmul((string) $receiptItem->inventory_unit_cost, (string) $receiptItem->accepted_quantity, 4);
+            StockMovementBucketChange::query()->create([
+                'stock_movement_id' => $movement->id,
+                'bucket' => StockMovementBucket::QcPending,
+                'quantity_delta' => $receiptItem->accepted_quantity,
+                'quantity_before' => $inventory->qc_pending_quantity - $receiptItem->accepted_quantity,
+                'quantity_after' => $inventory->qc_pending_quantity,
+                'value_delta' => $value,
+                'value_before' => bcsub((string) $inventory->qc_pending_value, $value, 4),
+                'value_after' => (string) $inventory->qc_pending_value,
+            ]);
+        }
+
+        return $movement;
     }
 
     public function postAdjustmentPhysical(InventoryAdjustment $adjustment, ProductInventory $inventory, User $actor): StockMovement

@@ -264,21 +264,49 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($this->owner));
     }
 
-    public function test_non_reserved_and_non_renewed_orders_do_not_create_qc_demand(): void
+    public function test_cancelled_fulfilled_and_non_renewed_orders_do_not_create_qc_demand(): void
     {
         $fulfilled = $this->order();
         $cancelled = $this->order();
-        $draft = $this->order();
         DB::table('orders')->where('id', $fulfilled->id)->update(['status' => OrderStatus::Fulfilled->value]);
         DB::table('orders')->where('id', $cancelled->id)->update(['status' => OrderStatus::Cancelled->value]);
-        DB::table('orders')->where('id', $draft->id)->update(['status' => OrderStatus::Draft->value]);
 
         $usedBrand = ProductBrand::factory()->create();
         $usedProduct = Product::factory()->create(['condition' => ProductCondition::Used, 'brand_id' => $usedBrand->id, 'brand' => $usedBrand->name]);
         ProductInventory::factory()->create(['product_id' => $usedProduct->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 10]);
         $this->order(items: [new OrderItemData($usedProduct->id, 1, '500.00')]);
 
+        $newProduct = Product::factory()->create(['condition' => ProductCondition::New]);
+        ProductInventory::factory()->create(['product_id' => $newProduct->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 10]);
+        $newDraft = app(OrderService::class)->saveDraft(
+            $this->orderData(items: [new OrderItemData($newProduct->id, 1, '500.00')]),
+            $this->owner,
+        );
+
+        $this->assertSame(OrderStatus::Draft, $newDraft->status);
+
         $this->assertSame(['units_needed' => 0, 'orders_affected' => 0], app(QcOrderDemandService::class)->calculate($this->owner));
+    }
+
+    public function test_open_renewed_order_states_contribute_forecast_demand_but_draft_stays_unassignable(): void
+    {
+        $draft = app(OrderService::class)->saveDraft($this->orderData(), $this->owner);
+
+        foreach ([OrderStatus::PendingReview, OrderStatus::Confirmed, OrderStatus::Reserved, OrderStatus::Processing] as $status) {
+            $order = $this->order();
+            DB::table('orders')->where('id', $order->id)->update(['status' => $status->value]);
+        }
+
+        $delivered = $this->order();
+        DB::table('orders')->where('id', $delivered->id)->update([
+            'status' => OrderStatus::Processing->value,
+            'delivered_at' => now(),
+        ]);
+
+        $this->assertSame(['units_needed' => 5, 'orders_affected' => 5], app(QcOrderDemandService::class)->calculate($this->owner));
+        $this->assertFalse(app(QcOrderAssignmentService::class)->canChange($draft));
+        $this->reject(fn () => app(QcOrderAssignmentService::class)->assign($draft->items()->sole(), 1, $this->owner), 'order_item_id');
+        $this->assertSame(OrderStatus::Draft, $draft->fresh()->status);
     }
 
     public function test_qc_home_reports_demand_separately_from_actual_pending_inspections(): void

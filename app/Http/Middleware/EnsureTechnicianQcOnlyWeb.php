@@ -26,6 +26,10 @@ final class EnsureTechnicianQcOnlyWeb
             return $next($request);
         }
 
+        if ($request->routeIs('filament.admin.pages.recorded-renewed-stock-awaiting-qc')) {
+            return $next($request);
+        }
+
         $routeName = (string) $request->route()?->getName();
         if (str_starts_with($routeName, 'filament.admin.')
             && (str_ends_with($routeName, '.logout') || str_contains($routeName, '.profile'))) {
@@ -56,7 +60,8 @@ final class EnsureTechnicianQcOnlyWeb
             $decoded = is_string($snapshot) ? json_decode($snapshot, true) : null;
             $name = is_array($decoded) ? data_get($decoded, 'memo.name') : null;
 
-            if (! is_string($name) || ! str_starts_with($name, self::QC_LIVEWIRE_COMPONENT_PREFIX)) {
+            if (! is_string($name) || (! str_starts_with($name, self::QC_LIVEWIRE_COMPONENT_PREFIX)
+                && $name !== 'app.filament.pages.qc.recorded-renewed-stock-queue')) {
                 return false;
             }
         }

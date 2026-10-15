@@ -14,6 +14,7 @@ final class TechnicianPermissionPolicy
     {
         return [
             QcPermission::View->value,
+            QcPermission::Start->value,
             QcPermission::Update->value,
             QcPermission::Complete->value,
             QcPermission::ViewCustomerEvidence->value,

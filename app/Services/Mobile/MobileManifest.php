@@ -58,6 +58,7 @@ class MobileManifest
                 $inspections = $qcAuthorization->allows($user, Enums\QcPermission::View);
                 $inspectionUpdate = $qcAuthorization->allows($user, Enums\QcPermission::Update);
                 $inspectionComplete = $qcAuthorization->allows($user, Enums\QcPermission::Complete);
+                $recordedStockIntake = $inspections && $qcAuthorization->allows($user, Enums\QcPermission::Start);
                 $dispatch = $qcAuthorization->allows($user, Enums\QcPermission::ViewDispatchQueue)
                     && $orderAuthorization->allows($user, Enums\OrderPermission::View);
                 $scan = $dispatch
@@ -81,13 +82,15 @@ class MobileManifest
                     'create' => ['enabled' => false, 'renderer' => 'native', 'screen' => null],
                     'edit' => ['source' => 'record.actions', 'record_authorization_required' => true],
                     'filters' => [], 'statuses' => [], 'actions' => ['source' => 'record.actions'],
-                    'features' => ['queue' => $dispatch || $marketplaceTransfers, 'detail' => $dispatch || $marketplaceTransfers,
-                        'marketplace_transfers' => $marketplaceTransfers],
+                    'features' => ['queue' => $dispatch || $marketplaceTransfers || $recordedStockIntake, 'detail' => $dispatch || $marketplaceTransfers,
+                        'marketplace_transfers' => $marketplaceTransfers, 'recorded_renewed_stock_intake' => $recordedStockIntake],
                     'capabilities' => [
                         'inspections' => $inspections,
                         'inspection_update' => $inspectionUpdate,
                         'inspection_complete' => $inspectionComplete,
                         'inspection_evidence' => $inspectionUpdate,
+                        'recorded_stock_intake_queue' => $recordedStockIntake,
+                        'recorded_stock_intake_start' => $recordedStockIntake,
                         'dispatch' => $dispatch,
                         'scan' => $scan,
                         'ship' => $ship,
@@ -103,7 +106,9 @@ class MobileManifest
                             'transfer_queue' => '/workspace/qc/transfers',
                             'transfer_detail' => '/workspace/qc/transfers/{transfer}',
                             'transfer_verified_scan' => '/workspace/qc/transfers/{transfer}/verified-scan',
-                            'transfer_release' => '/workspace/qc/transfers/{transfer}/assignments/{assignment}/release'],
+                            'transfer_release' => '/workspace/qc/transfers/{transfer}/assignments/{assignment}/release',
+                            'recorded_stock_intakes' => '/workspace/qc/recorded-renewed-stock',
+                            'recorded_stock_intake_start' => '/workspace/qc/recorded-renewed-stock/{intake}/start'],
                     ]];
 
                 continue;

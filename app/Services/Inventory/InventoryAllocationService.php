@@ -149,7 +149,7 @@ class InventoryAllocationService
         if ($quantity < 1) {
             return;
         }
-        [$account, $method] = $this->policy->receiptAccount($inventory->loadMissing('product'), $selectedAccountId);
+        [$account, $method] = $this->resolveReceiptAccount($inventory, $selectedAccountId);
         $this->increase($account, $inventory, $quantity, 'grn_allocation', $actor, $item, 'Accepted GRN stock allocation', [
             'allocation_method' => $method,
         ]);
@@ -157,6 +157,50 @@ class InventoryAllocationService
             'purchase_receipt_item_id' => $item->id, 'account_id' => $account->id,
             'quantity' => $quantity, 'allocation_method' => $method,
         ]);
+    }
+
+    /** @return array{InventoryAllocationAccount, string} */
+    public function resolveReceiptAccount(ProductInventory $inventory, ?int $selectedAccountId): array
+    {
+        return $this->policy->receiptAccount($inventory->loadMissing('product'), $selectedAccountId);
+    }
+
+    public function releaseRecordedQcReceiptUnit(
+        PurchaseReceiptItem $item,
+        ProductInventory $inventory,
+        int $accountId,
+        string $allocationMethod,
+        User $actor,
+        Model $source,
+    ): void {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Recorded QC allocation release requires an active transaction.');
+        }
+
+        $account = InventoryAllocationAccount::query()->findOrFail($accountId);
+        $this->increase($account, $inventory, 1, 'renewed_qc_release', $actor, $source, 'Renewed receipt allocation released after successful QC', [
+            'allocation_method' => $allocationMethod,
+            'purchase_receipt_item_id' => $item->id,
+        ]);
+
+        $line = PurchaseReceiptAllocationLine::query()
+            ->where('purchase_receipt_item_id', $item->id)
+            ->where('account_id', $account->id)
+            ->lockForUpdate()
+            ->first();
+
+        if ($line === null) {
+            PurchaseReceiptAllocationLine::query()->create([
+                'purchase_receipt_item_id' => $item->id,
+                'account_id' => $account->id,
+                'quantity' => 1,
+                'allocation_method' => $allocationMethod,
+            ]);
+
+            return;
+        }
+
+        $line->increment('quantity');
     }
 
     /** @param array<int, string> $releaseMovementReferences */

@@ -2,14 +2,20 @@
 
 namespace App\Services\Qc;
 
+use App\Enums\OrderStatus;
+use App\Enums\ProductCondition;
+use App\Enums\QcPermission;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\QcCertificate;
 use App\Models\User;
+use App\Services\Authorization\QcAuthorization;
+use App\Services\Orders\OrderResponsibilityScopeService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
-/** Read-only forecast of Reserved Renewed demand not covered by eligible QC units. */
+/** Read-only forecast of open Renewed Order demand not covered by eligible QC units. */
 class QcOrderDemandService
 {
     public function __construct(
@@ -21,6 +27,29 @@ class QcOrderDemandService
 
     /** @return array{units_needed: int, orders_affected: int} */
     public function calculate(User $actor): array
+    {
+        $this->dispatch->authorizeQueue($actor);
+
+        return $this->calculateAuthorizedForecast($actor);
+    }
+
+    /**
+     * Aggregate-only projection for an authorized QC queue. It intentionally
+     * does not require Order View and never returns Order/customer details.
+     *
+     * @return array{units_needed: int, orders_affected: int}
+     */
+    public function calculateForQcQueue(User $actor): array
+    {
+        $authorization = app(QcAuthorization::class);
+        $authorization->authorize($actor, QcPermission::View);
+        $authorization->authorize($actor, QcPermission::Start);
+
+        return $this->calculateAuthorizedForecast($actor);
+    }
+
+    /** @return array{units_needed: int, orders_affected: int} */
+    private function calculateAuthorizedForecast(User $actor): array
     {
         $slots = $this->demandSlots($actor);
         if ($slots === []) {
@@ -58,10 +87,10 @@ class QcOrderDemandService
         return ['units_needed' => count($slots) - count($matchedSlots), 'orders_affected' => count($affectedOrders)];
     }
 
-    /** @return list<array{order: Order, item: OrderItem}> */
+    /** @return list<array{order: Order, item: OrderItem, can_use_ready_certificate: bool}> */
     private function demandSlots(User $actor): array
     {
-        $orders = $this->dispatch->queueQuery($actor)
+        $orders = $this->openRenewedDemandOrders($actor)
             ->with([
                 'items.product',
                 'items.upgradeSelection',
@@ -72,10 +101,8 @@ class QcOrderDemandService
         $slots = [];
 
         foreach ($orders as $order) {
-            if (! $this->assignments->canChange($order)) {
-                continue;
-            }
-
+            $isDraft = $order->status === OrderStatus::Draft;
+            $canUseReadyCertificate = ! $isDraft && $this->assignments->canChange($order);
             $readiness = $this->dispatch->readiness($order, $order->items);
             $lines = collect($readiness['lines'])->keyBy('order_item_id');
 
@@ -84,9 +111,17 @@ class QcOrderDemandService
                     continue;
                 }
 
-                $remaining = (int) ($lines->get($item->id)['remaining'] ?? 0);
+                $remaining = $isDraft
+                    ? $this->requirement->requiredQuantity($item)
+                    : ($canUseReadyCertificate
+                        ? (int) ($lines->get($item->id)['remaining'] ?? 0)
+                        : $this->requirement->requiredQuantity($item));
                 for ($unit = 0; $unit < $remaining; $unit++) {
-                    $slots[] = ['order' => $order, 'item' => $item];
+                    $slots[] = [
+                        'order' => $order,
+                        'item' => $item,
+                        'can_use_ready_certificate' => $canUseReadyCertificate,
+                    ];
                 }
             }
         }
@@ -95,9 +130,35 @@ class QcOrderDemandService
     }
 
     /**
+     * Forecasting is broader than dispatch eligibility: open renewed Orders
+     * contribute demand before reservation, while actual assignment/shipping
+     * continues to use RenewedQcDispatchService's Reserved-only queue.
+     *
+     * @return Builder<Order>
+     */
+    private function openRenewedDemandOrders(User $actor): Builder
+    {
+        $query = Order::query()
+            ->whereIn('status', [
+                OrderStatus::Draft->value,
+                OrderStatus::PendingReview->value,
+                OrderStatus::Confirmed->value,
+                OrderStatus::Reserved->value,
+                OrderStatus::Processing->value,
+            ])
+            ->whereNull('delivered_at')
+            ->whereDoesntHave('fulfillment')
+            ->whereHas('items.product', fn (Builder $products) => $products->where('condition', ProductCondition::Renewed->value))
+            ->orderBy('order_date')
+            ->orderBy('id');
+
+        return app(OrderResponsibilityScopeService::class)->applyOrders($query, $actor);
+    }
+
+    /**
      * @param  array<int, bool>  $seenCertificates
      * @param  array<int, int>  $certificateToSlot
-     * @param  list<array{order: Order, item: OrderItem}>  $slots
+     * @param  list<array{order: Order, item: OrderItem, can_use_ready_certificate: bool}>  $slots
      * @param  array<string, bool>  $compatibility
      */
     private function matchSlot(
@@ -110,7 +171,9 @@ class QcOrderDemandService
     ): bool {
         foreach ($certificates as $certificate) {
             $certificateId = (int) $certificate->id;
-            if (isset($seenCertificates[$certificateId]) || ! $this->canSatisfy($slots[$slotIndex], $certificate, $compatibility)) {
+            if (! $slots[$slotIndex]['can_use_ready_certificate']
+                || isset($seenCertificates[$certificateId])
+                || ! $this->canSatisfy($slots[$slotIndex], $certificate, $compatibility)) {
                 continue;
             }
 

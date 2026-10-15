@@ -1,4 +1,24 @@
 <x-filament-panels::page>
+    <style>
+        .stock-adjustments-grid th {
+            width: var(--column-width);
+            min-width: var(--column-width);
+            white-space: normal;
+        }
+
+        .stock-adjustments-grid .stock-adjustments-product {
+            width: 244px;
+            overflow-wrap: anywhere;
+        }
+
+        .stock-adjustments-grid .fi-badge,
+        .stock-adjustments-grid .fi-badge-label {
+            max-width: 100%;
+            overflow: visible;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+    </style>
     @php
         $rows = $this->rows();
         $filters = $this->filterOptions();
@@ -20,8 +40,24 @@
 
         <form wire:submit="saveAll" class="space-y-4">
             <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
-                <table class="w-full min-w-[1450px] divide-y divide-gray-200 text-sm dark:divide-white/10">
-                    <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-white/5 dark:text-gray-300"><tr><th class="px-2 py-2">Select</th><th class="px-2 py-2">Product / SKU</th><th class="px-2 py-2">Brand</th><th class="px-2 py-2">Warehouse</th><th class="px-2 py-2">Saleable</th><th class="px-2 py-2">Damaged</th><th class="px-2 py-2">Reserved</th><th class="px-2 py-2">Stock Holder</th><th class="px-2 py-2">Adjustment Type</th><th class="px-2 py-2">Qty</th><th class="px-2 py-2">New Purchase?</th><th class="px-2 py-2">Reason</th><th class="px-2 py-2">Status</th></tr></thead>
+                <table class="stock-adjustments-grid w-full divide-y divide-gray-200 text-sm dark:divide-white/10" style="min-width: 1650px; table-layout: auto;">
+                    <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-white/5 dark:text-gray-300">
+                        <tr>
+                            <th class="px-2 py-2" style="--column-width: 60px;">Select</th>
+                            <th class="px-2 py-2" style="--column-width: 260px;">Product / SKU</th>
+                            <th class="px-2 py-2" style="--column-width: 100px;">Brand</th>
+                            <th class="px-2 py-2" style="--column-width: 120px;">Warehouse</th>
+                            <th class="px-2 py-2" style="--column-width: 75px;">Saleable</th>
+                            <th class="px-2 py-2" style="--column-width: 75px;">Damaged</th>
+                            <th class="px-2 py-2" style="--column-width: 75px;">Reserved</th>
+                            <th class="px-2 py-2" style="--column-width: 150px;">Stock Holder</th>
+                            <th class="px-2 py-2" style="--column-width: 220px;">Adjustment Type</th>
+                            <th class="px-2 py-2" style="--column-width: 100px;">Qty</th>
+                            <th class="px-2 py-2" style="--column-width: 120px;">New Purchase?</th>
+                            <th class="px-2 py-2" style="--column-width: 240px;">Reason</th>
+                            <th class="px-2 py-2" style="--column-width: 150px;">Status</th>
+                        </tr>
+                    </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                         @forelse ($rows as $row)
                             @php
@@ -32,7 +68,7 @@
                             @endphp
                             <tr wire:key="adjust-stock-{{ $row->id }}" class="align-top {{ $linked ? 'bg-primary-50 dark:bg-primary-500/10' : '' }}">
                                 <td class="px-2 py-3"><input type="checkbox" wire:model.live="drafts.{{ $row->id }}.selected" @disabled(! $mayAdjust) aria-label="Select {{ $row->product->sku }}" class="rounded border-gray-300" /></td>
-                                <td class="px-2 py-3"><div class="font-semibold">{{ $row->product->name }}</div><div class="text-xs text-gray-500">{{ $row->product->sku }}</div>@if ($linked)<div class="text-xs font-semibold text-primary-600">Linked GRN</div>@endif</td>
+                                <td class="px-2 py-3"><div class="stock-adjustments-product"><div class="font-semibold">{{ $row->product->name }}</div><div class="text-xs text-gray-500">{{ $row->product->sku }}</div>@if ($linked)<div class="text-xs font-semibold text-primary-600">Linked GRN</div>@endif</div></td>
                                 <td class="px-2 py-3">{{ $row->product->brandRelation?->name ?? '—' }}</td>
                                 <td class="px-2 py-3">{{ $row->warehouse?->name }}</td>
                                 <td class="px-2 py-3 font-semibold">{{ $row->available_quantity }}</td>

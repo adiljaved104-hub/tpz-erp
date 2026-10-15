@@ -163,6 +163,8 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertSame(1, $stats['QC Needed for Orders']);
         $this->assertSame(0, $stats['QC Needed for Transfers']);
         $this->assertSame(0, $stats['Marketplace Transfers']);
+        $adminStats = $this->qcProgressStats($this->responsibilityUser(EmployeeRole::Admin));
+        $this->assertSame(1, $adminStats['QC Needed for Orders']);
         $this->assertSame($inspectionCount, QcInspection::query()->count(), 'Viewing QC demand must not create inspections.');
     }
 

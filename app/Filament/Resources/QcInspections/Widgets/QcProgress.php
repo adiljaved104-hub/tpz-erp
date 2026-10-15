@@ -2,9 +2,7 @@
 
 namespace App\Filament\Resources\QcInspections\Widgets;
 
-use App\Enums\OrderPermission;
 use App\Enums\QcPermission;
-use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Qc\QcInspectionService;
@@ -28,9 +26,9 @@ class QcProgress extends StatsOverviewWidget
         $orderUnitsNeeded = 0;
 
         if ($user
-            && app(QcAuthorization::class)->allows($user, QcPermission::ViewDispatchQueue)
-            && app(OrderAuthorization::class)->allows($user, OrderPermission::View)) {
-            $orderUnitsNeeded = app(QcOrderDemandService::class)->calculate($user)['units_needed'];
+            && app(QcAuthorization::class)->allows($user, QcPermission::View)
+            && app(QcAuthorization::class)->allows($user, QcPermission::Start)) {
+            $orderUnitsNeeded = app(QcOrderDemandService::class)->calculateForQcQueue($user)['units_needed'];
         }
 
         $transferSummary = $user

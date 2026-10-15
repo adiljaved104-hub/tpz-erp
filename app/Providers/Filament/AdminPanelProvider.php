@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Auth\EmailOtpAuthenticationProvider;
 use App\Enums\EmployeeRole;
 use App\Filament\Auth\Login;
+use App\Filament\Pages\Qc\RecordedRenewedStockQueue;
 use App\Filament\Resources\QcInspections\QcInspectionResource;
 use App\Filament\Widgets\ErpDashboardOverview;
 use App\Http\Middleware\EnforceWebSecurityPolicy;
@@ -52,6 +53,10 @@ class AdminPanelProvider extends PanelProvider
                         ->url(QcInspectionResource::getUrl('index'))
                         ->icon('heroicon-o-clipboard-document-check')
                         ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.resources.qc-inspections.*')),
+                    NavigationItem::make('Recorded Renewed Stock Awaiting QC')
+                        ->url(RecordedRenewedStockQueue::getUrl())
+                        ->icon('heroicon-o-clipboard-document-check')
+                        ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.pages.recorded-renewed-stock-awaiting-qc')),
                 ]);
             })
             ->assets([

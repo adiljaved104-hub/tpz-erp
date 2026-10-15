@@ -2,6 +2,7 @@
 
 namespace App\Services\Qc;
 
+use App\Enums\OrderPermission;
 use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
 use App\Models\OrderItem;
@@ -9,9 +10,11 @@ use App\Models\Product;
 use App\Models\QcCertificate;
 use App\Models\QcDevice;
 use App\Models\QcInspection;
+use App\Models\QcRecordedStockIntakeRelease;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\ActivityLogger;
+use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Products\ProductTitleService;
 use App\Services\ReferenceSequenceService;
@@ -27,7 +30,7 @@ use Illuminate\Validation\ValidationException;
 
 class QcInspectionService
 {
-    public function __construct(private readonly QcAuthorization $authorization, private readonly LaptopQcTemplate $template, private readonly ActivityLogger $activity, private readonly ReferenceSequenceService $references) {}
+    public function __construct(private readonly QcAuthorization $authorization, private readonly LaptopQcTemplate $template, private readonly ActivityLogger $activity, private readonly ReferenceSequenceService $references, private readonly QcRecordedRenewedStockIntakeService $recordedIntakes, private readonly OrderAuthorization $orders) {}
 
     public function visible(User $actor): Builder
     {
@@ -47,6 +50,7 @@ class QcInspectionService
         $data = Validator::make($data, [
             'product_id' => ['required', 'integer', 'exists:products,id'], 'serial' => ['required', 'string', 'min:3', 'max:100', 'regex:/\A[A-Za-z0-9._ -]+\z/'],
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'], 'order_item_id' => ['nullable', 'integer', 'exists:order_items,id'],
+            'recorded_stock_intake_id' => ['nullable', 'integer', 'exists:qc_recorded_stock_intakes,id'],
             'features' => ['array'], 'features.*' => ['string'],
             'special_requirement' => ['nullable', 'string', 'max:500'], 'idempotency_key' => ['required', 'uuid'],
         ])->validate();
@@ -70,7 +74,14 @@ class QcInspectionService
                 if (! $product || ! Warehouse::query()->active()->whereKey($data['warehouse_id'])->exists()) {
                     throw ValidationException::withMessages(['product_id' => 'Choose an active Product and location.']);
                 }
+                $intake = null;
+                if (filled($data['recorded_stock_intake_id'] ?? null)) {
+                    $intake = $this->recordedIntakes->claimStartSlot((int) $data['recorded_stock_intake_id'], $product->id, (int) $data['warehouse_id']);
+                }
                 $item = empty($data['order_item_id']) ? null : OrderItem::query()->with('upgradeSelection')->findOrFail($data['order_item_id']);
+                if ($item) {
+                    $this->orders->authorize($actor, OrderPermission::View, $item->order);
+                }
                 if ($item && ($item->product_id !== $product->id || $item->order->warehouse_id !== (int) $data['warehouse_id'])) {
                     throw ValidationException::withMessages(['order_item_id' => 'The Order item must match this Product and location.']);
                 }
@@ -92,6 +103,7 @@ class QcInspectionService
                 $inspection = QcInspection::query()->create([
                     'device_id' => $device->id, 'active_device_id' => $device->id, 'version' => 1, 'technician_user_id' => $actor->id,
                     'warehouse_id' => $data['warehouse_id'], 'order_id' => $item?->order_id, 'order_item_id' => $item?->id,
+                    'recorded_stock_intake_id' => $intake?->id, 'qc_source' => $intake ? 'recorded_renewed_stock' : 'manual_unlinked',
                     'order_snapshot' => $item ? ['reference' => $item->order->reference, 'line_key' => $item->line_key, 'line_number' => $item->line_number] : null,
                     'status' => QcInspectionStatus::Pending, 'idempotency_key' => $data['idempotency_key'], 'request_fingerprint' => $fingerprint,
                     'product_snapshot' => ['sku' => $product->sku, 'title' => app(ProductTitleService::class)->accounting($product), 'brand' => $product->brandRelation?->name ?? $product->brand, 'category' => $product->categoryRelation?->name, 'condition' => $product->condition?->value, 'touch_screen' => $product->touch_screen, 'qc_template' => $template],
@@ -229,10 +241,15 @@ class QcInspectionService
     public function complete(QcInspection $inspection, User $actor): QcCertificate
     {
         $this->authorization->authorize($actor, QcPermission::Complete, $inspection);
+        $releaseMovementReference = $inspection->recorded_stock_intake_id !== null
+            && ! QcRecordedStockIntakeRelease::query()->where('qc_device_id', $inspection->device_id)->exists()
+                ? $this->references->nextStockMovementReference()
+                : null;
 
-        return DB::transaction(function () use ($inspection, $actor): QcCertificate {
-            QcDevice::query()->whereKey($inspection->device_id)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($inspection, $actor, $releaseMovementReference): QcCertificate {
+            $device = QcDevice::query()->lockForUpdate()->findOrFail($inspection->device_id);
             $inspection = QcInspection::query()->lockForUpdate()->findOrFail($inspection->id);
+            $inspection->setRelation('device', $device);
             if ($inspection->status === QcInspectionStatus::Completed) {
                 return $inspection->certificate()->firstOrFail();
             }
@@ -280,6 +297,7 @@ class QcInspectionService
                 'snapshot' => ['reference' => $inspection->device->reference, 'serial' => $inspection->device->serial, 'product' => $productSnapshot, 'original' => $inspection->original_configuration, 'requested' => $requested, 'final' => $inspection->final_configuration, 'grade' => $inspection->grade, 'remarks' => $inspection->public_remarks, 'technician' => $actor->employee->name, 'certified_at' => $time->toIso8601String(), 'checks' => $checks->where('applicable', true)->where('result', 'pass')->map(fn ($check) => ['key' => $check->check_key, 'label' => $check->definition['label'], 'group' => $check->definition['group'], 'result' => 'pass', 'detail' => $check->detail, 'measurement' => $check->measurement])->values()->all(), 'evidence' => $evidence->pluck('public_id')->all()]]);
             $inspection->update(['status' => QcInspectionStatus::Completed, 'completed_at' => $time, 'active_device_id' => null]);
             $this->activity->log('qc.completed', $actor, $inspection, ['reference' => $inspection->device->reference, 'version' => $inspection->version]);
+            $this->recordedIntakes->releaseCompletedInspection($inspection, $device, $certificate, $actor, $releaseMovementReference);
             if ($inspection->version > 1) {
                 $this->activity->log('qc.superseded', $actor, $inspection, ['previous_version' => $inspection->version - 1]);
             }

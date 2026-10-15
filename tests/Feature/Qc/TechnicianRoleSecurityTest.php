@@ -19,6 +19,7 @@ use App\Filament\Resources\QcInspections\QcInspectionResource;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\Product;
+use App\Models\ProductInventory;
 use App\Models\QcInspection;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -55,11 +56,11 @@ class TechnicianRoleSecurityTest extends TestCase
         $this->assertSame(EmployeeRole::Staff->value, data_get($component->instance()->data, 'role'));
     }
 
-    public function test_technician_defaults_are_limited_to_the_four_approved_qc_permissions(): void
+    public function test_technician_defaults_are_limited_to_the_five_approved_qc_permissions(): void
     {
         $technician = $this->employee(EmployeeRole::Technician);
         $authorization = app(QcAuthorization::class);
-        $allowed = [QcPermission::View, QcPermission::Update, QcPermission::Complete, QcPermission::ViewCustomerEvidence];
+        $allowed = [QcPermission::View, QcPermission::Start, QcPermission::Update, QcPermission::Complete, QcPermission::ViewCustomerEvidence];
 
         foreach (QcPermission::cases() as $permission) {
             $this->assertSame(in_array($permission, $allowed, true), $authorization->roleDefault($technician->user, $permission), $permission->value);
@@ -86,7 +87,6 @@ class TechnicianRoleSecurityTest extends TestCase
             HrPermission::AttendanceViewAll->value,
             OfficeFinancePermission::ViewBalances->value,
             QcPermission::ViewAll->value,
-            QcPermission::Start->value,
             QcPermission::Reopen->value,
         ] as $key) {
             $this->override($technician, $key, EmployeePermissionEffect::Allow, $owner->user);
@@ -100,7 +100,6 @@ class TechnicianRoleSecurityTest extends TestCase
             HrPermission::AttendanceViewAll->value,
             OfficeFinancePermission::ViewBalances->value,
             QcPermission::ViewAll->value,
-            QcPermission::Start->value,
             QcPermission::Reopen->value,
         ] as $key) {
             $this->assertFalse($resolver->decision($technician->user, $key), $key);
@@ -177,7 +176,7 @@ class TechnicianRoleSecurityTest extends TestCase
         $this->assertNull(app(DatabaseEmployeePermissionOverrideResolver::class)->decision($staff->user, ProductPermission::View->value));
     }
 
-    public function test_technician_can_use_only_own_qc_over_mobile_and_web_and_cannot_start_new_qc(): void
+    public function test_technician_can_use_only_own_qc_over_mobile_and_web_and_start_manual_qc_without_inventory_mutation(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);
         $technician = $this->employee(EmployeeRole::Technician);
@@ -257,12 +256,17 @@ class TechnicianRoleSecurityTest extends TestCase
         $this->withToken($token)->deleteJson('/api/mobile/v1/devices', ['device_id' => $deviceId])->assertOk();
         $this->withToken($token)->postJson('/api/mobile/v1/auth/logout')->assertOk();
 
-        try {
-            $service->start(['product_id' => $product->id, 'warehouse_id' => $warehouse->id, 'serial' => 'TECH-NEW-'.str()->random(8), 'features' => [], 'idempotency_key' => (string) str()->uuid()], $technician->user);
-            $this->fail('Technicians must not manually start new QC jobs.');
-        } catch (AuthorizationException) {
-            $this->assertTrue(true);
-        }
+        $inventoryCount = ProductInventory::query()->count();
+        $manualInspection = $service->start([
+            'product_id' => $product->id,
+            'warehouse_id' => $warehouse->id,
+            'serial' => 'TECH-MANUAL-'.str()->random(8),
+            'features' => [],
+            'idempotency_key' => (string) str()->uuid(),
+        ], $technician->user);
+        $this->assertSame($technician->user->id, $manualInspection->technician_user_id);
+        $this->assertSame('manual_unlinked', $manualInspection->qc_source);
+        $this->assertSame($inventoryCount, ProductInventory::query()->count());
 
         $this->withoutVite();
         $qcUrl = QcInspectionResource::getUrl('index');
@@ -277,7 +281,7 @@ class TechnicianRoleSecurityTest extends TestCase
 
         $groups = Filament::getPanel('admin')->buildNavigation();
         $labels = collect($groups)->flatMap(fn ($group) => $group->getItems())->map(fn ($item) => $item->getLabel())->values()->all();
-        $this->assertSame(['Quality Control'], $labels);
+        $this->assertSame(['Quality Control', 'Recorded Renewed Stock Awaiting QC'], $labels);
     }
 
     public function test_owner_admin_and_staff_manager_qc_behavior_remains_unchanged(): void

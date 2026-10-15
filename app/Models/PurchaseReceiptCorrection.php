@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 
 class PurchaseReceiptCorrection extends Model
 {
@@ -28,6 +30,21 @@ class PurchaseReceiptCorrection extends Model
 
     protected static function booted(): void
     {
+        static::creating(function (self $correction): void {
+            if (! Schema::hasTable('qc_recorded_stock_intakes')) {
+                return;
+            }
+
+            $intake = QcRecordedStockIntake::query()
+                ->where('purchase_receipt_item_id', $correction->purchase_receipt_item_id)
+                ->lockForUpdate()
+                ->first();
+            if ($intake !== null && (int) $correction->corrected_quantity < $intake->started_quantity) {
+                throw ValidationException::withMessages([
+                    'corrected_quantity' => 'A receipt correction cannot reduce recorded Renewed QC intake below the number of QC jobs already started.',
+                ]);
+            }
+        });
         static::updating(fn (): never => throw new ImmutablePurchaseException('Purchase Receipt corrections are immutable.'));
         static::deleting(fn (): never => throw new ImmutablePurchaseException('Purchase Receipt corrections are immutable.'));
     }

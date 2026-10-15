@@ -116,7 +116,7 @@ class QcInspectionResource extends Resource
             return $schema->components([
                 Section::make($recordedIntake ? 'Recorded Renewed Stock QC' : 'Manual / Unlinked QC')
                     ->description($recordedIntake
-                        ? 'Product and location are locked to the recorded GRN line. Starting QC reserves one unit from its pending intake.'
+                        ? 'Product and location are locked to the recorded GRN line. Starting QC assigns one unit from this recorded intake for inspection. QC Pending stock is released only after successful QC completion.'
                         : 'Use for a physical unit not yet recorded in ERP stock. Manual / Unlinked QC never changes inventory.')
                     ->schema([
                         Select::make('product_id')->label('Product / SKU')->required()->searchable()

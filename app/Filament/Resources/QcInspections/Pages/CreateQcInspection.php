@@ -7,6 +7,7 @@ use App\Filament\Resources\QcInspections\QcInspectionResource;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcRecordedRenewedStockIntakeService;
 use App\Services\Qc\QcTemplateResolver;
+use Filament\Actions\Action;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 use Livewire\Attributes\Locked;
@@ -22,6 +23,16 @@ class CreateQcInspection extends CreateRecord
 
     #[Locked]
     public ?int $recordedStockIntakeId = null;
+
+    public function canCreateAnother(): bool
+    {
+        return false;
+    }
+
+    protected function getCreateFormAction(): Action
+    {
+        return parent::getCreateFormAction()->label('Start QC');
+    }
 
     public function mount(): void
     {

@@ -23,6 +23,7 @@ use App\Enums\StockMovementType;
 use App\Filament\Pages\Qc\RecordedRenewedStockQueue;
 use App\Filament\Resources\Orders\Pages\CreateOrder;
 use App\Filament\Resources\QcInspections\QcInspectionResource;
+use App\Filament\Resources\QcInspections\Widgets\QcProgress;
 use App\Models\Employee;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
@@ -55,6 +56,7 @@ use App\Services\Qc\QcOrderAssignmentService;
 use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\QcRecordedRenewedStockIntakeService;
 use App\Services\Qc\QcRecordedStockIntakeAdjustmentService;
+use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -513,9 +515,18 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame(0, $before['available_quantity']);
         $this->assertSame($before, $this->inventorySnapshot($product, $warehouse));
         $this->assertSame($movementCount, StockMovement::query()->count());
-        $this->assertSame(['units_needed' => 2, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($owner));
-        $this->assertSame(['units_needed' => 2, 'orders_affected' => 1, 'by_product_location' => [$product->id => [$warehouse->id => 2]]], app(QcOrderDemandService::class)->calculateForQcQueue($technician));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::View));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::Start));
+        $this->assertFalse(app(QcAuthorization::class)->allows($technician, QcPermission::ViewDispatchQueue));
         $this->assertFalse(app(OrderAuthorization::class)->allows($technician, OrderPermission::View, $order));
+        $this->assertSame(['units_needed' => 2, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($owner));
+        $queueDemand = app(QcOrderDemandService::class)->calculateForQcQueue($technician);
+        $this->assertSame(['units_needed' => 2, 'orders_affected' => 1, 'by_product_location' => [$product->id => [$warehouse->id => 2]]], $queueDemand);
+        $dashboard = Livewire::actingAs($technician)->test(QcProgress::class);
+        $dashboard->assertDontSee($order->reference)->assertDontSee('Private Draft Customer');
+        $dashboardStats = $this->qcProgressStats($technician);
+        $this->assertSame($queueDemand['units_needed'], $dashboardStats['QC Needed for Orders']);
+        $this->assertSame(0, $dashboardStats['Pending QC'], 'Forecast demand must not be counted as a pending inspection.');
         $this->assertFalse(app(QcOrderAssignmentService::class)->canChange($order));
         $this->assertValidation(fn () => app(QcOrderAssignmentService::class)->assign($order->items()->sole(), 1, $owner), 'order_item_id');
         $this->assertValidation(fn () => app(OrderService::class)->reserveDraft($order, $owner), 'items');
@@ -758,7 +769,15 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $receipt = $this->receive($owner, $purchase, 1, 0, 0);
         $intake = QcRecordedStockIntake::query()->sole();
         $this->actingAs($technician)->get(QcInspectionResource::getUrl('create', ['recorded_stock_intake_id' => $intake->id]))
-            ->assertOk()->assertSee('Recorded Renewed Stock QC')->assertSee($product->name);
+            ->assertOk()
+            ->assertSee('Recorded Renewed Stock QC')
+            ->assertSee($product->name)
+            ->assertSee('Starting QC assigns one unit from this recorded intake for inspection.')
+            ->assertSee('QC Pending stock is released only after successful QC completion.')
+            ->assertSee('Start QC')
+            ->assertSee('Cancel')
+            ->assertDontSee('Create & create another')
+            ->assertDontSee('Starting QC reserves one unit');
         $otherProduct = $this->product(ProductCondition::Renewed);
         $before = $this->inventorySnapshot($product, $warehouse);
 
@@ -1068,6 +1087,18 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $employee->update(['email' => $email]);
 
         return $employee->refresh()->user;
+    }
+
+    /** @return array<string, mixed> */
+    private function qcProgressStats(User $actor): array
+    {
+        $component = Livewire::actingAs($actor)->test(QcProgress::class);
+        $method = new \ReflectionMethod(QcProgress::class, 'getCachedStats');
+        $method->setAccessible(true);
+
+        return collect($method->invoke($component->instance()))
+            ->mapWithKeys(fn (Stat $stat): array => [$stat->getLabel() => $stat->getValue()])
+            ->all();
     }
 
     private function product(ProductCondition $condition): Product

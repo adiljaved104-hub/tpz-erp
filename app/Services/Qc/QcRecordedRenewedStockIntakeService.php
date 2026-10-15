@@ -21,6 +21,7 @@ use App\Services\Authorization\QcAuthorization;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -53,9 +54,12 @@ class QcRecordedRenewedStockIntakeService
     }
 
     /** @return array<int, array<string, mixed>> */
-    public function queue(User $actor): array
+    public function queue(User $actor, array $demandByProductLocation = []): array
     {
-        return $this->queueQuery($actor)->get()->map(fn (QcRecordedStockIntake $intake): array => [
+        $intakes = $this->queueQuery($actor)->get();
+        $priorityByIntake = $this->distributeOrderPriority($intakes, $demandByProductLocation);
+
+        return $intakes->map(fn (QcRecordedStockIntake $intake): array => [
             'intake_id' => $intake->id,
             'sku' => $intake->product->sku,
             'product_title' => $intake->product->name,
@@ -66,7 +70,54 @@ class QcRecordedRenewedStockIntakeService
             'started_quantity' => $intake->started_quantity,
             'completed_quantity' => (int) $intake->completed_quantity,
             'remaining_quantity' => $intake->accepted_quantity - $intake->started_quantity,
+            'order_priority_units' => $priorityByIntake[$intake->id] ?? 0,
         ])->all();
+    }
+
+    /** @param Collection<int, QcRecordedStockIntake> $intakes
+     * @param  array<int, array<int, int>>  $demandByProductLocation
+     * @return array<int, int>
+     */
+    public function distributeOrderPriority(Collection $intakes, array $demandByProductLocation): array
+    {
+        $priorityByIntake = $intakes->mapWithKeys(fn (QcRecordedStockIntake $intake): array => [$intake->id => 0])->all();
+
+        foreach ($intakes->groupBy(fn (QcRecordedStockIntake $intake): string => $intake->product_id.':'.$intake->warehouse_id) as $groupKey => $group) {
+            [$productId, $warehouseId] = array_map('intval', explode(':', (string) $groupKey, 2));
+            $needed = max(0, (int) ($demandByProductLocation[$productId][$warehouseId] ?? 0));
+            $group = $group->sortBy('id')->values();
+            $rowCount = $group->count();
+            if ($needed === 0 || $rowCount === 0) {
+                continue;
+            }
+
+            // Spread the SKU/location aggregate deterministically over matching GRN rows.
+            // The row values therefore add back to, but never multiply, the actual demand.
+            $base = intdiv($needed, $rowCount);
+            $remainder = $needed % $rowCount;
+            foreach ($group as $index => $intake) {
+                $priorityByIntake[$intake->id] = $base + ($index < $remainder ? 1 : 0);
+            }
+        }
+
+        return $priorityByIntake;
+    }
+
+    public function assertManualTechnicianStartAllowed(int $productId, int $warehouseId): void
+    {
+        $pending = QcRecordedStockIntake::query()
+            ->where('product_id', $productId)
+            ->where('warehouse_id', $warehouseId)
+            ->whereColumn('started_quantity', '<', 'accepted_quantity')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->first();
+
+        if ($pending) {
+            throw ValidationException::withMessages([
+                'recorded_stock_intake_id' => 'Recorded Renewed stock is already awaiting QC for this Product and Location. Start QC from Recorded Renewed Stock Awaiting QC.',
+            ]);
+        }
     }
 
     public function findForStart(int $intakeId, User $actor): QcRecordedStockIntake

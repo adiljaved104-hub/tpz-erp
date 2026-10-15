@@ -46,6 +46,7 @@ use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Orders\OrderService;
 use App\Services\Purchases\PurchaseReceivingService;
+use App\Services\Qc\QcAvailableCertificateService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcOrderAssignmentService;
@@ -511,7 +512,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame($before, $this->inventorySnapshot($product, $warehouse));
         $this->assertSame($movementCount, StockMovement::query()->count());
         $this->assertSame(['units_needed' => 2, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($owner));
-        $this->assertSame(['units_needed' => 2, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculateForQcQueue($technician));
+        $this->assertSame(['units_needed' => 2, 'orders_affected' => 1, 'by_product_location' => [$product->id => [$warehouse->id => 2]]], app(QcOrderDemandService::class)->calculateForQcQueue($technician));
         $this->assertFalse(app(OrderAuthorization::class)->allows($technician, OrderPermission::View, $order));
         $this->assertFalse(app(QcOrderAssignmentService::class)->canChange($order));
         $this->assertValidation(fn () => app(QcOrderAssignmentService::class)->assign($order->items()->sole(), 1, $owner), 'order_item_id');
@@ -521,6 +522,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $response = $this->withToken($token)->getJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock')->assertOk()
             ->assertJsonPath('priority.needed_for_orders', 2)
             ->assertJsonPath('data.0.remaining_quantity', 5)
+            ->assertJsonPath('data.0.order_priority_units', 2)
             ->assertJsonMissingPath('priority.orders_affected');
         $this->assertStringNotContainsString($order->reference, $response->getContent());
         $this->assertStringNotContainsString('Private Draft Customer', $response->getContent());
@@ -533,6 +535,123 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame($movementCount, StockMovement::query()->count());
         $this->assertSame(0, $order->items()->whereHas('reservations')->count());
         $this->assertDatabaseCount('qc_order_assignments', 0);
+    }
+
+    public function test_order_priority_is_product_location_scoped_and_split_once_across_multiple_grn_rows(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        $technician = $this->actor(EmployeeRole::Technician);
+        $warehouse = Warehouse::factory()->create();
+        $otherWarehouse = Warehouse::factory()->create();
+        $productA = $this->product(ProductCondition::Renewed);
+        $productB = $this->product(ProductCondition::Renewed);
+
+        foreach ([1, 1] as $quantity) {
+            $purchase = $this->approvedPurchase($owner, $productA, $warehouse, $quantity, '80.0000');
+            $this->receive($owner, $purchase, $quantity, 0, 0);
+        }
+        $purchaseB = $this->approvedPurchase($owner, $productB, $warehouse, 1, '90.0000');
+        $this->receive($owner, $purchaseB, 1, 0, 0);
+        $purchaseAOtherLocation = $this->approvedPurchase($owner, $productA, $otherWarehouse, 1, '82.0000');
+        $this->receive($owner, $purchaseAOtherLocation, 1, 0, 0);
+
+        $order = app(OrderService::class)->saveDraft(new SaveAndReserveOrderData(
+            warehouseId: $warehouse->id,
+            platformId: null,
+            externalOrderNumber: null,
+            orderDate: now()->toDateString(),
+            handledByEmployeeId: $owner->employee->id,
+            notes: null,
+            items: [new OrderItemData($productA->id, 3, '500.00')],
+            idempotencyKey: (string) Str::uuid(),
+            customerName: 'Private Priority Customer',
+            customerPhone: '0501234567',
+        ), $owner);
+
+        $forecast = app(QcOrderDemandService::class)->calculateForQcQueue($technician);
+        $this->assertSame(3, $forecast['units_needed']);
+        $this->assertSame(3, $forecast['by_product_location'][$productA->id][$warehouse->id]);
+        $this->assertArrayNotHasKey($otherWarehouse->id, $forecast['by_product_location'][$productA->id]);
+        $this->assertArrayNotHasKey($productB->id, $forecast['by_product_location']);
+
+        $token = $technician->createToken('QC intake priority projection')->plainTextToken;
+        $response = $this->withToken($token)->getJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock')->assertOk()
+            ->assertJsonPath('priority.needed_for_orders', 3)
+            ->assertJsonMissingPath('data.0.order_id')
+            ->assertJsonMissingPath('data.0.order_reference')
+            ->assertJsonMissingPath('data.0.order_item_id');
+        $rows = $response->json('data');
+        $aMainRows = collect($rows)->where('sku', $productA->sku)->where('warehouse', $warehouse->name);
+        $aOtherLocationRows = collect($rows)->where('sku', $productA->sku)->where('warehouse', $otherWarehouse->name);
+        $bMainRows = collect($rows)->where('sku', $productB->sku)->where('warehouse', $warehouse->name);
+        $this->assertCount(2, $aMainRows);
+        $this->assertSame(3, $aMainRows->sum('order_priority_units'));
+        $this->assertSame([2, 1], $aMainRows->pluck('order_priority_units')->sortDesc()->values()->all());
+        $this->assertCount(1, $aOtherLocationRows);
+        $this->assertSame(0, $aOtherLocationRows->sum('order_priority_units'));
+        $this->assertSame(0, $bMainRows->sum('order_priority_units'));
+        $this->assertStringNotContainsString($order->reference, $response->getContent());
+        $this->assertStringNotContainsString('Private Priority Customer', $response->getContent());
+        $this->assertStringNotContainsString('0501234567', $response->getContent());
+
+        $aMainIntakes = QcRecordedStockIntake::query()->where('product_id', $productA->id)->where('warehouse_id', $warehouse->id)->orderBy('id')->get();
+        $aOtherLocationIntake = QcRecordedStockIntake::query()->where('product_id', $productA->id)->where('warehouse_id', $otherWarehouse->id)->sole();
+        $bMainIntake = QcRecordedStockIntake::query()->where('product_id', $productB->id)->where('warehouse_id', $warehouse->id)->sole();
+        Livewire::actingAs($technician)->test(RecordedRenewedStockQueue::class)
+            ->assertOk()
+            ->assertSee('Order Priority (SKU/location split)')
+            ->assertSee('Order demand is aggregated by Product and Location')
+            ->assertTableColumnStateSet('order_priority_units', 2, $aMainIntakes[0])
+            ->assertTableColumnStateSet('order_priority_units', 1, $aMainIntakes[1])
+            ->assertTableColumnStateSet('order_priority_units', 0, $aOtherLocationIntake)
+            ->assertTableColumnStateSet('order_priority_units', 0, $bMainIntake);
+    }
+
+    public function test_one_compatible_ready_certificate_reduces_draft_forecast_without_assignment_or_stock_mutation(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        $technician = $this->actor(EmployeeRole::Technician);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 2, '100.0000');
+        $this->receive($owner, $purchase, 2, 0, 0);
+
+        // A completed current certificate is existing, unclaimed supply. Owner manual QC
+        // remains allowed; this does not consume the recorded intake's QC Pending units.
+        $inspection = app(QcInspectionService::class)->start($this->startData($product, $warehouse, 'READY-SUPPLY-001'), $owner);
+        $this->readyForCompletion($inspection, $owner);
+        $this->uploadRequiredEvidence($inspection, $owner);
+        $certificate = app(QcInspectionService::class)->complete($inspection, $owner);
+
+        $order = app(OrderService::class)->saveDraft(new SaveAndReserveOrderData(
+            warehouseId: $warehouse->id,
+            platformId: null,
+            externalOrderNumber: null,
+            orderDate: now()->toDateString(),
+            handledByEmployeeId: $owner->employee->id,
+            notes: null,
+            items: [new OrderItemData($product->id, 2, '500.00')],
+            idempotencyKey: (string) Str::uuid(),
+        ), $owner);
+        $beforeInventory = $this->inventorySnapshot($product, $warehouse);
+        $beforeMovements = StockMovement::query()->count();
+        $beforeAssignments = DB::table('qc_order_assignments')->count();
+        $beforeReservations = $order->items()->withCount('reservations')->get()->sum('reservations_count');
+
+        $forecast = app(QcOrderDemandService::class)->calculateForQcQueue($technician);
+
+        $this->assertSame(1, $forecast['units_needed']);
+        $this->assertSame(1, $forecast['by_product_location'][$product->id][$warehouse->id]);
+        $this->assertSame(1, $forecast['orders_affected']);
+        $this->assertCount(1, app(QcAvailableCertificateService::class)->currentUnclaimed());
+        $this->assertFalse(app(QcOrderAssignmentService::class)->canChange($order));
+        $this->assertValidation(fn () => app(QcOrderAssignmentService::class)->assign($order->items()->sole(), $certificate->id, $owner), 'order_item_id');
+        $this->assertSame(OrderStatus::Draft, $order->fresh()->status);
+        $this->assertSame($beforeInventory, $this->inventorySnapshot($product, $warehouse));
+        $this->assertSame(2, ProductInventory::query()->where('product_id', $product->id)->sole()->qc_pending_quantity);
+        $this->assertSame($beforeMovements, StockMovement::query()->count());
+        $this->assertSame($beforeAssignments, DB::table('qc_order_assignments')->count());
+        $this->assertSame($beforeReservations, $order->items()->withCount('reservations')->get()->sum('reservations_count'));
     }
 
     public function test_shared_technician_queue_is_qc_authorized_and_contains_no_financial_data(): void
@@ -603,6 +722,55 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame('manual_unlinked', $manual->qc_source);
         $this->assertDatabaseMissing('product_inventories', ['product_id' => $otherProduct->id]);
         $this->assertSame(1, $receipt->items->sole()->accepted_quantity);
+    }
+
+    public function test_technician_cannot_start_manual_renewed_qc_while_matching_recorded_intake_is_pending(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        $admin = $this->actor(EmployeeRole::Admin);
+        $technician = $this->actor(EmployeeRole::Technician);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 2, '75.0000');
+        $this->receive($owner, $purchase, 2, 0, 0);
+        $intake = QcRecordedStockIntake::query()->sole();
+        $inventoryBefore = $this->inventorySnapshot($product, $warehouse);
+        $devicesBefore = DB::table('qc_devices')->count();
+        $inspectionsBefore = QcInspection::query()->count();
+
+        try {
+            app(QcInspectionService::class)->start($this->startData($product, $warehouse, 'BYPASS-TECH-001'), $technician);
+            $this->fail('Technician manual QC must not bypass a matching recorded Renewed intake.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('recorded_stock_intake_id', $exception->errors());
+            $this->assertStringContainsString('Start QC from Recorded Renewed Stock Awaiting QC', $exception->errors()['recorded_stock_intake_id'][0]);
+        }
+
+        $this->assertSame(0, $intake->fresh()->started_quantity);
+        $this->assertSame($inventoryBefore, $this->inventorySnapshot($product, $warehouse));
+        $this->assertSame($devicesBefore, DB::table('qc_devices')->count());
+        $this->assertSame($inspectionsBefore, QcInspection::query()->count());
+
+        $ownerManual = app(QcInspectionService::class)->start($this->startData($product, $warehouse, 'BYPASS-OWNER-001'), $owner);
+        $adminManual = app(QcInspectionService::class)->start($this->startData($product, $warehouse, 'BYPASS-ADMIN-001'), $admin);
+        $this->assertNull($ownerManual->recorded_stock_intake_id);
+        $this->assertNull($adminManual->recorded_stock_intake_id);
+        $this->assertSame(0, $intake->fresh()->started_quantity);
+        $this->assertSame($inventoryBefore, $this->inventorySnapshot($product, $warehouse));
+    }
+
+    public function test_technician_manual_renewed_qc_remains_available_without_matching_recorded_intake(): void
+    {
+        $technician = $this->actor(EmployeeRole::Technician);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+
+        $inspection = app(QcInspectionService::class)->start($this->startData($product, $warehouse, 'UNRECORDED-TECH-001'), $technician);
+
+        $this->assertNull($inspection->recorded_stock_intake_id);
+        $this->assertSame('manual_unlinked', $inspection->qc_source);
+        $this->assertSame(0, QcRecordedStockIntake::query()->count());
+        $this->assertDatabaseMissing('product_inventories', ['product_id' => $product->id, 'warehouse_id' => $warehouse->id]);
     }
 
     public function test_two_technicians_cannot_claim_the_final_recorded_intake_slot_concurrently(): void
@@ -790,8 +958,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $technician = $this->actor(EmployeeRole::Technician);
         $warehouse = Warehouse::factory()->create();
         $product = $this->product(ProductCondition::Renewed);
-        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 1, '55.0000');
-        $this->receive($owner, $purchase, 1, 0, 0);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 2, '55.0000');
+        $this->receive($owner, $purchase, 2, 0, 0);
         $intake = QcRecordedStockIntake::query()->sole();
         $token = $technician->createToken('QC intake contract')->plainTextToken;
 
@@ -802,13 +970,31 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame('/workspace/qc/recorded-renewed-stock', $qc['capabilities']['endpoints']['recorded_stock_intakes']);
 
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock')->assertOk()
-            ->assertJsonPath('data.0.remaining_quantity', 1)
+            ->assertJsonPath('data.0.remaining_quantity', 2)
             ->assertJsonMissingPath('data.0.inventory_unit_cost');
+
+        QcInspection::created(function (QcInspection $created) use ($intake, $owner): void {
+            if ($created->recorded_stock_intake_id !== $intake->id) {
+                return;
+            }
+
+            // Simulate an Owner adjustment after the mobile source model was read and
+            // the Technician claimed a slot, but before the response computes remaining.
+            app(QcRecordedStockIntakeAdjustmentService::class)->adjust($intake->id, $owner, [
+                'adjustment_quantity' => 1,
+                'reason' => 'Concurrent recount after a technician start.',
+                'idempotency_key' => (string) Str::uuid(),
+            ]);
+        });
+
         $response = $this->withToken($token)->postJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock/'.$intake->id.'/start', [
             'serial' => 'MOBILE-INTAKE-001',
             'features' => [],
             'idempotency_key' => (string) Str::uuid(),
         ])->assertCreated()->assertJsonPath('remaining_quantity', 0);
+        $this->assertSame(1, $intake->fresh()->accepted_quantity);
+        $this->assertSame(1, $intake->fresh()->started_quantity);
+        $this->assertSame(1, ProductInventory::query()->where('product_id', $product->id)->sole()->qc_pending_quantity);
         $inspection = QcInspection::query()->findOrFail($response->json('inspection_id'));
         $this->assertSame($technician->id, $inspection->technician_user_id);
         $this->assertSame($intake->id, $inspection->recorded_stock_intake_id);

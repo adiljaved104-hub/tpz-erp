@@ -2,7 +2,9 @@
 
 namespace App\Services\Qc;
 
+use App\Enums\EmployeeRole;
 use App\Enums\OrderPermission;
+use App\Enums\ProductCondition;
 use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
 use App\Models\OrderItem;
@@ -77,6 +79,11 @@ class QcInspectionService
                 $intake = null;
                 if (filled($data['recorded_stock_intake_id'] ?? null)) {
                     $intake = $this->recordedIntakes->claimStartSlot((int) $data['recorded_stock_intake_id'], $product->id, (int) $data['warehouse_id']);
+                } elseif ($actor->employee?->role === EmployeeRole::Technician && $product->condition === ProductCondition::Renewed) {
+                    // Product is locked above, just as it is for a recorded queue start. The
+                    // intake service then locks/rechecks matching rows under this same lock,
+                    // so a Technician cannot race a recorded queue claim with manual QC.
+                    $this->recordedIntakes->assertManualTechnicianStartAllowed($product->id, (int) $data['warehouse_id']);
                 }
                 $item = empty($data['order_item_id']) ? null : OrderItem::query()->with('upgradeSelection')->findOrFail($data['order_item_id']);
                 if ($item) {

@@ -16,7 +16,7 @@ class QcRecordedStockIntakeController extends MobileController
         $priority = $demand->calculateForQcQueue($request->user());
 
         return response()->json([
-            'data' => $intakes->queue($request->user()),
+            'data' => $intakes->queue($request->user(), $priority['by_product_location']),
             'priority' => ['needed_for_orders' => $priority['units_needed']],
         ]);
     }
@@ -38,11 +38,14 @@ class QcRecordedStockIntakeController extends MobileController
             'recorded_stock_intake_id' => $source->id,
         ], $request->user());
 
+        $source->refresh();
+        $remainingQuantity = max(0, (int) $source->accepted_quantity - (int) $source->started_quantity);
+
         return response()->json([
             'inspection_id' => $inspection->id,
             'qc_id' => $inspection->device()->value('reference'),
             'status' => $inspection->status->value,
-            'remaining_quantity' => max(0, $source->accepted_quantity - $source->refresh()->started_quantity),
+            'remaining_quantity' => $remainingQuantity,
         ], 201);
     }
 }

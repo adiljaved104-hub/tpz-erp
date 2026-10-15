@@ -30,14 +30,16 @@ class QcOrderDemandService
     {
         $this->dispatch->authorizeQueue($actor);
 
-        return $this->calculateAuthorizedForecast($actor);
+        $forecast = $this->calculateAuthorizedForecast($actor);
+
+        return ['units_needed' => $forecast['units_needed'], 'orders_affected' => $forecast['orders_affected']];
     }
 
     /**
      * Aggregate-only projection for an authorized QC queue. It intentionally
      * does not require Order View and never returns Order/customer details.
      *
-     * @return array{units_needed: int, orders_affected: int}
+     * @return array{units_needed: int, orders_affected: int, by_product_location: array<int, array<int, int>>}
      */
     public function calculateForQcQueue(User $actor): array
     {
@@ -48,12 +50,12 @@ class QcOrderDemandService
         return $this->calculateAuthorizedForecast($actor);
     }
 
-    /** @return array{units_needed: int, orders_affected: int} */
+    /** @return array{units_needed: int, orders_affected: int, by_product_location: array<int, array<int, int>>} */
     private function calculateAuthorizedForecast(User $actor): array
     {
         $slots = $this->demandSlots($actor);
         if ($slots === []) {
-            return ['units_needed' => 0, 'orders_affected' => 0];
+            return ['units_needed' => 0, 'orders_affected' => 0, 'by_product_location' => []];
         }
 
         $certificates = $this->availableSupply->currentUnclaimed();
@@ -63,7 +65,11 @@ class QcOrderDemandService
                 $affectedOrders[$slot['order']->id] = true;
             }
 
-            return ['units_needed' => count($slots), 'orders_affected' => count($affectedOrders)];
+            return [
+                'units_needed' => count($slots),
+                'orders_affected' => count($affectedOrders),
+                'by_product_location' => $this->groupUnmatchedSlots($slots),
+            ];
         }
 
         // Deterministic augmenting paths produce a maximum one-to-one matching.
@@ -78,13 +84,34 @@ class QcOrderDemandService
 
         $matchedSlots = array_fill_keys(array_values($certificateToSlot), true);
         $affectedOrders = [];
+        $unmatchedSlots = [];
         foreach ($slots as $slotIndex => $slot) {
             if (! isset($matchedSlots[$slotIndex])) {
                 $affectedOrders[$slot['order']->id] = true;
+                $unmatchedSlots[] = $slot;
             }
         }
 
-        return ['units_needed' => count($slots) - count($matchedSlots), 'orders_affected' => count($affectedOrders)];
+        return [
+            'units_needed' => count($unmatchedSlots),
+            'orders_affected' => count($affectedOrders),
+            'by_product_location' => $this->groupUnmatchedSlots($unmatchedSlots),
+        ];
+    }
+
+    /** @param list<array{order: Order, item: OrderItem, can_use_ready_certificate: bool}> $slots
+     * @return array<int, array<int, int>>
+     */
+    private function groupUnmatchedSlots(array $slots): array
+    {
+        $byProductLocation = [];
+        foreach ($slots as $slot) {
+            $productId = (int) $slot['item']->product_id;
+            $warehouseId = (int) $slot['order']->warehouse_id;
+            $byProductLocation[$productId][$warehouseId] = ($byProductLocation[$productId][$warehouseId] ?? 0) + 1;
+        }
+
+        return $byProductLocation;
     }
 
     /** @return list<array{order: Order, item: OrderItem, can_use_ready_certificate: bool}> */
@@ -120,7 +147,9 @@ class QcOrderDemandService
                     $slots[] = [
                         'order' => $order,
                         'item' => $item,
-                        'can_use_ready_certificate' => $canUseReadyCertificate,
+                        // Drafts cannot be assigned or reserved, but a compatible ready
+                        // certificate is still existing supply for this read-only forecast.
+                        'can_use_ready_certificate' => $isDraft || $canUseReadyCertificate,
                     ];
                 }
             }

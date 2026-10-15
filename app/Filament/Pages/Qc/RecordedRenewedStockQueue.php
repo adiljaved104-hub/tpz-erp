@@ -24,6 +24,8 @@ class RecordedRenewedStockQueue extends Page implements HasTable
 {
     use InteractsWithTable;
 
+    private ?array $orderPriorityProjection = null;
+
     protected static ?string $slug = 'recorded-renewed-stock-awaiting-qc';
 
     protected static ?string $navigationLabel = 'Recorded Renewed Stock Awaiting QC';
@@ -45,10 +47,7 @@ class RecordedRenewedStockQueue extends Page implements HasTable
 
     protected function getViewData(): array
     {
-        return [
-            'neededForOrders' => app(QcOrderDemandService::class)
-                ->calculateForQcQueue(auth()->user())['units_needed'],
-        ];
+        return ['neededForOrders' => $this->orderPriorityProjection()['units_needed']];
     }
 
     public function table(Table $table): Table
@@ -64,6 +63,9 @@ class RecordedRenewedStockQueue extends Page implements HasTable
                 TextColumn::make('started_quantity')->label('QC Started'),
                 TextColumn::make('completed_quantity')->label('QC Completed'),
                 TextColumn::make('remaining')->label('Remaining')->state(fn (QcRecordedStockIntake $record): int => $record->accepted_quantity - $record->started_quantity)->badge(),
+                TextColumn::make('order_priority_units')->label('Order Priority (SKU/location split)')
+                    ->state(fn (QcRecordedStockIntake $record): int => $this->orderPriorityProjection()['by_intake_id'][$record->id] ?? 0)
+                    ->tooltip('Order demand is aggregated by Product and Location, then split once across matching GRN rows.'),
             ])
             ->recordActions([
                 Action::make('startQc')->label('Start QC')->icon('heroicon-o-play')
@@ -93,5 +95,23 @@ class RecordedRenewedStockQueue extends Page implements HasTable
                     }),
             ])
             ->defaultSort('id')->defaultPaginationPageOption(25);
+    }
+
+    /** @return array{units_needed: int, by_intake_id: array<int, int>} */
+    private function orderPriorityProjection(): array
+    {
+        if ($this->orderPriorityProjection !== null) {
+            return $this->orderPriorityProjection;
+        }
+
+        $actor = auth()->user();
+        $demand = app(QcOrderDemandService::class)->calculateForQcQueue($actor);
+        $intakes = app(QcRecordedRenewedStockIntakeService::class)->queueQuery($actor)->get();
+
+        return $this->orderPriorityProjection = [
+            'units_needed' => $demand['units_needed'],
+            'by_intake_id' => app(QcRecordedRenewedStockIntakeService::class)
+                ->distributeOrderPriority($intakes, $demand['by_product_location']),
+        ];
     }
 }

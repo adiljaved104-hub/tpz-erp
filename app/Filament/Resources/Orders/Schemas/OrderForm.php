@@ -73,8 +73,8 @@ class OrderForm
                             ->placeholder('Search by SKU or product name')
                             ->searchable()
                             ->wrapOptionLabels()
-                            ->searchPrompt('Type at least 2 characters to search available products.')
-                            ->noSearchResultsMessage('No sellable products found for the selected warehouse/platform.')
+                            ->searchPrompt('Type at least 2 characters to search active Products in your authorized scope.')
+                            ->noSearchResultsMessage('No active Products found within your authorized Responsibility and fulfilment scope.')
                             ->required()->live()
                             ->getSearchResultsUsing(fn (string $search, Get $get): array => self::productOptions($search, $get))
                             ->getOptionLabelUsing(fn ($value, Get $get): ?string => self::productLabel((int) $value, $get))
@@ -83,7 +83,7 @@ class OrderForm
                             ->helperText(function (Get $get): string {
                                 $stockContext = $get->string('stock_context', isNullable: true);
 
-                                return 'Only products with available sellable stock are shown.'.($stockContext === null ? '' : " {$stockContext}");
+                                return 'Active Products in your authorized scope can be drafted; Save & Reserve still requires sellable stock.'.($stockContext === null ? '' : " {$stockContext}");
                             }),
                         TextInput::make('quantity')->numeric()->integer()->minValue(1)->default(1)->required()->live(onBlur: true),
                         TextInput::make('selling_price')->label('Selling Price')->prefix('AED')
@@ -198,21 +198,36 @@ class OrderForm
 
         $options = app(ProductSearchOptions::class)->search(
             $search,
-            ProductMatchContext::Order,
+            ProductMatchContext::OrderDraft,
             $user,
             $warehouseId,
             $platformId,
         );
         $products = Product::query()->whereKey(array_keys($options))->get(['id', 'sku', 'name'])->keyBy('id');
+        $inventories = ProductInventory::query()
+            ->where('warehouse_id', $warehouseId)
+            ->whereIn('product_id', array_keys($options))
+            ->get(['product_id', 'available_quantity', 'reserved_quantity', 'qc_pending_quantity'])
+            ->keyBy('product_id');
 
-        return collect($options)->map(function (string $label, int $productId) use ($products): string {
+        return collect($options)->map(function (string $label, int $productId) use ($products, $inventories): string {
             $product = $products->get($productId);
             $firstSeparator = mb_strpos($label, ' · ');
             $secondSeparator = $firstSeparator === false ? false : mb_strpos($label, ' · ', $firstSeparator + 3);
+            $suffix = $secondSeparator === false ? '' : trim(mb_substr($label, $secondSeparator + 3));
+            $suffix = trim((string) preg_replace('/(?:\s*·\s*)?Sellable:\s*\d+\s*$/u', '', $suffix));
 
-            return $product instanceof Product && $secondSeparator !== false
-                ? "{$product->sku} · ".trim($product->name).mb_substr($label, $secondSeparator)
-                : $label;
+            if (! $product instanceof Product) {
+                return $label;
+            }
+
+            $parts = ["{$product->sku} · ".trim($product->name)];
+            if ($suffix !== '') {
+                $parts[] = $suffix;
+            }
+            $parts[] = self::stockContextFromInventory($inventories->get($productId));
+
+            return implode(' · ', $parts);
         })->all();
     }
 
@@ -227,7 +242,7 @@ class OrderForm
         }
 
         $product = app(OrderResponsibilityScopeService::class)
-            ->applyProducts(Product::query()->products()->whereKey($id), $user, $platformId, $warehouseId)
+            ->applyProducts(Product::query()->active()->products()->whereKey($id), $user, $platformId, $warehouseId)
             ->first(['id', 'sku', 'name']);
 
         if ($product === null) {
@@ -237,14 +252,9 @@ class OrderForm
         $inventory = ProductInventory::query()
             ->where('product_id', $id)
             ->where('warehouse_id', $warehouseId)
-            ->first(['available_quantity', 'reserved_quantity']);
+            ->first(['available_quantity', 'reserved_quantity', 'qc_pending_quantity']);
 
-        return self::label($product, $inventory?->sellableQuantity() ?? 0);
-    }
-
-    private static function label(Product $product, int $sellable): string
-    {
-        return "{$product->sku} · ".trim($product->name).' · Sellable: '.$sellable;
+        return "{$product->sku} · ".trim($product->name).' · '.self::stockContextFromInventory($inventory);
     }
 
     private static function loadStockContext(mixed $state, Get $get, Set $set): void
@@ -482,7 +492,7 @@ class OrderForm
         $inventories = ProductInventory::query()
             ->where('warehouse_id', $warehouseId)
             ->whereIn('product_id', $productIds)
-            ->get(['product_id', 'available_quantity', 'reserved_quantity'])
+            ->get(['product_id', 'available_quantity', 'reserved_quantity', 'qc_pending_quantity'])
             ->keyBy('product_id');
 
         foreach ($items as $key => $item) {
@@ -499,7 +509,7 @@ class OrderForm
         $inventory = ProductInventory::query()
             ->where('product_id', $productId)
             ->where('warehouse_id', $warehouseId)
-            ->first(['available_quantity', 'reserved_quantity']);
+            ->first(['available_quantity', 'reserved_quantity', 'qc_pending_quantity']);
 
         return self::stockContextFromInventory($inventory);
     }
@@ -509,9 +519,12 @@ class OrderForm
         $available = $inventory?->available_quantity ?? 0;
         $reserved = $inventory?->reserved_quantity ?? 0;
         $sellable = $available - $reserved;
-        $warning = $sellable <= 0 ? ' — Out of stock' : ($sellable <= 2 ? ' — Low stock' : '');
+        $qcPending = $inventory?->qc_pending_quantity ?? 0;
+        $warning = $sellable <= 0 && $qcPending > 0
+            ? ' — Awaiting QC'
+            : ($sellable <= 0 ? ' — Out of stock' : ($sellable <= 2 ? ' — Low stock' : ''));
 
-        return "Available: {$available} | Reserved: {$reserved} | Sellable: {$sellable}{$warning}";
+        return "Available: {$available} | Reserved: {$reserved} | Sellable: {$sellable} | QC Pending: {$qcPending}{$warning}";
     }
 
     private static function lineTotal(Get $get): string

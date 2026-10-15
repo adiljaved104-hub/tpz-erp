@@ -5,6 +5,7 @@ namespace App\Enums;
 enum ProductMatchContext: string
 {
     case Order = 'order';
+    case OrderDraft = 'order_draft';
     case Quotation = 'quotation';
     case Purchase = 'purchase';
     case Receiving = 'receiving';

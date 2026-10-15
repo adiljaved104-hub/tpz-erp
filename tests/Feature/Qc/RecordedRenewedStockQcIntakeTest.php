@@ -21,10 +21,12 @@ use App\Enums\PurchasePermission;
 use App\Enums\QcPermission;
 use App\Enums\StockMovementType;
 use App\Filament\Pages\Qc\RecordedRenewedStockQueue;
+use App\Filament\Resources\Orders\Pages\CreateOrder;
 use App\Filament\Resources\QcInspections\QcInspectionResource;
 use App\Models\Employee;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Purchase;
@@ -535,6 +537,61 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame($movementCount, StockMovement::query()->count());
         $this->assertSame(0, $order->items()->whereHas('reservations')->count());
         $this->assertDatabaseCount('qc_order_assignments', 0);
+    }
+
+    public function test_sales_order_create_draft_adds_qc_pending_demand_to_the_technician_queue(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        $technician = $this->actor(EmployeeRole::Technician);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 1, '100.0000');
+        $this->receive($owner, $purchase, 1, 0, 0);
+        $inventoryBefore = $this->inventorySnapshot($product, $warehouse);
+        $movementCount = StockMovement::query()->count();
+
+        $component = Livewire::actingAs($owner)->test(CreateOrder::class)
+            ->fillForm([
+                'warehouse_id' => $warehouse->id,
+                'marketplace_platform_id' => null,
+                'external_order_number' => null,
+                'order_date' => now()->toDateString(),
+                'handled_by_employee_id' => $owner->employee->id,
+                'items' => [[
+                    'product_id' => $product->id,
+                    'quantity' => 1,
+                    'selling_price' => '500.00',
+                    'discount_total' => '0.00',
+                    'vat_rate' => '0.0000',
+                    'allocation_sources' => [],
+                ]],
+                'notes' => 'Draft awaiting QC; not a stock reservation.',
+            ]);
+        $productField = collect($component->instance()->form->getFlatFields(withHidden: true))
+            ->first(fn ($field): bool => $field->getName() === 'product_id');
+        $this->assertArrayHasKey($product->id, $productField->getSearchResults($product->sku));
+
+        $component->mountAction(['name' => 'saveDraft', 'context' => ['schemaComponent' => 'content.form-actions']])
+            ->callMountedAction()
+            ->assertHasNoFormErrors();
+
+        $order = Order::query()->sole();
+        $this->assertSame(OrderStatus::Draft, $order->status);
+        $this->assertSame($inventoryBefore, $this->inventorySnapshot($product, $warehouse));
+        $this->assertSame($movementCount, StockMovement::query()->count());
+        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+        $this->assertSame(['units_needed' => 1, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($owner));
+        $queueDemand = app(QcOrderDemandService::class)->calculateForQcQueue($technician);
+        $this->assertSame(1, $queueDemand['units_needed']);
+        $this->assertSame(1, $queueDemand['orders_affected']);
+        $this->assertSame(1, $queueDemand['by_product_location'][$product->id][$warehouse->id]);
+
+        $token = $technician->createToken('Draft QC queue priority')->plainTextToken;
+        $this->withToken($token)->getJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock')->assertOk()
+            ->assertJsonPath('priority.needed_for_orders', 1)
+            ->assertJsonPath('data.0.order_priority_units', 1)
+            ->assertJsonMissingPath('data.0.order_reference');
     }
 
     public function test_order_priority_is_product_location_scoped_and_split_once_across_multiple_grn_rows(): void

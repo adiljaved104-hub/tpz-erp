@@ -11,11 +11,13 @@ use App\Enums\OfficeFinancePermission;
 use App\Enums\OrderPermission;
 use App\Enums\ProductPermission;
 use App\Enums\QcPermission;
+use App\Enums\StockTransferPermission;
 use App\Filament\Pages\Administration\AccessControl;
 use App\Filament\Resources\Employees\Pages\CreateEmployee;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\QcInspections\QcInspectionResource;
+use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\Product;
@@ -29,6 +31,7 @@ use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Mobile\MobileManifest;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionService;
@@ -56,15 +59,28 @@ class TechnicianRoleSecurityTest extends TestCase
         $this->assertSame(EmployeeRole::Staff->value, data_get($component->instance()->data, 'role'));
     }
 
-    public function test_technician_defaults_are_limited_to_the_five_approved_qc_permissions(): void
+    public function test_technician_defaults_include_only_inspection_and_qc_transfer_assignment_permissions(): void
     {
         $technician = $this->employee(EmployeeRole::Technician);
         $authorization = app(QcAuthorization::class);
-        $allowed = [QcPermission::View, QcPermission::Start, QcPermission::Update, QcPermission::Complete, QcPermission::ViewCustomerEvidence];
+        $allowed = [
+            QcPermission::View,
+            QcPermission::Start,
+            QcPermission::Update,
+            QcPermission::Complete,
+            QcPermission::ViewCustomerEvidence,
+            QcPermission::AssignMarketplaceTransferDevice,
+            QcPermission::ViewMarketplaceTransferAssignments,
+        ];
 
         foreach (QcPermission::cases() as $permission) {
             $this->assertSame(in_array($permission, $allowed, true), $authorization->roleDefault($technician->user, $permission), $permission->value);
             $this->assertSame(in_array($permission, $allowed, true), $authorization->allows($technician->user, $permission), $permission->value);
+        }
+
+        $stockTransfers = app(StockTransferAuthorization::class);
+        foreach (StockTransferPermission::cases() as $permission) {
+            $this->assertFalse($stockTransfers->allows($technician->user, $permission), $permission->value);
         }
 
         $resolver = app(DatabaseEmployeePermissionOverrideResolver::class);
@@ -88,6 +104,9 @@ class TechnicianRoleSecurityTest extends TestCase
             OfficeFinancePermission::ViewBalances->value,
             QcPermission::ViewAll->value,
             QcPermission::Reopen->value,
+            QcPermission::ViewOrderAssignments->value,
+            QcPermission::ReleaseMarketplaceTransferDevice->value,
+            StockTransferPermission::Dispatch->value,
         ] as $key) {
             $this->override($technician, $key, EmployeePermissionEffect::Allow, $owner->user);
         }
@@ -101,6 +120,9 @@ class TechnicianRoleSecurityTest extends TestCase
             OfficeFinancePermission::ViewBalances->value,
             QcPermission::ViewAll->value,
             QcPermission::Reopen->value,
+            QcPermission::ViewOrderAssignments->value,
+            QcPermission::ReleaseMarketplaceTransferDevice->value,
+            StockTransferPermission::Dispatch->value,
         ] as $key) {
             $this->assertFalse($resolver->decision($technician->user, $key), $key);
         }
@@ -133,6 +155,15 @@ class TechnicianRoleSecurityTest extends TestCase
             $this->fail('A non-QC Technician Allow must be rejected server-side.');
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey('permission', $exception->errors());
+        }
+
+        foreach ([StockTransferPermission::Dispatch->value, QcPermission::ReleaseMarketplaceTransferDevice->value] as $restrictedPermission) {
+            try {
+                $service->change($technician, $restrictedPermission, EmployeePermissionEffect::Allow, null, $owner->user);
+                $this->fail("A Technician Allow for {$restrictedPermission} must be rejected server-side.");
+            } catch (ValidationException $exception) {
+                $this->assertArrayHasKey('permission', $exception->errors());
+            }
         }
 
         $service->change($technician, QcPermission::Update->value, EmployeePermissionEffect::Deny, null, $owner->user);
@@ -219,10 +250,16 @@ class TechnicianRoleSecurityTest extends TestCase
         $manifestResponse
             ->assertJsonPath('landing_module', 'qc')
             ->assertJsonPath('modules.0.key', 'qc')
-            ->assertJsonCount(1, 'modules');
+            ->assertJsonCount(1, 'modules')
+            ->assertJsonPath('modules.0.capabilities.marketplace_transfers', true)
+            ->assertJsonPath('modules.0.capabilities.transfer_assignment', true)
+            ->assertJsonPath('modules.0.capabilities.transfer_release', false);
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/products')->assertForbidden();
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/orders')->assertForbidden();
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/inventory')->assertForbidden();
+        $this->withToken($token)->getJson('/api/mobile/v1/workspace/stock-transfers')->assertForbidden();
+        $this->withToken($token)->postJson('/api/mobile/v1/workspace/stock-transfers', [])->assertForbidden();
+        $this->withToken($token)->postJson('/api/mobile/v1/workspace/stock-transfers/1/dispatch', [])->assertForbidden();
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/qc/inspections?scope=pending')->assertOk()->assertJsonFragment(['inspection_id' => $own->id])->assertJsonMissing(['inspection_id' => $other->id]);
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/qc/inspections/'.$own->id)
             ->assertOk()->assertJsonPath('inspection.can_update', true)->assertJsonPath('inspection.can_upload_evidence', true)->assertJsonPath('inspection.can_complete', true)
@@ -278,6 +315,7 @@ class TechnicianRoleSecurityTest extends TestCase
         $this->actingAs($technician->user, 'web')->get(QcInspectionResource::getUrl('edit', ['record' => $other->id]))->assertNotFound();
         $this->actingAs($technician->user, 'web')->get(ProductResource::getUrl('index'))->assertForbidden();
         $this->actingAs($technician->user, 'web')->get(OrderResource::getUrl('index'))->assertForbidden();
+        $this->actingAs($technician->user, 'web')->get(StockTransferResource::getUrl('index'))->assertForbidden();
 
         $groups = Filament::getPanel('admin')->buildNavigation();
         $labels = collect($groups)->flatMap(fn ($group) => $group->getItems())->map(fn ($item) => $item->getLabel())->values()->all();

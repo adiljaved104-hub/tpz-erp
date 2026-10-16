@@ -2,6 +2,7 @@
 
 namespace App\Services\Qc;
 
+use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationType;
 use App\Enums\OrderStatus;
 use App\Enums\ProductCondition;
@@ -16,6 +17,7 @@ use App\Models\StockTransferItem;
 use App\Models\User;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\StockTransferAuthorization;
+use App\Services\StockTransfers\StockTransferResponsibilityScopeService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -90,16 +92,43 @@ class QcTransferDemandService
         return (int) ($this->unmatchedTransferDemandByTransfer()[(int) $transfer->id] ?? 0);
     }
 
+    public function canViewTransferQueue(User $actor): bool
+    {
+        if ($actor->employee?->role === EmployeeRole::Technician) {
+            return app(QcAuthorization::class)->allows($actor, QcPermission::ViewMarketplaceTransferAssignments);
+        }
+
+        return app(QcAuthorization::class)->allows($actor, QcPermission::ViewOrderAssignments)
+            && app(StockTransferAuthorization::class)->allows($actor, StockTransferPermission::View);
+    }
+
+    public function canViewTransfer(User $actor, StockTransfer $transfer): bool
+    {
+        if (! $this->canViewTransferQueue($actor)) {
+            return false;
+        }
+
+        if ($actor->employee?->role !== EmployeeRole::Technician) {
+            return app(StockTransferAuthorization::class)->allows($actor, StockTransferPermission::View, $transfer);
+        }
+
+        return $transfer->status === StockTransferStatus::Draft
+            && $this->transferReadiness->isRequired($transfer)
+            && app(StockTransferResponsibilityScopeService::class)->canAccessTransfer(
+                $actor,
+                $transfer,
+            );
+    }
+
     /** @return Collection<int, array{transfer:StockTransfer,readiness:array}> */
     private function visibleTransferWork(User $actor): Collection
     {
-        if (! app(QcAuthorization::class)->allows($actor, QcPermission::ViewOrderAssignments)
-            || ! app(StockTransferAuthorization::class)->allows($actor, StockTransferPermission::View)) {
+        if (! $this->canViewTransferQueue($actor)) {
             return collect();
         }
 
         return $this->draftMarketplaceTransfers()->filter(function (StockTransfer $transfer) use ($actor): bool {
-            return app(StockTransferAuthorization::class)->allows($actor, StockTransferPermission::View, $transfer);
+            return $this->canViewTransfer($actor, $transfer);
         })->map(function (StockTransfer $transfer): array {
             $readiness = $this->transferReadiness->forTransfer($transfer);
 

@@ -27,8 +27,7 @@ class QcDispatchController extends MobileController
         $canInspect = $qcAuthorization->allows($actor, QcPermission::View);
         $canDispatch = $qcAuthorization->allows($actor, QcPermission::ViewDispatchQueue)
             && $orderAuthorization->allows($actor, OrderPermission::View);
-        $canTransferQueue = $qcAuthorization->allows($actor, QcPermission::ViewOrderAssignments)
-            && $transferAuthorization->allows($actor, StockTransferPermission::View);
+        $canTransferQueue = $transferDemand->canViewTransferQueue($actor);
         abort_unless($canInspect || $canDispatch || $canTransferQueue, 403);
 
         $canScan = $canDispatch
@@ -40,7 +39,6 @@ class QcDispatchController extends MobileController
         $transferSummary = $canTransferQueue ? $transferDemand->summary($actor)
             : ['units_needed' => 0, 'transfers_affected' => 0, 'marketplace_transfers' => 0];
         $canAssignTransfer = $canTransferQueue
-            && $transferAuthorization->allows($actor, StockTransferPermission::Dispatch)
             && $qcAuthorization->allows($actor, QcPermission::AssignMarketplaceTransferDevice);
         $canReleaseTransfer = $canTransferQueue
             && $transferAuthorization->allows($actor, StockTransferPermission::Dispatch)

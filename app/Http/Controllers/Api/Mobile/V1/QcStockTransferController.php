@@ -2,12 +2,8 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
-use App\Enums\QcPermission;
-use App\Enums\StockTransferPermission;
 use App\Models\QcStockTransferAssignment;
 use App\Models\StockTransfer;
-use App\Services\Authorization\QcAuthorization;
-use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Qc\QcStockTransferAssignmentService;
 use App\Services\Qc\QcStockTransferReadinessService;
 use App\Services\Qc\QcTransferDemandService;
@@ -19,12 +15,12 @@ class QcStockTransferController extends MobileController
 {
     public function index(Request $request): JsonResponse
     {
-        app(QcAuthorization::class)->authorize($request->user(), QcPermission::ViewOrderAssignments);
-        app(StockTransferAuthorization::class)->authorize($request->user(), StockTransferPermission::View);
+        $demand = app(QcTransferDemandService::class);
+        abort_unless($demand->canViewTransferQueue($request->user()), 403);
         $input = $request->validate(['page' => 'nullable|integer|min:1', 'per_page' => 'nullable|integer|min:1|max:50']);
         $page = (int) ($input['page'] ?? 1);
         $perPage = (int) ($input['per_page'] ?? 25);
-        $rows = app(QcTransferDemandService::class)->queue($request->user());
+        $rows = $demand->queue($request->user());
         $paginator = new LengthAwarePaginator(
             $rows->forPage($page, $perPage)->values(),
             $rows->count(),
@@ -39,7 +35,6 @@ class QcStockTransferController extends MobileController
     public function show(Request $request, int $transfer): JsonResponse
     {
         $record = $this->readable($request, $transfer);
-        app(QcAuthorization::class)->authorize($request->user(), QcPermission::ViewOrderAssignments);
         $readiness = app(QcStockTransferReadinessService::class)->forTransfer($record);
         $demand = app(QcTransferDemandService::class)->unitsNeededForTransfer($request->user(), $record);
         $assignments = QcStockTransferAssignment::query()->where('stock_transfer_id', $record->id)
@@ -118,7 +113,7 @@ class QcStockTransferController extends MobileController
             'sourceWarehouse:id,name,code,location_type,marketplace_platform_id',
             'destinationWarehouse:id,name,code,location_type,marketplace_platform_id',
         ])->findOrFail($id);
-        app(StockTransferAuthorization::class)->authorize($request->user(), StockTransferPermission::View, $transfer);
+        abort_unless(app(QcTransferDemandService::class)->canViewTransfer($request->user(), $transfer), 403);
 
         return $transfer;
     }

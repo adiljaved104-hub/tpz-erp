@@ -2,6 +2,7 @@
 
 namespace App\Services\Qc;
 
+use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationType;
 use App\Enums\QcPermission;
 use App\Enums\StockTransferPermission;
@@ -17,6 +18,7 @@ use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\StockTransferAuthorization;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -193,9 +195,12 @@ class QcStockTransferAssignmentService
 
     private function authorizeAssignment(User $actor, StockTransfer $transfer): void
     {
-        app(StockTransferAuthorization::class)->authorize($actor, StockTransferPermission::Dispatch, $transfer);
-        app(QcAuthorization::class)->authorize($actor, QcPermission::ViewOrderAssignments);
+        $viewPermission = $actor->employee?->role === EmployeeRole::Technician
+            ? QcPermission::ViewMarketplaceTransferAssignments
+            : QcPermission::ViewOrderAssignments;
+        app(QcAuthorization::class)->authorize($actor, $viewPermission);
         app(QcAuthorization::class)->authorize($actor, QcPermission::AssignMarketplaceTransferDevice);
+        throw_unless(app(QcTransferDemandService::class)->canViewTransfer($actor, $transfer), AuthorizationException::class);
     }
 
     private function authorizeRelease(User $actor, StockTransfer $transfer): void

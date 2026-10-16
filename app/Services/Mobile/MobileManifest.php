@@ -68,10 +68,11 @@ class MobileManifest
                     && $qcAuthorization->allows($user, Enums\QcPermission::AssignOrderDevice);
                 $ship = $dispatch && $qcAuthorization->allows($user, Enums\QcPermission::ShipDispatch)
                     && $orderAuthorization->allows($user, Enums\OrderPermission::Fulfill);
-                $marketplaceTransfers = $qcAuthorization->allows($user, Enums\QcPermission::ViewOrderAssignments)
-                    && app(Authorization\StockTransferAuthorization::class)->allows($user, Enums\StockTransferPermission::View);
+                $marketplaceTransfers = $user->employee?->role === Enums\EmployeeRole::Technician
+                    ? $qcAuthorization->allows($user, Enums\QcPermission::ViewMarketplaceTransferAssignments)
+                    : $qcAuthorization->allows($user, Enums\QcPermission::ViewOrderAssignments)
+                        && app(Authorization\StockTransferAuthorization::class)->allows($user, Enums\StockTransferPermission::View);
                 $transferAssignment = $marketplaceTransfers
-                    && app(Authorization\StockTransferAuthorization::class)->allows($user, Enums\StockTransferPermission::Dispatch)
                     && $qcAuthorization->allows($user, Enums\QcPermission::AssignMarketplaceTransferDevice);
                 $transferRelease = $marketplaceTransfers
                     && app(Authorization\StockTransferAuthorization::class)->allows($user, Enums\StockTransferPermission::Dispatch)

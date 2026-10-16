@@ -24,4 +24,5 @@ enum QcPermission: string
     case FocusedWorkspace = 'qc.focused_workspace';
     case AssignMarketplaceTransferDevice = 'qc.assign_marketplace_transfer_device';
     case ReleaseMarketplaceTransferDevice = 'qc.release_marketplace_transfer_device';
+    case ViewMarketplaceTransferAssignments = 'qc.view_marketplace_transfer_assignments';
 }

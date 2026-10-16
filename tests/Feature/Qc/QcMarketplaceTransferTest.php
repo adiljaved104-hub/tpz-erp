@@ -18,9 +18,11 @@ use App\Enums\InventoryLocationType;
 use App\Enums\ProductCondition;
 use App\Enums\QcPermission;
 use App\Enums\StockMovementType;
+use App\Enums\StockTransferPermission;
 use App\Enums\StockTransferStatus;
 use App\Exceptions\InvalidStockTransferTransitionException;
 use App\Filament\Resources\QcInspections\Widgets\QcProgress;
+use App\Models\Employee;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductInventory;
@@ -34,6 +36,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Qc\QcAvailableCertificateService;
 use App\Services\Qc\QcDocumentService;
 use App\Services\Qc\QcEvidenceService;
@@ -438,18 +441,21 @@ class QcMarketplaceTransferTest extends TestCase
 
     public function test_mobile_standalone_qc_becomes_a_permanent_label_then_fills_a_later_five_unit_transfer(): void
     {
-        Sanctum::actingAs($this->owner);
-        $start = $this->postJson('/api/mobile/v1/workspace/qc/inspections', [
-            'product_id' => $this->product->id,
-            'serial' => 'STANDALONE-FBA-001',
-            'warehouse_id' => $this->source->id,
-            'features' => [],
-            'idempotency_key' => (string) Str::uuid(),
-        ])->assertCreated()->assertJsonPath('data.status', 'pending');
-        $inspection = QcInspection::query()->with('device')->findOrFail($start->json('data.inspection_id'));
+        $email = Str::uuid().'@techpointzone.com';
+        $technician = User::factory()->create(['email' => $email]);
+        Employee::factory()->for($technician)->role(EmployeeRole::Technician)->create(['email' => $email]);
+        $technician->refresh();
+
+        $this->assertFalse(app(StockTransferAuthorization::class)->allows($technician, StockTransferPermission::View));
+        $this->assertFalse(app(StockTransferAuthorization::class)->allows($technician, StockTransferPermission::Dispatch));
+        $this->assertFalse(app(QcAuthorization::class)->allows($technician, QcPermission::ViewOrderAssignments));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::ViewMarketplaceTransferAssignments));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::AssignMarketplaceTransferDevice));
+
+        $certificate = $this->completeMobileStandaloneInspection($technician, 'STANDALONE-FBA-001');
+        $inspection = $certificate->inspection()->with('device')->firstOrFail();
         $this->assertNull($inspection->order_id);
         $this->assertNull($inspection->order_item_id);
-        $certificate = $this->finish($inspection);
 
         $this->assertDatabaseCount('qc_order_assignments', 0);
         $this->assertDatabaseCount('qc_stock_transfer_assignments', 0);
@@ -465,6 +471,25 @@ class QcMarketplaceTransferTest extends TestCase
         $labels = app(QcDocumentService::class)->labels(collect($certificates)->map(fn (QcCertificate $record) => $record->inspection_id)->all(), $this->owner);
         $this->assertCount(5, $labels);
         $this->assertStringContainsString('/verify/qc/', $labels[0]['verificationUrl']);
+        Sanctum::actingAs($technician);
+        $this->getJson('/api/mobile/v1/workspace/manifest')->assertOk()
+            ->assertJsonPath('workspace_mode', 'qc_focused')
+            ->assertJsonPath('modules.0.key', 'qc')
+            ->assertJsonPath('modules.0.capabilities.marketplace_transfers', true)
+            ->assertJsonPath('modules.0.capabilities.transfer_assignment', true)
+            ->assertJsonPath('modules.0.capabilities.transfer_release', false);
+        $this->getJson('/api/mobile/v1/workspace/qc')->assertOk()
+            ->assertJsonPath('data.capabilities.marketplace_transfers', true)
+            ->assertJsonPath('data.capabilities.transfer_assignment', true)
+            ->assertJsonPath('data.capabilities.transfer_release', false);
+        $this->getJson('/api/mobile/v1/workspace/qc/transfers')->assertOk()
+            ->assertJsonPath('data.0.reference', $transfer->reference)
+            ->assertJsonPath('data.0.readiness.status', 'pending_qc');
+        $this->getJson('/api/mobile/v1/workspace/qc/transfers/'.$transfer->id)->assertOk()
+            ->assertJsonPath('data.transfer.status', 'draft')
+            ->assertJsonPath('data.readiness.required', 5);
+        $this->getJson('/api/mobile/v1/workspace/stock-transfers')->assertForbidden();
+        $this->postJson('/api/mobile/v1/workspace/stock-transfers', [])->assertForbidden();
         $movementsBeforeScans = StockMovement::query()->count();
         foreach ($certificates as $index => $record) {
             $this->postJson('/api/mobile/v1/workspace/qc/transfers/'.$transfer->id.'/verified-scan', [
@@ -486,6 +511,15 @@ class QcMarketplaceTransferTest extends TestCase
         $this->assertSame(StockTransferStatus::Draft, $transfer->fresh()->status);
         $this->assertSame($movementsBeforeScans, StockMovement::query()->count());
         $this->assertDatabaseCount('qc_order_assignments', 0);
+        $this->postJson('/api/mobile/v1/workspace/stock-transfers/'.$transfer->id.'/dispatch', [
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertForbidden();
+        $assignmentId = $transfer->qcAssignments()->active()->value('id');
+        $this->postJson('/api/mobile/v1/workspace/qc/transfers/'.$transfer->id.'/assignments/'.$assignmentId.'/release', [
+            'reason' => 'Technician release must remain unavailable',
+        ])->assertForbidden();
+        $this->assertSame(StockTransferStatus::Draft, $transfer->fresh()->status);
+        $this->assertSame($movementsBeforeScans, StockMovement::query()->count());
     }
 
     public function test_transfer_demand_is_separate_from_pending_qc_and_free_certificates_are_matched_once(): void
@@ -634,6 +668,56 @@ class QcMarketplaceTransferTest extends TestCase
         ], $this->owner);
 
         return $this->finish($inspection);
+    }
+
+    private function completeMobileStandaloneInspection(User $technician, string $serial): QcCertificate
+    {
+        Sanctum::actingAs($technician);
+        $options = $this->getJson('/api/mobile/v1/workspace/qc/inspections/options?selected_product_id='.$this->product->id)
+            ->assertOk()
+            ->assertJsonPath('data.selected_product_id', $this->product->id);
+        $this->assertNotEmpty($options->json('data.warehouses'));
+
+        $start = $this->postJson('/api/mobile/v1/workspace/qc/inspections', [
+            'product_id' => $this->product->id,
+            'serial' => $serial,
+            'warehouse_id' => $this->source->id,
+            'features' => [],
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertCreated()->assertJsonPath('data.status', 'pending');
+        $inspection = QcInspection::query()->with('device')->findOrFail($start->json('data.inspection_id'));
+        $this->assertSame($technician->id, $inspection->technician_user_id);
+        $this->assertNull($inspection->order_id);
+        $this->assertNull($inspection->order_item_id);
+
+        $this->postJson('/api/mobile/v1/workspace/qc/inspections/'.$inspection->id.'/begin')->assertOk();
+        $checks = $inspection->checks()->get()->where('applicable', true)->mapWithKeys(function ($check): array {
+            $measurement = $check->definition['measurement'] ?? null;
+            $value = is_array($measurement) && count($measurement) >= 2
+                ? ((float) $measurement[0] + (float) $measurement[1]) / 2
+                : ($check->check_key === 'temperature' ? 70 : 90);
+
+            return [$check->check_key => ['result' => 'pass'] + ($measurement ? ['measurement' => $value] : [])];
+        })->all();
+        $this->patchJson('/api/mobile/v1/workspace/qc/inspections/'.$inspection->id, [
+            'grade' => 'A',
+            'final_configuration' => ['cpu' => 'Intel Core i5', 'ram_mb' => 8192, 'storage_gb' => 256, 'os' => 'Windows 11'],
+            'public_remarks' => 'Standalone QC completed by Technician.',
+            'checks' => $checks,
+        ])->assertOk();
+
+        foreach (['serial', 'physical', 'display', 'system'] as $kind) {
+            $this->postJson('/api/mobile/v1/workspace/qc/inspections/'.$inspection->id.'/evidence', [
+                'kind' => $kind,
+                'customer_visible' => true,
+                'file' => UploadedFile::fake()->image($kind.'.jpg', 800, 600),
+            ])->assertCreated();
+        }
+
+        $this->postJson('/api/mobile/v1/workspace/qc/inspections/'.$inspection->id.'/complete')
+            ->assertOk()->assertJsonPath('certificate.label_ready', true);
+
+        return $inspection->fresh()->certificate()->firstOrFail();
     }
 
     private function finish(QcInspection $inspection): QcCertificate

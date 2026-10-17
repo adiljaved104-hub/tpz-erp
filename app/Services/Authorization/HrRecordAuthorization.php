@@ -180,6 +180,10 @@ class HrRecordAuthorization
             return $teamId === $ownTeamId;
         }
 
-        return Employee::query()->whereKey($employeeIds)->where('team_id', '<>', $ownTeamId)->doesntExist();
+        return Employee::query()->whereKey($employeeIds)
+            ->where(function (Builder $employees) use ($ownTeamId): void {
+                $employees->whereNull('team_id')->orWhere('team_id', '<>', $ownTeamId);
+            })
+            ->doesntExist();
     }
 }

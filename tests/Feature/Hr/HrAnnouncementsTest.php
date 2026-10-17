@@ -178,6 +178,105 @@ class HrAnnouncementsTest extends TestCase
         $this->assertDatabaseMissing('hr_notice_recipients', ['hr_notice_id' => $announcement->id, 'employee_id' => $outsider->employee->id]);
     }
 
+    public function test_mobile_communication_publication_rejects_unassigned_cross_team_and_mixed_selected_recipients_without_side_effects(): void
+    {
+        [$owner, $staff, $manager, $outsider] = $this->people();
+        $unassigned = $this->userWithoutTeam();
+        $this->grantCommunicationPublishing($manager, $owner);
+
+        $token = $manager->createToken('Cross-team audience regression')->plainTextToken;
+        $this->withToken($token)->postJson('/api/mobile/v1/workspace/hr/notices', $this->data([$unassigned->employee->id]))->assertForbidden();
+        $this->assertNoCommunicationSideEffects();
+
+        $this->withToken($token)->postJson('/api/mobile/v1/workspace/hr/notices', $this->data([$staff->employee->id, $unassigned->employee->id]))->assertForbidden();
+        $this->assertNoCommunicationSideEffects();
+
+        $this->withToken($token)->postJson('/api/mobile/v1/workspace/hr/notices', $this->data([$outsider->employee->id]))->assertForbidden();
+        $this->assertNoCommunicationSideEffects();
+
+        $this->withToken($token)->postJson('/api/mobile/v1/workspace/hr/announcements', $this->data([$unassigned->employee->id]))->assertForbidden();
+        $this->assertNoCommunicationSideEffects();
+
+        $this->withToken($token)->postJson('/api/mobile/v1/workspace/hr/announcements', $this->data([$staff->employee->id, $outsider->employee->id]))->assertForbidden();
+        $this->assertNoCommunicationSideEffects();
+
+        $this->withToken($token)->postJson('/api/mobile/v1/workspace/hr/announcements', $this->data([$outsider->employee->id]))->assertForbidden();
+        $this->assertNoCommunicationSideEffects();
+    }
+
+    public function test_selected_communication_audiences_allow_same_team_and_preserve_owner_company_wide_access(): void
+    {
+        [$owner, $staff, $manager, $outsider, $team] = $this->people();
+        $admin = $this->user(EmployeeRole::Admin, $team);
+        $this->grantCommunicationPublishing($manager, $owner);
+        $authorization = app(HrRecordAuthorization::class);
+
+        $this->assertTrue($authorization->canPublishCommunication(
+            $manager,
+            HrCommunicationType::OfficialNotice,
+            NoticeAudienceType::Selected,
+            null,
+            [$staff->employee->id],
+        ));
+        $this->assertTrue($authorization->canPublishCommunication(
+            $manager,
+            HrCommunicationType::Announcement,
+            NoticeAudienceType::Selected,
+            null,
+            [$staff->employee->id],
+        ));
+        $this->assertFalse($authorization->canPublishCommunication(
+            $manager,
+            HrCommunicationType::OfficialNotice,
+            NoticeAudienceType::Selected,
+            null,
+            [$staff->employee->id, $outsider->employee->id],
+        ));
+        $this->assertFalse($authorization->canPublishCommunication(
+            $manager,
+            HrCommunicationType::Announcement,
+            NoticeAudienceType::Selected,
+            null,
+            [$staff->employee->id, $this->userWithoutTeam()->employee->id],
+        ));
+        $this->assertFalse($authorization->canPublishCommunication(
+            $manager,
+            HrCommunicationType::OfficialNotice,
+            NoticeAudienceType::All,
+            null,
+            [],
+        ));
+        $this->assertTrue($authorization->canPublishCommunication(
+            $owner,
+            HrCommunicationType::OfficialNotice,
+            NoticeAudienceType::All,
+            null,
+            [],
+        ));
+        $this->assertTrue($authorization->canPublishCommunication(
+            $owner,
+            HrCommunicationType::Announcement,
+            NoticeAudienceType::All,
+            null,
+            [],
+        ));
+        $this->assertTrue($authorization->canPublishCommunication(
+            $admin,
+            HrCommunicationType::OfficialNotice,
+            NoticeAudienceType::All,
+            null,
+            [],
+        ));
+        $this->assertTrue($authorization->canPublishCommunication(
+            $admin,
+            HrCommunicationType::Announcement,
+            NoticeAudienceType::All,
+            null,
+            [],
+        ));
+        $this->assertSame($team->id, $manager->employee->team_id);
+    }
+
     public function test_announcement_template_autofills_only_an_untouched_form_and_wrong_type_templates_are_rejected(): void
     {
         [$owner] = $this->people();
@@ -325,6 +424,40 @@ class HrAnnouncementsTest extends TestCase
             'status' => true,
             'created_by_user_id' => $owner->id,
         ]);
+    }
+
+    private function grantCommunicationPublishing(User $publisher, User $grantedBy): void
+    {
+        foreach ([HrPermission::NoticePublish, HrPermission::AnnouncementPublish] as $permission) {
+            EmployeePermissionOverride::query()->create([
+                'employee_id' => $publisher->employee->id,
+                'permission_key' => $permission->value,
+                'effect' => EmployeePermissionEffect::Allow,
+                'granted_by_user_id' => $grantedBy->id,
+                'reason' => 'Team-scoped communication audience regression.',
+            ]);
+        }
+        app(EmployeePermissionOverrideResolver::class)->forgetEmployee($publisher->employee->id);
+    }
+
+    private function assertNoCommunicationSideEffects(): void
+    {
+        $this->assertDatabaseCount('hr_notices', 0);
+        $this->assertDatabaseCount('hr_notice_recipients', 0);
+        $this->assertDatabaseCount('hr_acknowledgments', 0);
+        $this->assertDatabaseCount('notifications', 0);
+    }
+
+    private function userWithoutTeam(): User
+    {
+        $user = User::factory()->create(['email' => 'communications-unassigned-'.Str::uuid().'@techpointzone.com']);
+        Employee::factory()->for($user)->role(EmployeeRole::Staff)->create([
+            'email' => $user->email,
+            'team_id' => null,
+            'status' => true,
+        ]);
+
+        return $user->refresh();
     }
 
     /** @return array{User, User, User, User, Team} */

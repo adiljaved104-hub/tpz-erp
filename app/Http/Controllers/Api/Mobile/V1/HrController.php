@@ -29,7 +29,10 @@ class HrController extends MobileController
                 ? ['key' => 'employees', 'title' => 'Employees'] : null,
             $user->can('viewAny', Team::class) ? ['key' => 'teams', 'title' => 'Teams'] : null,
             $auth->allows($user, HrPermission::NoticeView) || $auth->allows($user, HrPermission::NoticeManage)
-                ? ['key' => 'notices', 'title' => 'HR Notices'] : null,
+                || $auth->allows($user, HrPermission::NoticePublish)
+                || $auth->allows($user, HrPermission::AnnouncementView) || $auth->allows($user, HrPermission::AnnouncementManage)
+                || $auth->allows($user, HrPermission::AnnouncementPublish)
+                ? ['key' => 'notices', 'title' => 'Official Notices & Announcements'] : null,
             $auth->allows($user, HrPermission::WarningViewOwn) || $auth->allows($user, HrPermission::WarningViewTeam)
                 || $auth->allows($user, HrPermission::WarningViewAll)
                 ? ['key' => 'warnings', 'title' => 'Employee Warnings'] : null,
@@ -40,6 +43,7 @@ class HrController extends MobileController
     {
         return response()->json(['data' => ['sections' => $this->sections($request),
             'can_publish_notice' => app(HrRecordAuthorization::class)->allows($request->user(), HrPermission::NoticePublish),
+            'can_publish_announcement' => app(HrRecordAuthorization::class)->allows($request->user(), HrPermission::AnnouncementPublish),
             'can_publish_all' => in_array($request->user()->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true),
             'can_issue_warning' => app(HrRecordAuthorization::class)->allows($request->user(), HrPermission::WarningIssue)]]);
     }
@@ -49,8 +53,9 @@ class HrController extends MobileController
         $auth = app(HrRecordAuthorization::class);
         $user = $request->user();
         $notice = $auth->allows($user, HrPermission::NoticePublish);
+        $announcement = $auth->allows($user, HrPermission::AnnouncementPublish);
         $warning = $auth->allows($user, HrPermission::WarningIssue);
-        abort_unless($notice || $warning, 403);
+        abort_unless($notice || $announcement || $warning, 403);
         $teams = Team::query()->where('status', true);
         $employees = Employee::query()->where('status', true);
         if (! in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
@@ -64,8 +69,8 @@ class HrController extends MobileController
         }
 
         return response()->json(['data' => [
-            'teams' => $notice ? $teams->get(['id', 'name']) : [],
-            'employees' => ($notice || $warning) ? $employees->get(['id', 'name', 'employee_id']) : [],
+            'teams' => ($notice || $announcement) ? $teams->get(['id', 'name']) : [],
+            'employees' => ($notice || $announcement || $warning) ? $employees->get(['id', 'name', 'employee_id']) : [],
             'warning_categories' => $warning ? WarningCategory::query()->where('status', true)->get(['id', 'name']) : [],
         ]]);
     }
@@ -83,8 +88,8 @@ class HrController extends MobileController
             'teams' => $user->can('viewAny', Team::class) ? Team::query()->select(['id', 'name', 'description', 'status'])
                 ->when($user->employee?->role === EmployeeRole::Manager,
                     fn ($q) => $user->employee?->team_id === null ? $q->whereRaw('1 = 0') : $q->whereKey($user->employee->team_id)) : abort(403),
-            'notices' => $auth->scopeNotices(HrNotice::query()->select(['id', 'reference', 'title', 'content',
-                'priority', 'published_at', 'status', 'acknowledgment_required', 'team_id']), $user),
+            'notices' => $auth->scopeReadableCommunications(HrNotice::query()->select(['id', 'reference', 'title', 'content',
+                'communication_type', 'priority', 'published_at', 'expires_at', 'status', 'acknowledgment_required', 'team_id']), $user),
             'warnings' => $auth->scopeWarnings(EmployeeWarning::query()->select(['id', 'reference', 'employee_id',
                 'title', 'description', 'warning_level', 'issued_date', 'status', 'acknowledgment_required']), $user),
             default => abort(404),
@@ -107,6 +112,9 @@ class HrController extends MobileController
     {
         abort_unless(collect($this->sections($request))->contains('key', $section), 403);
         $row = $this->query($request, $section)->findOrFail($record);
+        if ($section === 'notices') {
+            app(HrNoticeService::class)->markRead($row, $request->user());
+        }
         if ($section === 'employees') {
             abort_unless($request->user()->can('view', $row), 403);
         }
@@ -116,12 +124,22 @@ class HrController extends MobileController
 
     private function present(Request $request, string $section, $row, bool $detail = false): array
     {
+        $recipientAcknowledgment = $section === 'notices' && $request->user()->employee !== null
+            ? HrAcknowledgment::query()->where('hr_notice_id', $row->id)->where('employee_id', $request->user()->employee->id)->first()
+            : null;
+        $communicationStatus = $section === 'notices' && $row->status === 'active' && $row->expires_at?->isPast()
+            ? 'expired'
+            : $row->status;
         $data = match ($section) {
             'employees' => ['id' => $row->id, 'title' => $row->name, 'subtitle' => $row->designation,
                 'meta' => $row->employee_id, 'status' => $row->status ? 'active' : 'inactive'],
             'teams' => ['id' => $row->id, 'title' => $row->name, 'subtitle' => $row->description, 'status' => $row->status ? 'active' : 'inactive'],
             'notices' => ['id' => $row->id, 'title' => $row->title, 'subtitle' => $row->reference,
-                'meta' => $row->published_at?->format('Y-m-d'), 'status' => $row->status],
+                'meta' => $row->published_at?->format('Y-m-d'), 'status' => $communicationStatus,
+                'communication_type' => $row->communication_type,
+                'read_state' => $recipientAcknowledgment?->read_at !== null ? 'read' : 'unread',
+                'acknowledgment_state' => ! $row->acknowledgment_required ? 'not_required'
+                    : ($recipientAcknowledgment?->acknowledged_at !== null ? 'acknowledged' : 'pending')],
             'warnings' => ['id' => $row->id, 'title' => $row->title, 'subtitle' => $row->reference,
                 'meta' => $row->issued_date?->format('Y-m-d'), 'status' => $row->status],
         };
@@ -132,8 +150,12 @@ class HrController extends MobileController
             'employees' => ['employee_reference' => $row->employee_id, 'designation' => $row->designation,
                 'team' => $row->team?->name, 'role' => $row->role?->value],
             'teams' => ['description' => $row->description],
-            'notices' => ['content' => $row->content, 'priority' => $row->priority,
-                'published_at' => $row->published_at?->format('Y-m-d H:i')],
+            'notices' => ['content' => $row->content, 'communication_type' => $row->communication_type,
+                'priority' => $row->priority, 'published_at' => $row->published_at?->format('Y-m-d H:i'),
+                'expires_at' => $row->expires_at?->format('Y-m-d H:i'),
+                'acknowledgment_required' => $row->acknowledgment_required,
+                'read_at' => $recipientAcknowledgment?->read_at?->format('Y-m-d H:i'),
+                'acknowledged_at' => $recipientAcknowledgment?->acknowledged_at?->format('Y-m-d H:i')],
             'warnings' => ['description' => $row->description, 'level' => $row->warning_level->value,
                 'issued_date' => $row->issued_date?->format('Y-m-d')],
         };
@@ -160,6 +182,14 @@ class HrController extends MobileController
         $notice = app(HrNoticeService::class)->publish($request->all(), $request->user());
 
         return $this->show($request, 'notices', $notice->id);
+    }
+
+    public function publishAnnouncement(Request $request): JsonResponse
+    {
+        abort_unless(app(HrRecordAuthorization::class)->allows($request->user(), HrPermission::AnnouncementPublish), 403);
+        $announcement = app(HrNoticeService::class)->publishAnnouncement($request->all(), $request->user());
+
+        return $this->show($request, 'notices', $announcement->id);
     }
 
     public function issueWarning(Request $request): JsonResponse

@@ -2,7 +2,7 @@
 
 namespace App\Services\Hr;
 
-use App\Enums\HrPermission;
+use App\Enums\HrCommunicationType;
 use App\Enums\NoticeAudienceType;
 use App\Models\Employee;
 use App\Models\HrAcknowledgment;
@@ -33,6 +33,18 @@ class HrNoticeService
     /** @param array<string, mixed> $data */
     public function publish(array $data, User $actor): HrNotice
     {
+        return $this->publishCommunication($data, $actor, HrCommunicationType::OfficialNotice);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function publishAnnouncement(array $data, User $actor): HrNotice
+    {
+        return $this->publishCommunication($data, $actor, HrCommunicationType::Announcement);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function publishCommunication(array $data, User $actor, HrCommunicationType $type): HrNotice
+    {
         $validated = validator($data, [
             'audience_type' => ['required', Rule::enum(NoticeAudienceType::class)],
             'notice_category_id' => ['nullable', 'integer', 'exists:notice_categories,id'],
@@ -42,7 +54,7 @@ class HrNoticeService
             'employee_ids.*' => ['integer', 'distinct', 'exists:employees,id'],
             'title' => ['required', 'string', 'max:255'],
             'content' => ['required', 'string', 'max:20000'],
-            'priority' => ['required', Rule::in(['normal', 'important'])],
+            'priority' => ['required', Rule::in(['normal', 'important', 'high', 'urgent'])],
             'published_at' => ['required', 'date'],
             'expires_at' => ['nullable', 'date', 'after_or_equal:published_at'],
             'acknowledgment_required' => ['required', 'boolean'],
@@ -51,25 +63,28 @@ class HrNoticeService
             ? $validated['audience_type']
             : NoticeAudienceType::from($validated['audience_type']);
         $employeeIds = array_map('intval', $validated['employee_ids'] ?? []);
-        if (isset($validated['notice_category_id']) && ! NoticeCategory::query()->whereKey($validated['notice_category_id'])->where('status', true)->exists()) {
-            throw ValidationException::withMessages(['notice_category_id' => 'Select an active Notice Category.']);
+        if (isset($validated['notice_category_id']) && ! NoticeCategory::query()->whereKey($validated['notice_category_id'])
+            ->where('status', true)->whereIn('communication_scope', [$type->value, 'both'])->exists()) {
+            throw ValidationException::withMessages(['notice_category_id' => 'Select an active Category available for this communication type.']);
         }
         if (isset($validated['notice_template_id']) && ! NoticeTemplate::query()
             ->whereKey($validated['notice_template_id'])
+            ->where('communication_type', $type->value)
             ->where('notice_category_id', $validated['notice_category_id'] ?? null)
             ->where('status', true)->exists()) {
-            throw ValidationException::withMessages(['notice_template_id' => 'Select an active Template belonging to the selected Notice Category.']);
+            throw ValidationException::withMessages(['notice_template_id' => 'Select an active Template belonging to this communication type and Category.']);
         }
-        throw_unless($this->authorization->canPublishNotice($actor, $audience, $validated['team_id'] ?? null, $employeeIds), AuthorizationException::class);
+        throw_unless($this->authorization->canPublishCommunication($actor, $type, $audience, $validated['team_id'] ?? null, $employeeIds), AuthorizationException::class);
         $recipients = $this->recipients($audience, $validated['team_id'] ?? null, $employeeIds);
         if ($recipients->isEmpty()) {
-            throw ValidationException::withMessages(['audience_type' => 'The selected Notice audience has no active Employees with login accounts.']);
+            throw ValidationException::withMessages(['audience_type' => 'The selected audience has no active Employees with login accounts.']);
         }
 
         $reference = $this->references->nextHrNoticeReference((int) date('Y', strtotime($validated['published_at'])));
-        $notice = DB::transaction(function () use ($validated, $audience, $recipients, $actor, $reference): HrNotice {
+        $notice = DB::transaction(function () use ($validated, $audience, $recipients, $actor, $reference, $type): HrNotice {
             $notice = HrNotice::query()->create([
                 'reference' => $reference,
+                'communication_type' => $type->value,
                 'notice_category_id' => $validated['notice_category_id'] ?? null,
                 'notice_template_id' => $validated['notice_template_id'] ?? null,
                 'title' => trim($validated['title']),
@@ -81,14 +96,16 @@ class HrNoticeService
                 'expires_at' => $validated['expires_at'] ?? null,
                 'acknowledgment_required' => $validated['acknowledgment_required'],
                 'published_by_user_id' => $actor->id,
+                'created_by_user_id' => $actor->id,
                 'status' => 'active',
             ]);
             foreach ($recipients as $employee) {
                 HrNoticeRecipient::query()->create(['hr_notice_id' => $notice->id, 'employee_id' => $employee->id, 'created_at' => now()]);
                 HrAcknowledgment::query()->create(['hr_notice_id' => $notice->id, 'employee_id' => $employee->id]);
             }
-            $this->activity->log('notice.published', $actor, $notice, [
+            $this->activity->log($type === HrCommunicationType::Announcement ? 'announcement.published' : 'notice.published', $actor, $notice, [
                 'notice_id' => $notice->id,
+                'communication_type' => $type->value,
                 'audience_type' => $audience->value,
                 'recipient_count' => $recipients->count(),
                 'acknowledgment_required' => $notice->acknowledgment_required,
@@ -96,7 +113,7 @@ class HrNoticeService
 
             return $notice;
         });
-        $this->notifications->noticePublished($notice);
+        $this->notifications->communicationPublished($notice);
 
         return $notice->load(['category', 'template', 'team', 'publishedBy', 'recipients.employee', 'acknowledgments']);
     }
@@ -162,7 +179,10 @@ class HrNoticeService
 
     public function archive(HrNotice $notice, User $actor): HrNotice
     {
-        throw_unless($this->authorization->allows($actor, HrPermission::NoticeManage)
+        $type = $notice->communication_type === HrCommunicationType::Announcement->value
+            ? HrCommunicationType::Announcement
+            : HrCommunicationType::OfficialNotice;
+        throw_unless($this->authorization->allows($actor, $type->managePermission())
             && $this->authorization->canViewNotice($actor, $notice), AuthorizationException::class);
 
         return DB::transaction(function () use ($notice, $actor): HrNotice {

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\HrNotices;
 
 use App\Enums\EmployeeRole;
+use App\Enums\HrCommunicationType;
 use App\Enums\HrPermission;
 use App\Enums\NoticeAudienceType;
 use App\Filament\Resources\Employees\EmployeeResource;
@@ -48,36 +49,68 @@ class HrNoticeResource extends Resource
 
     protected static ?int $navigationSort = 4;
 
-    protected static ?string $navigationLabel = 'Notices';
+    protected static ?string $navigationLabel = 'Official Notices';
 
     protected static ?string $recordTitleAttribute = 'reference';
+
+    public static function communicationType(): HrCommunicationType
+    {
+        return HrCommunicationType::OfficialNotice;
+    }
+
+    protected static function communicationLabel(): string
+    {
+        return static::communicationType()->label();
+    }
+
+    protected static function viewPermission(): HrPermission
+    {
+        return static::communicationType()->viewPermission();
+    }
+
+    protected static function publishPermission(): HrPermission
+    {
+        return static::communicationType()->publishPermission();
+    }
+
+    protected static function managePermission(): HrPermission
+    {
+        return static::communicationType()->managePermission();
+    }
 
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Publish Notice')->columns(2)->schema([
-                Select::make('notice_category_id')->label('Category')->options(fn (): array => NoticeCategory::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())
+            Section::make('Publish '.static::communicationLabel())->columns(2)->schema([
+                Select::make('notice_category_id')->label('Category')->options(fn (): array => NoticeCategory::query()
+                    ->where('status', true)->whereIn('communication_scope', [static::communicationType()->value, 'both'])->orderBy('name')->pluck('name', 'id')->all())
                     ->searchable()->placeholder('No Category')->live()
                     ->afterStateUpdated(function ($state, Get $get, Set $set): void {
                         $templateId = $get('notice_template_id');
-                        if (filled($templateId) && ! NoticeTemplate::query()->whereKey($templateId)->where('notice_category_id', $state)->exists()) {
+                        if (filled($templateId) && ! NoticeTemplate::query()->whereKey($templateId)->where('communication_type', static::communicationType()->value)->where('notice_category_id', $state)->exists()) {
                             $set('notice_template_id', null);
                         }
                     }),
                 Select::make('notice_template_id')->label('Template')
                     ->options(fn (Get $get): array => filled($get('notice_category_id'))
-                        ? NoticeTemplate::query()->where('notice_category_id', $get('notice_category_id'))->where('status', true)->orderBy('name')->pluck('name', 'id')->all()
+                        ? NoticeTemplate::query()->where('communication_type', static::communicationType()->value)->where('notice_category_id', $get('notice_category_id'))->where('status', true)->orderBy('name')->pluck('name', 'id')->all()
                         : [])
                     ->searchable()->disabled(fn (Get $get): bool => blank($get('notice_category_id')))->live()
-                    ->helperText('Selecting a Template prefills the Notice. You can edit every prefilled field before publishing.')
-                    ->afterStateUpdated(function ($state, Set $set): void {
-                        if (blank($state) || ! ($template = NoticeTemplate::query()->whereKey($state)->where('status', true)->first())) {
+                    ->helperText('A Template fills the four fields on a new, untouched form. Changing Templates after editing preserves your current values.')
+                    ->afterStateUpdated(function ($state, Get $get, Set $set): void {
+                        if (blank($state) || ! ($template = NoticeTemplate::query()->whereKey($state)->where('communication_type', static::communicationType()->value)->where('status', true)->first())) {
                             return;
                         }
-                        $set('title', $template->default_title);
-                        $set('content', $template->default_content);
-                        $set('priority', $template->default_priority);
-                        $set('acknowledgment_required', $template->default_acknowledgment_required);
+                        $newFormDefaults = blank($get('title'))
+                            && blank($get('content'))
+                            && ($get('priority') === null || $get('priority') === 'normal')
+                            && in_array($get('acknowledgment_required'), [null, false, 0, '0'], true);
+                        if ($newFormDefaults) {
+                            $set('title', $template->default_title);
+                            $set('content', $template->default_content);
+                            $set('priority', $template->default_priority);
+                            $set('acknowledgment_required', $template->default_acknowledgment_required);
+                        }
                     }),
                 Select::make('audience_type')->label('Audience')->options(NoticeAudienceType::class)->live()->required(),
                 Select::make('team_id')->label('Team')->options(fn (): array => self::teamOptions())->searchable()
@@ -87,8 +120,8 @@ class HrNoticeResource extends Resource
                     ->visible(fn (Get $get): bool => self::enumValue($get('audience_type')) === NoticeAudienceType::Selected->value)
                     ->required(fn (Get $get): bool => self::enumValue($get('audience_type')) === NoticeAudienceType::Selected->value),
                 TextInput::make('title')->required()->maxLength(255)->columnSpanFull(),
-                Textarea::make('content')->label('Notice')->required()->rows(7)->columnSpanFull(),
-                Select::make('priority')->options(['normal' => 'Normal', 'important' => 'Important'])->default('normal')->required(),
+                Textarea::make('content')->label(static::communicationLabel())->required()->rows(7)->columnSpanFull(),
+                Select::make('priority')->options(['normal' => 'Normal', 'important' => 'Important', 'high' => 'High', 'urgent' => 'Urgent'])->default('normal')->required(),
                 DateTimePicker::make('published_at')->label('Publish At')->default(now())->seconds(false)->required(),
                 DateTimePicker::make('expires_at')->label('Expires At')->seconds(false)->afterOrEqual('published_at'),
                 Toggle::make('acknowledgment_required')->label('Acknowledgment Required')->default(false),
@@ -99,17 +132,21 @@ class HrNoticeResource extends Resource
     public static function infolist(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Notice')->columns(3)->schema([
-                TextEntry::make('reference')->label('Notice Ref'),
+            Section::make(static::communicationLabel())->columns(3)->schema([
+                TextEntry::make('reference')->label(static::communicationLabel().' Ref'),
+                TextEntry::make('communication_type')->label('Type')->formatStateUsing(fn (): string => static::communicationLabel())->badge(),
                 TextEntry::make('priority')->badge(),
-                TextEntry::make('status')->badge(),
+                TextEntry::make('status')->badge()->state(fn (HrNotice $record): string => $record->status === 'archived'
+                    ? 'Archived'
+                    : ($record->expires_at?->isPast() ? 'Expired' : 'Active')),
                 TextEntry::make('category.name')->label('Category')->placeholder('No Category'),
                 TextEntry::make('audience_label')->label('Audience')->state(fn (HrNotice $record): string => $record->audience_type === NoticeAudienceType::Team ? 'Team — '.$record->team?->name : $record->audience_type->getLabel()),
                 TextEntry::make('published_at')->label('Published')->dateTime('d M Y, h:i A'),
                 TextEntry::make('expires_at')->label('Expires')->dateTime('d M Y, h:i A')->placeholder('No expiry'),
                 TextEntry::make('title')->columnSpanFull(),
-                TextEntry::make('content')->label('Notice')->columnSpanFull(),
+                TextEntry::make('content')->label(static::communicationLabel())->columnSpanFull(),
                 TextEntry::make('publishedBy.name')->label('Published By'),
+                TextEntry::make('createdBy.name')->label('Created By'),
                 TextEntry::make('recipient_count')->label('Recipients')->state(fn (HrNotice $record): int => $record->recipients->count()),
                 TextEntry::make('read_state')->label('Read State')->state(function (HrNotice $record): string {
                     $ack = $record->acknowledgments->firstWhere('employee_id', auth()->user()?->employee?->id);
@@ -172,18 +209,30 @@ class HrNoticeResource extends Resource
     public static function table(Table $table): Table
     {
         return $table->columns([
-            TextColumn::make('reference')->label('Notice Ref')->searchable()->sortable(),
+            TextColumn::make('reference')->label(static::communicationLabel().' Ref')->searchable()->sortable(),
+            TextColumn::make('communication_type')->label('Type')->formatStateUsing(fn (): string => static::communicationLabel())->badge(),
             TextColumn::make('title')->searchable()->limit(50),
             TextColumn::make('category.name')->label('Category')->placeholder('No Category'),
             TextColumn::make('audience_type')->label('Audience')->badge(),
             TextColumn::make('priority')->badge(),
             TextColumn::make('published_at')->label('Published')->dateTime('d M Y, h:i A')->sortable(),
+            TextColumn::make('expires_at')->label('Expires')->dateTime('d M Y, h:i A')->placeholder('No expiry')->sortable(),
+            TextColumn::make('acknowledgment_required')->label('Acknowledgment')->formatStateUsing(fn (bool $state): string => $state ? 'Required' : 'Not required'),
             TextColumn::make('recipients_count')->label('Recipients')->counts('recipients'),
-            TextColumn::make('status')->badge(),
+            TextColumn::make('status')->badge()->formatStateUsing(fn (HrNotice $record): string => $record->status === 'archived'
+                ? 'Archived'
+                : ($record->expires_at?->isPast() ? 'Expired' : 'Active')),
         ])->filters([
             SelectFilter::make('audience_type')->label('Audience')->options(NoticeAudienceType::class),
-            SelectFilter::make('notice_category_id')->label('Category')->options(fn (): array => NoticeCategory::query()->orderBy('name')->pluck('name', 'id')->all()),
+            SelectFilter::make('notice_category_id')->label('Category')->options(fn (): array => NoticeCategory::query()->whereIn('communication_scope', [static::communicationType()->value, 'both'])->orderBy('name')->pluck('name', 'id')->all()),
+            SelectFilter::make('priority')->options(['normal' => 'Normal', 'important' => 'Important', 'high' => 'High', 'urgent' => 'Urgent']),
             SelectFilter::make('status')->options(['active' => 'Active', 'archived' => 'Archived']),
+            SelectFilter::make('expiry_state')->label('Expiry')->options(['current' => 'Current', 'expired' => 'Expired'])
+                ->query(fn (Builder $query, array $data): Builder => match ($data['value'] ?? null) {
+                    'current' => $query->where('status', 'active')->where(fn (Builder $q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now())),
+                    'expired' => $query->where('status', 'active')->whereNotNull('expires_at')->where('expires_at', '<=', now()),
+                    default => $query,
+                }),
         ])->recordActions([ViewAction::make()]);
     }
 
@@ -191,7 +240,9 @@ class HrNoticeResource extends Resource
     {
         $user = auth()->user();
 
-        return $user !== null && self::authorization()->allows($user, HrPermission::NoticeView);
+        return $user !== null && (self::authorization()->allows($user, static::viewPermission())
+            || self::authorization()->allows($user, static::publishPermission())
+            || self::authorization()->allows($user, static::managePermission()));
     }
 
     public static function shouldRegisterNavigation(): bool
@@ -200,19 +251,19 @@ class HrNoticeResource extends Resource
         if ($user === null || ! self::canViewAny()) {
             return false;
         }
-        if (self::authorization()->allows($user, HrPermission::NoticeManage)
-            || self::authorization()->allows($user, HrPermission::NoticePublish)) {
+        if (self::authorization()->allows($user, static::managePermission())
+            || self::authorization()->allows($user, static::publishPermission())) {
             return true;
         }
 
-        return self::authorization()->scopeNotices(HrNotice::query(), $user)->exists();
+        return self::authorization()->scopeCommunications(HrNotice::query(), $user, static::communicationType())->exists();
     }
 
     public static function canCreate(): bool
     {
         $user = auth()->user();
 
-        return $user !== null && self::authorization()->allows($user, HrPermission::NoticePublish);
+        return $user !== null && self::authorization()->allows($user, static::publishPermission());
     }
 
     public static function canView(Model $record): bool
@@ -233,14 +284,14 @@ class HrNoticeResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         $user = auth()->user();
-        $query = parent::getEloquentQuery()->with(['category:id,name,status', 'template:id,name,status', 'team:id,name', 'publishedBy:id,name', 'recipients.employee:id,name,team_id', 'acknowledgments']);
+        $query = parent::getEloquentQuery()->with(['category:id,name,status', 'template:id,name,status', 'team:id,name', 'publishedBy:id,name', 'createdBy:id,name', 'recipients.employee:id,name,team_id', 'acknowledgments']);
 
-        return $user ? self::authorization()->scopeNotices($query, $user) : $query->whereRaw('1 = 0');
+        return $user ? self::authorization()->scopeCommunications($query, $user, static::communicationType()) : $query->whereRaw('1 = 0');
     }
 
     public static function getRecordRouteBindingEloquentQuery(): Builder
     {
-        return HrNotice::query();
+        return HrNotice::query()->where('communication_type', static::communicationType()->value);
     }
 
     public static function getPages(): array

@@ -2,6 +2,8 @@
 
 namespace App\Services\Notifications;
 
+use App\Enums\HrCommunicationType;
+use App\Filament\Resources\Announcements\AnnouncementResource;
 use App\Filament\Resources\EmployeeWarnings\EmployeeWarningResource;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
 use App\Models\EmployeeWarning;
@@ -42,25 +44,47 @@ class HrRecordNotificationDispatcher
 
     public function noticePublished(HrNotice $notice): void
     {
+        $this->communicationPublished($notice);
+    }
+
+    public function communicationPublished(HrNotice $notice): void
+    {
         if ($notice->status !== 'active' || $notice->archived_at !== null) {
             return;
         }
 
         $notice->loadMissing(['recipients.employee.user', 'category']);
+        $type = $notice->communication_type === HrCommunicationType::Announcement->value
+            ? HrCommunicationType::Announcement
+            : HrCommunicationType::OfficialNotice;
+        if ($type === HrCommunicationType::Announcement
+            && $notice->expires_at !== null && $notice->expires_at->isPast()) {
+            return;
+        }
+        // Preserve the established mobile/email label for official Notices.
+        $label = $type === HrCommunicationType::Announcement ? 'Announcement' : 'HR Notice';
+        $resource = $type === HrCommunicationType::Announcement ? AnnouncementResource::class : HrNoticeResource::class;
+        $important = $type === HrCommunicationType::Announcement
+            ? in_array($notice->priority, ['important', 'high', 'urgent'], true)
+            : $notice->priority === 'important';
+        $notificationTitle = $type === HrCommunicationType::Announcement
+            ? ($important ? 'Important Announcement' : 'Announcement')
+            : ($notice->priority === 'important' ? 'Important HR Notice' : 'HR Notice');
         foreach ($notice->recipients as $recipientRow) {
             $recipient = $recipientRow->employee?->user;
             if (! $recipient instanceof User || ! $this->authorization->canViewNotice($recipient, $notice)) {
                 continue;
             }
             $this->alerts->send($recipient, 'notice.published', 'notice:'.$notice->id, [
-                'category' => 'hr', 'event' => 'notice.published', 'title' => $notice->priority === 'important' ? 'Important HR Notice' : 'HR Notice',
+                'category' => 'hr', 'event' => 'notice.published', 'communication_type' => $type->value,
+                'title' => $notificationTitle,
                 'message' => $notice->reference.' — '.$notice->title,
                 'reference' => $notice->reference,
                 'target_type' => 'hr_notice', 'target_id' => $notice->id,
                 'notice_reference' => $notice->reference,
                 'acknowledgment_required' => $notice->acknowledgment_required,
-                'sound' => $notice->priority === 'important',
-            ], 'HR Notice — '.$notice->reference, HrNoticeResource::getUrl('view', ['record' => $notice]), [
+                'sound' => $important,
+            ], $label.' — '.$notice->reference, $resource::getUrl('view', ['record' => $notice]), [
                 'Title' => Str::limit($notice->title, 160),
                 'Category' => $notice->category?->name ?? 'Uncategorized',
                 'Priority' => Str::headline($notice->priority),

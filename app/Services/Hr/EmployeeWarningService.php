@@ -9,6 +9,7 @@ use App\Models\EmployeeWarning;
 use App\Models\HrAcknowledgment;
 use App\Models\User;
 use App\Models\WarningCategory;
+use App\Models\WarningTemplate;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\HrRecordAuthorization;
 use App\Services\Notifications\HrRecordNotificationDispatcher;
@@ -34,6 +35,7 @@ class EmployeeWarningService
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
             'warning_level' => ['required', Rule::enum(WarningLevel::class)],
             'warning_category_id' => ['required', 'integer', 'exists:warning_categories,id'],
+            'warning_template_id' => ['nullable', 'integer', 'exists:warning_templates,id'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string', 'max:10000'],
             'issued_date' => ['required', 'date', 'before_or_equal:today'],
@@ -43,6 +45,10 @@ class EmployeeWarningService
         throw_unless($this->authorization->canIssueWarning($actor, $employee), AuthorizationException::class);
         if (! WarningCategory::query()->whereKey($validated['warning_category_id'])->where('status', true)->exists()) {
             throw ValidationException::withMessages(['warning_category_id' => 'Select an active Warning Category.']);
+        }
+        if (isset($validated['warning_template_id']) && ! WarningTemplate::query()->whereKey($validated['warning_template_id'])
+            ->where('warning_category_id', $validated['warning_category_id'])->where('status', true)->exists()) {
+            throw ValidationException::withMessages(['warning_template_id' => 'Select an active Warning Template from the selected Warning Category.']);
         }
 
         $reference = $this->references->nextEmployeeWarningReference((int) date('Y', strtotime($validated['issued_date'])));
@@ -68,7 +74,7 @@ class EmployeeWarningService
         });
         $this->notifications->warningIssued($warning);
 
-        return $warning->load(['employee', 'category', 'issuedBy', 'acknowledgments']);
+        return $warning->load(['employee', 'category', 'template', 'issuedBy', 'acknowledgments']);
     }
 
     public function markRead(EmployeeWarning $warning, User $actor): void

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\HrNotices\Pages;
 
+use App\Enums\HrCommunicationType;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
 use App\Services\Hr\HrNoticeService;
 use Filament\Resources\Pages\CreateRecord;
@@ -13,11 +14,18 @@ class CreateHrNotice extends CreateRecord
 
     protected function handleRecordCreation(array $data): Model
     {
-        return app(HrNoticeService::class)->publish($data, auth()->user());
+        $resource = static::$resource;
+        $type = $resource::communicationType();
+
+        return $type === HrCommunicationType::Announcement
+            ? app(HrNoticeService::class)->publishAnnouncement($data, auth()->user())
+            : app(HrNoticeService::class)->publish($data, auth()->user());
     }
 
     protected function getRedirectUrl(): string
     {
-        return HrNoticeResource::getUrl('view', ['record' => $this->record]);
+        $resource = static::$resource;
+
+        return $resource::getUrl('view', ['record' => $this->record]);
     }
 }

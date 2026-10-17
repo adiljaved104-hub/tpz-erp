@@ -34,4 +34,9 @@ class WarningCategory extends Model
     {
         return $this->hasMany(EmployeeWarning::class);
     }
+
+    public function templates(): HasMany
+    {
+        return $this->hasMany(WarningTemplate::class);
+    }
 }

@@ -11,6 +11,7 @@ use App\Filament\Resources\EmployeeWarnings\Pages\ViewEmployeeWarning;
 use App\Models\Employee;
 use App\Models\EmployeeWarning;
 use App\Models\WarningCategory;
+use App\Models\WarningTemplate;
 use App\Services\Authorization\HrRecordAuthorization;
 use BackedEnum;
 use Filament\Actions\ViewAction;
@@ -51,7 +52,34 @@ class EmployeeWarningResource extends Resource
             Section::make('Issue Warning')->columns(2)->schema([
                 Select::make('employee_id')->label('Employee')->options(fn (): array => self::employeeOptions())->searchable()->required(),
                 Select::make('warning_level')->label('Warning Type')->options(WarningLevel::class)->required(),
-                Select::make('warning_category_id')->label('Category')->options(fn (): array => WarningCategory::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->required(),
+                Select::make('warning_category_id')->label('Category')->options(fn (): array => WarningCategory::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->live()->required()
+                    ->afterStateUpdated(function ($state, $get, $set): void {
+                        if (filled($get('warning_template_id')) && ! WarningTemplate::query()->whereKey($get('warning_template_id'))->where('warning_category_id', $state)->exists()) {
+                            $set('warning_template_id', null);
+                        }
+                    }),
+                Select::make('warning_template_id')->label('Warning Template')->options(fn ($get): array => filled($get('warning_category_id'))
+                    ? WarningTemplate::query()->where('warning_category_id', $get('warning_category_id'))->where('status', true)->orderBy('name')->pluck('name', 'id')->all()
+                    : [])->searchable()->live()->disabled(fn ($get): bool => blank($get('warning_category_id')))
+                    ->helperText('A Warning Template fills blank fields only. Customize before issuing; it remains a disciplinary Warning.')
+                    ->afterStateUpdated(function ($state, $get, $set): void {
+                        $template = WarningTemplate::query()->whereKey($state)->where('status', true)->first();
+                        if ($template === null) {
+                            return;
+                        }
+                        if (blank($get('title'))) {
+                            $set('title', $template->default_title);
+                        }
+                        if (blank($get('description'))) {
+                            $set('description', $template->default_description);
+                        }
+                        if (blank($get('warning_level'))) {
+                            $set('warning_level', $template->default_warning_level);
+                        }
+                        if ($get('acknowledgment_required') === null) {
+                            $set('acknowledgment_required', $template->default_acknowledgment_required);
+                        }
+                    }),
                 DatePicker::make('issued_date')->label('Issue Date')->default(today())->maxDate(today())->required(),
                 TextInput::make('title')->required()->maxLength(255)->columnSpanFull(),
                 Textarea::make('description')->label('Details')->required()->rows(5)->columnSpanFull(),

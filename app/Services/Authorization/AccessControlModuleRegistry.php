@@ -80,7 +80,8 @@ class AccessControlModuleRegistry
             $this->module('schedules', 'Work Schedules, Holidays & Comp Off', 'people_hr', [], [HrPermission::WorkScheduleManage], [], 'The existing permission controls schedule, holiday, and compensatory-off administration together.'),
             $this->module('biometric', 'Biometric Sync', 'people_hr', [], [HrPermission::BiometricManage]),
             $this->module('warnings', 'Warnings', 'people_hr', [HrPermission::WarningViewOwn], [HrPermission::WarningIssue, HrPermission::WarningManage], [HrPermission::WarningViewTeam, HrPermission::WarningViewAll]),
-            $this->module('notices', 'Notices', 'people_hr', [HrPermission::NoticeView], [HrPermission::NoticePublish, HrPermission::NoticeManage]),
+            $this->module('notices', 'Official Notices', 'people_hr', [HrPermission::NoticeView], [HrPermission::NoticePublish, HrPermission::NoticeManage]),
+            $this->module('announcements', 'Announcements', 'people_hr', [HrPermission::AnnouncementView], [HrPermission::AnnouncementPublish, HrPermission::AnnouncementManage]),
             $this->module('performance', 'Performance', 'people_hr', [PerformancePermission::ViewOwn], [], [PerformancePermission::ViewTeam, PerformancePermission::ViewAll]),
 
             $this->module('products', 'Products', 'products_inventory', [ProductPermission::View], [ProductPermission::Create, ProductPermission::Update], [ProductPermission::ViewSellingPrice, ProductPermission::EditSellingPrice, ProductPermission::ViewCostPrice, ProductPermission::EditCostPrice, ProductPermission::Activate, ProductPermission::Deactivate, ProductPermission::Discontinue, ProductPermission::Reactivate, ProductPermission::Export]),

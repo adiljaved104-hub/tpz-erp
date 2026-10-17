@@ -12,6 +12,7 @@ use App\Filament\Pages\Chat;
 use App\Filament\Pages\Hr\LeaveManagement;
 use App\Filament\Pages\MarketplaceOperations;
 use App\Filament\Pages\Notifications;
+use App\Filament\Resources\Announcements\AnnouncementResource;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\EmployeeWarnings\EmployeeWarningResource;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
@@ -166,7 +167,9 @@ class NotificationInboxService
                 return ['url' => null, 'available' => false];
             }
 
-            return ['url' => HrNoticeResource::getUrl('view', ['record' => $notice]), 'available' => true];
+            $resource = $notice->communication_type === 'announcement' ? AnnouncementResource::class : HrNoticeResource::class;
+
+            return ['url' => $resource::getUrl('view', ['record' => $notice]), 'available' => true];
         }
 
         if (($data['target_type'] ?? null) === 'conversation') {

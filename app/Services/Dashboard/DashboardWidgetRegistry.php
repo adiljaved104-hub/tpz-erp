@@ -145,6 +145,7 @@ class DashboardWidgetRegistry
             HrPermission::LeaveApprove,
             HrPermission::WarningViewOwn,
             HrPermission::NoticeView,
+            HrPermission::AnnouncementView,
         ] as $permission) {
             if ($this->hr->allows($user, $permission)) {
                 return true;

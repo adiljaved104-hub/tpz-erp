@@ -22,6 +22,7 @@ use App\Filament\Pages\Hr\LeaveManagement;
 use App\Filament\Pages\Inventory\MyInventory;
 use App\Filament\Pages\MyWork;
 use App\Filament\Pages\Notifications;
+use App\Filament\Resources\Announcements\AnnouncementResource;
 use App\Filament\Resources\Complaints\ComplaintResource;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\EmployeeWarnings\EmployeeWarningResource;
@@ -394,16 +395,40 @@ class ErpDashboardService
         }
 
         if (($includeHrCards || $includeAttention) && $this->hr->allows($user, HrPermission::NoticeView)) {
-            $noticeQuery = HrNotice::query()->where('status', 'active')
+            $noticeQuery = HrNotice::query()->where('communication_type', 'official_notice')->where('status', 'active')
+                ->where('published_at', '<=', now())->where(fn (Builder $query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
                 ->where('acknowledgment_required', true)
                 ->whereHas('recipients', fn (Builder $query) => $query->where('employee_id', $user->employee->id))
                 ->whereDoesntHave('acknowledgments', fn (Builder $query) => $query->where('employee_id', $user->employee->id)->whereNotNull('acknowledged_at'));
             $noticeCount = $noticeQuery->count();
             if ($includeHrCards) {
-                $cards->push($this->card('notice_acknowledgments', 'Notices to Acknowledge', $noticeCount, 'Your pending notice acknowledgments', HrNoticeResource::getUrl()));
+                $cards->push($this->card('notice_acknowledgments', 'Official Notices to Acknowledge', $noticeCount, 'Your pending notice acknowledgments', HrNoticeResource::getUrl()));
             }
             if ($includeAttention) {
-                $this->attentionWhen($attention, $noticeCount, 'Notice acknowledgment required', HrNoticeResource::getUrl(), 87);
+                $this->attentionWhen($attention, $noticeCount, 'Official Notice acknowledgment required', HrNoticeResource::getUrl(), 87);
+            }
+        }
+
+        if (($includeHrCards || $includeAttention) && $this->hr->allows($user, HrPermission::AnnouncementView)) {
+            $currentAnnouncementCount = HrNotice::query()->where('communication_type', 'announcement')->where('status', 'active')
+                ->where('published_at', '<=', now())->where(fn (Builder $query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                ->whereHas('recipients', fn (Builder $query) => $query->where('employee_id', $user->employee->id))
+                ->count();
+            if ($includeHrCards) {
+                $cards->push($this->card('announcements_current', 'Announcements', $currentAnnouncementCount, 'Current company updates', AnnouncementResource::getUrl()));
+            }
+
+            $announcementCount = HrNotice::query()->where('communication_type', 'announcement')->where('status', 'active')
+                ->where('published_at', '<=', now())->where(fn (Builder $query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                ->where('acknowledgment_required', true)
+                ->whereHas('recipients', fn (Builder $query) => $query->where('employee_id', $user->employee->id))
+                ->whereDoesntHave('acknowledgments', fn (Builder $query) => $query->where('employee_id', $user->employee->id)->whereNotNull('acknowledged_at'))
+                ->count();
+            if ($includeHrCards) {
+                $cards->push($this->card('announcement_acknowledgments', 'Announcements to Acknowledge', $announcementCount, 'Your pending announcement acknowledgments', AnnouncementResource::getUrl()));
+            }
+            if ($includeAttention) {
+                $this->attentionWhen($attention, $announcementCount, 'Announcement acknowledgment required', AnnouncementResource::getUrl(), 86);
             }
         }
     }

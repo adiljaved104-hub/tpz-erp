@@ -10,6 +10,7 @@ use App\Models\NoticeCategory;
 use App\Services\Authorization\HrRecordAuthorization;
 use BackedEnum;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -37,6 +38,7 @@ class NoticeCategoryResource extends Resource
         return $schema->components([
             Section::make('Notice Category')->schema([
                 TextInput::make('name')->required()->maxLength(255),
+                Select::make('communication_scope')->label('Used For')->options(['official_notice' => 'Official Notices', 'announcement' => 'Announcements', 'both' => 'Both'])->default('both')->required(),
                 Toggle::make('status')->label('Active')->default(true),
             ])->columns(2),
         ]);
@@ -93,6 +95,7 @@ class NoticeCategoryResource extends Resource
     {
         $user = auth()->user();
 
-        return $user !== null && app(HrRecordAuthorization::class)->allows($user, HrPermission::NoticeManage);
+        return $user !== null && (app(HrRecordAuthorization::class)->allows($user, HrPermission::NoticeManage)
+            || app(HrRecordAuthorization::class)->allows($user, HrPermission::AnnouncementManage));
     }
 }

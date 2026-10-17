@@ -41,7 +41,7 @@ class NoticeTemplateTest extends TestCase
                 'status' => true,
             ])->call('create')->assertHasNoFormErrors();
 
-        $template = NoticeTemplate::query()->firstOrFail();
+        $template = NoticeTemplate::query()->where('normalized_name', 'attendance policy reminder')->firstOrFail();
         $this->assertSame('attendance policy reminder', $template->normalized_name);
         $this->assertSame('notice_template', $template->getMorphClass());
         $this->assertDatabaseHas('activity_logs', ['event' => 'notice_template.created', 'subject_type' => 'notice_template', 'subject_id' => $template->id]);

@@ -239,7 +239,7 @@ class RenewedQcDispatchService
         $this->authorizeQueue($actor);
         app(QcOrderDispatchAuthorization::class)->authorizeOrder($actor, $order);
         $data = ['order_id' => $order->id, 'reference' => $order->reference, 'external_order_number' => $order->external_order_number,
-            'warehouse' => $order->warehouse->name, 'order_date' => $order->order_date->toDateString(), 'order_status' => $order->status->value,
+            'warehouse_id' => $order->warehouse_id, 'warehouse' => $order->warehouse->name, 'order_date' => $order->order_date->toDateString(), 'order_status' => $order->status->value,
             'fulfillment_reference' => $order->fulfillment?->reference,
             'fulfilled_at' => app(BusinessTimezone::class)->iso($order->fulfillment?->fulfilled_at),
             'created_at' => app(BusinessTimezone::class)->iso($order->created_at),

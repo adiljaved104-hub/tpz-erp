@@ -61,6 +61,8 @@ class QcRecordedRenewedStockIntakeService
 
         return $intakes->map(fn (QcRecordedStockIntake $intake): array => [
             'intake_id' => $intake->id,
+            'product_id' => $intake->product_id,
+            'warehouse_id' => $intake->warehouse_id,
             'sku' => $intake->product->sku,
             'product_title' => $intake->product->name,
             'warehouse' => $intake->warehouse->name,

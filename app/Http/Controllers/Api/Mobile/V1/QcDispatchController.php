@@ -42,6 +42,7 @@ class QcDispatchController extends MobileController
         return response()->json(['data' => ['reserved_orders' => $canDispatch ? $service->queueQuery($actor)->count() : 0,
             ...$inspections->counters($actor),
             'qc_order_demand' => $canDispatch ? $demand->calculate($actor) : ['units_needed' => 0, 'orders_affected' => 0],
+            'qc_reserved_order_demand' => $canDispatch ? $demand->calculateReserved($actor) : ['units_needed' => 0, 'orders_affected' => 0],
             'qc_transfer_demand' => ['units_needed' => $transferSummary['units_needed'], 'transfers_affected' => $transferSummary['transfers_affected']],
             'marketplace_transfers' => $transferSummary['marketplace_transfers'],
             'timezone' => $clock->name(), 'capabilities' => [

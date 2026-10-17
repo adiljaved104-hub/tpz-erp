@@ -31,7 +31,7 @@ class HrSearchProvider implements GlobalSearchProvider
             SearchQuery::rank($notices, 'reference', $query);
             SearchQuery::rank($notices, 'title', $query);
             $results = $results->concat($notices->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
-                'Official Notices', $row->reference.' · '.$row->title, ucfirst($row->priority).' · '.ucfirst($row->status),
+                'Notices', $row->reference.' · '.$row->title, ucfirst($row->priority).' · '.ucfirst($row->status),
                 HrNoticeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-megaphone', ['module' => 'hr/notices', 'id' => $row->id],
             )));
         }

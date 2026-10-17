@@ -86,6 +86,32 @@ class MobileGlobalSearchTest extends TestCase
         $this->assertTarget($owner, 'Mobile Search Warning', 'Warnings', ['module' => 'hr/warnings', 'id' => $warning->id]);
     }
 
+    public function test_official_notices_keep_the_notices_group_and_announcements_remain_separate(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $officialNotice = app(HrNoticeService::class)->publish([
+            'audience_type' => 'selected',
+            'employee_ids' => [$owner->employee->id],
+            'title' => 'Mobile Group Official Notice',
+            'content' => 'Official notice search result.',
+            'priority' => 'normal',
+            'published_at' => now()->toDateTimeString(),
+            'acknowledgment_required' => false,
+        ], $owner);
+        $announcement = app(HrNoticeService::class)->publishAnnouncement([
+            'audience_type' => 'selected',
+            'employee_ids' => [$owner->employee->id],
+            'title' => 'Mobile Group Announcement',
+            'content' => 'Announcement search result.',
+            'priority' => 'normal',
+            'published_at' => now()->toDateTimeString(),
+            'acknowledgment_required' => false,
+        ], $owner);
+
+        $this->assertTarget($owner, $officialNotice->title, 'Notices', ['module' => 'hr/notices', 'id' => $officialNotice->id]);
+        $this->assertTarget($owner, $announcement->title, 'Announcements', ['module' => 'hr/notices', 'id' => $announcement->id]);
+    }
+
     public function test_product_search_supports_normalized_and_legacy_brand_values(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);

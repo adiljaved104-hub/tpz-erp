@@ -1119,6 +1119,57 @@ class RenewedQcDispatchTest extends TestCase
         $this->assertStringNotContainsString($certificate->snapshot['reference'], json_encode($detail, JSON_THROW_ON_ERROR));
     }
 
+    public function test_technician_home_separates_open_forecast_from_reserved_demand_and_safe_source_ids(): void
+    {
+        $reserved = $this->order(quantity: 2);
+        $open = $this->order(quantity: 3);
+        $open->forceFill(['status' => OrderStatus::Confirmed])->save();
+        $technician = $this->responsibilityUser(EmployeeRole::Technician);
+        $this->mobile($technician);
+
+        $this->getJson('/api/mobile/v1/workspace/qc')->assertOk()
+            ->assertJsonPath('data.reserved_orders', 1)
+            ->assertJsonPath('data.qc_order_demand.units_needed', 5)
+            ->assertJsonPath('data.qc_reserved_order_demand.units_needed', 2)
+            ->assertJsonPath('data.qc_reserved_order_demand.orders_affected', 1);
+        $this->getJson('/api/mobile/v1/workspace/qc/orders/'.$reserved->id)->assertOk()
+            ->assertJsonPath('data.warehouse_id', $this->warehouse->id)
+            ->assertJsonPath('data.readiness.lines.0.product_id', $this->product->id)
+            ->assertJsonMissingPath('data.selling_price')
+            ->assertJsonMissingPath('data.cost_price');
+        $this->getJson('/api/mobile/v1/workspace/orders')->assertForbidden();
+    }
+
+    public function test_technician_bulk_session_ships_ready_orders_only_and_mixed_retry_never_double_posts(): void
+    {
+        $ready = $this->order();
+        $pending = $this->order(quantity: 2);
+        $nonReserved = $this->order();
+        $nonReserved->forceFill(['status' => OrderStatus::Confirmed])->save();
+        $certificate = $this->certify('TECH-BULK-READY');
+        $technician = $this->responsibilityUser(EmployeeRole::Technician);
+        $this->mobile($technician);
+        $this->getJson('/api/mobile/v1/workspace/qc/dispatch')->assertOk()->assertJsonPath('total', 2);
+        $this->postJson('/api/mobile/v1/workspace/qc/orders/'.$ready->id.'/verified-scan', [
+            'code' => app(QcDocumentService::class)->url($certificate),
+        ])->assertOk()->assertJsonPath('data.readiness.status', 'ready');
+        $rows = array_map(fn ($order) => ['order_id' => $order->id, 'idempotency_key' => (string) str()->uuid()], [$ready, $pending, $nonReserved]);
+        $this->postJson('/api/mobile/v1/workspace/qc/bulk-ship', ['orders' => $rows])->assertOk()
+            ->assertJsonPath('data.0.status', 'shipped')
+            ->assertJsonPath('data.1.status', 'not_ready')
+            ->assertJsonPath('data.2.status', 'failed')
+            ->assertJsonPath('data.2.reference', null);
+        $movements = DB::table('stock_movements')->count();
+        $this->postJson('/api/mobile/v1/workspace/qc/bulk-ship', ['orders' => $rows])->assertOk()
+            ->assertJsonPath('data.0.status', 'shipped')->assertJsonPath('data.1.status', 'not_ready');
+        $this->assertSame($movements, DB::table('stock_movements')->count());
+        $this->assertDatabaseCount('order_fulfillments', 1);
+        $this->assertSame(OrderStatus::Reserved, $pending->fresh()->status);
+        $this->assertSame(OrderStatus::Confirmed, $nonReserved->fresh()->status);
+        $this->getJson('/api/mobile/v1/workspace/orders')->assertForbidden();
+        $this->getJson('/api/mobile/v1/workspace/stock-transfers')->assertForbidden();
+    }
+
     public function test_bulk_dispatch_is_per_order_and_retries_are_idempotent(): void
     {
         $ready = $this->order();

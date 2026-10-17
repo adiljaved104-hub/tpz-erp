@@ -35,6 +35,15 @@ class QcOrderDemandService
         return ['units_needed' => $forecast['units_needed'], 'orders_affected' => $forecast['orders_affected']];
     }
 
+    /** Reserved-only preparation forecast; the broader open-order forecast remains separate. */
+    public function calculateReserved(User $actor): array
+    {
+        $this->dispatch->authorizeQueue($actor);
+        $forecast = $this->calculateAuthorizedForecast($actor, reservedOnly: true);
+
+        return ['units_needed' => $forecast['units_needed'], 'orders_affected' => $forecast['orders_affected']];
+    }
+
     /**
      * Aggregate-only projection for an authorized QC queue. It intentionally
      * does not require Order View and never returns Order/customer details.
@@ -51,9 +60,9 @@ class QcOrderDemandService
     }
 
     /** @return array{units_needed: int, orders_affected: int, by_product_location: array<int, array<int, int>>} */
-    private function calculateAuthorizedForecast(User $actor): array
+    private function calculateAuthorizedForecast(User $actor, bool $reservedOnly = false): array
     {
-        $slots = $this->demandSlots($actor);
+        $slots = $this->demandSlots($actor, $reservedOnly);
         if ($slots === []) {
             return ['units_needed' => 0, 'orders_affected' => 0, 'by_product_location' => []];
         }
@@ -115,9 +124,10 @@ class QcOrderDemandService
     }
 
     /** @return list<array{order: Order, item: OrderItem, can_use_ready_certificate: bool}> */
-    private function demandSlots(User $actor): array
+    private function demandSlots(User $actor, bool $reservedOnly = false): array
     {
         $orders = $this->openRenewedDemandOrders($actor)
+            ->when($reservedOnly, fn (Builder $query) => $query->where('status', OrderStatus::Reserved->value))
             ->with([
                 'items.product',
                 'items.upgradeSelection',

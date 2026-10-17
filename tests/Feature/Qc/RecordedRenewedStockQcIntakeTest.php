@@ -786,6 +786,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
         $inspection = app(QcInspectionService::class)->start($this->startData($product, $warehouse, 'RECORDED-001', $intake->id), $technician);
         $this->assertSame($technician->id, $inspection->technician_user_id);
+        $this->assertSame($product->id, $inspection->device->product_id);
+        $this->assertSame($warehouse->id, $inspection->warehouse_id);
         $this->assertSame($intake->id, $inspection->recorded_stock_intake_id);
         $this->assertSame('recorded_renewed_stock', $inspection->qc_source);
         $this->assertSame(1, $intake->refresh()->started_quantity);
@@ -1047,6 +1049,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock')->assertOk()
             ->assertJsonPath('data.0.remaining_quantity', 2)
+            ->assertJsonPath('data.0.product_id', $product->id)
+            ->assertJsonPath('data.0.warehouse_id', $warehouse->id)
             ->assertJsonMissingPath('data.0.inventory_unit_cost');
 
         QcInspection::created(function (QcInspection $created) use ($intake, $owner): void {
@@ -1065,6 +1069,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
         $response = $this->withToken($token)->postJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock/'.$intake->id.'/start', [
             'serial' => 'MOBILE-INTAKE-001',
+            'product_id' => $product->id + 1000,
+            'warehouse_id' => $warehouse->id + 1000,
             'features' => [],
             'idempotency_key' => (string) Str::uuid(),
         ])->assertCreated()->assertJsonPath('remaining_quantity', 0);
@@ -1073,6 +1079,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame(1, ProductInventory::query()->where('product_id', $product->id)->sole()->qc_pending_quantity);
         $inspection = QcInspection::query()->findOrFail($response->json('inspection_id'));
         $this->assertSame($technician->id, $inspection->technician_user_id);
+        $this->assertSame($product->id, $inspection->device->product_id);
+        $this->assertSame($warehouse->id, $inspection->warehouse_id);
         $this->assertSame($intake->id, $inspection->recorded_stock_intake_id);
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/products')->assertForbidden();
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/orders')->assertForbidden();

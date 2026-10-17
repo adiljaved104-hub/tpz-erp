@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\NoticeCategories;
 
-use App\Enums\HrPermission;
 use App\Filament\Resources\NoticeCategories\Pages\CreateNoticeCategory;
 use App\Filament\Resources\NoticeCategories\Pages\EditNoticeCategory;
 use App\Filament\Resources\NoticeCategories\Pages\ListNoticeCategories;
@@ -21,6 +20,7 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class NoticeCategoryResource extends Resource
@@ -38,7 +38,7 @@ class NoticeCategoryResource extends Resource
         return $schema->components([
             Section::make('Notice Category')->schema([
                 TextInput::make('name')->required()->maxLength(255),
-                Select::make('communication_scope')->label('Used For')->options(['official_notice' => 'Official Notices', 'announcement' => 'Announcements', 'both' => 'Both'])->default('both')->required(),
+                Select::make('communication_scope')->label('Used For')->options(fn (): array => self::communicationScopeOptions())->default(fn (): string => self::defaultCommunicationScope())->required(),
                 Toggle::make('status')->label('Active')->default(true),
             ])->columns(2),
         ]);
@@ -53,7 +53,7 @@ class NoticeCategoryResource extends Resource
         ])->filters([
             TernaryFilter::make('status')->label('Active'),
         ])->recordActions([
-            EditAction::make()->visible(fn (): bool => self::manageAllowed()),
+            EditAction::make()->visible(fn (NoticeCategory $record): bool => self::canEdit($record)),
         ]);
     }
 
@@ -74,7 +74,25 @@ class NoticeCategoryResource extends Resource
 
     public static function canEdit(Model $record): bool
     {
-        return self::manageAllowed();
+        $user = auth()->user();
+
+        return $user !== null && $record instanceof NoticeCategory && self::authorization()->canEditNoticeCategory($user, $record);
+    }
+
+    public static function canView(Model $record): bool
+    {
+        $user = auth()->user();
+
+        return $user !== null && $record instanceof NoticeCategory
+            && self::authorization()->canViewNoticeCategoryScope($user, (string) $record->communication_scope);
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        $user = auth()->user();
+        $query = parent::getEloquentQuery();
+
+        return $user === null ? $query->whereRaw('1 = 0') : self::authorization()->scopeNoticeCategories($query, $user);
     }
 
     public static function canDelete(Model $record): bool
@@ -95,7 +113,42 @@ class NoticeCategoryResource extends Resource
     {
         $user = auth()->user();
 
-        return $user !== null && (app(HrRecordAuthorization::class)->allows($user, HrPermission::NoticeManage)
-            || app(HrRecordAuthorization::class)->allows($user, HrPermission::AnnouncementManage));
+        return $user !== null && self::authorization()->canManageNoticeCategories($user);
+    }
+
+    /** @return array<string, string> */
+    private static function communicationScopeOptions(): array
+    {
+        $user = auth()->user();
+        if ($user === null) {
+            return [];
+        }
+
+        return collect([
+            'official_notice' => 'Official Notices',
+            'announcement' => 'Announcements',
+            'both' => 'Both',
+        ])->filter(fn (string $label, string $scope): bool => self::authorization()->canManageNoticeCategoryScope($user, $scope))->all();
+    }
+
+    private static function defaultCommunicationScope(): string
+    {
+        $user = auth()->user();
+        if ($user === null) {
+            return 'both';
+        }
+
+        if (self::authorization()->canManageNoticeCategoryScope($user, 'both')) {
+            return 'both';
+        }
+
+        return self::authorization()->canManageNoticeCategoryScope($user, 'official_notice')
+            ? 'official_notice'
+            : 'announcement';
+    }
+
+    private static function authorization(): HrRecordAuthorization
+    {
+        return app(HrRecordAuthorization::class);
     }
 }

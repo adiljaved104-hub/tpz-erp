@@ -330,7 +330,7 @@ class TechnicianRoleSecurityTest extends TestCase
 
         $groups = Filament::getPanel('admin')->buildNavigation();
         $labels = collect($groups)->flatMap(fn ($group) => $group->getItems())->map(fn ($item) => $item->getLabel())->values()->all();
-        $this->assertSame(['Quality Control', 'Recorded Renewed Stock Awaiting QC'], $labels);
+        $this->assertSame(['Quality Control', 'Purchase Stock QC'], $labels);
     }
 
     public function test_owner_admin_and_staff_manager_qc_behavior_remains_unchanged(): void

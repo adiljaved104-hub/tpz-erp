@@ -96,7 +96,7 @@ class MobileManifest
                         'marketplace_transfers' => $marketplaceTransfers,
                         'transfer_assignment' => $transferAssignment,
                         'transfer_release' => $transferRelease,
-                        'endpoints' => ['inspections' => '/workspace/qc/inspections', 'inspection_options' => '/workspace/qc/inspections/options', 'inspection_start' => '/workspace/qc/inspections', 'inspection_detail' => '/workspace/qc/inspections/{inspection}',
+                        'endpoints' => ['open_order_demand' => '/workspace/qc/open-order-demand', 'inspections' => '/workspace/qc/inspections', 'inspection_options' => '/workspace/qc/inspections/options', 'inspection_start' => '/workspace/qc/inspections', 'inspection_detail' => '/workspace/qc/inspections/{inspection}',
                             'inspection_begin' => '/workspace/qc/inspections/{inspection}/begin', 'inspection_update' => '/workspace/qc/inspections/{inspection}',
                             'inspection_evidence' => '/workspace/qc/inspections/{inspection}/evidence', 'inspection_complete' => '/workspace/qc/inspections/{inspection}/complete',
                             'pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}',

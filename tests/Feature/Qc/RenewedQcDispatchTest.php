@@ -13,6 +13,7 @@ use App\Enums\ProductCondition;
 use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
 use App\Enums\StockMovementType;
+use App\Enums\StockTransferPermission;
 use App\Exceptions\InventoryInvariantException;
 use App\Filament\Pages\Inventory\RenewedQcWorkQueue;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
@@ -36,6 +37,7 @@ use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Mobile\MobileManifest;
 use App\Services\Orders\OrderService;
@@ -1462,6 +1464,79 @@ class RenewedQcDispatchTest extends TestCase
                 }
             }
         }
+    }
+
+    public function test_open_order_demand_endpoint_projects_all_open_states_without_exposing_orders_or_finances(): void
+    {
+        app(OrderService::class)->saveDraft($this->orderData(quantity: 2), $this->owner);
+        foreach ([OrderStatus::PendingReview, OrderStatus::Confirmed, OrderStatus::Reserved, OrderStatus::Processing] as $status) {
+            $this->order(quantity: 2)->forceFill(['status' => $status])->save();
+        }
+        foreach ([OrderStatus::Cancelled, OrderStatus::Fulfilled] as $status) {
+            $this->order()->forceFill(['status' => $status])->save();
+        }
+        $this->order()->forceFill(['status' => OrderStatus::Processing, 'delivered_at' => now()])->save();
+        $technician = $this->responsibilityUser(EmployeeRole::Technician);
+        $this->mobile($technician);
+        $before = $this->stockSnapshot();
+        $response = $this->getJson('/api/mobile/v1/workspace/qc/open-order-demand')->assertOk();
+        $response->assertExactJson(['data' => [[
+            'product_id' => $this->product->id, 'sku' => $this->product->sku, 'product_title' => $this->product->name,
+            'warehouse_id' => $this->warehouse->id, 'warehouse' => $this->warehouse->name,
+            'units_needed' => 10, 'orders_affected' => 5,
+        ]]]);
+        $home = $this->getJson('/api/mobile/v1/workspace/qc')->assertOk()
+            ->assertJsonPath('data.qc_order_demand.units_needed', 10)
+            ->assertJsonPath('data.qc_reserved_order_demand.units_needed', 2)
+            ->assertJsonPath('data.qc_reserved_order_demand.orders_affected', 1)
+            ->assertJsonPath('data.reserved_orders', 1)
+            ->assertJsonPath('data.qc_transfer_demand.units_needed', 0)
+            ->assertJsonPath('data.marketplace_transfers', 0);
+        $this->assertSame($home->json('data.qc_order_demand.units_needed'), array_sum(array_column($response->json('data'), 'units_needed')));
+        $manifest = $this->getJson('/api/mobile/v1/workspace/manifest')->assertOk()
+            ->assertJsonPath('workspace_mode', 'qc_focused')->assertJsonPath('landing_module', 'qc');
+        $this->assertSame(['qc'], array_column($manifest->json('modules'), 'key'));
+        $this->assertSame('/workspace/qc/open-order-demand', $manifest->json('modules.0.capabilities.endpoints.open_order_demand'));
+        $this->assertFalse($manifest->json('modules.0.capabilities.transfer_release'));
+        foreach (OrderPermission::cases() as $permission) {
+            $this->assertFalse(app(OrderAuthorization::class)->allows($technician, $permission));
+        }
+        foreach (StockTransferPermission::cases() as $permission) {
+            $this->assertFalse(app(StockTransferAuthorization::class)->allows($technician, $permission));
+        }
+        $this->getJson('/api/mobile/v1/workspace/orders')->assertForbidden();
+        $this->getJson('/api/mobile/v1/workspace/stock-transfers')->assertForbidden();
+        $this->assertSame($before, $this->stockSnapshot());
+    }
+
+    public function test_open_order_demand_rows_use_the_same_ready_supply_matching_and_unique_order_counts(): void
+    {
+        $this->order(items: [new OrderItemData($this->product->id, 2, '500.00'), new OrderItemData($this->product->id, 1, '500.00')]);
+        $this->order();
+        $this->certify('DEMAND-READY');
+        $this->mobile($this->owner);
+        $response = $this->getJson('/api/mobile/v1/workspace/qc/open-order-demand')->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.units_needed', 3)->assertJsonPath('data.0.orders_affected', 2);
+        $this->assertSame(app(QcOrderDemandService::class)->calculate($this->owner)['units_needed'], array_sum(array_column($response->json('data'), 'units_needed')));
+        $this->certify('DEMAND-READY-2');
+        $this->certify('DEMAND-READY-3');
+        $this->certify('DEMAND-READY-4');
+        $this->getJson('/api/mobile/v1/workspace/qc/open-order-demand')->assertOk()->assertExactJson(['data' => []]);
+    }
+
+    public function test_open_order_demand_reuses_responsibility_scope_and_requires_qc_preparation_permissions(): void
+    {
+        $this->order();
+        $otherBrand = ProductBrand::factory()->create();
+        $other = Product::factory()->create(['condition' => ProductCondition::Renewed, 'brand_id' => $otherBrand->id, 'brand' => $otherBrand->name]);
+        ProductInventory::factory()->create(['product_id' => $other->id, 'warehouse_id' => $this->warehouse->id, 'available_quantity' => 10]);
+        $this->order(items: [new OrderItemData($other->id, 1, '500.00')]);
+        $staff = $this->dispatchStaff();
+        $this->mobile($staff);
+        $this->getJson('/api/mobile/v1/workspace/qc/open-order-demand')->assertForbidden();
+        $this->override($staff, QcPermission::Start, EmployeePermissionEffect::Allow);
+        $this->getJson('/api/mobile/v1/workspace/qc/open-order-demand')->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.product_id', $this->product->id)->assertJsonPath('data.0.units_needed', 1);
     }
 
     private function orderData(int $quantity = 1, ?array $items = null): SaveAndReserveOrderData

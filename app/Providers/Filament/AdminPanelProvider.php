@@ -53,7 +53,7 @@ class AdminPanelProvider extends PanelProvider
                         ->url(QcInspectionResource::getUrl('index'))
                         ->icon('heroicon-o-clipboard-document-check')
                         ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.resources.qc-inspections.*')),
-                    NavigationItem::make('Recorded Renewed Stock Awaiting QC')
+                    NavigationItem::make('Purchase Stock QC')
                         ->url(RecordedRenewedStockQueue::getUrl())
                         ->icon('heroicon-o-clipboard-document-check')
                         ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.pages.recorded-renewed-stock-awaiting-qc')),

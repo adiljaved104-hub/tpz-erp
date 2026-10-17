@@ -12,6 +12,7 @@ use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Qc\QcInspectionReadService;
 use App\Services\Qc\QcOrderDemandService;
+use App\Services\Qc\QcRecordedRenewedStockIntakeService;
 use App\Services\Qc\QcTransferDemandService;
 use App\Services\Qc\RenewedQcDispatchService;
 use Illuminate\Http\JsonResponse;
@@ -20,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 
 class QcDispatchController extends MobileController
 {
-    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcOrderDemandService $demand, QcTransferDemandService $transferDemand, QcAuthorization $qcAuthorization, QcOrderDispatchAuthorization $dispatchAuthorization, StockTransferAuthorization $transferAuthorization): JsonResponse
+    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcOrderDemandService $demand, QcRecordedRenewedStockIntakeService $intakes, QcTransferDemandService $transferDemand, QcAuthorization $qcAuthorization, QcOrderDispatchAuthorization $dispatchAuthorization, StockTransferAuthorization $transferAuthorization): JsonResponse
     {
         $actor = $request->user();
         $canInspect = $qcAuthorization->allows($actor, QcPermission::View);
@@ -28,6 +29,10 @@ class QcDispatchController extends MobileController
         $canTransferQueue = $transferDemand->canViewTransferQueue($actor);
         abort_unless($canInspect || $canDispatch || $canTransferQueue, 403);
 
+        $canPrepare = $intakes->canAccess($actor);
+        $orderDemand = $canPrepare
+            ? array_intersect_key($demand->calculateForQcQueue($actor), array_flip(['units_needed', 'orders_affected']))
+            : ($canDispatch ? $demand->calculate($actor) : ['units_needed' => 0, 'orders_affected' => 0]);
         $canScan = $dispatchAuthorization->canScan($actor);
         $canShip = $dispatchAuthorization->canShip($actor);
         $transferSummary = $canTransferQueue ? $transferDemand->summary($actor)
@@ -41,7 +46,8 @@ class QcDispatchController extends MobileController
 
         return response()->json(['data' => ['reserved_orders' => $canDispatch ? $service->queueQuery($actor)->count() : 0,
             ...$inspections->counters($actor),
-            'qc_order_demand' => $canDispatch ? $demand->calculate($actor) : ['units_needed' => 0, 'orders_affected' => 0],
+            'qc_order_demand' => $orderDemand,
+            'recorded_stock_intake_summary' => $canPrepare ? $intakes->summary($actor) : ['units_waiting' => 0, 'intakes_waiting' => 0],
             'qc_reserved_order_demand' => $canDispatch ? $demand->calculateReserved($actor) : ['units_needed' => 0, 'orders_affected' => 0],
             'qc_transfer_demand' => ['units_needed' => $transferSummary['units_needed'], 'transfers_affected' => $transferSummary['transfers_affected']],
             'marketplace_transfers' => $transferSummary['marketplace_transfers'],
@@ -64,6 +70,11 @@ class QcDispatchController extends MobileController
                 'access' => ['inspections' => $canInspect, 'dispatch' => $canDispatch, 'scan' => $canScan, 'ship' => $canShip,
                     'marketplace_transfers' => $canTransferQueue, 'transfer_assignment' => $canAssignTransfer, 'transfer_release' => $canReleaseTransfer],
             ]]]);
+    }
+
+    public function openOrderDemand(Request $request, QcOrderDemandService $demand): JsonResponse
+    {
+        return response()->json(['data' => $demand->openOrderDemand($request->user())]);
     }
 
     public function index(Request $request, RenewedQcDispatchService $service): JsonResponse

@@ -28,9 +28,9 @@ class RecordedRenewedStockQueue extends Page implements HasTable
 
     protected static ?string $slug = 'recorded-renewed-stock-awaiting-qc';
 
-    protected static ?string $navigationLabel = 'Recorded Renewed Stock Awaiting QC';
+    protected static ?string $navigationLabel = 'Purchase Stock QC';
 
-    protected static ?string $title = 'Recorded Renewed Stock Awaiting QC';
+    protected static ?string $title = 'Purchase Stock QC';
 
     protected static string|\UnitEnum|null $navigationGroup = 'Quality Control';
 

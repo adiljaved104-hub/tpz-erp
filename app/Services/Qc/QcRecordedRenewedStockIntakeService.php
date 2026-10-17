@@ -42,15 +42,30 @@ class QcRecordedRenewedStockIntakeService
 
     public function queueQuery(User $actor): Builder
     {
-        $this->authorizeQueue($actor);
-
-        return QcRecordedStockIntake::query()->awaitingStart()
-            ->whereHas('product', fn (Builder $query) => $query->where('condition', ProductCondition::Renewed->value))
+        return $this->awaitingStartQuery($actor)
             ->with(['product:id,sku,name', 'warehouse:id,name', 'receiptItem.receipt:id,reference,received_at'])
             ->addSelect(['completed_quantity' => QcInspection::query()->selectRaw('COUNT(DISTINCT device_id)')
                 ->whereColumn('recorded_stock_intake_id', 'qc_recorded_stock_intakes.id')
                 ->where('status', QcInspectionStatus::Completed->value)])
             ->orderBy('id');
+    }
+
+    /** @return array{units_waiting: int, intakes_waiting: int} */
+    public function summary(User $actor): array
+    {
+        $summary = $this->awaitingStartQuery($actor)
+            ->selectRaw('COALESCE(SUM(accepted_quantity - started_quantity), 0) as units_waiting, COUNT(*) as intakes_waiting')
+            ->first();
+
+        return ['units_waiting' => (int) $summary->units_waiting, 'intakes_waiting' => (int) $summary->intakes_waiting];
+    }
+
+    private function awaitingStartQuery(User $actor): Builder
+    {
+        $this->authorizeQueue($actor);
+
+        return QcRecordedStockIntake::query()->awaitingStart()
+            ->whereHas('product', fn (Builder $query) => $query->where('condition', ProductCondition::Renewed->value));
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -117,7 +132,7 @@ class QcRecordedRenewedStockIntakeService
 
         if ($pending) {
             throw ValidationException::withMessages([
-                'recorded_stock_intake_id' => 'Recorded Renewed stock is already awaiting QC for this Product and Location. Start QC from Recorded Renewed Stock Awaiting QC.',
+                'recorded_stock_intake_id' => 'Recorded Renewed stock is already awaiting QC for this Product and Location. Start QC from Purchase Stock QC.',
             ]);
         }
     }

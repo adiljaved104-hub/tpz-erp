@@ -54,20 +54,15 @@ class MobileManifest
             }
             if ($key === 'qc') {
                 $qcAuthorization = app(Authorization\QcAuthorization::class);
-                $orderAuthorization = app(Authorization\OrderAuthorization::class);
+                $dispatchAuthorization = app(Authorization\QcOrderDispatchAuthorization::class);
                 $inspections = $qcAuthorization->allows($user, Enums\QcPermission::View);
                 $inspectionStart = $inspections && $qcAuthorization->allows($user, Enums\QcPermission::Start);
                 $inspectionUpdate = $qcAuthorization->allows($user, Enums\QcPermission::Update);
                 $inspectionComplete = $qcAuthorization->allows($user, Enums\QcPermission::Complete);
                 $recordedStockIntake = $inspections && $qcAuthorization->allows($user, Enums\QcPermission::Start);
-                $dispatch = $qcAuthorization->allows($user, Enums\QcPermission::ViewDispatchQueue)
-                    && $orderAuthorization->allows($user, Enums\OrderPermission::View);
-                $scan = $dispatch
-                    && $qcAuthorization->allows($user, Enums\QcPermission::ScanDispatch)
-                    && $qcAuthorization->allows($user, Enums\QcPermission::ViewOrderAssignments)
-                    && $qcAuthorization->allows($user, Enums\QcPermission::AssignOrderDevice);
-                $ship = $dispatch && $qcAuthorization->allows($user, Enums\QcPermission::ShipDispatch)
-                    && $orderAuthorization->allows($user, Enums\OrderPermission::Fulfill);
+                $dispatch = $dispatchAuthorization->canViewQueue($user);
+                $scan = $dispatchAuthorization->canScan($user);
+                $ship = $dispatchAuthorization->canShip($user);
                 $marketplaceTransfers = $user->employee?->role === Enums\EmployeeRole::Technician
                     ? $qcAuthorization->allows($user, Enums\QcPermission::ViewMarketplaceTransferAssignments)
                     : $qcAuthorization->allows($user, Enums\QcPermission::ViewOrderAssignments)

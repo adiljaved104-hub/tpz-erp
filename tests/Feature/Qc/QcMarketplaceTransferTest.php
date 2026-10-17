@@ -448,7 +448,7 @@ class QcMarketplaceTransferTest extends TestCase
 
         $this->assertFalse(app(StockTransferAuthorization::class)->allows($technician, StockTransferPermission::View));
         $this->assertFalse(app(StockTransferAuthorization::class)->allows($technician, StockTransferPermission::Dispatch));
-        $this->assertFalse(app(QcAuthorization::class)->allows($technician, QcPermission::ViewOrderAssignments));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::ViewOrderAssignments), 'Customer Order QC assignment access is separate from Stock Transfer permissions.');
         $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::ViewMarketplaceTransferAssignments));
         $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::AssignMarketplaceTransferDevice));
 

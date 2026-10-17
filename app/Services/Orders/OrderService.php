@@ -28,6 +28,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Authorization\QcOrderDispatchAuthorization;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryService;
 use App\Services\Qc\RenewedQcDispatchService;
@@ -642,7 +643,23 @@ class OrderService
 
     public function fulfill(Order $order, string $idempotencyKey, User $actor): Order
     {
-        $this->authorization->authorize($actor, OrderPermission::Fulfill, $order);
+        return $this->fulfillCore($order, $idempotencyKey, $actor,
+            fn (Order $candidate) => $this->authorization->authorize($actor, OrderPermission::Fulfill, $candidate));
+    }
+
+    /** Fulfill through the dedicated QC dispatch capability while sharing the normal posting transaction. */
+    public function fulfillFromQcDispatch(Order $order, string $idempotencyKey, User $actor): Order
+    {
+        $dispatchAuthorization = app(QcOrderDispatchAuthorization::class);
+
+        return $this->fulfillCore($order, $idempotencyKey, $actor,
+            fn (Order $candidate) => $dispatchAuthorization->authorizeShip($actor, $candidate));
+    }
+
+    /** @param  \Closure(Order): void  $authorize */
+    private function fulfillCore(Order $order, string $idempotencyKey, User $actor, \Closure $authorize): Order
+    {
+        $authorize($order);
 
         if ($existing = OrderFulfillment::query()->where('idempotency_key', $idempotencyKey)->first()) {
             if ($existing->order_id !== $order->id) {
@@ -677,7 +694,7 @@ class OrderService
         }
 
         try {
-            return DB::transaction(function () use ($order, $idempotencyKey, $actor, $fulfillmentReference, $movementReferences, $postingKeys, $upgradeMovementReferences, $upgradePostingKeys, $upgradeExecutionKeys): Order {
+            return DB::transaction(function () use ($order, $idempotencyKey, $actor, $fulfillmentReference, $movementReferences, $postingKeys, $upgradeMovementReferences, $upgradePostingKeys, $upgradeExecutionKeys, $authorize): Order {
                 $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
                 if ($existing = OrderFulfillment::query()->where('idempotency_key', $idempotencyKey)->first()) {
@@ -688,7 +705,7 @@ class OrderService
                     return $existing->order->load(['items.reservations', 'items.upgradeSelection.execution', 'items.fulfillmentItem.upgradeExecution', 'fulfillment.items', 'statusEvents']);
                 }
 
-                $this->authorization->authorize($actor, OrderPermission::Fulfill, $order);
+                $authorize($order);
 
                 if ($order->status !== OrderStatus::Reserved) {
                     throw new InvalidOrderTransitionException('Only a fully Reserved Order can be shipped.');

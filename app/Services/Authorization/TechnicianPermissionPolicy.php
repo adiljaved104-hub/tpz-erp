@@ -18,6 +18,11 @@ final class TechnicianPermissionPolicy
             QcPermission::Update->value,
             QcPermission::Complete->value,
             QcPermission::ViewCustomerEvidence->value,
+            QcPermission::ViewDispatchQueue->value,
+            QcPermission::ScanDispatch->value,
+            QcPermission::ViewOrderAssignments->value,
+            QcPermission::AssignOrderDevice->value,
+            QcPermission::ShipDispatch->value,
             QcPermission::AssignMarketplaceTransferDevice->value,
             QcPermission::ViewMarketplaceTransferAssignments->value,
         ];

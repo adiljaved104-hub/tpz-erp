@@ -11,10 +11,12 @@ use App\Enums\NoticeAudienceType;
 use App\Filament\Resources\Announcements\AnnouncementResource;
 use App\Filament\Resources\Announcements\Pages\CreateAnnouncement;
 use App\Filament\Resources\Announcements\Pages\ViewAnnouncement;
+use App\Filament\Resources\EmployeeWarnings\Pages\CreateEmployeeWarning;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
 use App\Filament\Resources\HrNotices\Pages\ViewHrNotice;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
+use App\Models\EmployeeWarning;
 use App\Models\HrAcknowledgment;
 use App\Models\HrNotice;
 use App\Models\NoticeCategory;
@@ -256,6 +258,51 @@ class HrAnnouncementsTest extends TestCase
         $this->assertSame('announcement', $announcement->communication_type);
     }
 
+    public function test_warning_template_acknowledgment_defaults_apply_and_warning_fields_remain_customizable(): void
+    {
+        [$owner, $staff] = $this->people();
+        $category = WarningCategory::query()->where('status', true)->firstOrFail();
+        $trueTemplate = $this->warningTemplate($category, $owner, 'Acknowledgment Required Template', true, 'verbal');
+        $falseTemplate = $this->warningTemplate($category, $owner, 'No Acknowledgment Template', false, 'written');
+
+        Livewire::actingAs($owner)->test(CreateEmployeeWarning::class)
+            ->set('data.warning_category_id', $category->id)
+            ->set('data.acknowledgment_required', false)
+            ->set('data.warning_template_id', $trueTemplate->id)
+            ->assertSet('data.acknowledgment_required', true)
+            ->assertSet('data.title', $trueTemplate->default_title)
+            ->assertSet('data.description', $trueTemplate->default_description)
+            ->assertSet('data.warning_level', $trueTemplate->default_warning_level)
+            ->set('data.title', 'Customized Warning Title')
+            ->set('data.description', 'Customized disciplinary details.')
+            ->set('data.warning_level', 'written')
+            ->set('data.acknowledgment_required', false)
+            ->assertSet('data.title', 'Customized Warning Title')
+            ->assertSet('data.description', 'Customized disciplinary details.')
+            ->assertSet('data.warning_level', 'written')
+            ->assertSet('data.acknowledgment_required', false);
+
+        Livewire::actingAs($owner)->test(CreateEmployeeWarning::class)
+            ->set('data.employee_id', $staff->employee->id)
+            ->set('data.warning_category_id', $category->id)
+            ->set('data.warning_template_id', $falseTemplate->id)
+            ->assertSet('data.acknowledgment_required', false)
+            ->assertSet('data.title', $falseTemplate->default_title)
+            ->assertSet('data.description', $falseTemplate->default_description)
+            ->assertSet('data.warning_level', $falseTemplate->default_warning_level)
+            ->set('data.issued_date', now()->toDateString())
+            ->call('create')->assertHasNoFormErrors();
+
+        $warning = EmployeeWarning::query()->firstOrFail();
+        $this->assertSame($falseTemplate->id, $warning->warning_template_id);
+        $this->assertFalse($warning->acknowledgment_required);
+        $this->assertSame($falseTemplate->default_title, $warning->title);
+        $this->assertSame($falseTemplate->default_description, $warning->description);
+        $this->assertSame('written', $warning->warning_level->value);
+        $this->assertDatabaseCount('hr_notices', 0);
+        $this->assertDatabaseCount('employee_warnings', 1);
+    }
+
     /** @param array<int, int> $employeeIds @param array<string, mixed> $overrides @return array<string, mixed> */
     private function data(array $employeeIds, array $overrides = []): array
     {
@@ -264,6 +311,20 @@ class HrAnnouncementsTest extends TestCase
             'title' => 'Company Update', 'content' => 'A general information update.', 'priority' => 'normal',
             'published_at' => now()->toDateTimeString(), 'expires_at' => null, 'acknowledgment_required' => false,
         ], $overrides);
+    }
+
+    private function warningTemplate(WarningCategory $category, User $owner, string $name, bool $acknowledgmentRequired, string $level): WarningTemplate
+    {
+        return WarningTemplate::query()->create([
+            'warning_category_id' => $category->id,
+            'name' => $name,
+            'default_title' => $name.' title',
+            'default_description' => $name.' details',
+            'default_warning_level' => $level,
+            'default_acknowledgment_required' => $acknowledgmentRequired,
+            'status' => true,
+            'created_by_user_id' => $owner->id,
+        ]);
     }
 
     /** @return array{User, User, User, User, Team} */

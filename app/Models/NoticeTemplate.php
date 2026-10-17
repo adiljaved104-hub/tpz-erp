@@ -12,6 +12,8 @@ class NoticeTemplate extends Model
 {
     protected $guarded = [];
 
+    protected $attributes = ['communication_type' => 'official_notice'];
+
     protected function casts(): array
     {
         return [
@@ -32,7 +34,12 @@ class NoticeTemplate extends Model
                 && ! NoticeCategory::query()->whereKey($template->notice_category_id)->where('status', true)->exists()) {
                 throw ValidationException::withMessages(['data.notice_category_id' => 'Select an active Notice Category.']);
             }
-            if (self::query()->where('notice_category_id', $template->notice_category_id)
+            if (! NoticeCategory::query()->whereKey($template->notice_category_id)
+                ->whereIn('communication_scope', [$template->communication_type, 'both'])->exists()) {
+                throw ValidationException::withMessages(['data.notice_category_id' => 'The Category is not enabled for this communication type.']);
+            }
+            if (self::query()->where('communication_type', $template->communication_type)
+                ->where('notice_category_id', $template->notice_category_id)
                 ->where('normalized_name', $template->normalized_name)
                 ->when($template->exists, fn ($query) => $query->whereKeyNot($template->getKey()))
                 ->exists()) {

@@ -25,4 +25,7 @@ enum HrPermission: string
     case NoticeView = 'notice.view';
     case NoticePublish = 'notice.publish';
     case NoticeManage = 'notice.manage';
+    case AnnouncementView = 'announcement.view';
+    case AnnouncementPublish = 'announcement.publish';
+    case AnnouncementManage = 'announcement.manage';
 }

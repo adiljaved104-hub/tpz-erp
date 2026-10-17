@@ -457,7 +457,7 @@ class ReportQueryService
     private function notices(User $user, array $f): array
     {
         $management = $this->hrAuth->allows($user, HrPermission::NoticeManage) || $this->hrAuth->allows($user, HrPermission::NoticePublish);
-        $q = DB::table('hr_notices as hn')->leftJoin('notice_categories as nc', 'nc.id', '=', 'hn.notice_category_id')->whereBetween('hn.published_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])->when($f['status'], fn (Builder $x) => $x->where('hn.status', $f['status']));
+        $q = DB::table('hr_notices as hn')->leftJoin('notice_categories as nc', 'nc.id', '=', 'hn.notice_category_id')->where('hn.communication_type', 'official_notice')->whereBetween('hn.published_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])->when($f['status'], fn (Builder $x) => $x->where('hn.status', $f['status']));
         if ($management) {
             $q->select(['hn.reference as notice_reference', 'nc.name as category', 'hn.title', 'hn.audience_type', 'hn.priority', 'hn.published_at', 'hn.expires_at', 'hn.status'])
                 ->selectRaw('(SELECT COUNT(*) FROM hr_notice_recipients nr WHERE nr.hr_notice_id = hn.id) AS recipients')

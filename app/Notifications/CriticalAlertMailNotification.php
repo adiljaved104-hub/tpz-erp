@@ -129,6 +129,7 @@ class CriticalAlertMailNotification extends Notification implements ShouldBeEncr
             'hr_notice' => ($record = HrNotice::query()->find($this->targetId)) instanceof HrNotice
                 && $record->status === 'active'
                 && $record->archived_at === null
+                && ($record->expires_at === null || $record->expires_at->isFuture())
                 && HrNoticeRecipient::query()->where('hr_notice_id', $record->id)
                     ->where('employee_id', $notifiable->employee?->id)->exists()
                 && app(HrRecordAuthorization::class)->canViewNotice($notifiable, $record),

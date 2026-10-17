@@ -5,6 +5,7 @@ namespace App\Services\Search;
 use App\Contracts\GlobalSearchProvider;
 use App\DTOs\GlobalSearchResult;
 use App\Enums\HrPermission;
+use App\Filament\Resources\Announcements\AnnouncementResource;
 use App\Filament\Resources\EmployeeWarnings\EmployeeWarningResource;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
 use App\Models\EmployeeWarning;
@@ -30,8 +31,22 @@ class HrSearchProvider implements GlobalSearchProvider
             SearchQuery::rank($notices, 'reference', $query);
             SearchQuery::rank($notices, 'title', $query);
             $results = $results->concat($notices->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
-                'Notices', $row->reference.' · '.$row->title, ucfirst($row->priority).' · '.ucfirst($row->status),
+                'Official Notices', $row->reference.' · '.$row->title, ucfirst($row->priority).' · '.ucfirst($row->status),
                 HrNoticeResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-megaphone', ['module' => 'hr/notices', 'id' => $row->id],
+            )));
+        }
+
+        if ($authorization->allows($user, HrPermission::AnnouncementView)
+            || $authorization->allows($user, HrPermission::AnnouncementManage)
+            || $authorization->allows($user, HrPermission::AnnouncementPublish)) {
+            $ids = $authorization->scopeAnnouncements(HrNotice::query()->select('hr_notices.id'), $user);
+            $announcements = DB::table('hr_notices')->whereIn('id', $ids)->select(['id', 'reference', 'title', 'priority', 'status']);
+            SearchQuery::match($announcements, ['reference', 'title'], $query);
+            SearchQuery::rank($announcements, 'reference', $query);
+            SearchQuery::rank($announcements, 'title', $query);
+            $results = $results->concat($announcements->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
+                'Announcements', $row->reference.' · '.$row->title, ucfirst($row->priority).' · '.ucfirst($row->status),
+                AnnouncementResource::getUrl('view', ['record' => $row->id]), 'heroicon-o-megaphone', ['module' => 'hr/notices', 'id' => $row->id],
             )));
         }
 

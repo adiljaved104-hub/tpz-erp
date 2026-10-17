@@ -70,6 +70,7 @@ class MobileWorkspaceCapabilities
         $hrVisible = $user->can('viewAny', Employee::class) || $user->can('view', $user->employee)
             || $user->can('viewAny', Team::class)
             || $hr->allows($user, HrPermission::NoticeView)
+            || $hr->allows($user, HrPermission::AnnouncementView)
             || $hr->allows($user, HrPermission::WarningViewOwn)
             || $hr->allows($user, HrPermission::WarningViewTeam)
             || $hr->allows($user, HrPermission::WarningViewAll);

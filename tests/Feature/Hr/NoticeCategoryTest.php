@@ -27,13 +27,14 @@ class NoticeCategoryTest extends TestCase
     {
         [$owner, $staff, $team] = $this->people();
         $manager = $this->user(EmployeeRole::Manager, $team);
+        $existingCategoryCount = NoticeCategory::query()->count();
 
         Livewire::actingAs($owner)->test(CreateNoticeCategory::class)
             ->fillForm(['name' => '  HR   Policy  ', 'status' => true])
             ->call('create')
             ->assertHasNoFormErrors();
 
-        $category = NoticeCategory::query()->firstOrFail();
+        $category = NoticeCategory::query()->where('normalized_name', 'hr policy')->firstOrFail();
         $this->assertSame('HR Policy', $category->name);
         $this->assertSame('hr policy', $category->normalized_name);
         $this->assertTrue($category->status);
@@ -44,7 +45,7 @@ class NoticeCategoryTest extends TestCase
             ->fillForm(['name' => 'hr policy', 'status' => true])
             ->call('create')
             ->assertHasFormErrors(['name']);
-        $this->assertDatabaseCount('notice_categories', 1);
+        $this->assertDatabaseCount('notice_categories', $existingCategoryCount + 1);
 
         Livewire::actingAs($owner)->test(EditNoticeCategory::class, ['record' => $category->id])
             ->fillForm(['name' => 'HR Policies', 'status' => false])

@@ -22,12 +22,20 @@ class HrWarningsNoticesFoundationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_foundation_tables_are_empty_and_reference_sequences_are_ready(): void
+    public function test_foundation_tables_have_seeded_warning_defaults_and_reference_sequences_are_ready(): void
     {
-        foreach (['warning_categories', 'employee_warnings', 'hr_notices', 'hr_notice_recipients', 'hr_acknowledgments'] as $table) {
+        foreach (['employee_warnings', 'hr_notices', 'hr_notice_recipients', 'hr_acknowledgments'] as $table) {
             $this->assertTrue(Schema::hasTable($table));
             $this->assertDatabaseCount($table, 0);
         }
+        $this->assertTrue(Schema::hasTable('warning_categories'));
+        $this->assertTrue(Schema::hasTable('warning_templates'));
+        $this->assertDatabaseCount('warning_categories', 2);
+        $this->assertDatabaseCount('warning_templates', 3);
+        $this->assertSame(2, DB::table('warning_categories')->distinct()->count('normalized_name'));
+        $this->assertSame(3, DB::table('warning_templates')->distinct()->count('normalized_name'));
+        $this->assertDatabaseHas('warning_categories', ['normalized_name' => 'attendance & timing', 'status' => true]);
+        $this->assertDatabaseHas('warning_categories', ['normalized_name' => 'office discipline', 'status' => true]);
         $this->assertDatabaseHas('reference_sequences', ['key' => 'employee_warning:2026', 'next_value' => 1]);
         $this->assertDatabaseHas('reference_sequences', ['key' => 'hr_notice:2026', 'next_value' => 1]);
 

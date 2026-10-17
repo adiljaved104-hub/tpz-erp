@@ -107,6 +107,7 @@ Route::prefix('mobile/v1')
             Route::get('/hr/{section}', [HrController::class, 'index']);
             Route::get('/hr/{section}/{record}', [HrController::class, 'show'])->whereNumber('record');
             Route::post('/hr/notices', [HrController::class, 'publishNotice']);
+            Route::post('/hr/announcements', [HrController::class, 'publishAnnouncement']);
             Route::post('/hr/warnings', [HrController::class, 'issueWarning']);
             Route::post('/hr/{section}/{record}/acknowledge', [HrController::class, 'acknowledge'])->whereNumber('record');
             Route::get('/purchases', [PurchaseController::class, 'index']);

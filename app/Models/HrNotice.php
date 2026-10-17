@@ -12,6 +12,8 @@ class HrNotice extends Model
 {
     protected $guarded = [];
 
+    protected $attributes = ['communication_type' => 'official_notice'];
+
     protected function casts(): array
     {
         return [
@@ -26,7 +28,7 @@ class HrNotice extends Model
     protected static function booted(): void
     {
         static::updating(function (HrNotice $notice): void {
-            $material = ['notice_category_id', 'notice_template_id', 'title', 'content', 'audience_type', 'team_id', 'priority', 'published_at', 'expires_at', 'acknowledgment_required', 'published_by_user_id'];
+            $material = ['communication_type', 'created_by_user_id', 'notice_category_id', 'notice_template_id', 'title', 'content', 'audience_type', 'team_id', 'priority', 'published_at', 'expires_at', 'acknowledgment_required', 'published_by_user_id'];
             if ($notice->isDirty($material) && $notice->acknowledgments()->whereNotNull('acknowledged_at')->exists()) {
                 throw new LogicException('Acknowledged Notice content is immutable.');
             }
@@ -52,6 +54,11 @@ class HrNotice extends Model
     public function publishedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'published_by_user_id');
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
     public function recipients(): HasMany

@@ -26,6 +26,7 @@ class HrWarningCategoryMorphTest extends TestCase
     public function test_warning_category_create_and_create_another_write_safe_activity_logs(): void
     {
         [$owner] = $this->people();
+        $existingCategoryCount = WarningCategory::query()->count();
 
         Livewire::actingAs($owner)->test(CreateWarningCategory::class)
             ->fillForm(['name' => 'Attendance & Punctuality', 'status' => true])
@@ -37,7 +38,7 @@ class HrWarningCategoryMorphTest extends TestCase
             ->call('createAnother')
             ->assertHasNoFormErrors();
 
-        $this->assertDatabaseCount('warning_categories', 2);
+        $this->assertDatabaseCount('warning_categories', $existingCategoryCount + 2);
         $this->assertDatabaseHas('warning_categories', ['normalized_name' => 'attendance & punctuality', 'status' => true]);
         $this->assertDatabaseHas('warning_categories', ['normalized_name' => 'conduct', 'status' => true]);
         $this->assertDatabaseCount('activity_logs', 2);

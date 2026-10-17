@@ -25,7 +25,7 @@ class EmployeeWarning extends Model
     protected static function booted(): void
     {
         static::updating(function (EmployeeWarning $warning): void {
-            $material = ['employee_id', 'warning_category_id', 'warning_level', 'title', 'description', 'issued_date', 'issued_by_user_id', 'acknowledgment_required'];
+            $material = ['employee_id', 'warning_category_id', 'warning_template_id', 'warning_level', 'title', 'description', 'issued_date', 'issued_by_user_id', 'acknowledgment_required'];
             if ($warning->isDirty($material) && $warning->acknowledgments()->whereNotNull('acknowledged_at')->exists()) {
                 throw new LogicException('Acknowledged Warning content is immutable.');
             }
@@ -41,6 +41,11 @@ class EmployeeWarning extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(WarningCategory::class, 'warning_category_id');
+    }
+
+    public function template(): BelongsTo
+    {
+        return $this->belongsTo(WarningTemplate::class, 'warning_template_id');
     }
 
     public function issuedBy(): BelongsTo

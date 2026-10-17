@@ -2,7 +2,7 @@
 
 namespace App\Filament\Resources\HrNotices\Pages;
 
-use App\Enums\HrPermission;
+use App\Enums\HrCommunicationType;
 use App\Filament\Resources\HrNotices\HrNoticeResource;
 use App\Models\Employee;
 use App\Services\Authorization\HrRecordAuthorization;
@@ -24,7 +24,9 @@ class ViewHrNotice extends ViewRecord
 
     public function canViewRecipientStatus(): bool
     {
-        return app(HrRecordAuthorization::class)->canViewNoticeRecipientStatus(auth()->user());
+        $resource = static::$resource;
+
+        return app(HrRecordAuthorization::class)->canViewCommunicationRecipientStatus(auth()->user(), $resource::communicationType());
     }
 
     public function canLinkRecipientEmployees(): bool
@@ -34,23 +36,26 @@ class ViewHrNotice extends ViewRecord
 
     protected function getHeaderActions(): array
     {
+        $resource = static::$resource;
+        $type = $resource::communicationType();
+        $label = $type === HrCommunicationType::Announcement ? 'Announcement' : 'Official Notice';
         $employeeId = auth()->user()?->employee?->id;
         $isRecipient = $employeeId !== null && $this->record->recipients->contains('employee_id', $employeeId);
         $ack = $this->record->acknowledgments->firstWhere('employee_id', auth()->user()?->employee?->id);
 
         return [
-            Action::make('acknowledge')->label('Acknowledge Notice')->color('success')->requiresConfirmation()
-                ->modalDescription('Acknowledgment confirms that you received and read this Notice.')
+            Action::make('acknowledge')->label('Acknowledge '.$label)->color('success')->requiresConfirmation()
+                ->modalDescription('Acknowledgment confirms that you received and read this communication.')
                 ->visible(fn (): bool => $isRecipient && $this->record->acknowledgment_required && $ack?->acknowledged_at === null)
                 ->action(function (): void {
                     $this->record = app(HrNoticeService::class)->acknowledge($this->record, auth()->user());
                     Notification::make()->success()->title('Notice acknowledged')->send();
                 }),
-            Action::make('archive')->label('Archive Notice')->color('warning')->requiresConfirmation()
-                ->visible(fn (): bool => $this->record->status === 'active' && app(HrRecordAuthorization::class)->allows(auth()->user(), HrPermission::NoticeManage))
+            Action::make('archive')->label('Archive '.$label)->color('warning')->requiresConfirmation()
+                ->visible(fn (): bool => $this->record->status === 'active' && app(HrRecordAuthorization::class)->allows(auth()->user(), $type->managePermission()))
                 ->action(function (): void {
                     $this->record = app(HrNoticeService::class)->archive($this->record, auth()->user());
-                    Notification::make()->success()->title('Notice archived')->send();
+                    Notification::make()->success()->title($label.' archived')->send();
                 }),
         ];
     }

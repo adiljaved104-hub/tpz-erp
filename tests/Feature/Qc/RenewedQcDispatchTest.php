@@ -34,6 +34,7 @@ use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
+use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Mobile\MobileManifest;
@@ -714,7 +715,7 @@ class RenewedQcDispatchTest extends TestCase
         }
     }
 
-    public function test_inspection_only_focused_technician_receives_qc_without_dispatch_access(): void
+    public function test_inspection_only_focused_staff_receives_qc_without_dispatch_access(): void
     {
         $this->order();
         $technician = $this->responsibilityUser(EmployeeRole::Staff);
@@ -749,6 +750,133 @@ class RenewedQcDispatchTest extends TestCase
             ->assertJsonPath('data.capabilities.explicit_ship', false);
         $this->getJson('/api/mobile/v1/workspace/qc/inspections?scope=pending')->assertOk();
         $this->getJson('/api/mobile/v1/workspace/qc/dispatch')->assertForbidden();
+    }
+
+    public function test_technician_uses_qc_only_customer_order_dispatch_and_authoritative_shipment(): void
+    {
+        $order = $this->order(quantity: 2);
+        $technician = $this->responsibilityUser(EmployeeRole::Technician);
+        $first = $this->certify('TECH-DISPATCH-001');
+        $second = $this->certify('TECH-DISPATCH-002');
+        $manifest = app(MobileManifest::class)->forUser($technician);
+
+        $this->assertSame('qc_focused', $manifest['workspace_mode']);
+        $this->assertSame('qc', $manifest['landing_module']);
+        $this->assertSame(['qc'], array_column($manifest['modules'], 'key'));
+        $qc = $manifest['modules'][0];
+        $this->assertSame(['dispatch' => true, 'scan' => true, 'ship' => true, 'transfer_release' => false], array_intersect_key(
+            $qc['capabilities'], array_flip(['dispatch', 'scan', 'ship', 'transfer_release']),
+        ));
+        $this->assertFalse(app(OrderAuthorization::class)->allows($technician, OrderPermission::View));
+        $this->assertFalse(app(OrderAuthorization::class)->allows($technician, OrderPermission::Fulfill));
+
+        $this->mobile($technician);
+        $this->getJson('/api/mobile/v1/workspace/manifest')->assertOk()
+            ->assertJsonPath('workspace_mode', 'qc_focused')
+            ->assertJsonPath('landing_module', 'qc')
+            ->assertJsonPath('modules.0.key', 'qc')
+            ->assertJsonPath('modules.0.capabilities.dispatch', true)
+            ->assertJsonPath('modules.0.capabilities.scan', true)
+            ->assertJsonPath('modules.0.capabilities.ship', true)
+            ->assertJsonPath('modules.0.capabilities.transfer_release', false);
+        $this->getJson('/api/mobile/v1/workspace/qc')->assertOk()
+            ->assertJsonPath('data.reserved_orders', 1)
+            ->assertJsonPath('data.qc_order_demand.units_needed', 0)
+            ->assertJsonPath('data.capabilities.access.dispatch', true)
+            ->assertJsonPath('data.capabilities.access.scan', true)
+            ->assertJsonPath('data.capabilities.access.ship', true)
+            ->assertJsonPath('data.capabilities.access.transfer_release', false);
+        $queue = $this->getJson('/api/mobile/v1/workspace/qc/dispatch')->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.reference', $order->reference)
+            ->assertJsonPath('data.0.readiness.status', 'pending_qc')
+            ->assertJsonPath('data.0.readiness.required', 2);
+        foreach (['grand_total', 'selling_price', 'cost_price', 'average_cost', 'profit', 'customer_name'] as $sensitive) {
+            $this->assertStringNotContainsString('"'.$sensitive.'"', $queue->getContent());
+        }
+        $this->getJson('/api/mobile/v1/workspace/qc/orders/'.$order->id)->assertOk()
+            ->assertJsonPath('data.reference', $order->reference)
+            ->assertJsonPath('data.readiness.required', 2);
+
+        $this->getJson('/api/mobile/v1/workspace/orders')->assertForbidden();
+        $this->getJson('/api/mobile/v1/workspace/orders/'.$order->id)->assertForbidden();
+        $this->postJson('/api/mobile/v1/workspace/orders', [])->assertForbidden();
+        $this->putJson('/api/mobile/v1/workspace/orders/'.$order->id, [])->assertForbidden();
+        $this->postJson('/api/mobile/v1/workspace/orders/'.$order->id.'/cancel', ['idempotency_key' => (string) str()->uuid()])->assertForbidden();
+        $this->getJson('/api/mobile/v1/workspace/stock-transfers')->assertForbidden();
+        $this->postJson('/api/mobile/v1/workspace/stock-transfers', [])->assertForbidden();
+
+        $prefix = '/api/mobile/v1/workspace/qc/orders/'.$order->id;
+        $this->postJson($prefix.'/verified-scan', ['code' => app(QcDocumentService::class)->url($first), 'physical_serial' => $first->snapshot['serial']])
+            ->assertOk()->assertJsonPath('data.readiness.status', 'partially_assigned')->assertJsonPath('data.readiness.valid', 1);
+        $this->assertSame(OrderStatus::Reserved, $order->fresh()->status);
+        $this->assertDatabaseCount('order_fulfillments', 0);
+        $this->postJson($prefix.'/ship', ['idempotency_key' => (string) str()->uuid()])->assertUnprocessable()->assertJsonValidationErrors('qc');
+
+        $this->postJson($prefix.'/verified-scan', ['code' => app(QcDocumentService::class)->url($second), 'physical_serial' => $second->snapshot['serial']])
+            ->assertOk()->assertJsonPath('data.readiness.status', 'ready')->assertJsonPath('data.readiness.valid', 2);
+        $this->assertSame(OrderStatus::Reserved, $order->fresh()->status, 'Scanning must never ship an Order.');
+        $movementCount = DB::table('stock_movements')->count();
+        $key = (string) str()->uuid();
+        $shipped = $this->postJson($prefix.'/ship', ['idempotency_key' => $key])->assertOk()
+            ->assertJsonPath('data.status', 'shipped')
+            ->assertJsonPath('data.reference', $order->reference);
+        $this->assertNotEmpty($shipped->json('data.fulfillment_reference'));
+        $this->assertNotEmpty($shipped->json('data.fulfilled_at'));
+        $this->assertSame(OrderStatus::Fulfilled, $order->fresh()->status);
+        $this->assertDatabaseHas('order_fulfillments', ['order_id' => $order->id, 'fulfilled_by_user_id' => $technician->id, 'idempotency_key' => $key]);
+        $this->assertSame(1, DB::table('order_fulfillments')->where('order_id', $order->id)->count());
+        $this->assertSame(1, DB::table('order_fulfillment_items')->where('order_fulfillment_id', $order->fresh()->fulfillment->id)->count());
+        $this->assertSame(2, (int) DB::table('order_fulfillment_items')->where('order_fulfillment_id', $order->fresh()->fulfillment->id)->value('quantity'));
+        $this->assertGreaterThan($movementCount, DB::table('stock_movements')->count());
+        $postedMovementCount = DB::table('stock_movements')->count();
+
+        $this->postJson($prefix.'/ship', ['idempotency_key' => $key])->assertOk()->assertJsonPath('data.status', 'shipped');
+        $this->assertSame(1, DB::table('order_fulfillments')->where('order_id', $order->id)->count());
+        $this->assertSame($postedMovementCount, DB::table('stock_movements')->count());
+        $this->getJson($prefix)->assertOk()->assertJsonPath('data.order_status', 'fulfilled');
+    }
+
+    public function test_technician_dispatch_rejects_wrong_product_superseded_and_over_quantity_scans(): void
+    {
+        $order = $this->order();
+        $technician = $this->responsibilityUser(EmployeeRole::Technician);
+        $wrongProduct = Product::factory()->create(['condition' => ProductCondition::Renewed]);
+        $wrongProductCertificate = $this->certify('TECH-WRONG-PRODUCT', ['product_id' => $wrongProduct->id]);
+        $this->mobile($technician);
+        $prefix = '/api/mobile/v1/workspace/qc/orders/'.$order->id.'/verified-scan';
+
+        $this->postJson($prefix, ['code' => app(QcDocumentService::class)->url($wrongProductCertificate), 'physical_serial' => $wrongProductCertificate->snapshot['serial']])
+            ->assertUnprocessable();
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+
+        $superseded = $this->certify('TECH-SUPERSEDED');
+        $reinspection = app(QcInspectionService::class)->reopen($superseded->inspection, 'Technician dispatch supersession test', $this->owner);
+        $current = $this->finish($reinspection);
+        $this->postJson($prefix, ['code' => app(QcDocumentService::class)->url($superseded), 'physical_serial' => $superseded->snapshot['serial']])
+            ->assertUnprocessable();
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+
+        $payload = ['code' => app(QcDocumentService::class)->url($current), 'physical_serial' => $current->snapshot['serial']];
+        $this->postJson($prefix, $payload)->assertOk()->assertJsonPath('data.readiness.status', 'ready');
+        $this->postJson($prefix, $payload)->assertOk()->assertJsonPath('data.readiness.assigned', 1);
+        $extra = $this->certify('TECH-OVER-QUANTITY');
+        $this->postJson($prefix, ['code' => app(QcDocumentService::class)->url($extra), 'physical_serial' => $extra->snapshot['serial']])
+            ->assertUnprocessable();
+        $this->assertDatabaseCount('qc_order_assignments', 1);
+        $this->assertSame(OrderStatus::Reserved, $order->fresh()->status);
+        $this->assertDatabaseCount('order_fulfillments', 0);
+    }
+
+    public function test_technician_cannot_view_or_ship_non_reserved_order_from_qc_dispatch(): void
+    {
+        $order = $this->order();
+        $order->forceFill(['status' => OrderStatus::Confirmed])->save();
+        $technician = $this->responsibilityUser(EmployeeRole::Technician);
+        $this->mobile($technician);
+        $this->getJson('/api/mobile/v1/workspace/qc/orders/'.$order->id)->assertForbidden();
+        $this->postJson('/api/mobile/v1/workspace/qc/orders/'.$order->id.'/ship', ['idempotency_key' => (string) str()->uuid()])->assertForbidden();
+        $this->assertDatabaseCount('order_fulfillments', 0);
     }
 
     public function test_mobile_qc_inspection_scopes_are_visible_paginated_and_safe(): void
@@ -1162,6 +1290,22 @@ class RenewedQcDispatchTest extends TestCase
         });
     }
 
+    public function test_simultaneous_technician_qc_shipment_retries_create_one_fulfilment(): void
+    {
+        $order = $this->order();
+        $certificate = $this->certify('TECH-CONCURRENT-SHIP');
+        $technician = $this->responsibilityUser(EmployeeRole::Technician);
+        $this->dispatch->verifiedScan($order, app(QcDocumentService::class)->url($certificate), $certificate->snapshot['serial'], null, $technician);
+        $key = (string) str()->uuid();
+
+        $this->race([['ship', $order->id, $key], ['ship', $order->id, $key]], function (array $outcomes, \PDO $copy) use ($technician): void {
+            $this->assertSame(['shipped', 'shipped'], $outcomes);
+            $this->assertSame(1, (int) $copy->query('SELECT COUNT(*) FROM order_fulfillments')->fetchColumn());
+            $this->assertSame(1, (int) $copy->query('SELECT COUNT(*) FROM order_fulfillment_items')->fetchColumn());
+            $this->assertSame($technician->id, (int) $copy->query('SELECT fulfilled_by_user_id FROM order_fulfillments')->fetchColumn());
+        }, $technician);
+    }
+
     public function test_reinspection_and_shipment_share_the_device_mutex(): void
     {
         $order = $this->order();
@@ -1175,7 +1319,7 @@ class RenewedQcDispatchTest extends TestCase
         });
     }
 
-    private function race(array $requests, callable $assert): void
+    private function race(array $requests, callable $assert, ?User $actor = null): void
     {
         $path = sys_get_temp_dir().'/tpz-qc-dispatch-race-'.str()->uuid().'.sqlite';
         touch($path);
@@ -1200,7 +1344,7 @@ class RenewedQcDispatchTest extends TestCase
             $copy->exec('PRAGMA journal_mode=WAL');
             $statement = $copy = null;
             foreach ($requests as $slot => [$operation, $orderId, $value]) {
-                $worker = new Process([PHP_BINARY, base_path('tests/Support/RenewedQcDispatchWorker.php'), $path, $operation, (string) $orderId, $value, (string) $this->owner->id, (string) $slot], base_path(), timeout: 45);
+                $worker = new Process([PHP_BINARY, base_path('tests/Support/RenewedQcDispatchWorker.php'), $path, $operation, (string) $orderId, $value, (string) ($actor ?? $this->owner)->id, (string) $slot], base_path(), timeout: 45);
                 $worker->start();
                 $workers[] = $worker;
             }

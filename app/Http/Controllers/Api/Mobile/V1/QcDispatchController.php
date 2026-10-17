@@ -2,13 +2,12 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
-use App\Enums\OrderPermission;
 use App\Enums\QcPermission;
 use App\Enums\StockTransferPermission;
 use App\Exceptions\InvalidOrderTransitionException;
 use App\Models\Order;
-use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\QcOrderDispatchAuthorization;
 use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Qc\QcInspectionReadService;
@@ -21,21 +20,16 @@ use Illuminate\Validation\ValidationException;
 
 class QcDispatchController extends MobileController
 {
-    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcOrderDemandService $demand, QcTransferDemandService $transferDemand, QcAuthorization $qcAuthorization, OrderAuthorization $orderAuthorization, StockTransferAuthorization $transferAuthorization): JsonResponse
+    public function home(Request $request, RenewedQcDispatchService $service, QcInspectionReadService $inspections, QcOrderDemandService $demand, QcTransferDemandService $transferDemand, QcAuthorization $qcAuthorization, QcOrderDispatchAuthorization $dispatchAuthorization, StockTransferAuthorization $transferAuthorization): JsonResponse
     {
         $actor = $request->user();
         $canInspect = $qcAuthorization->allows($actor, QcPermission::View);
-        $canDispatch = $qcAuthorization->allows($actor, QcPermission::ViewDispatchQueue)
-            && $orderAuthorization->allows($actor, OrderPermission::View);
+        $canDispatch = $dispatchAuthorization->canViewQueue($actor);
         $canTransferQueue = $transferDemand->canViewTransferQueue($actor);
         abort_unless($canInspect || $canDispatch || $canTransferQueue, 403);
 
-        $canScan = $canDispatch
-            && $qcAuthorization->allows($actor, QcPermission::ScanDispatch)
-            && $qcAuthorization->allows($actor, QcPermission::ViewOrderAssignments)
-            && $qcAuthorization->allows($actor, QcPermission::AssignOrderDevice);
-        $canShip = $canDispatch && $qcAuthorization->allows($actor, QcPermission::ShipDispatch)
-            && $orderAuthorization->allows($actor, OrderPermission::Fulfill);
+        $canScan = $dispatchAuthorization->canScan($actor);
+        $canShip = $dispatchAuthorization->canShip($actor);
         $transferSummary = $canTransferQueue ? $transferDemand->summary($actor)
             : ['units_needed' => 0, 'transfers_affected' => 0, 'marketplace_transfers' => 0];
         $canAssignTransfer = $canTransferQueue
@@ -110,7 +104,9 @@ class QcDispatchController extends MobileController
             throw ValidationException::withMessages(['order' => $e->getMessage()]);
         }
 
-        return response()->json(['data' => ['order_id' => $order->id, 'reference' => $order->reference, 'status' => 'shipped', 'fulfilled_at' => app(BusinessTimezone::class)->iso($order->fulfillment->fulfilled_at)], 'message' => 'Order shipped.']);
+        return response()->json(['data' => ['order_id' => $order->id, 'reference' => $order->reference, 'status' => 'shipped',
+            'fulfillment_reference' => $order->fulfillment?->reference,
+            'fulfilled_at' => app(BusinessTimezone::class)->iso($order->fulfillment?->fulfilled_at)], 'message' => 'Order shipped.']);
     }
 
     public function bulkShip(Request $request, RenewedQcDispatchService $service): JsonResponse

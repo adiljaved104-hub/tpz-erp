@@ -2,7 +2,6 @@
 
 namespace App\Services\Qc;
 
-use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\ProductCondition;
 use App\Enums\QcPermission;
@@ -14,8 +13,8 @@ use App\Models\QcDevice;
 use App\Models\QcInspection;
 use App\Models\User;
 use App\Services\ActivityLogger;
-use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\QcOrderDispatchAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Orders\OrderService;
@@ -35,8 +34,7 @@ class RenewedQcDispatchService
 
     public function authorizeQueue(User $actor): void
     {
-        app(QcAuthorization::class)->authorize($actor, QcPermission::ViewDispatchQueue);
-        app(OrderAuthorization::class)->authorize($actor, OrderPermission::View);
+        app(QcOrderDispatchAuthorization::class)->authorizeQueue($actor);
     }
 
     public function queueQuery(User $actor): Builder
@@ -138,12 +136,12 @@ class RenewedQcDispatchService
     public function scan(Order $order, int $itemId, string $code, User $actor): array
     {
         $this->authorizeQueue($actor);
-        app(OrderAuthorization::class)->authorize($actor, OrderPermission::View, $order);
+        app(QcOrderDispatchAuthorization::class)->authorizeOrder($actor, $order);
         app(QcAuthorization::class)->authorize($actor, QcPermission::ScanDispatch);
 
         return DB::transaction(function () use ($order, $itemId, $code, $actor): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            app(OrderAuthorization::class)->authorize($actor, OrderPermission::View, $order);
+            app(QcOrderDispatchAuthorization::class)->authorizeOrder($actor, $order);
             app(QcAuthorization::class)->authorize($actor, QcPermission::ScanDispatch);
             $item = $order->items()->lockForUpdate()->find($itemId);
             if ($order->status !== OrderStatus::Reserved || ! $item || ! $this->requiresQc($item)) {
@@ -164,12 +162,12 @@ class RenewedQcDispatchService
     public function verifiedScan(Order $order, string $code, ?string $physicalSerial, ?int $itemId, User $actor): array
     {
         $this->authorizeQueue($actor);
-        app(OrderAuthorization::class)->authorize($actor, OrderPermission::View, $order);
+        app(QcOrderDispatchAuthorization::class)->authorizeOrder($actor, $order);
         app(QcAuthorization::class)->authorize($actor, QcPermission::ScanDispatch);
 
         return DB::transaction(function () use ($order, $code, $physicalSerial, $itemId, $actor): array {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            app(OrderAuthorization::class)->authorize($actor, OrderPermission::View, $order);
+            app(QcOrderDispatchAuthorization::class)->authorizeOrder($actor, $order);
             app(QcAuthorization::class)->authorize($actor, QcPermission::ScanDispatch);
             if ($order->status !== OrderStatus::Reserved) {
                 throw ValidationException::withMessages(['order' => 'QC units can only be scanned while this Order is Reserved.']);
@@ -196,8 +194,9 @@ class RenewedQcDispatchService
             $matched = null;
             $requirement = app(RenewedQcRequirement::class);
             foreach ($candidates as $candidate) {
+                $alreadyAssigned = $candidate->qcAssignments()->active()->where('qc_certificate_id', $certificate->id)->exists();
                 if (! $requirement->requires($candidate)
-                    || $candidate->qcAssignments()->active()->count() >= $requirement->requiredQuantity($candidate)) {
+                    || (! $alreadyAssigned && $candidate->qcAssignments()->active()->count() >= $requirement->requiredQuantity($candidate))) {
                     continue;
                 }
                 try {
@@ -238,9 +237,11 @@ class RenewedQcDispatchService
     public function detail(Order $order, User $actor): array
     {
         $this->authorizeQueue($actor);
-        app(OrderAuthorization::class)->authorize($actor, OrderPermission::View, $order);
+        app(QcOrderDispatchAuthorization::class)->authorizeOrder($actor, $order);
         $data = ['order_id' => $order->id, 'reference' => $order->reference, 'external_order_number' => $order->external_order_number,
             'warehouse' => $order->warehouse->name, 'order_date' => $order->order_date->toDateString(), 'order_status' => $order->status->value,
+            'fulfillment_reference' => $order->fulfillment?->reference,
+            'fulfilled_at' => app(BusinessTimezone::class)->iso($order->fulfillment?->fulfilled_at),
             'created_at' => app(BusinessTimezone::class)->iso($order->created_at),
             'readiness' => $this->readinessForViewer($order, $actor), 'timezone' => app(BusinessTimezone::class)->name()];
         $data['devices'] = app(QcAuthorization::class)->allows($actor, QcPermission::ViewOrderAssignments)
@@ -266,10 +267,9 @@ class RenewedQcDispatchService
     {
         // No outer transaction: OrderService must reserve reference sequences first.
         $this->authorizeQueue($actor);
-        app(OrderAuthorization::class)->authorize($actor, OrderPermission::Fulfill, $order);
-        app(QcAuthorization::class)->authorize($actor, QcPermission::ShipDispatch);
+        app(QcOrderDispatchAuthorization::class)->authorizeShip($actor, $order);
 
-        return app(OrderService::class)->fulfill($order, $key, $actor);
+        return app(OrderService::class)->fulfillFromQcDispatch($order, $key, $actor);
     }
 
     public function bulkShip(array $requests, User $actor): array
@@ -279,7 +279,7 @@ class RenewedQcDispatchService
         $results = [];
         foreach ($input['orders'] as $row) {
             $order = Order::query()->find($row['order_id']);
-            $visible = $order && app(OrderAuthorization::class)->allows($actor, OrderPermission::View, $order);
+            $visible = $order && app(QcOrderDispatchAuthorization::class)->allowsOrder($actor, $order);
             $result = ['order_id' => $row['order_id'], 'reference' => $visible ? $order->reference : null];
             try {
                 if (! $visible) {

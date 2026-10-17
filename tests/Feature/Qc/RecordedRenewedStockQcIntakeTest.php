@@ -517,7 +517,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame($movementCount, StockMovement::query()->count());
         $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::View));
         $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::Start));
-        $this->assertFalse(app(QcAuthorization::class)->allows($technician, QcPermission::ViewDispatchQueue));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::ViewDispatchQueue));
         $this->assertFalse(app(OrderAuthorization::class)->allows($technician, OrderPermission::View, $order));
         $this->assertSame(['units_needed' => 2, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($owner));
         $queueDemand = app(QcOrderDemandService::class)->calculateForQcQueue($technician);

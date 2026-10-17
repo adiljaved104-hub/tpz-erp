@@ -9,6 +9,7 @@ use App\Enums\NoticeAudienceType;
 use App\Models\Employee;
 use App\Models\EmployeeWarning;
 use App\Models\HrNotice;
+use App\Models\NoticeCategory;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -98,6 +99,50 @@ class HrRecordAuthorization
             : HrCommunicationType::OfficialNotice;
 
         return $this->scopeCommunications(HrNotice::query()->whereKey($notice), $user, $type)->exists();
+    }
+
+    public function canManageNoticeCategories(User $user): bool
+    {
+        return $this->allows($user, HrPermission::NoticeManage)
+            || $this->allows($user, HrPermission::AnnouncementManage);
+    }
+
+    public function canManageNoticeCategoryScope(User $user, string $scope): bool
+    {
+        return match ($scope) {
+            'official_notice' => $this->allows($user, HrPermission::NoticeManage),
+            'announcement' => $this->allows($user, HrPermission::AnnouncementManage),
+            'both' => $this->allows($user, HrPermission::NoticeManage)
+                && $this->allows($user, HrPermission::AnnouncementManage),
+            default => false,
+        };
+    }
+
+    public function canViewNoticeCategoryScope(User $user, string $scope): bool
+    {
+        return match ($scope) {
+            'official_notice' => $this->allows($user, HrPermission::NoticeManage),
+            'announcement' => $this->allows($user, HrPermission::AnnouncementManage),
+            'both' => $this->canManageNoticeCategories($user),
+            default => false,
+        };
+    }
+
+    public function canEditNoticeCategory(User $user, NoticeCategory $category): bool
+    {
+        return $this->canManageNoticeCategoryScope($user, (string) $category->communication_scope);
+    }
+
+    public function scopeNoticeCategories(Builder $query, User $user): Builder
+    {
+        $scopes = array_values(array_filter(
+            ['official_notice', 'announcement', 'both'],
+            fn (string $scope): bool => $this->canViewNoticeCategoryScope($user, $scope),
+        ));
+
+        return $scopes === []
+            ? $query->whereRaw('1 = 0')
+            : $query->whereIn('communication_scope', $scopes);
     }
 
     public function canViewCommunicationRecipientStatus(User $user, HrCommunicationType $type): bool

@@ -76,9 +76,7 @@ class EmployeeWarningResource extends Resource
                         if (blank($get('warning_level'))) {
                             $set('warning_level', $template->default_warning_level);
                         }
-                        if ($get('acknowledgment_required') === null) {
-                            $set('acknowledgment_required', $template->default_acknowledgment_required);
-                        }
+                        $set('acknowledgment_required', (bool) $template->default_acknowledgment_required);
                     }),
                 DatePicker::make('issued_date')->label('Issue Date')->default(today())->maxDate(today())->required(),
                 TextInput::make('title')->required()->maxLength(255)->columnSpanFull(),

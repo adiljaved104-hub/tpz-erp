@@ -2,12 +2,16 @@
 
 namespace Tests\Feature\Hr;
 
+use App\Contracts\EmployeePermissionOverrideResolver;
+use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
+use App\Enums\HrPermission;
 use App\Enums\NoticeAudienceType;
 use App\Filament\Resources\HrNotices\Pages\CreateHrNotice;
 use App\Filament\Resources\NoticeTemplates\Pages\CreateNoticeTemplate;
 use App\Filament\Resources\NoticeTemplates\Pages\EditNoticeTemplate;
 use App\Models\Employee;
+use App\Models\EmployeePermissionOverride;
 use App\Models\HrNotice;
 use App\Models\NoticeCategory;
 use App\Models\NoticeTemplate;
@@ -151,6 +155,58 @@ class NoticeTemplateTest extends TestCase
 
         $this->expectException(LogicException::class);
         $template->delete();
+    }
+
+    public function test_single_type_template_manager_cannot_forge_another_communication_type(): void
+    {
+        [$owner, , $manager] = $this->people();
+        $category = NoticeCategory::query()->create([
+            'name' => 'Shared Template Category',
+            'communication_scope' => 'both',
+            'status' => true,
+            'created_by_user_id' => $owner->id,
+        ]);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $manager->employee->id,
+            'permission_key' => HrPermission::AnnouncementManage->value,
+            'effect' => EmployeePermissionEffect::Allow,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Test announcement template management in isolation.',
+        ]);
+        app(EmployeePermissionOverrideResolver::class)->forgetEmployee($manager->employee->id);
+        $template = NoticeTemplate::query()->create([
+            'communication_type' => 'announcement',
+            'notice_category_id' => $category->id,
+            'name' => 'Announcement-only manager template',
+            'default_title' => 'Announcement title',
+            'default_content' => 'Announcement content.',
+            'default_priority' => 'normal',
+            'default_acknowledgment_required' => false,
+            'status' => true,
+            'created_by_user_id' => $owner->id,
+        ]);
+
+        Livewire::actingAs($manager)->test(EditNoticeTemplate::class, ['record' => $template->id])
+            ->fillForm(['communication_type' => 'official_notice'])
+            ->call('save')
+            ->assertHasFormErrors(['communication_type']);
+
+        Livewire::actingAs($manager)->test(CreateNoticeTemplate::class)
+            ->fillForm([
+                'communication_type' => 'official_notice',
+                'notice_category_id' => $category->id,
+                'name' => 'Forged official template',
+                'default_title' => 'Forged title',
+                'default_content' => 'Forged content.',
+                'default_priority' => 'normal',
+                'default_acknowledgment_required' => false,
+                'status' => true,
+            ])
+            ->call('create')
+            ->assertHasFormErrors(['communication_type']);
+
+        $this->assertSame('announcement', $template->refresh()->communication_type);
+        $this->assertDatabaseMissing('notice_templates', ['name' => 'Forged official template']);
     }
 
     private function template(NoticeCategory $category, User $owner, string $name, bool $active): NoticeTemplate

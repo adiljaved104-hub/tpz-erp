@@ -2,7 +2,6 @@
 
 namespace App\Services\Qc;
 
-use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\QcInspectionStatus;
 use App\Enums\QcPermission;
@@ -15,8 +14,8 @@ use App\Models\QcInspection;
 use App\Models\QcOrderAssignment;
 use App\Models\User;
 use App\Services\ActivityLogger;
-use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\QcOrderDispatchAuthorization;
 use App\Services\BusinessTimezone;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,7 +28,7 @@ class QcOrderAssignmentService
 {
     public function allows(User $actor, QcPermission $permission, Order $order): bool
     {
-        return app(OrderAuthorization::class)->allows($actor, OrderPermission::View, $order)
+        return app(QcOrderDispatchAuthorization::class)->allowsOrder($actor, $order)
             && app(QcAuthorization::class)->allows($actor, QcPermission::ViewOrderAssignments)
             && app(QcAuthorization::class)->allows($actor, $permission);
     }

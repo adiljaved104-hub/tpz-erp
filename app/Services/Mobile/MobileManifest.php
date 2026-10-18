@@ -54,20 +54,15 @@ class MobileManifest
             }
             if ($key === 'qc') {
                 $qcAuthorization = app(Authorization\QcAuthorization::class);
-                $orderAuthorization = app(Authorization\OrderAuthorization::class);
+                $dispatchAuthorization = app(Authorization\QcOrderDispatchAuthorization::class);
                 $inspections = $qcAuthorization->allows($user, Enums\QcPermission::View);
                 $inspectionStart = $inspections && $qcAuthorization->allows($user, Enums\QcPermission::Start);
                 $inspectionUpdate = $qcAuthorization->allows($user, Enums\QcPermission::Update);
                 $inspectionComplete = $qcAuthorization->allows($user, Enums\QcPermission::Complete);
                 $recordedStockIntake = $inspections && $qcAuthorization->allows($user, Enums\QcPermission::Start);
-                $dispatch = $qcAuthorization->allows($user, Enums\QcPermission::ViewDispatchQueue)
-                    && $orderAuthorization->allows($user, Enums\OrderPermission::View);
-                $scan = $dispatch
-                    && $qcAuthorization->allows($user, Enums\QcPermission::ScanDispatch)
-                    && $qcAuthorization->allows($user, Enums\QcPermission::ViewOrderAssignments)
-                    && $qcAuthorization->allows($user, Enums\QcPermission::AssignOrderDevice);
-                $ship = $dispatch && $qcAuthorization->allows($user, Enums\QcPermission::ShipDispatch)
-                    && $orderAuthorization->allows($user, Enums\OrderPermission::Fulfill);
+                $dispatch = $dispatchAuthorization->canViewQueue($user);
+                $scan = $dispatchAuthorization->canScan($user);
+                $ship = $dispatchAuthorization->canShip($user);
                 $marketplaceTransfers = $user->employee?->role === Enums\EmployeeRole::Technician
                     ? $qcAuthorization->allows($user, Enums\QcPermission::ViewMarketplaceTransferAssignments)
                     : $qcAuthorization->allows($user, Enums\QcPermission::ViewOrderAssignments)
@@ -101,7 +96,7 @@ class MobileManifest
                         'marketplace_transfers' => $marketplaceTransfers,
                         'transfer_assignment' => $transferAssignment,
                         'transfer_release' => $transferRelease,
-                        'endpoints' => ['inspections' => '/workspace/qc/inspections', 'inspection_options' => '/workspace/qc/inspections/options', 'inspection_start' => '/workspace/qc/inspections', 'inspection_detail' => '/workspace/qc/inspections/{inspection}',
+                        'endpoints' => ['open_order_demand' => '/workspace/qc/open-order-demand', 'inspections' => '/workspace/qc/inspections', 'inspection_options' => '/workspace/qc/inspections/options', 'inspection_start' => '/workspace/qc/inspections', 'inspection_detail' => '/workspace/qc/inspections/{inspection}',
                             'inspection_begin' => '/workspace/qc/inspections/{inspection}/begin', 'inspection_update' => '/workspace/qc/inspections/{inspection}',
                             'inspection_evidence' => '/workspace/qc/inspections/{inspection}/evidence', 'inspection_complete' => '/workspace/qc/inspections/{inspection}/complete',
                             'pending' => '/workspace/qc/pending', 'dispatch' => '/workspace/qc/dispatch', 'detail' => '/workspace/qc/orders/{order}',

@@ -59,7 +59,7 @@ class TechnicianRoleSecurityTest extends TestCase
         $this->assertSame(EmployeeRole::Staff->value, data_get($component->instance()->data, 'role'));
     }
 
-    public function test_technician_defaults_include_only_inspection_and_qc_transfer_assignment_permissions(): void
+    public function test_technician_defaults_include_only_qc_and_dedicated_customer_order_dispatch_permissions(): void
     {
         $technician = $this->employee(EmployeeRole::Technician);
         $authorization = app(QcAuthorization::class);
@@ -69,6 +69,11 @@ class TechnicianRoleSecurityTest extends TestCase
             QcPermission::Update,
             QcPermission::Complete,
             QcPermission::ViewCustomerEvidence,
+            QcPermission::ViewDispatchQueue,
+            QcPermission::ScanDispatch,
+            QcPermission::ViewOrderAssignments,
+            QcPermission::AssignOrderDevice,
+            QcPermission::ShipDispatch,
             QcPermission::AssignMarketplaceTransferDevice,
             QcPermission::ViewMarketplaceTransferAssignments,
         ];
@@ -99,12 +104,13 @@ class TechnicianRoleSecurityTest extends TestCase
         foreach ([
             ProductPermission::View->value,
             OrderPermission::View->value,
+            OrderPermission::Fulfill->value,
             InventoryPermission::View->value,
             HrPermission::AttendanceViewAll->value,
             OfficeFinancePermission::ViewBalances->value,
             QcPermission::ViewAll->value,
             QcPermission::Reopen->value,
-            QcPermission::ViewOrderAssignments->value,
+            QcPermission::ReleaseOrderAssignment->value,
             QcPermission::ReleaseMarketplaceTransferDevice->value,
             StockTransferPermission::Dispatch->value,
         ] as $key) {
@@ -115,12 +121,13 @@ class TechnicianRoleSecurityTest extends TestCase
         foreach ([
             ProductPermission::View->value,
             OrderPermission::View->value,
+            OrderPermission::Fulfill->value,
             InventoryPermission::View->value,
             HrPermission::AttendanceViewAll->value,
             OfficeFinancePermission::ViewBalances->value,
             QcPermission::ViewAll->value,
             QcPermission::Reopen->value,
-            QcPermission::ViewOrderAssignments->value,
+            QcPermission::ReleaseOrderAssignment->value,
             QcPermission::ReleaseMarketplaceTransferDevice->value,
             StockTransferPermission::Dispatch->value,
         ] as $key) {
@@ -129,6 +136,10 @@ class TechnicianRoleSecurityTest extends TestCase
 
         $this->assertFalse(app(ProductAuthorization::class)->allows($technician->user, ProductPermission::View));
         $this->assertFalse(app(OrderAuthorization::class)->allows($technician->user, OrderPermission::View));
+        $this->assertFalse(app(OrderAuthorization::class)->allows($technician->user, OrderPermission::Fulfill));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician->user, QcPermission::ViewDispatchQueue));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician->user, QcPermission::ScanDispatch));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician->user, QcPermission::ShipDispatch));
         $this->assertFalse(app(QcAuthorization::class)->allows($technician->user, QcPermission::ViewAll));
     }
 
@@ -319,7 +330,7 @@ class TechnicianRoleSecurityTest extends TestCase
 
         $groups = Filament::getPanel('admin')->buildNavigation();
         $labels = collect($groups)->flatMap(fn ($group) => $group->getItems())->map(fn ($item) => $item->getLabel())->values()->all();
-        $this->assertSame(['Quality Control', 'Recorded Renewed Stock Awaiting QC'], $labels);
+        $this->assertSame(['Quality Control', 'Purchase Stock QC'], $labels);
     }
 
     public function test_owner_admin_and_staff_manager_qc_behavior_remains_unchanged(): void

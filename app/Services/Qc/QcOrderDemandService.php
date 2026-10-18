@@ -35,6 +35,15 @@ class QcOrderDemandService
         return ['units_needed' => $forecast['units_needed'], 'orders_affected' => $forecast['orders_affected']];
     }
 
+    /** Reserved-only preparation forecast; the broader open-order forecast remains separate. */
+    public function calculateReserved(User $actor): array
+    {
+        $this->dispatch->authorizeQueue($actor);
+        $forecast = $this->calculateAuthorizedForecast($actor, reservedOnly: true);
+
+        return ['units_needed' => $forecast['units_needed'], 'orders_affected' => $forecast['orders_affected']];
+    }
+
     /**
      * Aggregate-only projection for an authorized QC queue. It intentionally
      * does not require Order View and never returns Order/customer details.
@@ -43,38 +52,71 @@ class QcOrderDemandService
      */
     public function calculateForQcQueue(User $actor): array
     {
-        $authorization = app(QcAuthorization::class);
-        $authorization->authorize($actor, QcPermission::View);
-        $authorization->authorize($actor, QcPermission::Start);
+        $this->authorizePreparation($actor);
 
         return $this->calculateAuthorizedForecast($actor);
     }
 
     /** @return array{units_needed: int, orders_affected: int, by_product_location: array<int, array<int, int>>} */
-    private function calculateAuthorizedForecast(User $actor): array
+    private function calculateAuthorizedForecast(User $actor, bool $reservedOnly = false): array
     {
-        $slots = $this->demandSlots($actor);
+        $slots = $this->unmatchedDemandSlots($actor, $reservedOnly);
+
+        return [
+            'units_needed' => count($slots),
+            'orders_affected' => count(array_unique(array_map(fn (array $slot): int => $slot['order']->id, $slots))),
+            'by_product_location' => $this->groupUnmatchedSlots($slots),
+        ];
+    }
+
+    /** Safe Product/location projection of exactly the same unmatched forecast slots. */
+    public function openOrderDemand(User $actor): array
+    {
+        $this->authorizePreparation($actor);
+        $rows = [];
+        $orders = [];
+        foreach ($this->unmatchedDemandSlots($actor) as $slot) {
+            $item = $slot['item'];
+            $order = $slot['order'];
+            $key = $item->product_id.':'.$order->warehouse_id;
+            $rows[$key] ??= [
+                'product_id' => (int) $item->product_id,
+                'sku' => $item->product->sku,
+                'product_title' => $item->product->name,
+                'warehouse_id' => (int) $order->warehouse_id,
+                'warehouse' => $order->warehouse->name,
+                'units_needed' => 0,
+                'orders_affected' => 0,
+            ];
+            $rows[$key]['units_needed']++;
+            $orders[$key][$order->id] = true;
+            $rows[$key]['orders_affected'] = count($orders[$key]);
+        }
+
+        return array_values($rows);
+    }
+
+    private function authorizePreparation(User $actor): void
+    {
+        $authorization = app(QcAuthorization::class);
+        $authorization->authorize($actor, QcPermission::View);
+        $authorization->authorize($actor, QcPermission::Start);
+    }
+
+    /** @return list<array{order: Order, item: OrderItem, can_use_ready_certificate: bool}> */
+    private function unmatchedDemandSlots(User $actor, bool $reservedOnly = false): array
+    {
+        $slots = $this->demandSlots($actor, $reservedOnly);
         if ($slots === []) {
-            return ['units_needed' => 0, 'orders_affected' => 0, 'by_product_location' => []];
+            return [];
         }
 
         $certificates = $this->availableSupply->currentUnclaimed();
         if ($certificates->isEmpty()) {
-            $affectedOrders = [];
-            foreach ($slots as $slot) {
-                $affectedOrders[$slot['order']->id] = true;
-            }
-
-            return [
-                'units_needed' => count($slots),
-                'orders_affected' => count($affectedOrders),
-                'by_product_location' => $this->groupUnmatchedSlots($slots),
-            ];
+            return $slots;
         }
 
-        // Deterministic augmenting paths produce a maximum one-to-one matching.
-        // A flexible earlier demand can be moved to another compatible unit so
-        // it cannot strand a later line that has fewer eligible certificates.
+        // Preserve the authoritative maximum one-to-one matching for every projection.
         $certificateToSlot = [];
         $compatibility = [];
         foreach (array_keys($slots) as $slotIndex) {
@@ -83,20 +125,8 @@ class QcOrderDemandService
         }
 
         $matchedSlots = array_fill_keys(array_values($certificateToSlot), true);
-        $affectedOrders = [];
-        $unmatchedSlots = [];
-        foreach ($slots as $slotIndex => $slot) {
-            if (! isset($matchedSlots[$slotIndex])) {
-                $affectedOrders[$slot['order']->id] = true;
-                $unmatchedSlots[] = $slot;
-            }
-        }
 
-        return [
-            'units_needed' => count($unmatchedSlots),
-            'orders_affected' => count($affectedOrders),
-            'by_product_location' => $this->groupUnmatchedSlots($unmatchedSlots),
-        ];
+        return array_values(array_filter($slots, fn (int $index): bool => ! isset($matchedSlots[$index]), ARRAY_FILTER_USE_KEY));
     }
 
     /** @param list<array{order: Order, item: OrderItem, can_use_ready_certificate: bool}> $slots
@@ -115,10 +145,12 @@ class QcOrderDemandService
     }
 
     /** @return list<array{order: Order, item: OrderItem, can_use_ready_certificate: bool}> */
-    private function demandSlots(User $actor): array
+    private function demandSlots(User $actor, bool $reservedOnly = false): array
     {
         $orders = $this->openRenewedDemandOrders($actor)
+            ->when($reservedOnly, fn (Builder $query) => $query->where('status', OrderStatus::Reserved->value))
             ->with([
+                'warehouse:id,name',
                 'items.product',
                 'items.upgradeSelection',
                 'items.qcAssignments.device',

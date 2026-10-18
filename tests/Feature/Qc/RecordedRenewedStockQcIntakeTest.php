@@ -517,7 +517,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame($movementCount, StockMovement::query()->count());
         $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::View));
         $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::Start));
-        $this->assertFalse(app(QcAuthorization::class)->allows($technician, QcPermission::ViewDispatchQueue));
+        $this->assertTrue(app(QcAuthorization::class)->allows($technician, QcPermission::ViewDispatchQueue));
         $this->assertFalse(app(OrderAuthorization::class)->allows($technician, OrderPermission::View, $order));
         $this->assertSame(['units_needed' => 2, 'orders_affected' => 1], app(QcOrderDemandService::class)->calculate($owner));
         $queueDemand = app(QcOrderDemandService::class)->calculateForQcQueue($technician);
@@ -786,6 +786,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
         $inspection = app(QcInspectionService::class)->start($this->startData($product, $warehouse, 'RECORDED-001', $intake->id), $technician);
         $this->assertSame($technician->id, $inspection->technician_user_id);
+        $this->assertSame($product->id, $inspection->device->product_id);
+        $this->assertSame($warehouse->id, $inspection->warehouse_id);
         $this->assertSame($intake->id, $inspection->recorded_stock_intake_id);
         $this->assertSame('recorded_renewed_stock', $inspection->qc_source);
         $this->assertSame(1, $intake->refresh()->started_quantity);
@@ -819,7 +821,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
             $this->fail('Technician manual QC must not bypass a matching recorded Renewed intake.');
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey('recorded_stock_intake_id', $exception->errors());
-            $this->assertStringContainsString('Start QC from Recorded Renewed Stock Awaiting QC', $exception->errors()['recorded_stock_intake_id'][0]);
+            $this->assertStringContainsString('Start QC from Purchase Stock QC', $exception->errors()['recorded_stock_intake_id'][0]);
         }
 
         $this->assertSame(0, $intake->fresh()->started_quantity);
@@ -1047,6 +1049,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock')->assertOk()
             ->assertJsonPath('data.0.remaining_quantity', 2)
+            ->assertJsonPath('data.0.product_id', $product->id)
+            ->assertJsonPath('data.0.warehouse_id', $warehouse->id)
             ->assertJsonMissingPath('data.0.inventory_unit_cost');
 
         QcInspection::created(function (QcInspection $created) use ($intake, $owner): void {
@@ -1065,6 +1069,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
         $response = $this->withToken($token)->postJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock/'.$intake->id.'/start', [
             'serial' => 'MOBILE-INTAKE-001',
+            'product_id' => $product->id + 1000,
+            'warehouse_id' => $warehouse->id + 1000,
             'features' => [],
             'idempotency_key' => (string) Str::uuid(),
         ])->assertCreated()->assertJsonPath('remaining_quantity', 0);
@@ -1073,10 +1079,53 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame(1, ProductInventory::query()->where('product_id', $product->id)->sole()->qc_pending_quantity);
         $inspection = QcInspection::query()->findOrFail($response->json('inspection_id'));
         $this->assertSame($technician->id, $inspection->technician_user_id);
+        $this->assertSame($product->id, $inspection->device->product_id);
+        $this->assertSame($warehouse->id, $inspection->warehouse_id);
         $this->assertSame($intake->id, $inspection->recorded_stock_intake_id);
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/products')->assertForbidden();
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/orders')->assertForbidden();
         $this->withToken($token)->getJson('/api/mobile/v1/workspace/inventory')->assertForbidden();
+    }
+
+    public function test_purchase_stock_home_counts_unstarted_units_separately_from_pending_inspections(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        $technician = $this->actor(EmployeeRole::Technician);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 5, '55.0000');
+        $this->receive($owner, $purchase, 5, 0, 0);
+        $intake = QcRecordedStockIntake::query()->sole();
+        $this->withToken($technician->createToken('Home summary')->plainTextToken);
+
+        $this->getJson('/api/mobile/v1/workspace/qc')->assertOk()
+            ->assertJsonPath('data.recorded_stock_intake_summary', ['units_waiting' => 5, 'intakes_waiting' => 1])
+            ->assertJsonPath('data.pending', 0);
+        $this->postJson('/api/mobile/v1/workspace/qc/recorded-renewed-stock/'.$intake->id.'/start', [
+            'serial' => 'HOME-COUNT-001', 'features' => [], 'idempotency_key' => (string) Str::uuid(),
+        ])->assertCreated();
+        $this->getJson('/api/mobile/v1/workspace/qc')->assertOk()
+            ->assertJsonPath('data.recorded_stock_intake_summary', ['units_waiting' => 4, 'intakes_waiting' => 1])
+            ->assertJsonPath('data.pending', 1);
+        $this->assertSame(1, $intake->fresh()->started_quantity);
+    }
+
+    public function test_purchase_stock_summary_uses_the_authorized_renewed_queue_and_excludes_exhausted_sources(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        foreach ([ProductCondition::Renewed, ProductCondition::Renewed, ProductCondition::Used] as $condition) {
+            $product = $this->product($condition);
+            $purchase = $this->approvedPurchase($owner, $product, $warehouse, 3, '55.0000');
+            $this->receive($owner, $purchase, 3, 0, 0);
+        }
+        $intakes = QcRecordedStockIntake::query()->orderBy('id')->get();
+        $this->assertCount(2, $intakes);
+        $intakes[0]->update(['started_quantity' => 3]);
+        $intakes[1]->update(['started_quantity' => 1]);
+        $this->assertSame(['units_waiting' => 2, 'intakes_waiting' => 1], app(QcRecordedRenewedStockIntakeService::class)->summary($owner));
+        $this->withToken($this->actor(EmployeeRole::Staff)->createToken('No QC preparation')->plainTextToken)
+            ->getJson('/api/mobile/v1/workspace/qc/open-order-demand')->assertForbidden();
     }
 
     private function actor(EmployeeRole $role): User

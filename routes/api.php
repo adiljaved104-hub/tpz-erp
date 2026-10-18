@@ -87,6 +87,7 @@ Route::prefix('mobile/v1')
             Route::post('/qc/inspections/{inspection}/evidence', [QcInspectionController::class, 'evidence'])->whereNumber('inspection')->middleware('throttle:30,1');
             Route::post('/qc/inspections/{inspection}/complete', [QcInspectionController::class, 'complete'])->whereNumber('inspection')->middleware('throttle:30,1');
             Route::get('/qc/pending', [QcDispatchController::class, 'index']);
+            Route::get('/qc/open-order-demand', [QcDispatchController::class, 'openOrderDemand']);
             Route::get('/qc/dispatch', [QcDispatchController::class, 'index']);
             Route::get('/qc/orders/{order}', [QcDispatchController::class, 'show'])->whereNumber('order');
             Route::get('/qc/transfers', [QcStockTransferController::class, 'index']);

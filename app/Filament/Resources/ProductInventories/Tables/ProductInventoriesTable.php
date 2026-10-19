@@ -21,7 +21,9 @@ use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Section;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -38,18 +40,18 @@ class ProductInventoriesTable
         $reserved = app(EmployeeOwnedInventoryReadService::class)->quantityColumn(auth()->user(), 'reserved_quantity', locationView: true);
 
         return $table->columns([
-            TextColumn::make('product.sku')->label('SKU')->searchable()->toggleable(),
+            TextColumn::make('product.sku')->label('SKU')->searchable()->toggleable(isToggledHiddenByDefault: true),
             TextColumn::make('product.name')->label('Product')->searchable()->sortable()->limit(52)->tooltip(fn (ProductInventory $record): string => $record->product->name),
             TextColumn::make('warehouse.name')->label('Warehouse')->sortable()->toggleable(),
-            TextColumn::make('stock_held_by')
+            ViewColumn::make('stock_held_by')
                 ->label('Stock Held By')
                 ->state(fn (ProductInventory $record): array => app(InventoryAllocationBreakdownReadService::class)
                     ->stockHolderLines(auth()->user(), $record)
-                    ->map(fn (array $line): string => "{$line['label']} — {$line['allocated']}")
+                    ->map(fn (array $line): array => ['label' => $line['label'], 'allocated' => $line['allocated']])
                     ->all())
-                ->listWithLineBreaks()
-                ->placeholder('No recorded allocation')
-                ->wrap(),
+                ->view('filament.tables.columns.stock-held-by')
+                ->width('22rem')
+                ->extraCellAttributes(['class' => 'align-top']),
             ...($owned ? [TextColumn::make('visibility_reason')->label('Visible Because')->state(fn (ProductInventory $record): string => $record->responsibility_zero_stock ? 'Responsibility scope · Out of Stock' : 'Employee allocation ownership')->toggleable()] : []),
             TextColumn::make('available_quantity')->label($owned ? 'Total Stock / My Held' : 'Total Stock')->tooltip($owned ? 'Warehouse-assigned rows show physical stock including Reserved. Other rows show only your allocation, including your Reserved quantity.' : 'Physical available stock, including Reserved.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($available.' '.$direction))->toggleable(),
             TextColumn::make('allocated_quantity')->label($owned ? 'Allocated / My Held' : 'Allocated')->tooltip($owned ? 'Warehouse-assigned rows show all recorded ledger allocations; other rows show only your own allocation. Reserved is included.' : 'Sum of recorded Inventory Allocation Ledger balances; Reserved is included.')->sortable()->toggleable(),
@@ -69,6 +71,7 @@ class ProductInventoriesTable
             ] : []),
         ])->filters([
             SelectFilter::make('brand')->label('Brand')->options(fn (): array => self::scopedOptions('product.brandRelation', 'name'))
+                ->searchable()
                 ->query(fn (Builder $query, array $data): Builder => $query->when($data['value'] ?? null, fn (Builder $query, $id): Builder => $query->whereHas('product', fn (Builder $product): Builder => $product->where('brand_id', $id)))),
             SelectFilter::make('warehouse_id')->label('Warehouse')->options(fn (): array => self::scopedOptions('warehouse', 'name'))->searchable(),
             SelectFilter::make('stock_holder')->label('Stock Holder')
@@ -105,12 +108,33 @@ class ProductInventoriesTable
             Filter::make('sellable')->label('Sellable > 0')->query(fn (Builder $query): Builder => $query->whereRaw('('.$available.') > ('.$reserved.')')),
             Filter::make('reserved')->label('Reserved > 0')->query(fn (Builder $query): Builder => $query->whereRaw('('.$reserved.') > 0')),
             ...($owned ? [] : [Filter::make('damaged')->label('Damaged > 0')->query(fn (Builder $query): Builder => $query->where('damaged_quantity', '>', 0))]),
-        ])->filtersLayout(FiltersLayout::AboveContent)->recordActions([
-            ViewAction::make(),
-            self::quantityAction('reserve', 'Reserve', InventoryPermission::Reserve, fn (ProductInventory $record, array $data) => app(ReserveInventory::class)->handle(new ReserveInventoryData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
-            self::quantityAction('markDamaged', 'Mark Damaged', InventoryPermission::MarkDamaged, fn (ProductInventory $record, array $data) => app(MoveInventoryToDamaged::class)->handle(new MoveToDamagedData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
-            self::quantityAction('restoreDamaged', 'Restore Damaged', InventoryPermission::RestoreDamaged, fn (ProductInventory $record, array $data) => app(RestoreDamagedInventory::class)->handle(new RestoreDamagedData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
-        ])->toolbarActions([])
+        ])->filtersLayout(FiltersLayout::AboveContent)
+            ->filtersFormColumns(3)
+            ->filtersFormSchema(fn (array $filters): array => [
+                $filters['brand'],
+                $filters['warehouse_id'],
+                $filters['stock_holder'],
+                Section::make('Advanced Filters')
+                    ->schema(array_values(array_intersect_key($filters, array_flip([
+                        'product_id',
+                        'category',
+                        'stock_status',
+                        'sellable',
+                        'reserved',
+                        'damaged',
+                    ]))))
+                    ->columns(3)
+                    ->collapsible()
+                    ->collapsed()
+                    ->columnSpanFull(),
+            ])
+            ->stackedOnMobile()
+            ->recordActions([
+                ViewAction::make(),
+                self::quantityAction('reserve', 'Reserve', InventoryPermission::Reserve, fn (ProductInventory $record, array $data) => app(ReserveInventory::class)->handle(new ReserveInventoryData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
+                self::quantityAction('markDamaged', 'Mark Damaged', InventoryPermission::MarkDamaged, fn (ProductInventory $record, array $data) => app(MoveInventoryToDamaged::class)->handle(new MoveToDamagedData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
+                self::quantityAction('restoreDamaged', 'Restore Damaged', InventoryPermission::RestoreDamaged, fn (ProductInventory $record, array $data) => app(RestoreDamagedInventory::class)->handle(new RestoreDamagedData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
+            ])->toolbarActions([])
             ->emptyStateHeading($owned ? 'No stock is currently allocated to you.' : 'No Inventory balances found in your authorized scope.');
     }
 

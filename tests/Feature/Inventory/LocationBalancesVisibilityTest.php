@@ -34,6 +34,9 @@ use App\Services\Reports\ReportExportService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Carbon\CarbonImmutable;
+use Filament\Schemas\Components\Group;
+use Filament\Schemas\Components\Section;
+use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Enums\FiltersLayout;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -484,6 +487,56 @@ class LocationBalancesVisibilityTest extends TestCase
         $this->actingAs($owner);
         $filtered = Livewire::test(ListProductInventories::class)->filterTable('stock_holder', $secondAccount->id);
         $this->assertSame([$secondInventory->id], $filtered->instance()->getTableRecords()->getCollection()->modelKeys());
+    }
+
+    public function test_stock_by_location_uses_compact_holder_badges_and_collapsible_advanced_filters(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $inventory = ProductInventory::factory()->create(['available_quantity' => 5, 'reserved_quantity' => 0]);
+        $allocation = app(InventoryAllocationService::class);
+        $holders = collect(range(1, 5))->map(function () use ($allocation, $inventory): User {
+            $holder = $this->user(EmployeeRole::Staff);
+            $this->allocationBalance($allocation->employeeAccount($holder->employee->id)->id, $inventory, 1, 0);
+
+            return $holder;
+        });
+
+        $page = Livewire::actingAs($owner)->test(ListProductInventories::class)
+            ->assertOk()
+            ->assertSee('Stock Held By')
+            ->assertSee('+2 more')
+            ->assertSee($holders->first()->employee->name);
+
+        $table = $page->instance()->getTable();
+        $this->assertSame(FiltersLayout::AboveContent, $table->getFiltersLayout());
+        $this->assertInstanceOf(ViewColumn::class, $table->getColumns()['stock_held_by']);
+        $this->assertTrue($table->isStackedOnMobile());
+        $this->assertArrayHasKey('brand', $table->getFilters());
+        $this->assertArrayHasKey('warehouse_id', $table->getFilters());
+        $this->assertArrayHasKey('stock_holder', $table->getFilters());
+
+        $filterSchema = $table->getFiltersFormSchema();
+        $this->assertInstanceOf(Section::class, $filterSchema[3]);
+        $this->assertContainsOnlyInstancesOf(Group::class, array_slice($filterSchema, 0, 3));
+        $this->assertArrayHasKey('product_id', $table->getFilters());
+        $this->assertArrayHasKey('category', $table->getFilters());
+        $this->assertArrayHasKey('stock_status', $table->getFilters());
+        $this->assertArrayHasKey('sellable', $table->getFilters());
+        $this->assertArrayHasKey('reserved', $table->getFilters());
+        $this->assertArrayHasKey('damaged', $table->getFilters());
+
+        $rendered = $page->html();
+        $this->assertStringContainsString('Advanced Filters', $rendered);
+        $this->assertStringContainsString('aria-expanded="false"', $rendered);
+        $this->assertStringContainsString('isCollapsed: true', $rendered);
+        $this->assertSame(2, substr_count($rendered, 'x-show="expanded"'));
+        $this->assertStringContainsString('x-on:click.stop="expanded = ! expanded"', $rendered);
+
+        Livewire::test(ViewProductInventory::class, ['record' => $inventory->id])
+            ->assertOk()
+            ->assertSee('Stock Holder')
+            ->assertSee('Allocated')
+            ->assertSee($holders->first()->employee->name);
     }
 
     public function test_warehouse_allocation_discrepancy_is_reported_without_inventing_system_stock(): void

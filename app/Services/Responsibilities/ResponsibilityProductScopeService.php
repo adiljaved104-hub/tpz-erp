@@ -231,6 +231,23 @@ class ResponsibilityProductScopeService
         });
     }
 
+    /** Whether this employee has an active assignment that explicitly scopes a warehouse. */
+    public function hasActiveWarehouseAssignment(User $user): bool
+    {
+        $employeeId = $user->employee?->id;
+
+        if (! $this->requiresScope($user) || $employeeId === null) {
+            return false;
+        }
+
+        return DB::table('responsibility_assignments as warehouse_assignment')
+            ->join('responsibility_assignment_warehouses as warehouse_scope', 'warehouse_scope.assignment_id', '=', 'warehouse_assignment.id')
+            ->where('warehouse_assignment.employee_id', $employeeId)
+            ->where('warehouse_assignment.status', ResponsibilityAssignmentStatus::Active->value)
+            ->whereNull('warehouse_assignment.ended_at')
+            ->exists();
+    }
+
     public function inventoryIds(User $user): Builder
     {
         return $this->applyInventories(DB::table('product_inventories'), 'product_inventories', $user)

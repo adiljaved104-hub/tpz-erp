@@ -14,6 +14,7 @@ use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
+use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
 use App\Services\Mobile\StockStatus;
 use Filament\Actions\Action;
@@ -21,6 +22,7 @@ use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -39,6 +41,15 @@ class ProductInventoriesTable
             TextColumn::make('product.sku')->label('SKU')->searchable()->toggleable(),
             TextColumn::make('product.name')->label('Product')->searchable()->sortable()->limit(52)->tooltip(fn (ProductInventory $record): string => $record->product->name),
             TextColumn::make('warehouse.name')->label('Warehouse')->sortable()->toggleable(),
+            TextColumn::make('stock_held_by')
+                ->label('Stock Held By')
+                ->state(fn (ProductInventory $record): array => app(InventoryAllocationBreakdownReadService::class)
+                    ->stockHolderLines(auth()->user(), $record)
+                    ->map(fn (array $line): string => "{$line['label']} — {$line['allocated']}")
+                    ->all())
+                ->listWithLineBreaks()
+                ->placeholder('No recorded allocation')
+                ->wrap(),
             ...($owned ? [TextColumn::make('visibility_reason')->label('Visible Because')->state(fn (ProductInventory $record): string => $record->responsibility_zero_stock ? 'Responsibility scope · Out of Stock' : 'Employee allocation ownership')->toggleable()] : []),
             TextColumn::make('available_quantity')->label($owned ? 'Total Stock / My Held' : 'Total Stock')->tooltip($owned ? 'Warehouse-assigned rows show physical stock including Reserved. Other rows show only your allocation, including your Reserved quantity.' : 'Physical available stock, including Reserved.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($available.' '.$direction))->toggleable(),
             TextColumn::make('allocated_quantity')->label($owned ? 'Allocated / My Held' : 'Allocated')->tooltip($owned ? 'Warehouse-assigned rows show all recorded ledger allocations; other rows show only your own allocation. Reserved is included.' : 'Sum of recorded Inventory Allocation Ledger balances; Reserved is included.')->sortable()->toggleable(),
@@ -57,10 +68,20 @@ class ProductInventoriesTable
                 PurchaseCostHistoryColumn::make(fn (ProductInventory $inventory): int => $inventory->product_id),
             ] : []),
         ])->filters([
-            SelectFilter::make('warehouse_id')->label('Warehouse')->options(fn (): array => self::scopedOptions('warehouse', 'name'))->searchable(),
-            SelectFilter::make('product_id')->label('Product')->options(fn (): array => self::scopedOptions('product', 'name'))->searchable(),
             SelectFilter::make('brand')->label('Brand')->options(fn (): array => self::scopedOptions('product.brandRelation', 'name'))
                 ->query(fn (Builder $query, array $data): Builder => $query->when($data['value'] ?? null, fn (Builder $query, $id): Builder => $query->whereHas('product', fn (Builder $product): Builder => $product->where('brand_id', $id)))),
+            SelectFilter::make('warehouse_id')->label('Warehouse')->options(fn (): array => self::scopedOptions('warehouse', 'name'))->searchable(),
+            SelectFilter::make('stock_holder')->label('Stock Holder')
+                ->options(fn (): array => app(InventoryAllocationBreakdownReadService::class)->stockHolderFilterOptions(auth()->user()))
+                ->searchable()
+                ->query(fn (Builder $query, array $data): Builder => $query->when(
+                    $data['value'] ?? null,
+                    fn (Builder $query, $accountId): Builder => $query->whereIn(
+                        'product_inventories.id',
+                        app(InventoryAllocationBreakdownReadService::class)->inventoryIdsForHolder(auth()->user(), (int) $accountId),
+                    ),
+                )),
+            SelectFilter::make('product_id')->label('Product')->options(fn (): array => self::scopedOptions('product', 'name'))->searchable(),
             SelectFilter::make('category')->label('Category')->options(fn (): array => self::scopedOptions('product.categoryRelation', 'name'))
                 ->query(fn (Builder $query, array $data): Builder => $query->when($data['value'] ?? null, fn (Builder $query, $id): Builder => $query->whereHas('product', fn (Builder $product): Builder => $product->where('category_id', $id)))),
             SelectFilter::make('stock_status')->label('Product stock status')->options(['in_stock' => 'In Stock', 'low_stock' => 'Low Stock', 'out_of_stock' => 'Out of Stock'])
@@ -84,7 +105,7 @@ class ProductInventoriesTable
             Filter::make('sellable')->label('Sellable > 0')->query(fn (Builder $query): Builder => $query->whereRaw('('.$available.') > ('.$reserved.')')),
             Filter::make('reserved')->label('Reserved > 0')->query(fn (Builder $query): Builder => $query->whereRaw('('.$reserved.') > 0')),
             ...($owned ? [] : [Filter::make('damaged')->label('Damaged > 0')->query(fn (Builder $query): Builder => $query->where('damaged_quantity', '>', 0))]),
-        ])->recordActions([
+        ])->filtersLayout(FiltersLayout::AboveContent)->recordActions([
             ViewAction::make(),
             self::quantityAction('reserve', 'Reserve', InventoryPermission::Reserve, fn (ProductInventory $record, array $data) => app(ReserveInventory::class)->handle(new ReserveInventoryData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
             self::quantityAction('markDamaged', 'Mark Damaged', InventoryPermission::MarkDamaged, fn (ProductInventory $record, array $data) => app(MoveInventoryToDamaged::class)->handle(new MoveToDamagedData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),

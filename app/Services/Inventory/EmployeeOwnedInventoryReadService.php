@@ -29,6 +29,11 @@ class EmployeeOwnedInventoryReadService
         return in_array($user->employee?->role, [EmployeeRole::Staff, EmployeeRole::Manager], true);
     }
 
+    public function hasActiveWarehouseAssignment(User $user): bool
+    {
+        return $this->responsibilities->hasActiveWarehouseAssignment($user);
+    }
+
     public function balances(User $user): Builder
     {
         return InventoryAllocationBalance::query()->whereHas('account', fn (Builder $account) => $account
@@ -91,6 +96,10 @@ class EmployeeOwnedInventoryReadService
     /** Existing employee ownership plus warehouse-authorized physical rows for the location screen. */
     public function locationVisibleInventoryIds(User $user): Builder
     {
+        if ($this->hasActiveWarehouseAssignment($user)) {
+            return $this->warehouseAssignedInventoryIds($user);
+        }
+
         return ProductInventory::query()->select('product_inventories.id')->where(function (Builder $query) use ($user): void {
             $query->whereIn('product_inventories.id', $this->visibleInventoryIds($user))
                 ->orWhereIn('product_inventories.id', $this->warehouseAssignedInventoryIds($user));
@@ -155,6 +164,10 @@ class EmployeeOwnedInventoryReadService
             return ProductInventory::query()->whereRaw('1 = 0');
         }
 
+        $visibleInventoryIds = $this->hasActiveWarehouseAssignment($user)
+            ? $this->warehouseAssignedInventoryIds($user)
+            : $this->visibleInventoryIds($user);
+
         $ownedBalances = $this->balances($user)
             ->select(['product_inventory_id', 'allocated_quantity', 'reserved_quantity'])
             ->where('allocated_quantity', '>', 0);
@@ -186,7 +199,7 @@ class EmployeeOwnedInventoryReadService
         return ProductInventory::query()
             ->fromSub($projection, 'product_inventories')
             ->select('product_inventories.*')
-            ->whereIn('product_inventories.id', $this->locationVisibleInventoryIds($user))
+            ->whereIn('product_inventories.id', $visibleInventoryIds)
             ->with(['product:id,sku,name,status', 'warehouse:id,name,code,status']);
     }
 

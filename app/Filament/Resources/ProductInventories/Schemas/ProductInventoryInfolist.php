@@ -9,6 +9,8 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
+use Filament\Infolists\Components\RepeatableEntry;
+use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -51,8 +53,23 @@ class ProductInventoryInfolist
                     TextEntry::make('allocation_reconciliation')->label('Physical / ledger reconciliation')
                         ->state(fn (ProductInventory $record): ?string => app(InventoryAllocationBreakdownReadService::class)->reconciliationText(auth()->user(), $record))
                         ->columnSpanFull(),
-                    TextEntry::make('allocation_breakdown')->label('Employee, team, and System / Unallocated balances')
-                        ->state(fn (ProductInventory $record): ?string => app(InventoryAllocationBreakdownReadService::class)->linesText(auth()->user(), $record))
+                    RepeatableEntry::make('allocation_breakdown')
+                        ->label('Employee, team, and System / Unallocated balances')
+                        ->state(fn (ProductInventory $record): array => app(InventoryAllocationBreakdownReadService::class)
+                            ->stockHolderLines(auth()->user(), $record)
+                            ->all())
+                        ->table([
+                            TableColumn::make('Stock Holder'),
+                            TableColumn::make('Allocated'),
+                            TableColumn::make('Reserved'),
+                            TableColumn::make('Sellable'),
+                        ])
+                        ->schema([
+                            TextEntry::make('label')->label('Stock Holder'),
+                            TextEntry::make('allocated')->label('Allocated'),
+                            TextEntry::make('reserved')->label('Reserved'),
+                            TextEntry::make('sellable')->label('Sellable'),
+                        ])
                         ->columnSpanFull(),
                 ])->columns(1),
         ]);

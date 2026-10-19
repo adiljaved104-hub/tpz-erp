@@ -25,6 +25,7 @@ use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Dashboard\DashboardInventoryIntelligenceService;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\InventoryAllocationPolicyService;
 use App\Services\Inventory\InventoryAllocationService;
@@ -33,6 +34,7 @@ use App\Services\Reports\ReportExportService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Carbon\CarbonImmutable;
+use Filament\Tables\Enums\FiltersLayout;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -334,6 +336,156 @@ class LocationBalancesVisibilityTest extends TestCase
         $this->assertSame($ledgerBeforeReads, InventoryAllocationBalance::query()->orderBy('id')->get()->toArray());
     }
 
+    public function test_warehouse_stock_holder_column_and_searchable_filter_follow_assignment_and_brand_scope(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $manager = $this->user(EmployeeRole::Manager);
+        $holder = $this->user(EmployeeRole::Staff);
+        $hiddenHolder = $this->user(EmployeeRole::Staff);
+        $brand = ProductBrand::factory()->create();
+        $otherBrand = ProductBrand::factory()->create();
+        $warehouse = Warehouse::factory()->create();
+        $otherWarehouse = Warehouse::factory()->create();
+        $visibleInventory = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['brand_id' => $brand->id])->id,
+            'warehouse_id' => $warehouse->id,
+            'available_quantity' => 6,
+            'reserved_quantity' => 2,
+        ]);
+        $wrongBrandInventory = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['brand_id' => $otherBrand->id])->id,
+            'warehouse_id' => $warehouse->id,
+            'available_quantity' => 4,
+            'reserved_quantity' => 0,
+        ]);
+        $otherWarehouseInventory = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['brand_id' => $brand->id])->id,
+            'warehouse_id' => $otherWarehouse->id,
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+        ]);
+        $this->warehouseAssignment($manager, $warehouse, $brand);
+        foreach ([InventoryPermission::View->value, InventoryPermission::ViewLocationBalances->value] as $permission) {
+            $this->allow($owner, $manager, $permission);
+        }
+
+        $allocation = app(InventoryAllocationService::class);
+        $managerAccount = $allocation->employeeAccount($manager->employee->id);
+        $holderAccount = $allocation->employeeAccount($holder->employee->id);
+        $hiddenAccount = $allocation->employeeAccount($hiddenHolder->employee->id);
+        $systemAccount = $allocation->systemAccount();
+        $this->allocationBalance($managerAccount->id, $visibleInventory, 2, 1);
+        $this->allocationBalance($holderAccount->id, $visibleInventory, 3, 1);
+        $this->allocationBalance($systemAccount->id, $visibleInventory, 1, 0);
+        $this->allocationBalance($hiddenAccount->id, $wrongBrandInventory, 4, 0);
+        $this->allocationBalance($managerAccount->id, $otherWarehouseInventory, 1, 0);
+        $this->allocationBalance($hiddenAccount->id, $otherWarehouseInventory, 4, 0);
+
+        $breakdown = app(InventoryAllocationBreakdownReadService::class);
+        $options = $breakdown->stockHolderFilterOptions($manager);
+        $this->assertArrayHasKey($managerAccount->id, $options);
+        $this->assertArrayHasKey($holderAccount->id, $options);
+        $this->assertArrayHasKey($systemAccount->id, $options);
+        $this->assertArrayNotHasKey($hiddenAccount->id, $options);
+        $this->assertSame([$visibleInventory->id], $breakdown->inventoryIdsForHolder($manager, $managerAccount->id)->pluck('product_inventories.id')->all());
+        $this->actingAs($manager->fresh());
+        $this->assertFalse(ProductInventoryResource::getEloquentQuery()->where('product_inventories.id', $otherWarehouseInventory->id)->exists());
+        $this->assertTrue(app(EmployeeOwnedInventoryReadService::class)->inventories($manager)->where('product_inventories.id', $otherWarehouseInventory->id)->exists());
+        $holderLines = $breakdown->stockHolderLines($manager, $visibleInventory);
+        $this->assertEqualsCanonicalizing([
+            $manager->employee->employee_id.' · '.$manager->employee->name,
+            $holder->employee->employee_id.' · '.$holder->employee->name,
+            'System / Unallocated',
+        ], $holderLines->pluck('label')->all());
+        $this->assertSame(3, $holderLines->firstWhere('label', $holder->employee->employee_id.' · '.$holder->employee->name)['allocated']);
+        $this->assertSame(1, $holderLines->firstWhere('label', 'System / Unallocated')['allocated']);
+        $this->assertSame(0, $breakdown->inventoryIdsForHolder($manager, $hiddenAccount->id)->count());
+
+        $table = Livewire::test(ListProductInventories::class)->assertOk();
+        $this->assertSame(FiltersLayout::AboveContent, $table->instance()->getTable()->getFiltersLayout());
+        $this->assertArrayHasKey('brand', $table->instance()->getTable()->getFilters());
+        $this->assertArrayHasKey('stock_holder', $table->instance()->getTable()->getFilters());
+        $this->assertArrayHasKey('stock_held_by', $table->instance()->getTable()->getColumns());
+
+        $brandFiltered = Livewire::test(ListProductInventories::class)->filterTable('brand', $brand->id);
+        $this->assertSame([$visibleInventory->id], $brandFiltered->instance()->getTableRecords()->getCollection()->modelKeys());
+        $managerHolderFiltered = Livewire::test(ListProductInventories::class)->filterTable('stock_holder', $managerAccount->id);
+        $this->assertSame([$visibleInventory->id], $managerHolderFiltered->instance()->getTableRecords()->getCollection()->modelKeys());
+        $holderFiltered = Livewire::test(ListProductInventories::class)->filterTable('stock_holder', $holderAccount->id);
+        $this->assertSame([$visibleInventory->id], $holderFiltered->instance()->getTableRecords()->getCollection()->modelKeys());
+        $this->assertCount(1, $holderFiltered->instance()->getTableRecords()->getCollection());
+        Livewire::test(ListProductInventories::class)->filterTable('stock_holder', $hiddenAccount->id)
+            ->assertCountTableRecords(0);
+        Livewire::test(ListProductInventories::class)->assertSee($holder->employee->name)->assertSee('System / Unallocated');
+        $this->assertFalse($manager->can('view', $otherWarehouseInventory));
+        try {
+            Livewire::test(ViewProductInventory::class, ['record' => $otherWarehouseInventory->id]);
+            $this->fail('Stock by Location detail must reject records outside an active warehouse assignment.');
+        } catch (ModelNotFoundException) {
+            $this->assertTrue(true);
+        }
+        Livewire::test(ViewProductInventory::class, ['record' => $visibleInventory->id])
+            ->assertOk()->assertSee('Stock Holder')->assertSee('Allocated')->assertSee($holder->employee->name)
+            ->assertSee('Reconciled');
+    }
+
+    public function test_regular_employee_stock_holder_filter_and_summary_never_reveal_other_allocations(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $employee = $this->user(EmployeeRole::Staff);
+        $other = $this->user(EmployeeRole::Staff);
+        $inventory = ProductInventory::factory()->create(['available_quantity' => 8, 'reserved_quantity' => 0]);
+        $allocation = app(InventoryAllocationService::class);
+        $ownAccount = $allocation->employeeAccount($employee->employee->id);
+        $otherAccount = $allocation->employeeAccount($other->employee->id);
+        $this->allocationBalance($ownAccount->id, $inventory, 3, 0);
+        $this->allocationBalance($otherAccount->id, $inventory, 5, 0);
+        foreach ([InventoryPermission::View->value, InventoryPermission::ViewLocationBalances->value] as $permission) {
+            $this->allow($owner, $employee, $permission);
+        }
+
+        $breakdown = app(InventoryAllocationBreakdownReadService::class);
+        $options = $breakdown->stockHolderFilterOptions($employee);
+        $this->assertSame([$ownAccount->id => $employee->employee->employee_id.' · '.$employee->employee->name], $options);
+        $this->assertSame([$employee->employee->employee_id.' · '.$employee->employee->name], $breakdown->stockHolderLines($employee, $inventory)->pluck('label')->all());
+        $this->assertSame(0, $breakdown->inventoryIdsForHolder($employee, $otherAccount->id)->count());
+        $this->assertNull($breakdown->forInventory($employee, $inventory));
+
+        $this->actingAs($employee->fresh());
+        Livewire::test(ListProductInventories::class)->assertOk()
+            ->assertCanSeeTableRecords([$inventory])
+            ->assertSee($employee->employee->name)
+            ->assertDontSee($other->employee->name);
+        Livewire::test(ListProductInventories::class)->filterTable('stock_holder', $otherAccount->id)
+            ->assertCountTableRecords(0)->assertDontSee($other->employee->name);
+        Livewire::test(ViewProductInventory::class, ['record' => $inventory->id])
+            ->assertOk()->assertDontSee('Allocation Breakdown')->assertDontSee($other->employee->name);
+    }
+
+    public function test_owner_can_search_holders_across_all_warehouses(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $firstHolder = $this->user(EmployeeRole::Staff);
+        $secondHolder = $this->user(EmployeeRole::Staff);
+        $firstInventory = ProductInventory::factory()->create(['warehouse_id' => Warehouse::factory()->create()->id, 'available_quantity' => 2]);
+        $secondInventory = ProductInventory::factory()->create(['warehouse_id' => Warehouse::factory()->create()->id, 'available_quantity' => 4]);
+        $allocation = app(InventoryAllocationService::class);
+        $firstAccount = $allocation->employeeAccount($firstHolder->employee->id);
+        $secondAccount = $allocation->employeeAccount($secondHolder->employee->id);
+        $this->allocationBalance($firstAccount->id, $firstInventory, 2, 0);
+        $this->allocationBalance($secondAccount->id, $secondInventory, 4, 0);
+
+        $breakdown = app(InventoryAllocationBreakdownReadService::class);
+        $options = $breakdown->stockHolderFilterOptions($owner);
+        $this->assertArrayHasKey($firstAccount->id, $options);
+        $this->assertArrayHasKey($secondAccount->id, $options);
+        $this->assertSame([$secondHolder->employee->employee_id.' · '.$secondHolder->employee->name], $breakdown->stockHolderLines($owner, $secondInventory)->pluck('label')->all());
+
+        $this->actingAs($owner);
+        $filtered = Livewire::test(ListProductInventories::class)->filterTable('stock_holder', $secondAccount->id);
+        $this->assertSame([$secondInventory->id], $filtered->instance()->getTableRecords()->getCollection()->modelKeys());
+    }
+
     public function test_warehouse_allocation_discrepancy_is_reported_without_inventing_system_stock(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
@@ -350,7 +502,8 @@ class LocationBalancesVisibilityTest extends TestCase
 
         Livewire::test(ListProductInventories::class)->assertOk()->assertCanSeeTableRecords([$inventory]);
         Livewire::test(ViewProductInventory::class, ['record' => $inventory->id])
-            ->assertOk()->assertSee('Allocation Breakdown')->assertDontSee('Average Cost')->assertDontSee('Inventory Value');
+            ->assertOk()->assertSee('Allocation Breakdown')->assertSee('Ledger discrepancy')->assertSee('gap 2')
+            ->assertDontSee('Average Cost')->assertDontSee('Inventory Value');
 
         $result = app(InventoryAllocationBreakdownReadService::class)->forInventory($staff, $inventory);
 

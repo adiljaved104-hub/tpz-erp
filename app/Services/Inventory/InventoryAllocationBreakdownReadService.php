@@ -3,10 +3,13 @@
 namespace App\Services\Inventory;
 
 use App\Enums\InventoryPermission;
+use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
 use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 
 /** Read-only warehouse-scoped projection of the existing allocation ledger. */
@@ -19,13 +22,117 @@ class InventoryAllocationBreakdownReadService
 
     public function canView(User $user, ProductInventory $inventory): bool
     {
-        if (! $this->authorization->allows($user, InventoryPermission::View)
-            || ! $this->authorization->allows($user, InventoryPermission::ViewLocationBalances)) {
+        if (! $this->canViewLocation($user)) {
             return false;
         }
 
         return ! $this->ownership->isEmployeeView($user)
             || $this->ownership->canViewWarehouseAssignedInventory($user, (int) $inventory->getKey());
+    }
+
+    /**
+     * Visible holders for a row. Warehouse-responsible employees and broad
+     * inventory viewers receive all ledger holders; other employees receive
+     * only their own recorded allocation.
+     *
+     * @return Collection<int, array{label:string,allocated:int,reserved:int,sellable:int,is_system:bool}>
+     */
+    public function stockHolderLines(User $user, ProductInventory $inventory): Collection
+    {
+        if (! $this->canViewLocation($user)) {
+            return collect();
+        }
+
+        $balances = InventoryAllocationBalance::query();
+
+        if ($this->ownership->isEmployeeView($user)
+            && ! $this->ownership->canViewWarehouseAssignedInventory($user, (int) $inventory->getKey())) {
+            $balances = $this->ownership->balances($user);
+        }
+
+        return $balances
+            ->with(['account.employee', 'account.team'])
+            ->where('product_inventory_id', $inventory->getKey())
+            ->where(fn (Builder $query) => $query->where('allocated_quantity', '>', 0)->orWhere('reserved_quantity', '>', 0))
+            ->orderBy('account_id')
+            ->get()
+            ->map(fn (InventoryAllocationBalance $balance): array => $this->line($balance))
+            ->values();
+    }
+
+    /** Searchable account options limited to balances the current user may inspect. */
+    public function stockHolderFilterOptions(User $user): array
+    {
+        if (! $this->canViewLocation($user)) {
+            return [];
+        }
+
+        $balances = InventoryAllocationBalance::query()
+            ->with(['account.employee', 'account.team'])
+            ->where(fn (Builder $query) => $query->where('allocated_quantity', '>', 0)->orWhere('reserved_quantity', '>', 0));
+
+        if ($this->ownership->isEmployeeView($user)) {
+            $ownAccountId = $this->ownAccountId($user);
+            $warehouseInventoryIds = $this->ownership->warehouseAssignedInventoryIds($user)
+                ->select('product_inventories.id');
+            $hasWarehouseAssignment = $this->ownership->hasActiveWarehouseAssignment($user);
+
+            $balances->where(function (Builder $query) use ($hasWarehouseAssignment, $ownAccountId, $user, $warehouseInventoryIds): void {
+                $query->whereIn('product_inventory_id', $warehouseInventoryIds);
+
+                if (! $hasWarehouseAssignment && $ownAccountId !== null) {
+                    $query->orWhere(fn (Builder $own) => $own
+                        ->where('account_id', $ownAccountId)
+                        ->whereIn('product_inventory_id', $this->ownership->inventoryIds($user)->select('product_inventory_id')));
+                }
+            });
+        }
+
+        $accountIds = $balances->select('account_id')->distinct()->pluck('account_id');
+
+        return InventoryAllocationAccount::query()
+            ->with(['employee', 'team'])
+            ->whereIn('id', $accountIds)
+            ->get()
+            ->sortBy(fn (InventoryAllocationAccount $account): string => $this->accountLabelForAccount($account), SORT_NATURAL | SORT_FLAG_CASE)
+            ->mapWithKeys(fn (InventoryAllocationAccount $account): array => [
+                (int) $account->id => $this->accountLabelForAccount($account),
+            ])
+            ->all();
+    }
+
+    /** Safe server-side record IDs for a holder filter, including crafted requests. */
+    public function inventoryIdsForHolder(User $user, int $accountId): Builder
+    {
+        $query = ProductInventory::query()->select('product_inventories.id')
+            ->whereExists(function (QueryBuilder $balances) use ($accountId): void {
+                $balances->selectRaw('1')
+                    ->from('inventory_allocation_balances as holder_balance')
+                    ->whereColumn('holder_balance.product_inventory_id', 'product_inventories.id')
+                    ->where('holder_balance.account_id', $accountId)
+                    ->where(fn (QueryBuilder $quantity) => $quantity->where('holder_balance.allocated_quantity', '>', 0)
+                        ->orWhere('holder_balance.reserved_quantity', '>', 0));
+            });
+
+        if (! $this->canViewLocation($user)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        if ($this->ownership->isEmployeeView($user)) {
+            $warehouseInventoryIds = $this->ownership->warehouseAssignedInventoryIds($user)
+                ->select('product_inventories.id');
+            $hasWarehouseAssignment = $this->ownership->hasActiveWarehouseAssignment($user);
+
+            $query->where(function (Builder $scope) use ($accountId, $hasWarehouseAssignment, $user, $warehouseInventoryIds): void {
+                $scope->whereIn('product_inventories.id', $warehouseInventoryIds);
+
+                if (! $hasWarehouseAssignment && $accountId === $this->ownAccountId($user)) {
+                    $scope->orWhereIn('product_inventories.id', $this->ownership->inventoryIds($user)->select('product_inventory_id'));
+                }
+            });
+        }
+
+        return $query;
     }
 
     /** @return array{total_stock:int,allocated:int,reserved:int,sellable:int,ledger_reserved:int,allocation_gap:int,reserved_gap:int,reconciled:bool,lines:Collection<int,array{label:string,allocated:int,reserved:int,sellable:int,is_system:bool}>}|null */
@@ -49,11 +156,7 @@ class InventoryAllocationBreakdownReadService
             ->get();
 
         $lines = $balances->map(fn (InventoryAllocationBalance $balance): array => [
-            'label' => $this->accountLabel($balance),
-            'allocated' => (int) $balance->allocated_quantity,
-            'reserved' => (int) $balance->reserved_quantity,
-            'sellable' => $balance->availableQuantity(),
-            'is_system' => (bool) $balance->account?->is_system,
+            ...$this->line($balance),
         ]);
 
         if (! $lines->contains(fn (array $line): bool => $line['is_system'])) {
@@ -111,6 +214,12 @@ class InventoryAllocationBreakdownReadService
     private function accountLabel(InventoryAllocationBalance $balance): string
     {
         $account = $balance->account;
+
+        return $account === null ? 'Allocation account unavailable' : $this->accountLabelForAccount($account);
+    }
+
+    private function accountLabelForAccount(InventoryAllocationAccount $account): string
+    {
         if ($account?->is_system) {
             return 'System / Unallocated';
         }
@@ -126,6 +235,38 @@ class InventoryAllocationBreakdownReadService
             return 'Team · '.$account->team->name.($account->team->status ? '' : ' (Inactive)');
         }
 
-        return $account?->name ?? 'Allocation account unavailable';
+        return $account->name ?? 'Allocation account unavailable';
+    }
+
+    private function line(InventoryAllocationBalance $balance): array
+    {
+        return [
+            'label' => $this->accountLabel($balance),
+            'allocated' => (int) $balance->allocated_quantity,
+            'reserved' => (int) $balance->reserved_quantity,
+            'sellable' => $balance->availableQuantity(),
+            'is_system' => (bool) $balance->account?->is_system,
+        ];
+    }
+
+    private function ownAccountId(User $user): ?int
+    {
+        if ($user->employee === null) {
+            return null;
+        }
+
+        $id = InventoryAllocationAccount::query()
+            ->where('type', 'employee')
+            ->where('is_system', false)
+            ->where('employee_id', $user->employee->id)
+            ->value('id');
+
+        return $id === null ? null : (int) $id;
+    }
+
+    private function canViewLocation(User $user): bool
+    {
+        return $this->authorization->allows($user, InventoryPermission::View)
+            && $this->authorization->allows($user, InventoryPermission::ViewLocationBalances);
     }
 }

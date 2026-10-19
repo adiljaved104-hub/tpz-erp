@@ -25,7 +25,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['employee_id', 'status']);
-            $table->index(['warehouse_id', 'product_condition', 'status']);
+            $table->index(['warehouse_id', 'product_condition', 'status'], 'wsvg_wh_cond_status_idx');
         });
 
         if (DB::getDriverName() !== 'sqlite') {

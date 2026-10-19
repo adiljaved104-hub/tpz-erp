@@ -96,6 +96,9 @@ class EmployeeOwnedInventoryTest extends TestCase
         $user = $f['employee']->user;
         app(InventoryAllocationService::class)->reconcile($f['inventory'], app(InventoryAllocationService::class)->employeeAccount($f['employee']->id), 2, $f['owner'], 'Explicit own stock');
         $this->assertOwnedQuantity($user, $f['inventory'], 2);
+        $projection = ProductInventoryResource::getEloquentQuery()->firstOrFail();
+        $this->assertSame(2, $projection->available_quantity);
+        $this->assertSame(2, $projection->allocated_quantity);
         Livewire::actingAs($user)->test(MyInventory::class)
             ->assertViewHas('summary', fn ($summary) => $summary['usable'] === 2)
             ->assertDontSee('Other Allocated')->assertDontSee('System / Unallocated');

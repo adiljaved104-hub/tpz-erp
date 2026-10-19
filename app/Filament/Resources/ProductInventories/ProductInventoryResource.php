@@ -43,7 +43,7 @@ class ProductInventoryResource extends Resource
             return parent::getEloquentQuery()->whereRaw('1 = 0');
         }
 
-        $query = app(EmployeeOwnedInventoryReadService::class)->inventories($user);
+        $query = app(EmployeeOwnedInventoryReadService::class)->locationInventories($user);
 
         if (app(PurchaseAuthorization::class)->allows($user, PurchasePermission::ViewCostHistory)) {
             app(PurchaseCostHistoryService::class)->addLatestCostSelect($query, 'product_inventories.product_id', $user);

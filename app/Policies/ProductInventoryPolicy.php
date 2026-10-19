@@ -30,7 +30,7 @@ class ProductInventoryPolicy
 
         $ownership = app(EmployeeOwnedInventoryReadService::class);
         if ($ownership->isEmployeeView($user)) {
-            return $ownership->visibleInventoryIds($user)->where('product_inventories.id', $inventory->id)->exists();
+            return $ownership->locationVisibleInventoryIds($user)->where('product_inventories.id', $inventory->id)->exists();
         }
 
         return $this->responsibilities->canAccessInventory($user, (int) $inventory->getKey());

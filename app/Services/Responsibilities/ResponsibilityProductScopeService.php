@@ -201,6 +201,36 @@ class ResponsibilityProductScopeService
         });
     }
 
+    /**
+     * Scope read-only Stock by Location visibility to an active assignment that
+     * explicitly names this inventory's warehouse. All narrower dimensions on
+     * that same assignment continue to apply.
+     */
+    public function applyWarehouseAssignedInventories(Builder $query, string $inventoryAlias, User $user): Builder
+    {
+        if (! $this->requiresScope($user)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $employeeId = $user->employee?->id;
+        if ($employeeId === null) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereExists(function (Builder $assignment) use ($employeeId, $inventoryAlias): void {
+            $assignment->selectRaw('1')
+                ->from('responsibility_assignments as warehouse_view_ra')
+                ->join('responsibility_assignment_warehouses as warehouse_view_scope', 'warehouse_view_scope.assignment_id', '=', 'warehouse_view_ra.id')
+                ->where('warehouse_view_ra.employee_id', $employeeId)
+                ->where('warehouse_view_ra.status', ResponsibilityAssignmentStatus::Active->value)
+                ->whereNull('warehouse_view_ra.ended_at')
+                ->whereColumn('warehouse_view_scope.warehouse_id', "{$inventoryAlias}.warehouse_id");
+
+            $this->matchingRequiredProductScopes($assignment, "{$inventoryAlias}.product_id", 'warehouse_view_ra');
+            $this->matchingRequiredWarehousePlatformScope($assignment, $inventoryAlias, 'warehouse_view_ra');
+        });
+    }
+
     public function inventoryIds(User $user): Builder
     {
         return $this->applyInventories(DB::table('product_inventories'), 'product_inventories', $user)
@@ -297,6 +327,22 @@ class ResponsibilityProductScopeService
                         $scope->join('product_inventories as required_warehouse_inventory', 'required_warehouse_inventory.warehouse_id', '=', 'required_warehouse_match.warehouse_id')
                             ->whereColumn('required_warehouse_inventory.product_id', $productColumn);
                     }
+                });
+        });
+    }
+
+    private function matchingRequiredWarehousePlatformScope(Builder $query, string $inventoryAlias, string $assignmentAlias): void
+    {
+        $query->where(function (Builder $required) use ($inventoryAlias, $assignmentAlias): void {
+            $required->whereNotExists(fn (Builder $scope) => $scope->selectRaw('1')
+                ->from('responsibility_assignment_platforms as warehouse_platform_none')
+                ->whereColumn('warehouse_platform_none.assignment_id', "{$assignmentAlias}.id"))
+                ->orWhereExists(function (Builder $scope) use ($inventoryAlias, $assignmentAlias): void {
+                    $scope->selectRaw('1')
+                        ->from('responsibility_assignment_platforms as warehouse_platform_match')
+                        ->join('warehouses as warehouse_platform_warehouse', 'warehouse_platform_warehouse.marketplace_platform_id', '=', 'warehouse_platform_match.marketplace_platform_id')
+                        ->whereColumn('warehouse_platform_match.assignment_id', "{$assignmentAlias}.id")
+                        ->whereColumn('warehouse_platform_warehouse.id', "{$inventoryAlias}.warehouse_id");
                 });
         });
     }

@@ -32,19 +32,20 @@ class ProductInventoriesTable
     public static function configure(Table $table): Table
     {
         $owned = app(EmployeeOwnedInventoryReadService::class)->isEmployeeView(auth()->user());
-        $available = app(EmployeeOwnedInventoryReadService::class)->quantityColumn(auth()->user(), 'available_quantity');
-        $reserved = app(EmployeeOwnedInventoryReadService::class)->quantityColumn(auth()->user(), 'reserved_quantity');
+        $available = app(EmployeeOwnedInventoryReadService::class)->quantityColumn(auth()->user(), 'available_quantity', locationView: true);
+        $reserved = app(EmployeeOwnedInventoryReadService::class)->quantityColumn(auth()->user(), 'reserved_quantity', locationView: true);
 
         return $table->columns([
             TextColumn::make('product.sku')->label('SKU')->searchable()->toggleable(),
             TextColumn::make('product.name')->label('Product')->searchable()->sortable()->limit(52)->tooltip(fn (ProductInventory $record): string => $record->product->name),
             TextColumn::make('warehouse.name')->label('Warehouse')->sortable()->toggleable(),
             ...($owned ? [TextColumn::make('visibility_reason')->label('Visible Because')->state(fn (ProductInventory $record): string => $record->responsibility_zero_stock ? 'Responsibility scope · Out of Stock' : 'Employee allocation ownership')->toggleable()] : []),
-            TextColumn::make('available_quantity')->label($owned ? 'My Total Held' : 'Available')->tooltip('Includes Reserved.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderBy($available, $direction))->toggleable(),
-            TextColumn::make('reserved_quantity')->label($owned ? 'My Reserved' : 'Reserved')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderBy($reserved, $direction))->toggleable(),
-            TextColumn::make('sellable_quantity')->label('Sellable')->state(fn (ProductInventory $record): int => $record->sellableQuantity())->weight('bold')->toggleable(),
+            TextColumn::make('available_quantity')->label($owned ? 'Total Stock / My Held' : 'Total Stock')->tooltip($owned ? 'Warehouse-assigned rows show physical stock including Reserved. Other rows show only your allocation, including your Reserved quantity.' : 'Physical available stock, including Reserved.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($available.' '.$direction))->toggleable(),
+            TextColumn::make('allocated_quantity')->label($owned ? 'Allocated / My Held' : 'Allocated')->tooltip($owned ? 'Warehouse-assigned rows show all recorded ledger allocations; other rows show only your own allocation. Reserved is included.' : 'Sum of recorded Inventory Allocation Ledger balances; Reserved is included.')->sortable()->toggleable(),
+            TextColumn::make('reserved_quantity')->label($owned ? 'Reserved / My Reserved' : 'Reserved')->tooltip($owned ? 'Warehouse-assigned rows show physical Reserved. Other rows show your own Reserved, which is a subset of My Held.' : 'Reserved is a subset of Total Stock and Allocated; do not add it again.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($reserved.' '.$direction))->toggleable(),
+            TextColumn::make('sellable_quantity')->label('Sellable')->tooltip($owned ? 'Warehouse-assigned rows: Total Stock minus physical Reserved. Other rows: your own allocation minus your Reserved.' : 'Total Stock minus Reserved.')->state(fn (ProductInventory $record): int => $record->sellableQuantity())->weight('bold')->toggleable(),
             ...($owned ? [] : [TextColumn::make('damaged_quantity')->label('Damaged')->sortable()->toggleable()]),
-            TextColumn::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand())->toggleable(),
+            ...($owned ? [] : [TextColumn::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand())->toggleable()]),
             ...(self::allowed(InventoryPermission::ViewFinancials) ? [
                 TextColumn::make('average_cost')->label('Average Cost')->money('AED', decimalPlaces: 2)->placeholder('No cost history'),
                 TextColumn::make('inventory_value')
@@ -68,10 +69,10 @@ class ProductInventoriesTable
                     if (! in_array($status, ['in_stock', 'low_stock', 'out_of_stock'], true)) {
                         return $query;
                     }
-                    $products = app(EmployeeOwnedInventoryReadService::class)->inventories(auth()->user())->reorder()
+                    $products = app(EmployeeOwnedInventoryReadService::class)->locationInventories(auth()->user())->reorder()
                         ->select('product_id')->groupBy('product_id');
                     $read = app(EmployeeOwnedInventoryReadService::class);
-                    $sum = 'SUM(COALESCE('.$read->quantityColumn(auth()->user(), 'available_quantity').', 0) - COALESCE('.$read->quantityColumn(auth()->user(), 'reserved_quantity').', 0))';
+                    $sum = 'SUM(COALESCE('.$read->quantityColumn(auth()->user(), 'available_quantity', locationView: true).', 0) - COALESCE('.$read->quantityColumn(auth()->user(), 'reserved_quantity', locationView: true).', 0))';
                     match ($status) {
                         'low_stock' => $products->havingRaw("{$sum} > 0 AND {$sum} <= ?", [app(StockStatus::class)->low()]),
                         'out_of_stock' => $products->havingRaw("{$sum} <= 0"),
@@ -80,8 +81,8 @@ class ProductInventoriesTable
 
                     return $query->whereIn('product_id', $products);
                 }),
-            Filter::make('sellable')->label('Sellable > 0')->query(fn (Builder $query): Builder => $query->whereColumn($available, '>', $reserved)),
-            Filter::make('reserved')->label('Reserved > 0')->query(fn (Builder $query): Builder => $query->where($reserved, '>', 0)),
+            Filter::make('sellable')->label('Sellable > 0')->query(fn (Builder $query): Builder => $query->whereRaw('('.$available.') > ('.$reserved.')')),
+            Filter::make('reserved')->label('Reserved > 0')->query(fn (Builder $query): Builder => $query->whereRaw('('.$reserved.') > 0')),
             ...($owned ? [] : [Filter::make('damaged')->label('Damaged > 0')->query(fn (Builder $query): Builder => $query->where('damaged_quantity', '>', 0))]),
         ])->recordActions([
             ViewAction::make(),
@@ -94,7 +95,7 @@ class ProductInventoriesTable
 
     private static function scopedOptions(string $relation, string $label): array
     {
-        return app(EmployeeOwnedInventoryReadService::class)->inventories(auth()->user())->with(['product:id,name,sku,brand_id,category_id', $relation])->get()
+        return app(EmployeeOwnedInventoryReadService::class)->locationInventories(auth()->user())->with(['product:id,name,sku,brand_id,category_id', $relation])->get()
             ->map(fn (ProductInventory $inventory) => data_get($inventory, $relation))->filter()->unique('id')->sortBy($label)->pluck($label, 'id')->all();
     }
 

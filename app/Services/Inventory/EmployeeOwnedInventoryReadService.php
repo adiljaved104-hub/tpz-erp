@@ -113,6 +113,27 @@ class EmployeeOwnedInventoryReadService
             ->exists();
     }
 
+    /** Active operational or explicitly granted holder-detail scope for a physical row. */
+    public function warehouseHolderVisibleInventoryIds(User $user): Builder
+    {
+        $query = ProductInventory::query()->select('product_inventories.id');
+        if (! $this->isEmployeeView($user)
+            || ! $this->authorization->allows($user, InventoryPermission::View)
+            || ! $this->authorization->allows($user, InventoryPermission::ViewLocationBalances)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $this->responsibilities->applyWarehouseAssignedInventoriesWithHolderVisibility($query->getQuery(), 'product_inventories', $user);
+
+        return $query;
+    }
+
+    public function canViewWarehouseStockHolders(User $user, int $inventoryId): bool
+    {
+        return ! $this->isEmployeeView($user)
+            || $this->warehouseHolderVisibleInventoryIds($user)->where('product_inventories.id', $inventoryId)->exists();
+    }
+
     public function apply(QueryBuilder $query, string $inventoryColumn, User $user, ?string $productColumn = null): void
     {
         if ($this->isEmployeeView($user)) {

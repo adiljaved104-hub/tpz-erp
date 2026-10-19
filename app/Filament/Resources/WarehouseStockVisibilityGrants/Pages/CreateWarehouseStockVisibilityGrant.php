@@ -38,6 +38,6 @@ class CreateWarehouseStockVisibilityGrant extends CreateRecord
     protected function getCreatedNotification(): ?Notification
     {
         return Notification::make()->success()->title('Shared warehouse visibility granted')
-            ->body('Stock by Location read access was added. Operational responsibility and stock ownership were not changed.');
+            ->body('The selected warehouse access scopes were added. Operational responsibility and stock ownership were not changed.');
     }
 }

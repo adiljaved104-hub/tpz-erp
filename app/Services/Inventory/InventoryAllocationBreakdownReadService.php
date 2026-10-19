@@ -43,10 +43,15 @@ class InventoryAllocationBreakdownReadService
             return collect();
         }
 
+        $warehouseVisible = $this->ownership->isEmployeeView($user)
+            && $this->ownership->canViewWarehouseAssignedInventory($user, (int) $inventory->getKey());
+        if ($warehouseVisible && ! $this->ownership->canViewWarehouseStockHolders($user, (int) $inventory->getKey())) {
+            return collect();
+        }
+
         $balances = InventoryAllocationBalance::query();
 
-        if ($this->ownership->isEmployeeView($user)
-            && ! $this->ownership->canViewWarehouseAssignedInventory($user, (int) $inventory->getKey())) {
+        if ($this->ownership->isEmployeeView($user) && ! $warehouseVisible) {
             $balances = $this->ownership->balances($user);
         }
 
@@ -73,7 +78,7 @@ class InventoryAllocationBreakdownReadService
 
         if ($this->ownership->isEmployeeView($user)) {
             $ownAccountId = $this->ownAccountId($user);
-            $warehouseInventoryIds = $this->ownership->warehouseAssignedInventoryIds($user)
+            $warehouseInventoryIds = $this->ownership->warehouseHolderVisibleInventoryIds($user)
                 ->select('product_inventories.id');
             $hasWarehouseAssignment = $this->ownership->hasActiveWarehouseAssignment($user);
 
@@ -119,7 +124,7 @@ class InventoryAllocationBreakdownReadService
         }
 
         if ($this->ownership->isEmployeeView($user)) {
-            $warehouseInventoryIds = $this->ownership->warehouseAssignedInventoryIds($user)
+            $warehouseInventoryIds = $this->ownership->warehouseHolderVisibleInventoryIds($user)
                 ->select('product_inventories.id');
             $hasWarehouseAssignment = $this->ownership->hasActiveWarehouseAssignment($user);
 
@@ -159,7 +164,13 @@ class InventoryAllocationBreakdownReadService
             ...$this->line($balance),
         ]);
 
-        if (! $lines->contains(fn (array $line): bool => $line['is_system'])) {
+        $canSeeHolders = ! $this->ownership->isEmployeeView($user)
+            || $this->ownership->canViewWarehouseStockHolders($user, (int) $physical->id);
+        if (! $canSeeHolders) {
+            $lines = collect();
+        }
+
+        if ($canSeeHolders && ! $lines->contains(fn (array $line): bool => $line['is_system'])) {
             $lines->push([
                 'label' => 'System / Unallocated (no recorded ledger balance)',
                 'allocated' => 0,

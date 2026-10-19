@@ -10,6 +10,8 @@ use App\Models\Warehouse;
 use App\Models\WarehouseStockVisibilityGrant;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\ResponsibilityAuthorization;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -21,17 +23,37 @@ class WarehouseStockVisibilityGrantService
         private readonly ActivityLogger $activity,
     ) {}
 
-    /** @param array{employee_id:int,warehouse_id:int,product_condition:string,effective_at:string,reason:string,idempotency_key:string} $data */
+    /** @param array<string, mixed> $data */
     public function create(array $data, User $actor): WarehouseStockVisibilityGrant
+    {
+        $data['employee_ids'] = $data['employee_ids'] ?? [$data['employee_id'] ?? null];
+        $data['product_conditions'] = $data['product_conditions'] ?? [$data['product_condition'] ?? null];
+
+        $grant = $this->createMany($data, $actor)->first();
+        if (! $grant instanceof WarehouseStockVisibilityGrant) {
+            throw ValidationException::withMessages(['scope' => 'No warehouse access grants were created.']);
+        }
+
+        return $grant;
+    }
+
+    /** @param array<string, mixed> $data @return Collection<int, WarehouseStockVisibilityGrant> */
+    public function createMany(array $data, User $actor): Collection
     {
         $this->authorization->authorize($actor, ResponsibilityPermission::Assign);
         $data = Validator::make($data, [
-            'employee_id' => ['required', 'integer', 'min:1'],
+            'employee_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'employee_ids.*' => ['required', 'integer', 'min:1'],
             'warehouse_id' => ['required', 'integer', 'min:1'],
-            'product_condition' => ['required', 'in:new,renewed,used,open_box,refurbished'],
+            'product_conditions' => ['required', 'array', 'min:1'],
+            'product_conditions.*' => ['required', 'in:all,new,renewed,used,open_box,refurbished'],
             'effective_at' => ['required', 'date', 'before_or_equal:now'],
             'reason' => ['required', 'string', 'max:2000'],
             'idempotency_key' => ['required', 'uuid'],
+            'view_stock' => ['sometimes', 'boolean'],
+            'view_employee_stock_holders' => ['sometimes', 'boolean'],
+            'adjust_warehouse_stock' => ['sometimes', 'boolean'],
+            'consume_other_employees_stock' => ['sometimes', 'boolean'],
         ])->validate();
 
         $data['reason'] = trim($data['reason']);
@@ -39,11 +61,17 @@ class WarehouseStockVisibilityGrantService
             throw ValidationException::withMessages(['reason' => 'A reason is required.']);
         }
 
-        return DB::transaction(function () use ($actor, $data): WarehouseStockVisibilityGrant {
-            $employee = Employee::query()->whereKey($data['employee_id'])
-                ->where('status', true)->whereNotNull('user_id')->lockForUpdate()->first();
-            if ($employee === null) {
-                throw ValidationException::withMessages(['employee_id' => 'Select an active Employee linked to a user.']);
+        $employeeIds = array_values(array_unique(array_map('intval', $data['employee_ids'])));
+        $conditions = array_values(array_unique($data['product_conditions']));
+        if (in_array('all', $conditions, true)) {
+            $conditions = ['new', 'renewed', 'used', 'open_box', 'refurbished'];
+        }
+
+        return DB::transaction(function () use ($actor, $data, $employeeIds, $conditions): Collection {
+            $employees = Employee::query()->whereIn('id', $employeeIds)->where('status', true)
+                ->whereNotNull('user_id')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            if ($employees->count() !== count($employeeIds)) {
+                throw ValidationException::withMessages(['employee_ids' => 'Select only active Employees linked to users.']);
             }
 
             $warehouse = Warehouse::query()->whereKey($data['warehouse_id'])->where('status', true)
@@ -53,35 +81,60 @@ class WarehouseStockVisibilityGrantService
                 throw ValidationException::withMessages(['warehouse_id' => 'Select an active physical warehouse.']);
             }
 
-            $existing = WarehouseStockVisibilityGrant::query()->where('idempotency_key', $data['idempotency_key'])->first();
-            if ($existing !== null) {
-                return $existing;
+            $grants = collect();
+            foreach ($employees as $employee) {
+                foreach ($conditions as $condition) {
+                    $idempotencyKey = $this->rowIdempotencyKey(
+                        $data['idempotency_key'], $employee->id, $warehouse->id, $condition,
+                    );
+                    $existing = WarehouseStockVisibilityGrant::query()->where('idempotency_key', $idempotencyKey)->first();
+                    if ($existing !== null) {
+                        $this->assertSameGrantOptions($existing, $data, $employee->id, $warehouse->id, $condition);
+                        $grants->push($existing);
+
+                        continue;
+                    }
+
+                    $fingerprint = $this->fingerprint($employee->id, $warehouse->id, $condition);
+                    if (WarehouseStockVisibilityGrant::query()->active()->where('active_fingerprint', $fingerprint)->exists()) {
+                        throw ValidationException::withMessages(['scope' => 'This exact shared warehouse visibility scope is already active for the selected employee.']);
+                    }
+
+                    $grant = WarehouseStockVisibilityGrant::query()->create([
+                        'employee_id' => $employee->id,
+                        'warehouse_id' => $warehouse->id,
+                        'product_condition' => $condition,
+                        'status' => 'active',
+                        'active_fingerprint' => $fingerprint,
+                        'effective_at' => $data['effective_at'],
+                        'assigned_by_user_id' => $actor->id,
+                        'idempotency_key' => $idempotencyKey,
+                        'reason' => $data['reason'],
+                        'view_stock' => (bool) ($data['view_stock'] ?? true),
+                        'view_employee_stock_holders' => (bool) ($data['view_employee_stock_holders'] ?? true),
+                        'adjust_warehouse_stock' => (bool) ($data['adjust_warehouse_stock'] ?? false),
+                        'consume_other_employees_stock' => (bool) ($data['consume_other_employees_stock'] ?? false),
+                    ]);
+
+                    $this->activity->log('warehouse_stock_visibility.created', $actor, $grant, [
+                        'employee_id' => $employee->id,
+                        'warehouse_id' => $warehouse->id,
+                        'product_condition' => $condition,
+                        'capabilities' => [
+                            'view_stock' => (bool) ($data['view_stock'] ?? true),
+                            'view_employee_stock_holders' => (bool) ($data['view_employee_stock_holders'] ?? true),
+                            'adjust_warehouse_stock' => (bool) ($data['adjust_warehouse_stock'] ?? false),
+                            'consume_other_employees_stock' => (bool) ($data['consume_other_employees_stock'] ?? false),
+                        ],
+                    ]);
+
+                    $grants->push($grant);
+                }
             }
 
-            $fingerprint = $this->fingerprint($employee->id, $warehouse->id, $data['product_condition']);
-            if (WarehouseStockVisibilityGrant::query()->active()->where('active_fingerprint', $fingerprint)->exists()) {
-                throw ValidationException::withMessages(['scope' => 'This exact shared warehouse visibility scope is already active for the selected employee.']);
-            }
+            $grants->each(fn (WarehouseStockVisibilityGrant $grant) => $grant->load(['employee', 'warehouse', 'assignedBy']));
 
-            $grant = WarehouseStockVisibilityGrant::query()->create([
-                'employee_id' => $employee->id,
-                'warehouse_id' => $warehouse->id,
-                'product_condition' => $data['product_condition'],
-                'status' => 'active',
-                'active_fingerprint' => $fingerprint,
-                'effective_at' => $data['effective_at'],
-                'assigned_by_user_id' => $actor->id,
-                'idempotency_key' => $data['idempotency_key'],
-                'reason' => trim($data['reason']),
-            ]);
-
-            $this->activity->log('warehouse_stock_visibility.created', $actor, $grant, [
-                'employee_id' => $employee->id,
-                'warehouse_id' => $warehouse->id,
-                'product_condition' => $data['product_condition'],
-            ]);
-
-            return $grant->load(['employee', 'warehouse', 'assignedBy']);
+            return $grants;
         });
     }
 
@@ -119,5 +172,30 @@ class WarehouseStockVisibilityGrantService
     private function fingerprint(int $employeeId, int $warehouseId, string $condition): string
     {
         return hash('sha256', implode('|', ['warehouse_stock_visibility', $employeeId, $warehouseId, $condition]));
+    }
+
+    /** @param array<string, mixed> $data */
+    private function assertSameGrantOptions(WarehouseStockVisibilityGrant $grant, array $data, int $employeeId, int $warehouseId, string $condition): void
+    {
+        if ($grant->employee_id !== $employeeId
+            || $grant->warehouse_id !== $warehouseId
+            || $grant->product_condition !== $condition
+            || $grant->effective_at?->timestamp !== Carbon::parse($data['effective_at'])->timestamp
+            || $grant->reason !== $data['reason']
+            || $grant->view_stock !== (bool) ($data['view_stock'] ?? true)
+            || $grant->view_employee_stock_holders !== (bool) ($data['view_employee_stock_holders'] ?? true)
+            || $grant->adjust_warehouse_stock !== (bool) ($data['adjust_warehouse_stock'] ?? false)
+            || $grant->consume_other_employees_stock !== (bool) ($data['consume_other_employees_stock'] ?? false)) {
+            throw ValidationException::withMessages(['idempotency_key' => 'This submission key was already used for a different warehouse access request.']);
+        }
+    }
+
+    private function rowIdempotencyKey(string $requestKey, int $employeeId, int $warehouseId, string $condition): string
+    {
+        $hex = substr(hash('sha256', implode('|', [$requestKey, $employeeId, $warehouseId, $condition])), 0, 32);
+        $hex[12] = '5';
+        $hex[16] = dechex((hexdec($hex[16]) & 0x3) | 0x8);
+
+        return implode('-', [substr($hex, 0, 8), substr($hex, 8, 4), substr($hex, 12, 4), substr($hex, 16, 4), substr($hex, 20, 12)]);
     }
 }

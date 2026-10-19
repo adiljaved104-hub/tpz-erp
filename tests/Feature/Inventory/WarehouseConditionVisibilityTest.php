@@ -25,7 +25,9 @@ use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
+use App\Services\Responsibilities\WarehouseStockActionScopeService;
 use App\Services\Responsibilities\WarehouseStockVisibilityGrantService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -248,9 +250,9 @@ class WarehouseConditionVisibilityTest extends TestCase
         $grant = $this->grant($f['owner'], $newEmployee->employee->id, $f['inventory']->warehouse_id, ProductCondition::Renewed->value);
         Livewire::test(CreateWarehouseStockVisibilityGrant::class)
             ->fillForm([
-                'employee_id' => $newEmployee->employee->id,
+                'employee_ids' => [$newEmployee->employee->id],
                 'warehouse_id' => $f['inventory']->warehouse_id,
-                'product_condition' => ProductCondition::Renewed->value,
+                'product_conditions' => [ProductCondition::Renewed->value],
                 'effective_at' => now()->subMinute()->toDateTimeString(),
                 'reason' => 'Duplicate visibility scope',
                 'idempotency_key' => (string) Str::uuid(),
@@ -259,6 +261,117 @@ class WarehouseConditionVisibilityTest extends TestCase
             ->assertHasFormErrors(['scope'])
             ->assertSee('exact shared warehouse visibility scope is already active');
         $this->assertDatabaseHas('warehouse_stock_visibility_grants', ['id' => $grant->id, 'status' => 'active']);
+    }
+
+    public function test_grant_batch_supports_multiple_employees_and_conditions_without_enabling_actions_by_default(): void
+    {
+        $f = $this->responsibilityFoundation(10);
+        $first = $this->responsibilityUser(EmployeeRole::Manager);
+        $second = $this->responsibilityUser(EmployeeRole::Staff);
+
+        $grants = app(WarehouseStockVisibilityGrantService::class)->createMany([
+            'employee_ids' => [$first->employee->id, $second->employee->id],
+            'warehouse_id' => $f['inventory']->warehouse_id,
+            'product_conditions' => ['all'],
+            'effective_at' => now()->subMinute()->toDateTimeString(),
+            'reason' => 'Shared read scope for the full warehouse range',
+            'idempotency_key' => (string) Str::uuid(),
+        ], $f['owner']);
+
+        $this->assertCount(10, $grants);
+        $this->assertSame(10, WarehouseStockVisibilityGrant::query()->active()->count());
+        $this->assertEqualsCanonicalizing(
+            collect(ProductCondition::cases())->map(fn (ProductCondition $condition): string => $condition->value)->all(),
+            $grants->pluck('product_condition')->unique()->all(),
+        );
+        $this->assertTrue($grants->every(fn (WarehouseStockVisibilityGrant $grant): bool => $grant->view_stock));
+        $this->assertTrue($grants->every(fn (WarehouseStockVisibilityGrant $grant): bool => $grant->view_employee_stock_holders));
+        $this->assertTrue($grants->every(fn (WarehouseStockVisibilityGrant $grant): bool => ! $grant->adjust_warehouse_stock && ! $grant->consume_other_employees_stock));
+        $this->assertSame(0, ResponsibilityAssignment::query()->count());
+    }
+
+    public function test_holder_visibility_option_hides_other_employee_names_without_hiding_stock_rows(): void
+    {
+        $f = $this->responsibilityFoundation(10);
+        $viewer = $this->responsibilityUser(EmployeeRole::Manager);
+        $holder = $this->responsibilityUser(EmployeeRole::Manager);
+        $f['product']->update(['condition' => ProductCondition::Renewed]);
+
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $allocations->reconcile($f['inventory'], $allocations->employeeAccount($holder->employee->id), 4, $f['owner'], 'Existing stock ownership');
+        app(WarehouseStockVisibilityGrantService::class)->create([
+            'employee_id' => $viewer->employee->id,
+            'warehouse_id' => $f['inventory']->warehouse_id,
+            'product_condition' => ProductCondition::Renewed->value,
+            'view_stock' => true,
+            'view_employee_stock_holders' => false,
+            'effective_at' => now()->subMinute()->toDateTimeString(),
+            'reason' => 'Warehouse quantity only',
+            'idempotency_key' => (string) Str::uuid(),
+        ], $f['owner']);
+
+        $read = app(EmployeeOwnedInventoryReadService::class);
+        $this->assertSame([$f['inventory']->id], $read->locationInventories($viewer)->pluck('id')->all());
+        $breakdown = app(InventoryAllocationBreakdownReadService::class);
+        $this->assertSame([], $breakdown->stockHolderLines($viewer, $f['inventory'])->all());
+        $this->assertSame([], $breakdown->stockHolderFilterOptions($viewer));
+        $this->assertSame([], $breakdown->forInventory($viewer, $f['inventory'])['lines']->all());
+        $this->assertNotSame([], $breakdown->stockHolderLines($holder, $f['inventory'])->all());
+    }
+
+    public function test_action_scope_requires_the_matching_capability_and_access_control_permission(): void
+    {
+        $f = $this->responsibilityFoundation(10);
+        $actor = $this->responsibilityUser(EmployeeRole::Manager);
+        $f['product']->update(['condition' => ProductCondition::Renewed]);
+        $this->grantWithCapabilities($f['owner'], $actor->employee->id, $f['inventory']->warehouse_id, ProductCondition::Renewed->value, [
+            'adjust_warehouse_stock' => true,
+        ]);
+        $authorization = app(InventoryAuthorization::class);
+        $this->expectException(AuthorizationException::class);
+        $authorization->authorizeWarehouseAction($actor, InventoryPermission::AdjustStock, $f['inventory'], 'adjust_warehouse_stock');
+    }
+
+    public function test_scoped_adjustment_permission_is_condition_and_warehouse_bounded(): void
+    {
+        $f = $this->responsibilityFoundation(10);
+        $actor = $this->responsibilityUser(EmployeeRole::Manager);
+        $f['product']->update(['condition' => ProductCondition::Renewed]);
+        $this->grantWithCapabilities($f['owner'], $actor->employee->id, $f['inventory']->warehouse_id, ProductCondition::Renewed->value, [
+            'adjust_warehouse_stock' => true,
+        ]);
+        app(EmployeePermissionOverrideService::class)->change(
+            $actor->employee, InventoryPermission::AdjustStock->value, EmployeePermissionEffect::Allow,
+            'Explicit Access Control permission paired with the warehouse action scope', $f['owner'],
+        );
+
+        $authorization = app(InventoryAuthorization::class);
+        $authorization->authorizeWarehouseAction($actor, InventoryPermission::AdjustStock, $f['inventory'], 'adjust_warehouse_stock');
+        $this->assertFalse(app(WarehouseStockActionScopeService::class)
+            ->allows($actor, $f['inventory'], 'consume_other_employees_stock'));
+
+        $otherWarehouse = Warehouse::factory()->create(['location_type' => InventoryLocationType::CompanyWarehouse]);
+        $otherWarehouseInventory = ProductInventory::factory()->create([
+            'product_id' => $f['product']->id,
+            'warehouse_id' => $otherWarehouse->id,
+            'available_quantity' => 2,
+        ]);
+        $this->assertFalse(app(WarehouseStockActionScopeService::class)
+            ->allows($actor, $otherWarehouseInventory, 'adjust_warehouse_stock'));
+
+        $usedProduct = Product::factory()->create([
+            'condition' => ProductCondition::Used,
+            'brand_id' => $f['brand']->id,
+            'category_id' => $f['product']->category_id,
+        ]);
+        $usedInventory = ProductInventory::factory()->create([
+            'product_id' => $usedProduct->id,
+            'warehouse_id' => $f['inventory']->warehouse_id,
+            'available_quantity' => 2,
+        ]);
+        $this->assertFalse(app(WarehouseStockActionScopeService::class)
+            ->allows($actor, $usedInventory, 'adjust_warehouse_stock'));
     }
 
     private function grant($actor, int $employeeId, int $warehouseId, string $condition): WarehouseStockVisibilityGrant
@@ -270,6 +383,20 @@ class WarehouseConditionVisibilityTest extends TestCase
             'effective_at' => now()->subMinute()->toDateTimeString(),
             'reason' => 'Shared read-only warehouse visibility',
             'idempotency_key' => (string) Str::uuid(),
+        ], $actor);
+    }
+
+    /** @param array<string, bool> $capabilities */
+    private function grantWithCapabilities($actor, int $employeeId, int $warehouseId, string $condition, array $capabilities): WarehouseStockVisibilityGrant
+    {
+        return app(WarehouseStockVisibilityGrantService::class)->create([
+            'employee_id' => $employeeId,
+            'warehouse_id' => $warehouseId,
+            'product_condition' => $condition,
+            'effective_at' => now()->subMinute()->toDateTimeString(),
+            'reason' => 'Explicit condition and warehouse action authorization',
+            'idempotency_key' => (string) Str::uuid(),
+            ...$capabilities,
         ], $actor);
     }
 }

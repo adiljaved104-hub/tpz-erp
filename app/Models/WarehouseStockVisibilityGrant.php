@@ -16,6 +16,10 @@ class WarehouseStockVisibilityGrant extends Model
         return [
             'effective_at' => 'immutable_datetime',
             'ended_at' => 'immutable_datetime',
+            'view_stock' => 'boolean',
+            'view_employee_stock_holders' => 'boolean',
+            'adjust_warehouse_stock' => 'boolean',
+            'consume_other_employees_stock' => 'boolean',
         ];
     }
 

@@ -208,6 +208,28 @@ class ResponsibilityProductScopeService
      */
     public function applyWarehouseAssignedInventories(Builder $query, string $inventoryAlias, User $user): Builder
     {
+        return $this->applyWarehouseVisibilityScope($query, $inventoryAlias, $user, false, true);
+    }
+
+    public function applyWarehouseAssignedInventoriesWithHolderVisibility(Builder $query, string $inventoryAlias, User $user): Builder
+    {
+        return $this->applyWarehouseVisibilityScope($query, $inventoryAlias, $user, true, true);
+    }
+
+    public function canViewWarehouseHolders(User $user, int $inventoryId): bool
+    {
+        if (! $this->requiresScope($user)) {
+            return true;
+        }
+
+        $query = DB::table('product_inventories')->where('product_inventories.id', $inventoryId);
+        $this->applyWarehouseAssignedInventoriesWithHolderVisibility($query, 'product_inventories', $user);
+
+        return $query->exists();
+    }
+
+    private function applyWarehouseVisibilityScope(Builder $query, string $inventoryAlias, User $user, bool $holdersOnly, bool $includeShared): Builder
+    {
         if (! $this->requiresScope($user)) {
             return $query->whereRaw('1 = 0');
         }
@@ -217,9 +239,9 @@ class ResponsibilityProductScopeService
             return $query->whereRaw('1 = 0');
         }
 
-        return $query->whereExists(function (Builder $assignment) use ($employeeId, $inventoryAlias): void {
-            $assignment->selectRaw('1')->where(function (Builder $visibility) use ($employeeId, $inventoryAlias): void {
-                $visibility->whereExists(function (Builder $operational) use ($employeeId, $inventoryAlias): void {
+        return $query->whereExists(function (Builder $visibility) use ($employeeId, $inventoryAlias, $holdersOnly, $includeShared): void {
+            $visibility->selectRaw('1')->where(function (Builder $paths) use ($employeeId, $inventoryAlias, $holdersOnly, $includeShared): void {
+                $paths->whereExists(function (Builder $operational) use ($employeeId, $inventoryAlias): void {
                     $operational->selectRaw('1')
                         ->from('responsibility_assignments as warehouse_view_ra')
                         ->join('responsibility_assignment_warehouses as warehouse_view_scope', 'warehouse_view_scope.assignment_id', '=', 'warehouse_view_ra.id')
@@ -230,16 +252,25 @@ class ResponsibilityProductScopeService
 
                     $this->matchingRequiredProductScopes($operational, "{$inventoryAlias}.product_id", 'warehouse_view_ra');
                     $this->matchingRequiredWarehousePlatformScope($operational, $inventoryAlias, 'warehouse_view_ra');
-                })->orWhereExists(function (Builder $sharedRead) use ($employeeId, $inventoryAlias): void {
-                    $sharedRead->selectRaw('1')
-                        ->from('warehouse_stock_visibility_grants as warehouse_visibility_grant')
-                        ->join('products as warehouse_visibility_product', 'warehouse_visibility_product.id', '=', "{$inventoryAlias}.product_id")
-                        ->where('warehouse_visibility_grant.employee_id', $employeeId)
-                        ->where('warehouse_visibility_grant.status', 'active')
-                        ->whereNull('warehouse_visibility_grant.ended_at')
-                        ->whereColumn('warehouse_visibility_grant.warehouse_id', "{$inventoryAlias}.warehouse_id")
-                        ->whereColumn('warehouse_visibility_grant.product_condition', 'warehouse_visibility_product.condition');
                 });
+
+                if ($includeShared) {
+                    $paths->orWhereExists(function (Builder $sharedRead) use ($employeeId, $inventoryAlias, $holdersOnly): void {
+                        $sharedRead->selectRaw('1')
+                            ->from('warehouse_stock_visibility_grants as warehouse_visibility_grant')
+                            ->join('products as warehouse_visibility_product', 'warehouse_visibility_product.id', '=', "{$inventoryAlias}.product_id")
+                            ->where('warehouse_visibility_grant.employee_id', $employeeId)
+                            ->where('warehouse_visibility_grant.status', 'active')
+                            ->whereNull('warehouse_visibility_grant.ended_at')
+                            ->where('warehouse_visibility_grant.view_stock', true)
+                            ->whereColumn('warehouse_visibility_grant.warehouse_id', "{$inventoryAlias}.warehouse_id")
+                            ->whereColumn('warehouse_visibility_grant.product_condition', 'warehouse_visibility_product.condition');
+
+                        if ($holdersOnly) {
+                            $sharedRead->where('warehouse_visibility_grant.view_employee_stock_holders', true);
+                        }
+                    });
+                }
             });
         });
     }

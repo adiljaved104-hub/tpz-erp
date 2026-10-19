@@ -19,6 +19,7 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -85,11 +86,11 @@ class WarehouseStockVisibilityGrantResource extends Resource
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Shared read-only Stock by Location access')
-                ->description('This grant only reveals physical stock rows and allocation-holder breakdowns in one selected warehouse and Product Condition. It does not transfer ownership or authorize adjustments, reservations, or stock actions.')
+            Section::make('Shared warehouse access')
+                ->description('Create shared access for multiple employees and conditions without changing operational responsibility or allocation ownership. Every action capability requires its separate Access Control permission and remains restricted to the granted warehouse and conditions.')
                 ->schema([
                     Grid::make(['default' => 1, 'lg' => 2])->schema([
-                        Select::make('employee_id')->label('Employee')->required()->searchable()
+                        Select::make('employee_ids')->label('Employees')->required()->multiple()->searchable()
                             ->options(fn (): array => Employee::query()->where('status', true)->whereNotNull('user_id')->orderBy('name')->get()
                                 ->mapWithKeys(fn (Employee $employee): array => [$employee->id => "{$employee->employee_id} · {$employee->name}"])->all()),
                         Select::make('warehouse_id')->label('Warehouse')->required()->searchable()
@@ -97,8 +98,13 @@ class WarehouseStockVisibilityGrantResource extends Resource
                                 ->whereNotIn('location_type', [InventoryLocationType::MarketplaceFulfilment->value, InventoryLocationType::Transit->value])
                                 ->orderBy('name')->get(['id', 'code', 'name'])
                                 ->mapWithKeys(fn (Warehouse $warehouse): array => [$warehouse->id => "{$warehouse->code} — {$warehouse->name}"])->all()),
-                        Select::make('product_condition')->label('Product Condition')->required()->searchable()
-                            ->options(collect(ProductCondition::cases())->mapWithKeys(fn (ProductCondition $condition): array => [$condition->value => $condition->label()])->all()),
+                        Select::make('product_conditions')->label('Product Conditions')->required()->multiple()->searchable()
+                            ->helperText('All Conditions grants one scope for each supported condition. You may select any subset instead.')
+                            ->options(['all' => 'All Conditions', ...collect(ProductCondition::cases())->mapWithKeys(fn (ProductCondition $condition): array => [$condition->value => $condition->label()])->all()]),
+                        Toggle::make('view_stock')->label('View Warehouse Stock')->default(true),
+                        Toggle::make('view_employee_stock_holders')->label('View Employee Stock Holders')->default(true),
+                        Toggle::make('adjust_warehouse_stock')->label('Adjust Warehouse Stock')->default(false),
+                        Toggle::make('consume_other_employees_stock')->label("Consume Other Employees' Stock")->default(false),
                         DateTimePicker::make('effective_at')->required()->default(now())->maxDate(now()),
                         Textarea::make('scope')->label('Scope validation')->disabled()->dehydrated(false)->rows(2)->columnSpanFull()
                             ->helperText('If this exact grant cannot be created, its validation explanation appears here.'),
@@ -116,6 +122,12 @@ class WarehouseStockVisibilityGrantResource extends Resource
             TextColumn::make('employee.name')->label('Employee')->searchable()->sortable(),
             TextColumn::make('warehouse.name')->label('Warehouse')->searchable()->sortable(),
             TextColumn::make('product_condition')->label('Condition')->formatStateUsing(fn (string $state): string => ProductCondition::tryFrom($state)?->label() ?? $state)->badge(),
+            TextColumn::make('access_capabilities')->label('Authorized capabilities')->state(fn (WarehouseStockVisibilityGrant $record): string => collect([
+                $record->view_stock ? 'View stock' : null,
+                $record->view_employee_stock_holders ? 'View holders' : null,
+                $record->adjust_warehouse_stock ? 'Adjust stock' : null,
+                $record->consume_other_employees_stock ? 'Consume others’ stock' : null,
+            ])->filter()->implode(' · '))->wrap(),
             TextColumn::make('status')->badge()->sortable(),
             TextColumn::make('effective_at')->dateTime('d M Y, h:i A')->sortable(),
             TextColumn::make('ended_at')->dateTime('d M Y, h:i A')->placeholder('Active')->sortable(),

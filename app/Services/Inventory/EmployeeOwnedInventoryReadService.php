@@ -164,9 +164,17 @@ class EmployeeOwnedInventoryReadService
             return ProductInventory::query()->whereRaw('1 = 0');
         }
 
-        $visibleInventoryIds = $this->hasActiveWarehouseAssignment($user)
-            ? $this->warehouseAssignedInventoryIds($user)
-            : $this->visibleInventoryIds($user);
+        $visibleInventoryIds = ProductInventory::query()->select('product_inventories.id')
+            ->where(function (Builder $visible) use ($user): void {
+                if ($this->hasActiveWarehouseAssignment($user)) {
+                    $visible->whereIn('product_inventories.id', $this->warehouseAssignedInventoryIds($user));
+
+                    return;
+                }
+
+                $visible->whereIn('product_inventories.id', $this->visibleInventoryIds($user))
+                    ->orWhereIn('product_inventories.id', $this->warehouseAssignedInventoryIds($user));
+            });
 
         $ownedBalances = $this->balances($user)
             ->select(['product_inventory_id', 'allocated_quantity', 'reserved_quantity'])

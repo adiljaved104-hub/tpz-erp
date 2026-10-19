@@ -218,16 +218,29 @@ class ResponsibilityProductScopeService
         }
 
         return $query->whereExists(function (Builder $assignment) use ($employeeId, $inventoryAlias): void {
-            $assignment->selectRaw('1')
-                ->from('responsibility_assignments as warehouse_view_ra')
-                ->join('responsibility_assignment_warehouses as warehouse_view_scope', 'warehouse_view_scope.assignment_id', '=', 'warehouse_view_ra.id')
-                ->where('warehouse_view_ra.employee_id', $employeeId)
-                ->where('warehouse_view_ra.status', ResponsibilityAssignmentStatus::Active->value)
-                ->whereNull('warehouse_view_ra.ended_at')
-                ->whereColumn('warehouse_view_scope.warehouse_id', "{$inventoryAlias}.warehouse_id");
+            $assignment->selectRaw('1')->where(function (Builder $visibility) use ($employeeId, $inventoryAlias): void {
+                $visibility->whereExists(function (Builder $operational) use ($employeeId, $inventoryAlias): void {
+                    $operational->selectRaw('1')
+                        ->from('responsibility_assignments as warehouse_view_ra')
+                        ->join('responsibility_assignment_warehouses as warehouse_view_scope', 'warehouse_view_scope.assignment_id', '=', 'warehouse_view_ra.id')
+                        ->where('warehouse_view_ra.employee_id', $employeeId)
+                        ->where('warehouse_view_ra.status', ResponsibilityAssignmentStatus::Active->value)
+                        ->whereNull('warehouse_view_ra.ended_at')
+                        ->whereColumn('warehouse_view_scope.warehouse_id', "{$inventoryAlias}.warehouse_id");
 
-            $this->matchingRequiredProductScopes($assignment, "{$inventoryAlias}.product_id", 'warehouse_view_ra');
-            $this->matchingRequiredWarehousePlatformScope($assignment, $inventoryAlias, 'warehouse_view_ra');
+                    $this->matchingRequiredProductScopes($operational, "{$inventoryAlias}.product_id", 'warehouse_view_ra');
+                    $this->matchingRequiredWarehousePlatformScope($operational, $inventoryAlias, 'warehouse_view_ra');
+                })->orWhereExists(function (Builder $sharedRead) use ($employeeId, $inventoryAlias): void {
+                    $sharedRead->selectRaw('1')
+                        ->from('warehouse_stock_visibility_grants as warehouse_visibility_grant')
+                        ->join('products as warehouse_visibility_product', 'warehouse_visibility_product.id', '=', "{$inventoryAlias}.product_id")
+                        ->where('warehouse_visibility_grant.employee_id', $employeeId)
+                        ->where('warehouse_visibility_grant.status', 'active')
+                        ->whereNull('warehouse_visibility_grant.ended_at')
+                        ->whereColumn('warehouse_visibility_grant.warehouse_id', "{$inventoryAlias}.warehouse_id")
+                        ->whereColumn('warehouse_visibility_grant.product_condition', 'warehouse_visibility_product.condition');
+                });
+            });
         });
     }
 

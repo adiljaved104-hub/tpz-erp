@@ -11,7 +11,9 @@ use App\Filament\Resources\ResponsibilityAssignments\ResponsibilityAssignmentRes
 use App\Services\Responsibilities\BulkResponsibilityAssignmentService;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
+use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
 
 class CreateResponsibilityAssignment extends CreateRecord
 {
@@ -21,58 +23,69 @@ class CreateResponsibilityAssignment extends CreateRecord
 
     protected function handleRecordCreation(array $data): Model
     {
-        $scope = self::normalizedScope($data);
-        $mode = $scope['mode'];
+        try {
+            $scope = self::normalizedScope($data);
+            $mode = $scope['mode'];
 
-        if ($mode === ResponsibilityAssignmentMode::Scope) {
-            $kind = match (true) {
-                in_array($scope['type'], ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true) => 'brand',
-                in_array($scope['type'], ['product', 'product_platform'], true) => 'product',
-                in_array($scope['type'], ['warehouse', 'warehouse_platform', 'warehouse_condition', 'warehouse_condition_platform'], true) => 'warehouse',
-                in_array($scope['type'], ['category', 'category_platform', 'condition_category', 'condition_category_platform'], true) => 'category',
-                in_array($scope['type'], ['condition', 'condition_platform'], true) => 'condition',
-                default => 'platform',
-            };
+            if ($mode === ResponsibilityAssignmentMode::Scope) {
+                $kind = match (true) {
+                    in_array($scope['type'], ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true) => 'brand',
+                    in_array($scope['type'], ['product', 'product_platform'], true) => 'product',
+                    in_array($scope['type'], ['warehouse', 'warehouse_platform', 'warehouse_condition', 'warehouse_condition_platform'], true) => 'warehouse',
+                    in_array($scope['type'], ['category', 'category_platform', 'condition_category', 'condition_category_platform'], true) => 'category',
+                    in_array($scope['type'], ['condition', 'condition_platform'], true) => 'condition',
+                    default => 'platform',
+                };
 
-            $created = app(BulkResponsibilityAssignmentService::class)->create(new CreateResponsibilityAssignmentBatchData(
+                $created = app(BulkResponsibilityAssignmentService::class)->create(new CreateResponsibilityAssignmentBatchData(
+                    employeeId: (int) $data['employee_id'],
+                    scopeType: $kind,
+                    scopeIds: $kind === 'brand' ? $scope['brand_ids'] : $scope['product_ids'],
+                    categoryId: $scope['category_id'],
+                    platformId: $scope['platform_id'],
+                    effectiveAt: (string) $data['effective_at'],
+                    reason: $data['reason'],
+                    notes: $data['notes'] ?? null,
+                    idempotencyKey: $data['idempotency_key'],
+                    platformIds: $scope['platform_ids'],
+                    warehouseId: $scope['warehouse_id'],
+                    condition: $scope['condition'],
+                    assignStockByDefault: (bool) ($data['assign_stock_by_default'] ?? false),
+                    categoryIds: $scope['category_ids'],
+                ), auth()->user());
+
+                $this->createdAssignmentCount = $created->count();
+
+                return $created->firstOrFail();
+            }
+
+            return app(CreateResponsibilityAssignmentAction::class)->handle(new CreateResponsibilityAssignmentData(
                 employeeId: (int) $data['employee_id'],
-                scopeType: $kind,
-                scopeIds: $kind === 'brand' ? $scope['brand_ids'] : $scope['product_ids'],
-                categoryId: $scope['category_id'],
+                mode: $mode,
+                brandId: null,
                 platformId: $scope['platform_id'],
+                productId: null,
+                productInventoryId: $scope['product_inventory_id'],
+                assignedQuantity: $scope['assigned_quantity'],
                 effectiveAt: (string) $data['effective_at'],
                 reason: $data['reason'],
                 notes: $data['notes'] ?? null,
                 idempotencyKey: $data['idempotency_key'],
-                platformIds: $scope['platform_ids'],
+                categoryId: $scope['category_id'],
                 warehouseId: $scope['warehouse_id'],
                 condition: $scope['condition'],
                 assignStockByDefault: (bool) ($data['assign_stock_by_default'] ?? false),
-                categoryIds: $scope['category_ids'],
             ), auth()->user());
+        } catch (ValidationException $exception) {
+            foreach ($exception->errors() as $field => $messages) {
+                foreach ($messages as $message) {
+                    $this->addError("data.{$field}", $message);
+                }
+            }
 
-            $this->createdAssignmentCount = $created->count();
-
-            return $created->firstOrFail();
+            $this->dispatch('form-validation-error', livewireId: $this->getId());
+            throw (new Halt)->rollBackDatabaseTransaction();
         }
-
-        return app(CreateResponsibilityAssignmentAction::class)->handle(new CreateResponsibilityAssignmentData(
-            employeeId: (int) $data['employee_id'],
-            mode: $mode,
-            brandId: null,
-            platformId: $scope['platform_id'],
-            productId: null,
-            productInventoryId: $scope['product_inventory_id'],
-            assignedQuantity: $scope['assigned_quantity'],
-            effectiveAt: (string) $data['effective_at'],
-            reason: $data['reason'],
-            notes: $data['notes'] ?? null,
-            idempotencyKey: $data['idempotency_key'],
-            categoryId: $scope['category_id'],
-            warehouseId: $scope['warehouse_id'],
-            condition: $scope['condition'],
-            assignStockByDefault: (bool) ($data['assign_stock_by_default'] ?? false),
-        ), auth()->user());
     }
 
     protected function getCreatedNotification(): ?Notification

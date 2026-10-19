@@ -4,6 +4,8 @@ namespace App\Filament\Resources\ResponsibilityAssignments\Pages;
 
 use App\Enums\ResponsibilityAssignmentStatus;
 use App\Filament\Resources\ResponsibilityAssignments\ResponsibilityAssignmentResource;
+use App\Filament\Resources\WarehouseStockVisibilityGrants\WarehouseStockVisibilityGrantResource;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -15,7 +17,14 @@ class ListResponsibilityAssignments extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [CreateAction::make()];
+        return [
+            CreateAction::make(),
+            Action::make('sharedWarehouseVisibility')
+                ->label('Shared Warehouse Visibility')
+                ->icon('heroicon-o-eye')
+                ->url(WarehouseStockVisibilityGrantResource::getUrl('create'))
+                ->visible(fn (): bool => WarehouseStockVisibilityGrantResource::canCreate()),
+        ];
     }
 
     public function getTabs(): array

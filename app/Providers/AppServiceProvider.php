@@ -143,6 +143,7 @@ use App\Models\Team;
 use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Models\WarehouseStockVisibilityGrant;
 use App\Models\WarningCategory;
 use App\Models\WarrantyRepair;
 use App\Models\WarrantyRepairStatusEvent;
@@ -560,6 +561,7 @@ class AppServiceProvider extends ServiceProvider
             'marketplace_order_event' => MarketplaceOrderEvent::class,
             'marketplace_monitoring_setting' => MarketplaceMonitoringSetting::class,
             'responsibility_assignment' => ResponsibilityAssignment::class,
+            'warehouse_stock_visibility_grant' => WarehouseStockVisibilityGrant::class,
             'stock_transfer' => StockTransfer::class,
             'stock_transfer_item' => StockTransferItem::class,
             'stock_transfer_status_event' => StockTransferStatusEvent::class,

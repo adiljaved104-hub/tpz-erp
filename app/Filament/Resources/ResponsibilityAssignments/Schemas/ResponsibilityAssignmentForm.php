@@ -102,6 +102,8 @@ class ResponsibilityAssignmentForm
             ]),
             Section::make('Exact Scope')->description('Each selected Brand/Product, Category and Platform combination creates one exact assignment. Category and Condition scopes remain dynamic as Products are added.')->schema([
                 Grid::make(['default' => 1, 'lg' => 2])->schema([
+                    Textarea::make('scope')->label('Scope validation')->disabled()->dehydrated(false)->rows(2)->columnSpanFull()
+                        ->helperText('If the selected operational scope conflicts with an existing assignment, the validation explanation appears here.'),
                     Select::make('brand_ids')->label('Brands')->multiple()->searchable()->nullable()
                         ->visible(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true))
                         ->required(fn (Get $get): bool => in_array($get('scope_type'), ['brand', 'brand_platform', 'category_brand', 'category_brand_platform', 'condition_brand', 'condition_brand_platform'], true))

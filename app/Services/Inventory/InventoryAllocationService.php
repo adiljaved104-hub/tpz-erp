@@ -2,6 +2,7 @@
 
 namespace App\Services\Inventory;
 
+use App\Enums\EmployeeRole;
 use App\Enums\InventoryAllocationMode;
 use App\Enums\InventoryPermission;
 use App\Exceptions\InventoryInvariantException;
@@ -20,6 +21,7 @@ use App\Models\PurchaseReceiptItem;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Responsibilities\WarehouseStockActionScopeService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +33,7 @@ class InventoryAllocationService
     public function __construct(
         private readonly InventoryAllocationPolicyService $policy,
         private readonly InventoryAuthorization $authorization,
+        private readonly WarehouseStockActionScopeService $warehouseActions,
     ) {}
 
     public function canSelectOrderSources(User $actor): bool
@@ -41,22 +44,22 @@ class InventoryAllocationService
     /** @return array<int, string> */
     public function orderSourceOptions(int $productId, int $warehouseId, User $actor): array
     {
-        $inventoryId = ProductInventory::query()
+        $inventory = ProductInventory::query()
             ->where('product_id', $productId)
             ->where('warehouse_id', $warehouseId)
-            ->value('id');
-        if ($inventoryId === null) {
+            ->first();
+        if ($inventory === null) {
             return [];
         }
 
         return InventoryAllocationBalance::query()
             ->with(['account.employee', 'account.team'])
-            ->where('product_inventory_id', $inventoryId)
+            ->where('product_inventory_id', $inventory->id)
             ->whereRaw('allocated_quantity > reserved_quantity')
             ->orderBy('account_id')
             ->get()
             ->filter(fn (InventoryAllocationBalance $balance): bool => $balance->account?->status === true
-                && $this->canConsumeFromAccount($actor, $balance->account))
+                && $this->canConsumeFromAccount($actor, $balance->account, $inventory))
             ->mapWithKeys(fn (InventoryAllocationBalance $balance): array => [
                 $balance->account_id => $balance->account->name.' — '.$balance->availableQuantity().' available',
             ])->all();
@@ -76,7 +79,7 @@ class InventoryAllocationService
 
         foreach ($quantitiesByAccountId as $accountId => $quantity) {
             $account = InventoryAllocationAccount::query()->where('status', true)->find($accountId);
-            if ($account === null || ! $this->canConsumeFromAccount($actor, $account)) {
+            if ($account === null || ! $this->canConsumeFromAccount($actor, $account, $inventory)) {
                 throw ValidationException::withMessages([$errorKey => 'You are not authorized to consume from one of the selected allocation sources. Use Stock Requests for stock controlled by another employee or team.']);
             }
             if ($this->policy->mode() === InventoryAllocationMode::Strict && $account->is_system) {
@@ -94,7 +97,7 @@ class InventoryAllocationService
         }
     }
 
-    public function canConsumeFromAccount(User $actor, InventoryAllocationAccount $account): bool
+    public function canConsumeFromAccount(User $actor, InventoryAllocationAccount $account, ?ProductInventory $inventory = null): bool
     {
         $account->loadMissing(['employee', 'team']);
         if (! $account->status
@@ -107,15 +110,21 @@ class InventoryAllocationService
             return $this->policy->mode() === InventoryAllocationMode::MigrationShadow;
         }
 
-        if ($this->authorization->allows($actor, InventoryPermission::ConsumeFromAllAllocations)) {
-            return true;
-        }
-
         $employee = $actor->employee;
-
-        return $employee !== null
+        $ownsOrSharesTeam = $employee !== null
             && ($account->employee_id === $employee->id
                 || ($account->team_id !== null && $account->team_id === $employee->team_id));
+
+        if ($this->authorization->allows($actor, InventoryPermission::ConsumeFromAllAllocations)) {
+            if (in_array($employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true) || $ownsOrSharesTeam) {
+                return true;
+            }
+
+            return $inventory !== null
+                && $this->warehouseActions->allows($actor, $inventory, WarehouseStockActionScopeService::CONSUME_OTHER_EMPLOYEES_STOCK);
+        }
+
+        return $ownsOrSharesTeam;
     }
 
     public function systemAccount(): InventoryAllocationAccount
@@ -211,21 +220,27 @@ class InventoryAllocationService
         }
 
         if ($adjustment->type === 'restore_damaged') {
-            $this->restoreDamaged($inventory, -$adjustment->damaged_delta, $adjustment, $actor);
+            $this->restoreDamaged($inventory, -$adjustment->damaged_delta, $adjustment, $actor, $adjustment->allocation_account_id);
 
             return;
         }
 
         if ($adjustment->type === 'mark_damaged') {
-            $this->releaseForAdjustmentIfNeeded($inventory, -$adjustment->available_delta, $adjustment, $actor, $releaseMovementReferences);
-            $this->markDamaged($inventory, -$adjustment->available_delta, $adjustment, $actor);
+            if ($adjustment->allocation_account_id !== null) {
+                $this->markDamagedFromAccount($inventory, -$adjustment->available_delta, $adjustment, $actor, $adjustment->allocation_account_id);
+            } else {
+                $this->releaseForAdjustmentIfNeeded($inventory, -$adjustment->available_delta, $adjustment, $actor, $releaseMovementReferences);
+                $this->markDamaged($inventory, -$adjustment->available_delta, $adjustment, $actor);
+            }
 
             return;
         }
 
         if ($adjustment->available_delta > 0) {
             $quantity = $adjustment->available_delta;
-            $sources = $adjustment->receiptItem?->allocationLines()->with('account')->orderBy('id')->get() ?? collect();
+            $sources = $adjustment->allocation_account_id === null
+                ? ($adjustment->receiptItem?->allocationLines()->with('account')->orderBy('id')->get() ?? collect())
+                : collect();
             $sources = $sources->filter(fn ($line): bool => $line->account?->status === true)->values();
             if ($sources->isNotEmpty()) {
                 $total = $sources->sum('quantity');
@@ -240,7 +255,7 @@ class InventoryAllocationService
                 return;
             }
             $account = InventoryAllocationAccount::query()->where('status', true)->find($adjustment->allocation_account_id);
-            if ($account === null || ! $this->canConsumeFromAccount($actor, $account)) {
+            if ($account === null || ($adjustment->allocation_account_id === null && ! $this->canConsumeFromAccount($actor, $account, $inventory))) {
                 throw new InventoryInvariantException('Select an authorized active allocation holder for this stock increase.');
             }
             $this->increase($account, $inventory, $quantity, 'inventory_adjustment_increase', $actor, $adjustment, 'Stock count adjustment');
@@ -249,10 +264,22 @@ class InventoryAllocationService
         }
 
         $remaining = -$adjustment->available_delta;
+        if ($adjustment->allocation_account_id !== null) {
+            $balance = InventoryAllocationBalance::query()->where('account_id', $adjustment->allocation_account_id)
+                ->where('product_inventory_id', $inventory->id)->lockForUpdate()->first();
+            if ($balance === null || $balance->availableQuantity() < $remaining) {
+                throw new InventoryInvariantException('The selected holder does not have enough unreserved stock for this adjustment.');
+            }
+            $balance->decrement('allocated_quantity', $remaining);
+            $this->event('inventory_adjustment_decrease', $inventory, $remaining, $actor,
+                'Stock count adjustment from selected holder', $adjustment, $balance->account, metadata: ['holder_targeted' => true]);
+
+            return;
+        }
         $preferredAccountIds = $adjustment->receiptItem?->allocationLines()->orderBy('id')->pluck('account_id')->all() ?? [];
         $balances = InventoryAllocationBalance::query()->with('account')
             ->where('product_inventory_id', $inventory->id)->orderBy('account_id')->lockForUpdate()->get()
-            ->filter(fn (InventoryAllocationBalance $balance): bool => $balance->account !== null && $this->canConsumeFromAccount($actor, $balance->account))
+            ->filter(fn (InventoryAllocationBalance $balance): bool => $balance->account !== null && $this->canConsumeFromAccount($actor, $balance->account, $inventory))
             ->sortBy(function (InventoryAllocationBalance $balance) use ($preferredAccountIds): int {
                 $position = array_search($balance->account_id, $preferredAccountIds, true);
 
@@ -299,7 +326,7 @@ class InventoryAllocationService
             if ($needed === 0) {
                 break;
             }
-            if (! $this->canConsumeFromAccount($actor, $balance->account)) {
+            if (! $this->canConsumeFromAccount($actor, $balance->account, $inventory)) {
                 continue;
             }
             $release = min($needed, $balance->reserved_quantity);
@@ -552,7 +579,7 @@ class InventoryAllocationService
                 if ($needed === 0) {
                     break;
                 }
-                if (! $this->canConsumeFromAccount($actor, $account)) {
+                if (! $this->canConsumeFromAccount($actor, $account, $inventory)) {
                     continue;
                 }
                 $balance = $this->balance($account, $inventory, true);
@@ -695,11 +722,31 @@ class InventoryAllocationService
         $this->moveToHold('damaged', $source, $inventory, $quantity, $actor, 'damaged_allocation_hold');
     }
 
-    public function restoreDamaged(ProductInventory $inventory, int $quantity, Model $source, User $actor): void
+    private function markDamagedFromAccount(ProductInventory $inventory, int $quantity, Model $source, User $actor, int $accountId): void
+    {
+        $balance = InventoryAllocationBalance::query()->where('account_id', $accountId)
+            ->where('product_inventory_id', $inventory->id)->lockForUpdate()->first();
+        if ($balance === null || $balance->availableQuantity() < $quantity) {
+            throw new InventoryInvariantException('The selected holder does not have enough unreserved stock to mark damaged.');
+        }
+
+        $balance->decrement('allocated_quantity', $quantity);
+        InventoryAllocationTransitionLine::query()->create([
+            'context_type' => 'damaged', 'context_id' => $source->getKey(), 'account_id' => $accountId,
+            'source_product_inventory_id' => $inventory->id, 'quantity' => $quantity,
+            'remaining_quantity' => $quantity, 'status' => 'held',
+        ]);
+        $this->event('damaged_allocation_hold', $inventory, $quantity, $actor,
+            'Sellable allocation held while stock is damaged from selected holder', $source, $balance->account,
+            metadata: ['holder_targeted' => true]);
+    }
+
+    public function restoreDamaged(ProductInventory $inventory, int $quantity, Model $source, User $actor, ?int $accountId = null): void
     {
         $remaining = $quantity;
         $lines = InventoryAllocationTransitionLine::query()->where('context_type', 'damaged')
             ->where('source_product_inventory_id', $inventory->id)->where('remaining_quantity', '>', 0)
+            ->when($accountId !== null, fn ($query) => $query->where('account_id', $accountId))
             ->orderBy('id')->lockForUpdate()->get();
         foreach ($lines as $line) {
             if ($remaining === 0) {
@@ -711,12 +758,15 @@ class InventoryAllocationService
             $line->forceFill(['remaining_quantity' => $line->remaining_quantity - $amount, 'status' => $line->remaining_quantity === $amount ? 'restored' : 'held'])->save();
             $remaining -= $amount;
         }
-        if ($remaining > 0) {
+        if ($remaining > 0 && $accountId === null) {
             if ($this->policy->mode() === InventoryAllocationMode::MigrationShadow) {
                 $this->increase($this->systemAccount(), $inventory, $remaining, 'damaged_restore_unknown_system', $actor, $source, 'Restored legacy damaged stock with unknown allocation owner');
             } else {
                 $this->event('damaged_restore_unallocated_strict', $inventory, $remaining, $actor, 'Restored damaged stock requires Owner/Admin reconciliation', $source);
             }
+        }
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('The selected holder does not have enough damaged stock available to restore.');
         }
     }
 
@@ -834,7 +884,7 @@ class InventoryAllocationService
             if ($remaining === 0) {
                 break;
             }
-            if ($source instanceof InventoryAdjustment && ! $this->canConsumeFromAccount($actor, $balance->account)) {
+            if ($source instanceof InventoryAdjustment && ! $this->canConsumeFromAccount($actor, $balance->account, $inventory)) {
                 continue;
             }
             $amount = min($remaining, $balance->availableQuantity());

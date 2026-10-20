@@ -14,6 +14,7 @@ use App\DTOs\Purchases\ReceivePurchaseData;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\InventoryPermission;
+use App\Enums\ProductCondition;
 use App\Enums\StockMovementType;
 use App\Exceptions\ImmutableInventoryRecordException;
 use App\Filament\Pages\Inventory\StockAdjustments;
@@ -35,11 +36,14 @@ use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Models\WarehouseStockVisibilityGrant;
 use App\Services\Inventory\InventoryAdjustmentService;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Purchases\PurchaseReceivingService;
+use App\Services\Responsibilities\WarehouseStockVisibilityGrantService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -154,6 +158,10 @@ class InventoryAdjustmentTest extends TestCase
         $this->assertSame(3, $reservation->refresh()->quantity);
         $this->assertDatabaseHas('inventory_allocation_events', ['event_type' => 'reservation_decrease', 'quantity' => 1]);
         $this->assertDatabaseHas('stock_movements', ['movement_type' => StockMovementType::ReservationRelease->value, 'reserved_delta' => -1]);
+        $detail = $owner->notifications()->where('type', 'inventory_adjustment_batch')->sole()->data['adjustments'][0];
+        $this->assertSame($owner->employee->name, $detail['original_stock_holder']);
+        $this->assertSame(1, $detail['quantity']);
+        $this->assertSame(1, $detail['adjustment_quantity']);
     }
 
     public function test_consumed_stock_cannot_be_removed_and_transaction_rolls_back(): void
@@ -250,6 +258,199 @@ class InventoryAdjustmentTest extends TestCase
         app(InventoryAdjustmentService::class)->post($this->data($inventory, 'saleable_decrease', 1), $staff);
     }
 
+    public function test_explicit_warehouse_adjustment_decrements_only_selected_holders_unreserved_balance_and_notifies_holder_and_owner(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $actor = $this->user(EmployeeRole::Staff);
+        $holder = $this->user(EmployeeRole::Staff);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['condition' => ProductCondition::Renewed])->id,
+            'available_quantity' => 4, 'reserved_quantity' => 0, 'damaged_quantity' => 0,
+            'average_cost' => '15.0000', 'warehouse_id' => Warehouse::query()->where('code', 'MAIN')->sole()->id,
+        ]);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $owner);
+        $holderAccount = $allocations->employeeAccount($holder->employee->id);
+        $allocations->reconcile($inventory, $holderAccount, 4, $owner, 'Assign physical stock to test holder.');
+        $this->allowInventoryPermission($actor, $owner, InventoryPermission::AdjustStock);
+        $this->createWarehouseGrant($actor, $owner, $inventory, adjust: true);
+
+        $data = new InventoryAdjustmentData($inventory->id, 'saleable_decrease', 2, 'Two units missing from count.', (string) Str::uuid(), null, $holderAccount->id);
+        $adjustment = app(InventoryAdjustmentService::class)->post($data, $actor);
+        $replayed = app(InventoryAdjustmentService::class)->post($data, $actor);
+
+        $this->assertSame($adjustment->id, $replayed->id);
+        $this->assertSame(2, $inventory->refresh()->available_quantity);
+        $this->assertSame(2, $holderAccount->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+        $this->assertSame($holderAccount->id, $adjustment->refresh()->allocation_account_id);
+        $this->assertDatabaseHas('inventory_allocation_events', [
+            'event_type' => 'inventory_adjustment_decrease', 'product_inventory_id' => $inventory->id,
+            'from_account_id' => $holderAccount->id, 'quantity' => 2,
+        ]);
+
+        foreach ([$holder, $owner] as $recipient) {
+            $notification = $recipient->notifications()->where('type', 'inventory_adjustment_batch')->sole();
+            $detail = $notification->data['adjustments'][0];
+            $this->assertSame($adjustment->reference, $detail['reference']);
+            $this->assertSame($inventory->product->sku, $detail['sku']);
+            $this->assertSame($inventory->warehouse->name, $detail['warehouse']);
+            $this->assertSame($holder->employee->name, $detail['original_stock_holder']);
+            $this->assertSame('saleable_decrease', $detail['adjustment_type']);
+            $this->assertSame(2, $detail['quantity']);
+            $this->assertSame('Two units missing from count.', $detail['reason']);
+            $this->assertSame($actor->name, $detail['performed_by']);
+            $this->assertSame(1, $recipient->notifications()->where('type', 'inventory_adjustment_batch')->count());
+        }
+    }
+
+    public function test_holder_targeted_damage_and_restore_keep_the_same_ledger_holder(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $actor = $this->user(EmployeeRole::Staff);
+        $holder = $this->user(EmployeeRole::Staff);
+        $inventory = ProductInventory::factory()->create([
+            'available_quantity' => 3, 'reserved_quantity' => 0, 'damaged_quantity' => 0,
+            'average_cost' => '15.0000', 'warehouse_id' => Warehouse::query()->where('code', 'MAIN')->sole()->id,
+        ]);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $owner);
+        $holderAccount = $allocations->employeeAccount($holder->employee->id);
+        $allocations->reconcile($inventory, $holderAccount, 3, $owner, 'Assign physical stock to test holder.');
+        $this->allowInventoryPermission($actor, $owner, InventoryPermission::AdjustStock);
+        $this->createWarehouseGrant($actor, $owner, $inventory, adjust: true);
+        $service = app(InventoryAdjustmentService::class);
+
+        $service->post(new InventoryAdjustmentData($inventory->id, 'mark_damaged', 1, 'One unit has a damaged casing.', (string) Str::uuid(), null, $holderAccount->id), $actor);
+        $this->assertSame(2, $inventory->refresh()->available_quantity);
+        $this->assertSame(1, $inventory->damaged_quantity);
+        $this->assertSame(2, $holderAccount->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+        $this->assertDatabaseHas('inventory_allocation_transition_lines', [
+            'context_type' => 'damaged', 'source_product_inventory_id' => $inventory->id,
+            'account_id' => $holderAccount->id, 'remaining_quantity' => 1,
+        ]);
+
+        $service->post(new InventoryAdjustmentData($inventory->id, 'restore_damaged', 1, 'The holder unit passed the recheck.', (string) Str::uuid(), null, $holderAccount->id), $actor);
+        $this->assertSame(3, $inventory->refresh()->available_quantity);
+        $this->assertSame(0, $inventory->damaged_quantity);
+        $this->assertSame(3, $holderAccount->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+        $this->assertDatabaseHas('inventory_allocation_transition_lines', [
+            'context_type' => 'damaged', 'source_product_inventory_id' => $inventory->id,
+            'account_id' => $holderAccount->id, 'remaining_quantity' => 0, 'status' => 'restored',
+        ]);
+    }
+
+    public function test_cross_holder_adjustment_without_both_permission_and_active_action_scope_is_rejected_without_notifications(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $actor = $this->user(EmployeeRole::Staff);
+        $holder = $this->user(EmployeeRole::Staff);
+        $inventory = ProductInventory::factory()->create([
+            'available_quantity' => 3, 'reserved_quantity' => 0, 'damaged_quantity' => 0,
+            'average_cost' => '15.0000', 'warehouse_id' => Warehouse::query()->where('code', 'MAIN')->sole()->id,
+        ]);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $owner);
+        $holderAccount = $allocations->employeeAccount($holder->employee->id);
+        $allocations->reconcile($inventory, $holderAccount, 3, $owner, 'Assign physical stock to test holder.');
+        $this->allowInventoryPermission($actor, $owner, InventoryPermission::AdjustStock);
+
+        try {
+            app(InventoryAdjustmentService::class)->post(
+                new InventoryAdjustmentData($inventory->id, 'saleable_decrease', 1, 'One unit missing from count.', (string) Str::uuid(), null, $holderAccount->id),
+                $actor,
+            );
+            $this->fail('A stock adjustment without an active warehouse action scope was accepted.');
+        } catch (AuthorizationException) {
+            $this->assertSame(3, $inventory->refresh()->available_quantity);
+            $this->assertSame(3, $holderAccount->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+            $this->assertDatabaseCount('inventory_adjustments', 0);
+            $this->assertSame(0, $holder->notifications()->count());
+            $this->assertSame(0, $owner->notifications()->count());
+        }
+    }
+
+    public function test_cross_holder_adjustment_cannot_consume_reserved_units_even_with_scope(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $actor = $this->user(EmployeeRole::Staff);
+        $holder = $this->user(EmployeeRole::Staff);
+        $inventory = ProductInventory::factory()->create([
+            'available_quantity' => 4, 'reserved_quantity' => 3, 'damaged_quantity' => 0,
+            'average_cost' => '15.0000', 'warehouse_id' => Warehouse::query()->where('code', 'MAIN')->sole()->id,
+        ]);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $owner);
+        $holderAccount = $allocations->employeeAccount($holder->employee->id);
+        $allocations->reconcile($inventory, $holderAccount, 4, $owner, 'Assign physical stock to test holder.');
+        $balance = $holderAccount->balances()->where('product_inventory_id', $inventory->id)->sole();
+        $balance->update(['reserved_quantity' => 3]);
+        $this->allowInventoryPermission($actor, $owner, InventoryPermission::AdjustStock);
+        $this->createWarehouseGrant($actor, $owner, $inventory, adjust: true);
+
+        $this->expectException(ValidationException::class);
+        app(InventoryAdjustmentService::class)->post(
+            new InventoryAdjustmentData($inventory->id, 'saleable_decrease', 2, 'Reserved stock must remain intact.', (string) Str::uuid(), null, $holderAccount->id),
+            $actor,
+        );
+    }
+
+    public function test_cross_holder_consumption_requires_its_own_permission_and_condition_scoped_grant(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $actor = $this->user(EmployeeRole::Staff);
+        $holder = $this->user(EmployeeRole::Staff);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['condition' => ProductCondition::Renewed])->id,
+            'available_quantity' => 3, 'reserved_quantity' => 0, 'damaged_quantity' => 0,
+            'average_cost' => '15.0000', 'warehouse_id' => Warehouse::query()->where('code', 'MAIN')->sole()->id,
+        ]);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $owner);
+        $holderAccount = $allocations->employeeAccount($holder->employee->id);
+        $allocations->reconcile($inventory, $holderAccount, 3, $owner, 'Assign physical stock to test holder.');
+        $this->allowInventoryPermission($actor, $owner, InventoryPermission::ConsumeFromAllAllocations);
+        $grant = $this->createWarehouseGrant($actor, $owner, $inventory, adjust: true, consume: false);
+
+        try {
+            DB::transaction(fn () => $allocations->assertOrderSources($inventory, [$holderAccount->id => 1], 1, $actor));
+            $this->fail('The adjustment grant incorrectly authorized cross-holder consumption.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('not authorized', $exception->getMessage());
+        }
+        $this->assertFalse($allocations->canConsumeFromAccount($actor, $holderAccount, $inventory));
+
+        $grant->forceFill(['consume_other_employees_stock' => true])->save();
+        DB::transaction(fn () => $allocations->assertOrderSources($inventory, [$holderAccount->id => 1], 1, $actor));
+        $this->assertTrue($allocations->canConsumeFromAccount($actor, $holderAccount, $inventory));
+        $this->assertSame(3, $holderAccount->balances()->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+    }
+
+    private function allowInventoryPermission(User $actor, User $owner, InventoryPermission $permission): void
+    {
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $actor->employee->id, 'permission_key' => $permission->value,
+            'effect' => EmployeePermissionEffect::Allow, 'granted_by_user_id' => $owner->id,
+            'reason' => 'Authorized focused warehouse adjustment test.',
+        ]);
+        app(EmployeePermissionOverrideResolver::class)->forgetEmployee($actor->employee->id);
+    }
+
+    private function createWarehouseGrant(User $actor, User $owner, ProductInventory $inventory, bool $adjust = false, bool $consume = false): WarehouseStockVisibilityGrant
+    {
+        return app(WarehouseStockVisibilityGrantService::class)->create([
+            'employee_id' => $actor->employee->id,
+            'warehouse_id' => $inventory->warehouse_id,
+            'product_condition' => $inventory->product->condition->value,
+            'effective_at' => now()->subSecond(),
+            'reason' => 'Explicit Phase A shared warehouse action test grant.',
+            'idempotency_key' => (string) Str::uuid(),
+            'view_stock' => true,
+            'view_employee_stock_holders' => true,
+            'adjust_warehouse_stock' => $adjust,
+            'consume_other_employees_stock' => $consume,
+        ], $owner);
+    }
+
     public function test_batch_rolls_back_every_line_if_later_line_fails(): void
     {
         [$owner] = $this->receivedPurchase();
@@ -322,6 +523,7 @@ class InventoryAdjustmentTest extends TestCase
             'available_quantity' => 2, 'reserved_quantity' => 0, 'average_cost' => '20.0000',
         ]);
         app(InventoryAllocationService::class)->ensureShadowCoverage($other, $owner);
+        $systemHolder = app(InventoryAllocationService::class)->systemAccount();
 
         $component = Livewire::actingAs($owner)->test(StockAdjustments::class)
             ->set("drafts.{$inventory->id}", [
@@ -333,6 +535,9 @@ class InventoryAdjustmentTest extends TestCase
                 'selected' => true, 'type' => 'saleable_decrease', 'quantity' => 1,
                 'reason' => 'Another unit was missing from the count.', 'idempotency_key' => (string) Str::uuid(),
             ]);
+        $this->assertSame('Original Holder Required', $component->instance()->rowStatus($other));
+        $this->assertArrayHasKey($systemHolder->id, $component->instance()->stockAdjustmentHolderOptions($other, 'saleable_decrease'));
+        $component->set("drafts.{$other->id}.allocation_account_id", $systemHolder->id);
         $component->call('saveAll')
             ->assertHasNoErrors();
 
@@ -376,24 +581,28 @@ class InventoryAdjustmentTest extends TestCase
     {
         [$owner] = $this->receivedPurchase();
         $inventory = ProductInventory::query()->sole();
+        $accountId = PurchaseReceiptAllocationLine::query()->sole()->account_id;
         $other = ProductInventory::factory()->create([
             'product_id' => Product::factory(), 'warehouse_id' => $inventory->warehouse_id,
             'available_quantity' => 2, 'reserved_quantity' => 0,
         ]);
         app(InventoryAllocationService::class)->ensureShadowCoverage($other, $owner);
+        $systemHolder = app(InventoryAllocationService::class)->systemAccount();
 
         $component = Livewire::actingAs($owner)->test(StockAdjustments::class)
             ->set("drafts.{$inventory->id}", [
                 'selected' => true, 'type' => 'mark_damaged', 'quantity' => 1,
-                'reason' => 'Physical count found damage.',
+                'reason' => 'Physical count found damage.', 'allocation_account_id' => $accountId,
             ])
             ->set("drafts.{$other->id}", [
                 'selected' => true, 'type' => 'saleable_decrease', 'quantity' => 99,
-                'reason' => 'Physical count found missing units.',
+                'reason' => 'Physical count found missing units.', 'allocation_account_id' => $systemHolder->id,
             ]);
         $this->assertDatabaseCount('inventory_adjustments', 0);
         $this->assertSame(4, $inventory->refresh()->available_quantity);
-        $component->call('saveAll')->assertHasErrors(["drafts.{$other->id}"]);
+        $this->assertSame('Insufficient Saleable', $component->instance()->rowStatus($other));
+        $component->call('saveAll');
+        $component->assertHasErrors(["drafts.{$other->id}"]);
         $this->assertDatabaseCount('inventory_adjustments', 0);
         $this->assertSame(4, $inventory->refresh()->available_quantity);
     }

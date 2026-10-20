@@ -9,8 +9,12 @@ class InventoryAdjustmentBatchNotification extends Notification
 {
     use Queueable;
 
-    /** @param array<int, string> $references */
-    public function __construct(private readonly array $references, private readonly string $actorName) {}
+    /** @param array<int, string> $references @param array<int, array<string, mixed>> $details */
+    public function __construct(
+        private readonly array $references,
+        private readonly string $actorName,
+        private readonly array $details = [],
+    ) {}
 
     public function via(object $notifiable): array
     {
@@ -28,6 +32,7 @@ class InventoryAdjustmentBatchNotification extends Notification
             'title' => 'Stock adjustments posted',
             'message' => $this->actorName.' posted '.count($this->references).' stock adjustment(s).',
             'references' => $this->references,
+            'adjustments' => $this->details,
             'url' => '/admin/stock-adjustments',
         ];
     }

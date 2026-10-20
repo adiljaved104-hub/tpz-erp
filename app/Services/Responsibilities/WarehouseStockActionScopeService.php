@@ -36,4 +36,21 @@ class WarehouseStockActionScopeService
             ->where($capability, true)
             ->exists();
     }
+
+    public function allowsHolderSelection(User $user, ProductInventory $inventory): bool
+    {
+        if ($user->employee?->status !== true || $user->employee->user_id !== $user->id) {
+            return false;
+        }
+
+        $condition = $inventory->product?->condition?->value
+            ?? DB::table('products')->where('id', $inventory->product_id)->value('condition');
+
+        return is_string($condition) && DB::table('warehouse_stock_visibility_grants')
+            ->where('employee_id', $user->employee->id)
+            ->where('warehouse_id', $inventory->warehouse_id)
+            ->where('product_condition', $condition)
+            ->where('status', 'active')->whereNull('ended_at')
+            ->where('view_stock', true)->where('view_employee_stock_holders', true)->exists();
+    }
 }

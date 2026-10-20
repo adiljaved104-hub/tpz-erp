@@ -9,6 +9,8 @@ use App\Enums\InventoryReservationStatus;
 use App\Enums\PurchasePermission;
 use App\Exceptions\InventoryInvariantException;
 use App\Models\InventoryAdjustment;
+use App\Models\InventoryAllocationAccount;
+use App\Models\InventoryAllocationEvent;
 use App\Models\InventoryAllocationReservationLine;
 use App\Models\ProductInventory;
 use App\Models\PurchaseReceiptItem;
@@ -18,6 +20,8 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\ReferenceSequenceService;
+use App\Services\Responsibilities\WarehouseStockActionScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -32,6 +36,7 @@ class InventoryAdjustmentService
         private readonly InventoryService $inventoryService,
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
+        private readonly WarehouseStockActionScopeService $warehouseActions,
     ) {}
 
     public function post(InventoryAdjustmentData $data, User $actor): InventoryAdjustment
@@ -90,7 +95,7 @@ class InventoryAdjustmentService
                     throw ValidationException::withMessages(["lines.{$index}" => 'This adjustment was already posted. Reload the batch.']);
                 }
                 $inventory = ProductInventory::query()->lockForUpdate()->findOrFail($data->inventoryId);
-                $this->authorization->authorize($actor, InventoryPermission::AdjustStock, $inventory);
+                $this->authorizeAdjustment($actor, $inventory, $data);
                 $receiptItem = $entry['receipt_item'];
                 $availableDelta = match ($data->type) {
                     'saleable_increase', 'restore_damaged' => $data->quantity,
@@ -159,12 +164,81 @@ class InventoryAdjustmentService
                 $posted[] = $adjustment;
             }
 
-            User::query()->where('id', '!=', $actor->id)
+            $detailsByRecipient = [];
+            $allDetails = [];
+            foreach ($posted as $adjustment) {
+                $adjustment->loadMissing(['product:id,sku,name', 'warehouse:id,name']);
+                $effectEventTypes = match ($adjustment->type) {
+                    'saleable_increase' => ['inventory_adjustment_increase'],
+                    'saleable_decrease' => ['inventory_adjustment_decrease'],
+                    'mark_damaged' => ['damaged_allocation_hold'],
+                    'restore_damaged' => ['damaged_allocation_restore', 'damaged_restore_unknown_system'],
+                };
+                $events = InventoryAllocationEvent::query()->with(['fromAccount.employee.user', 'toAccount.employee.user'])
+                    ->where('source_type', $adjustment->getMorphClass())
+                    ->where('source_id', $adjustment->id)
+                    ->whereIn('event_type', $effectEventTypes)
+                    ->get();
+                $holderEffects = $events->map(function (InventoryAllocationEvent $event): array {
+                    $account = $event->fromAccount ?? $event->toAccount;
+
+                    return ['account' => $account, 'quantity' => $event->quantity];
+                })->filter(fn (array $effect): bool => $effect['account'] instanceof InventoryAllocationAccount)
+                    ->groupBy(fn (array $effect): int => $effect['account']->id)
+                    ->map(fn ($effects): array => [
+                        'account' => $effects->first()['account'],
+                        'quantity' => (int) $effects->sum('quantity'),
+                    ]);
+
+                if ($holderEffects->isEmpty() && $adjustment->allocation_account_id !== null) {
+                    $account = InventoryAllocationAccount::query()->with('employee.user')->find($adjustment->allocation_account_id);
+                    if ($account !== null) {
+                        $holderEffects->put($account->id, ['account' => $account, 'quantity' => abs($adjustment->available_delta)]);
+                    }
+                }
+                if ($holderEffects->isEmpty()) {
+                    $holderEffects->put(0, ['account' => null, 'quantity' => abs($adjustment->available_delta)]);
+                }
+
+                foreach ($holderEffects as $effect) {
+                    /** @var InventoryAllocationAccount|null $account */
+                    $account = $effect['account'];
+                    $detail = [
+                        'reference' => $adjustment->reference,
+                        'product' => $adjustment->product?->name,
+                        'sku' => $adjustment->product?->sku,
+                        'warehouse' => $adjustment->warehouse?->name,
+                        'original_stock_holder' => $account?->employee?->name ?? $account?->name ?? 'Unidentified ledger holder',
+                        'adjustment_type' => $adjustment->type,
+                        'quantity' => (int) $effect['quantity'],
+                        'adjustment_quantity' => abs($adjustment->available_delta),
+                        'reason' => $adjustment->reason,
+                        'performed_by' => $actor->name,
+                    ];
+                    $allDetails[] = $detail;
+                    $holderUser = $account?->employee?->status === true ? $account->employee->user : null;
+                    if ($holderUser instanceof User) {
+                        $detailsByRecipient[$holderUser->id]['user'] = $holderUser;
+                        $detailsByRecipient[$holderUser->id]['details'][] = $detail;
+                    }
+                }
+            }
+
+            $admins = User::query()->where('id', '!=', $actor->id)
                 ->whereHas('employee', fn ($query) => $query->where('status', true)
-                    ->whereIn('role', [EmployeeRole::Owner->value, EmployeeRole::Admin->value]))
-                ->get()->each(fn (User $recipient) => $recipient->notify(new InventoryAdjustmentBatchNotification(
-                    collect($posted)->pluck('reference')->all(), $actor->name,
-                )));
+                    ->whereIn('role', [EmployeeRole::Owner->value, EmployeeRole::Admin->value]))->get();
+            foreach ($admins as $admin) {
+                $detailsByRecipient[$admin->id]['user'] = $admin;
+                $detailsByRecipient[$admin->id]['details'] = $allDetails;
+            }
+            foreach ($detailsByRecipient as $recipient) {
+                /** @var User $user */
+                $user = $recipient['user'];
+                $details = $recipient['details'];
+                $user->notify(new InventoryAdjustmentBatchNotification(
+                    array_column($details, 'reference'), $actor->name, $details,
+                ));
+            }
 
             return $posted;
         }, 5);
@@ -200,7 +274,7 @@ class InventoryAdjustmentService
             throw ValidationException::withMessages(["lines.{$index}.is_new_purchase" => 'Choose No for a stock discrepancy. New purchases must use Quick Stock Purchase.']);
         }
         $inventory = ProductInventory::query()->findOrFail($data->inventoryId);
-        $this->authorization->authorize($actor, InventoryPermission::AdjustStock, $inventory);
+        $this->authorizeAdjustment($actor, $inventory, $data);
         $receiptItem = $data->receiptItemId === null ? null : PurchaseReceiptItem::query()->with('receipt')->findOrFail($data->receiptItemId);
         if ($receiptItem !== null && ($receiptItem->product_id !== $inventory->product_id || $receiptItem->receipt->warehouse_id !== $inventory->warehouse_id)) {
             throw ValidationException::withMessages(["lines.{$index}.receipt_item_id" => 'The linked GRN item does not match the selected Product and Warehouse.']);
@@ -212,11 +286,56 @@ class InventoryAdjustmentService
         return ['data' => $data, 'inventory' => $inventory, 'receipt_item' => $receiptItem];
     }
 
+    private function authorizeAdjustment(User $actor, ProductInventory $inventory, InventoryAdjustmentData $data): void
+    {
+        $employee = $actor->employee;
+        $isBroad = in_array($employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
+        $grantActionEnabled = $this->warehouseActions->allows(
+            $actor, $inventory, WarehouseStockActionScopeService::ADJUST_STOCK,
+        );
+        $account = null;
+        $isOtherHolder = false;
+
+        if ($data->allocationAccountId !== null) {
+            $accountQuery = InventoryAllocationAccount::query()->where('status', true);
+            if (DB::transactionLevel() > 0) {
+                $accountQuery->lockForUpdate();
+            }
+            $account = $accountQuery->with('employee')->findOrFail($data->allocationAccountId);
+            $isOtherHolder = $account->is_system
+                || ($account->employee_id !== null && $account->employee_id !== $employee?->id)
+                || ($account->team_id !== null && $account->team_id !== $employee?->team_id)
+                || ($account->employee_id === null && $account->team_id === null && ! $account->is_system);
+        }
+
+        if (! $isBroad && ($grantActionEnabled || $isOtherHolder)) {
+            if ($data->allocationAccountId === null) {
+                throw ValidationException::withMessages(['allocation_account_id' => 'Select the original stock holder for an adjustment using shared warehouse access.']);
+            }
+            $this->authorization->authorizeWarehouseAction(
+                $actor, InventoryPermission::AdjustStock, $inventory, WarehouseStockActionScopeService::ADJUST_STOCK,
+            );
+            if ($isOtherHolder) {
+                if ($account->employee_id === null || $account->employee?->status !== true || $account->employee?->user_id === null) {
+                    throw new AuthorizationException;
+                }
+                if (! $this->warehouseActions->allowsHolderSelection($actor, $inventory)) {
+                    throw new AuthorizationException;
+                }
+            }
+
+            return;
+        }
+
+        $this->authorization->authorize($actor, InventoryPermission::AdjustStock, $inventory);
+    }
+
     private function assertReplay(InventoryAdjustment $existing, InventoryAdjustmentData $data): void
     {
         if ($existing->product_inventory_id !== $data->inventoryId
             || $existing->type !== $data->type
             || abs($existing->available_delta) !== $data->quantity
+            || $existing->allocation_account_id !== $data->allocationAccountId
             || $existing->purchase_receipt_item_id !== $data->receiptItemId
             || $existing->reason !== trim($data->reason)) {
             throw ValidationException::withMessages(['idempotency_key' => 'This submission key was already used for a different adjustment.']);

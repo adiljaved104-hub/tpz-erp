@@ -8,7 +8,10 @@ use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Filament\Pages\Hr\LeaveManagement;
+use App\Models\AttendanceCorrection;
 use App\Models\AttendancePolicy;
+use App\Models\BiometricAttendanceEvent;
+use App\Models\BiometricEventEmployeeMapping;
 use App\Models\CompensatoryOff;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
@@ -24,11 +27,14 @@ use App\Models\WorkScheduleAssignment;
 use App\Models\WorkScheduleDay;
 use App\Services\Authorization\AccessControlModuleRegistry;
 use App\Services\Authorization\EmployeePermissionCatalog;
+use App\Services\Hr\AttendanceQueryService;
 use App\Services\Hr\HrScopeService;
 use App\Services\Hr\LeaveBalanceService;
 use App\Services\Hr\LeaveService;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -289,6 +295,194 @@ class ManualLeaveRecordingTest extends TestCase
         }
         $this->assertSame(1, LeaveRequest::query()->count());
         $this->assertDatabaseHas('employee_attendances', ['employee_id' => $target->employee->id, 'attendance_date' => '2026-09-09 00:00:00']);
+    }
+
+    public function test_emergency_backdated_annual_leave_over_absence_keeps_attendance_pending_then_audits_approved_leave(): void
+    {
+        [$owner, , $team] = $this->managementUsers();
+        $target = $this->user(EmployeeRole::Staff, $team);
+        $schedule = $this->configureSchedule($target->employee, $owner);
+        $date = '2026-09-07';
+        $type = LeaveType::query()->where('code', 'annual')->firstOrFail();
+        $event = BiometricAttendanceEvent::query()->create([
+            'source' => 'hikvision_isapi', 'source_event_id' => 'manual-leave-event-'.fake()->uuid(),
+            'external_employee_identifier' => 'BIO-LEAVE-001', 'device_identifier' => 'device.test:80',
+            'punched_at' => $date.' 04:05:00', 'punch_type' => 'check_in',
+            'raw_metadata' => ['event' => 'preserved test evidence'], 'idempotency_key' => fake()->uuid(),
+            'imported_at' => now(), 'created_at' => now(),
+        ]);
+        $mapping = BiometricEventEmployeeMapping::query()->create([
+            'biometric_attendance_event_id' => $event->id, 'employee_id' => $target->employee->id,
+            'mapped_by_user_id' => $owner->id, 'reason' => 'Preserve original biometric evidence',
+            'mapped_at' => now(), 'active_fingerprint' => 'manual-leave-event:'.$event->id,
+            'idempotency_key' => fake()->uuid(), 'created_at' => now(),
+        ]);
+        $attendance = EmployeeAttendance::query()->create([
+            'employee_id' => $target->employee->id, 'attendance_date' => $date, 'work_schedule_id' => $schedule->id,
+            'attendance_policy_id' => AttendancePolicy::query()->value('id'), 'first_check_in_at' => $date.' 04:05:00',
+            'last_check_out_at' => null, 'worked_minutes' => 0, 'status' => AttendanceStatus::Absent,
+            'late_minutes' => 0, 'early_departure_minutes' => 0, 'source' => 'biometric',
+            'is_overridden' => false, 'calculated_at' => now(),
+        ]);
+        DB::table('attendance_evidence_links')->insert([
+            'employee_attendance_id' => $attendance->id,
+            'biometric_attendance_event_id' => $event->id,
+            'created_at' => now(),
+        ]);
+        $eventOriginal = $event->fresh()->getRawOriginal();
+        $mappingOriginal = $mapping->fresh()->getRawOriginal();
+        $checkIn = $attendance->first_check_in_at?->toDateTimeString();
+
+        $request = app(LeaveService::class)->recordOnBehalf($this->requestData($target, $type, $date), $owner);
+        $this->assertSame('pending', $request->status);
+        $this->assertSame(AttendanceStatus::Absent, $attendance->fresh()->status, 'Pending leave must not change attendance.');
+        $this->assertFalse($attendance->fresh()->is_overridden);
+        $this->assertDatabaseCount('attendance_corrections', 0);
+
+        app(LeaveService::class)->approve($request, $owner);
+
+        $updatedAttendance = $attendance->fresh();
+        $this->assertSame(AttendanceStatus::ApprovedLeave, $updatedAttendance->status);
+        $this->assertTrue($updatedAttendance->is_overridden, 'Later biometric rebuilds must preserve the approved leave status.');
+        $this->assertSame($checkIn, $updatedAttendance->first_check_in_at?->toDateTimeString());
+        $this->assertNull($updatedAttendance->last_check_out_at);
+        $this->assertSame($eventOriginal, $event->fresh()->getRawOriginal());
+        $this->assertSame($mappingOriginal, $mapping->fresh()->getRawOriginal());
+        $this->assertDatabaseHas('attendance_evidence_links', [
+            'employee_attendance_id' => $attendance->id,
+            'biometric_attendance_event_id' => $event->id,
+        ]);
+        $correction = AttendanceCorrection::query()->where('employee_attendance_id', $attendance->id)->sole();
+        $this->assertSame($owner->id, $correction->actor_user_id);
+        $this->assertSame('absent', $correction->old_values['status']);
+        $this->assertSame('approved_leave', $correction->new_values['status']);
+        $this->assertStringContainsString($request->reference, $correction->reason);
+
+        $queryService = app(AttendanceQueryService::class);
+        $summary = $queryService->summary($queryService->query(
+            $owner,
+            CarbonImmutable::parse($date),
+            CarbonImmutable::parse($date),
+            $target->employee->id,
+        ));
+        $this->assertSame(0, $summary['absent']);
+        $this->assertSame(1, $summary['approved_leave']);
+    }
+
+    public function test_approved_unpaid_leave_reconciles_absence_as_unpaid_without_consuming_annual_balance(): void
+    {
+        [$owner, , $team] = $this->managementUsers();
+        $target = $this->user(EmployeeRole::Staff, $team);
+        $schedule = $this->configureSchedule($target->employee, $owner);
+        $date = '2026-09-07';
+        $attendance = EmployeeAttendance::query()->create([
+            'employee_id' => $target->employee->id, 'attendance_date' => $date, 'work_schedule_id' => $schedule->id,
+            'attendance_policy_id' => AttendancePolicy::query()->value('id'), 'status' => AttendanceStatus::Absent,
+            'late_minutes' => 0, 'early_departure_minutes' => 0, 'source' => 'system_derived',
+            'is_overridden' => false, 'calculated_at' => now(),
+        ]);
+        $before = app(LeaveBalanceService::class)->for($target->employee, 2026);
+
+        $request = app(LeaveService::class)->recordOnBehalf(
+            $this->requestData($target, LeaveType::query()->where('code', 'unpaid')->firstOrFail(), $date, 'approved'),
+            $owner,
+        );
+
+        $after = app(LeaveBalanceService::class)->for($target->employee, 2026);
+        $this->assertSame('approved', $request->status);
+        $this->assertSame(AttendanceStatus::UnpaidLeave, $attendance->fresh()->status);
+        $this->assertSame($before->used, $after->used);
+        $this->assertSame($before->availableAfterPending, $after->availableAfterPending);
+    }
+
+    public function test_rejected_or_cancelled_pending_leave_never_changes_absent_attendance(): void
+    {
+        [$owner, , $team] = $this->managementUsers();
+        $target = $this->user(EmployeeRole::Staff, $team);
+        $schedule = $this->configureSchedule($target->employee, $owner);
+        $type = LeaveType::query()->where('code', 'annual')->firstOrFail();
+        $rejectedDate = '2026-09-07';
+        $cancelledDate = '2026-09-08';
+        $rejectedAttendance = $this->absentAttendance($target->employee, $schedule, $rejectedDate);
+        $cancelledAttendance = $this->absentAttendance($target->employee, $schedule, $cancelledDate);
+        $service = app(LeaveService::class);
+        $rejected = $service->recordOnBehalf($this->requestData($target, $type, $rejectedDate), $owner);
+        $cancelled = $service->recordOnBehalf($this->requestData($target, $type, $cancelledDate), $owner);
+
+        $service->reject($rejected, 'Emergency leave was not confirmed.', $owner);
+        $service->cancel($cancelled, $target);
+
+        $this->assertSame(AttendanceStatus::Absent, $rejectedAttendance->fresh()->status);
+        $this->assertSame(AttendanceStatus::Absent, $cancelledAttendance->fresh()->status);
+        $this->assertSame(0, AttendanceCorrection::query()->count());
+    }
+
+    public function test_approval_refuses_to_replace_attendance_that_changed_to_present_late_or_half_day(): void
+    {
+        [$owner, , $team] = $this->managementUsers();
+        $target = $this->user(EmployeeRole::Staff, $team);
+        $schedule = $this->configureSchedule($target->employee, $owner);
+        $type = LeaveType::query()->where('code', 'annual')->firstOrFail();
+        $service = app(LeaveService::class);
+
+        foreach ([
+            '2026-09-07' => AttendanceStatus::Present,
+            '2026-09-08' => AttendanceStatus::Late,
+            '2026-09-09' => AttendanceStatus::HalfDay,
+        ] as $date => $status) {
+            $request = $service->recordOnBehalf($this->requestData($target, $type, $date), $owner);
+            $attendance = $this->absentAttendance($target->employee, $schedule, $date);
+            $attendance->forceFill(['status' => $status])->save();
+
+            try {
+                $service->approve($request, $owner);
+                $this->fail('Approval replaced a non-Absent attendance status: '.$status->value);
+            } catch (ValidationException $exception) {
+                $this->assertArrayHasKey('status', $exception->errors());
+            }
+
+            $this->assertSame('pending', $request->fresh()->status);
+            $this->assertSame($status, $attendance->fresh()->status);
+        }
+
+        $this->assertSame(0, AttendanceCorrection::query()->count());
+    }
+
+    public function test_approval_rechecks_overlapping_pending_or_approved_leave_records(): void
+    {
+        [$owner, , $team] = $this->managementUsers();
+        $target = $this->user(EmployeeRole::Staff, $team);
+        $this->configureSchedule($target->employee, $owner);
+        $type = LeaveType::query()->where('code', 'annual')->firstOrFail();
+        $request = app(LeaveService::class)->recordOnBehalf($this->requestData($target, $type, '2026-09-07'), $owner);
+
+        LeaveRequest::query()->create([
+            'reference' => 'LVR-2026-009999', 'employee_id' => $target->employee->id,
+            'team_id_at_request' => $team->id, 'leave_type_id' => $type->id,
+            'leave_policy_id' => LeavePolicy::query()->value('id'), 'from_date' => '2026-09-07',
+            'to_date' => '2026-09-07', 'requested_working_days' => '1.00', 'status' => 'pending',
+            'reason' => 'Concurrent conflicting request', 'submitted_at' => now(), 'idempotency_key' => fake()->uuid(),
+        ]);
+
+        try {
+            app(LeaveService::class)->approve($request, $owner);
+            $this->fail('An overlapping pending leave request was approved.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('from_date', $exception->errors());
+        }
+
+        $this->assertSame('pending', $request->fresh()->status);
+        $this->assertSame(0, AttendanceCorrection::query()->count());
+    }
+
+    private function absentAttendance(Employee $employee, WorkSchedule $schedule, string $date): EmployeeAttendance
+    {
+        return EmployeeAttendance::query()->create([
+            'employee_id' => $employee->id, 'attendance_date' => $date, 'work_schedule_id' => $schedule->id,
+            'attendance_policy_id' => AttendancePolicy::query()->value('id'), 'status' => AttendanceStatus::Absent,
+            'late_minutes' => 0, 'early_departure_minutes' => 0, 'source' => 'system_derived',
+            'is_overridden' => false, 'calculated_at' => now(),
+        ]);
     }
 
     public function test_leave_page_exposes_scoped_searchable_management_modal_and_management_badge(): void

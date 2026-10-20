@@ -2,7 +2,9 @@
 
 namespace App\Services\Hr;
 
+use App\Enums\AttendanceStatus;
 use App\Enums\HrPermission;
+use App\Models\AttendanceCorrection;
 use App\Models\CompensatoryOff;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
@@ -116,12 +118,14 @@ class LeaveService
                 throw ValidationException::withMessages(['status' => 'Only a pending Leave request can be approved.']);
             }
             Employee::query()->lockForUpdate()->findOrFail($locked->employee_id);
+            $this->assertNoOverlappingLeaveRequest($locked);
             if ($locked->type->consumes_annual_entitlement) {
                 $balance = $this->balances->for($locked->employee, (int) $locked->from_date->format('Y'));
                 if (bccomp((string) $locked->requested_working_days, $balance->remaining, 2) > 0) {
                     throw ValidationException::withMessages(['status' => 'The employee no longer has enough Annual Leave available.']);
                 }
             }
+            $this->reconcileAbsentAttendanceForApprovedLeave($locked, $actor);
             $locked->forceFill(['status' => 'approved', 'decided_by_user_id' => $actor->id, 'decided_at' => now()])->save();
             $this->event($locked, 'approved', 'pending', 'approved', $actor);
             $this->activity->log('leave.approved', $actor, $locked, ['reference' => $locked->reference, 'changed_fields' => ['status']]);
@@ -258,6 +262,10 @@ class LeaveService
                 LeaveRequestDay::query()->create($day + ['leave_request_id' => $request->id]);
             }
 
+            if ($approved) {
+                $this->reconcileAbsentAttendanceForApprovedLeave($request, $actor);
+            }
+
             $this->event($request, 'submitted', null, 'pending', $actor);
             if ($approved) {
                 $this->event($request, 'approved', 'pending', 'approved', $actor);
@@ -279,18 +287,11 @@ class LeaveService
     /** @param array<int, array<string, mixed>> $days */
     private function assertNoManagementRecordConflicts(Employee $employee, CarbonImmutable $from, CarbonImmutable $to, array $days): void
     {
-        $overlapping = LeaveRequest::query()->where('employee_id', $employee->id)
-            ->whereIn('status', ['pending', 'approved'])
-            ->whereDate('from_date', '<=', $to->toDateString())
-            ->whereDate('to_date', '>=', $from->toDateString())
-            ->exists();
-
-        if ($overlapping) {
-            throw ValidationException::withMessages(['from_date' => 'The selected dates overlap an existing pending or approved leave request.']);
-        }
+        $this->assertNoOverlappingLeaveRequestForEmployee($employee->id, $from, $to);
 
         $workingDates = collect($days)->where('counts_as_leave', true)->pluck('leave_date')->all();
-        $attendanceQuery = EmployeeAttendance::query()->where('employee_id', $employee->id);
+        $attendanceQuery = EmployeeAttendance::query()->where('employee_id', $employee->id)
+            ->where('status', '!=', AttendanceStatus::Absent->value);
         if ($workingDates !== []) {
             $attendanceQuery->where(function ($query) use ($workingDates): void {
                 foreach ($workingDates as $date) {
@@ -299,12 +300,96 @@ class LeaveService
             });
         }
         if ($workingDates !== [] && $attendanceQuery->exists()) {
-            throw ValidationException::withMessages(['from_date' => 'Attendance already exists on one or more selected working days. Existing attendance will not be changed.']);
+            throw ValidationException::withMessages(['from_date' => 'Attendance already exists as a non-Absent status on one or more selected working days. Existing attendance will not be changed.']);
         }
 
         if (CompensatoryOff::query()->where('employee_id', $employee->id)->where('status', 'pending')
             ->whereDate('off_date', '>=', $from->toDateString())->whereDate('off_date', '<=', $to->toDateString())->exists()) {
             throw ValidationException::withMessages(['from_date' => 'A pending Comp Off request overlaps the selected dates. Resolve it before recording leave.']);
+        }
+    }
+
+    private function assertNoOverlappingLeaveRequest(LeaveRequest $request): void
+    {
+        $this->assertNoOverlappingLeaveRequestForEmployee(
+            $request->employee_id,
+            CarbonImmutable::parse($request->from_date),
+            CarbonImmutable::parse($request->to_date),
+            $request->id,
+        );
+    }
+
+    private function assertNoOverlappingLeaveRequestForEmployee(int $employeeId, CarbonImmutable $from, CarbonImmutable $to, ?int $exceptRequestId = null): void
+    {
+        $overlapping = LeaveRequest::query()->where('employee_id', $employeeId)
+            ->whereIn('status', ['pending', 'approved'])
+            ->when($exceptRequestId !== null, fn ($query) => $query->whereKeyNot($exceptRequestId))
+            ->whereDate('from_date', '<=', $to->toDateString())
+            ->whereDate('to_date', '>=', $from->toDateString())
+            ->exists();
+
+        if ($overlapping) {
+            throw ValidationException::withMessages(['from_date' => 'The selected dates overlap an existing pending or approved leave request.']);
+        }
+    }
+
+    /**
+     * Pending leave never changes attendance. On approval, only an existing Absent
+     * row may be reconciled; all punch fields and linked biometric evidence remain
+     * untouched, and the processor is prevented from replacing the approved status.
+     */
+    private function reconcileAbsentAttendanceForApprovedLeave(LeaveRequest $request, User $actor): void
+    {
+        $status = match ($request->type->code) {
+            'annual' => AttendanceStatus::ApprovedLeave,
+            'unpaid' => AttendanceStatus::UnpaidLeave,
+            default => throw ValidationException::withMessages(['status' => 'This Leave Type cannot be applied to Attendance.']),
+        };
+        $dates = $request->days()->where('counts_as_leave', true)->pluck('leave_date')
+            ->map(fn ($date): string => CarbonImmutable::parse($date)->toDateString())->unique()->values();
+        if ($dates->isEmpty()) {
+            return;
+        }
+
+        $attendanceRows = EmployeeAttendance::query()->where('employee_id', $request->employee_id)
+            ->where(function ($query) use ($dates): void {
+                foreach ($dates as $date) {
+                    $query->orWhereDate('attendance_date', $date);
+                }
+            })->lockForUpdate()->get();
+
+        if ($attendanceRows->contains(fn (EmployeeAttendance $attendance): bool => $attendance->status !== AttendanceStatus::Absent)) {
+            throw ValidationException::withMessages([
+                'status' => 'Attendance changed after this request was recorded. Only Absent records can be reconciled; Present, Late, Half-Day, and other statuses were left unchanged.',
+            ]);
+        }
+
+        foreach ($attendanceRows as $attendance) {
+            $before = [
+                'status' => $attendance->status->value,
+                'is_overridden' => (bool) $attendance->is_overridden,
+            ];
+            $attendance->forceFill([
+                'status' => $status,
+                'is_overridden' => true,
+            ])->save();
+
+            AttendanceCorrection::query()->create([
+                'employee_attendance_id' => $attendance->id,
+                'actor_user_id' => $actor->id,
+                'reason' => 'Attendance status reconciled when Leave request '.$request->reference.' was approved.',
+                'old_values' => $before,
+                'new_values' => ['status' => $status->value, 'is_overridden' => true],
+                'idempotency_key' => (string) Str::uuid(),
+                'occurred_at' => now(),
+                'created_at' => now(),
+            ]);
+            $this->activity->log('attendance.leave_status_reconciled', $actor, $attendance, [
+                'leave_reference' => $request->reference,
+                'leave_request_id' => $request->id,
+                'status' => $status->value,
+                'changed_fields' => ['status'],
+            ]);
         }
     }
 

@@ -47,8 +47,21 @@ class ProductDuplicatePreventionTest extends TestCase
 
         $component->assertSee('Possible Duplicate Products')
             ->assertSee($existing->sku)
-            ->assertSee('Review / use existing Product')
+            ->assertSee('Review Product')
+            ->assertSee('Save Anyway')
             ->assertSee('Reason to Continue With a Separate Product');
+    }
+
+    public function test_normalized_exact_title_detects_case_spacing_and_punctuation_without_identity_fields(): void
+    {
+        [$owner, , , $existing] = $this->foundation();
+        $existing->forceFill(['name' => 'HP El-iteBook 840 G10 Core i7 16GB 512GB'])->save();
+        $matches = app(ProductDuplicateGuard::class)->candidates($owner, [
+            'name' => ' hp—elitebook 840 g10, CORE i7 16GB 512GB! ',
+        ]);
+
+        $this->assertSame([$existing->id], $matches->pluck('productId')->all());
+        $this->assertSame('Possible Duplicate', $matches->sole()->classification->label());
     }
 
     public function test_likely_duplicate_requires_reason_and_never_auto_merges_or_creates(): void
@@ -66,6 +79,30 @@ class ProductDuplicatePreventionTest extends TestCase
         $this->assertSame($before, Product::query()->count());
         $this->assertTrue($existing->is(Product::query()->findOrFail($existing->id)));
         $this->assertSame(0, StockMovement::query()->count());
+    }
+
+    public function test_duplicate_continuation_requires_a_separate_explicit_confirmation(): void
+    {
+        [$owner, $brand, $category] = $this->foundation();
+        $data = new CreateProductData(
+            name: 'HP EliteBook 840 G10 Core i7 16GB 512GB',
+            brandId: $brand->id,
+            categoryId: $category->id,
+            model: 'EliteBook 840 G10',
+            processor: 'Core i7 1355U',
+            ram: '16GB',
+            storage: '512GB NVMe',
+            graphics: 'Intel Iris Xe',
+            duplicateOverrideReason: 'Separate supplier lot.',
+        );
+
+        try {
+            app(CreateProduct::class)->handle($data, $owner);
+            $this->fail('A reason without an explicit Save Anyway confirmation must not continue.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('duplicate_override_reason', $exception->errors());
+        }
+        $this->assertSame(1, Product::query()->count());
     }
 
     public function test_authorized_continuation_creates_one_separate_product_and_audits_safe_decision(): void
@@ -136,6 +173,7 @@ class ProductDuplicatePreventionTest extends TestCase
             storage: $data->storage,
             graphics: $data->graphics,
             duplicateOverrideReason: 'Separate supplier warranty identity.',
+            duplicateOverrideConfirmed: true,
         ), $owner);
 
         $this->assertSame($existing->name, $updated->name);
@@ -173,6 +211,7 @@ class ProductDuplicatePreventionTest extends TestCase
             storage: '512GB NVMe',
             graphics: 'Intel Iris Xe',
             duplicateOverrideReason: $reason,
+            duplicateOverrideConfirmed: filled($reason),
         );
     }
 }

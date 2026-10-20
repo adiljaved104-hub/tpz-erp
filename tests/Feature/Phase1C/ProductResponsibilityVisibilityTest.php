@@ -33,12 +33,15 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\ProductAuthorization;
+use App\Services\ProductIntelligence\ProductDuplicateGuard;
 use App\Services\ProductIntelligence\ProductMatchService;
 use App\Services\Products\ProductExportService;
+use App\Services\Products\ProductResponsibilityPreviewService;
 use App\Services\Search\CatalogPeopleSearchProvider;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
@@ -172,6 +175,7 @@ class ProductResponsibilityVisibilityTest extends TestCase
         Livewire::actingAs($staff)->test(CreateProductPage::class)
             ->assertFormFieldDoesNotExist('created_by_user_id')
             ->fillForm(['name' => 'Staff original catalog Product', 'brand_id' => $brand->id, 'category_id' => $category->id, 'condition' => 'new', 'warranty' => 12])
+            ->set('data.responsibility_override_confirmed', true)
             ->set('data.created_by_user_id', $other->id)
             ->call('create')->assertHasNoFormErrors();
         $product = Product::query()->sole();
@@ -192,7 +196,7 @@ class ProductResponsibilityVisibilityTest extends TestCase
         [$owner, $staff, $other] = $this->users();
         $product = app(CreateProduct::class)->handle(new CreateProductData(
             name: 'Original actor', brandId: ProductBrand::factory()->create()->id,
-            categoryId: ProductCategory::factory()->create()->id,
+            categoryId: ProductCategory::factory()->create()->id, responsibilityOverrideConfirmed: true,
         ), $staff);
         $this->assertFalse($product->isFillable('created_by_user_id'));
         app(UpdateProduct::class)->handle($product, $this->updateData($product), $owner);
@@ -381,6 +385,98 @@ class ProductResponsibilityVisibilityTest extends TestCase
         $this->assertFalse($staff->can('view', $product));
     }
 
+    public function test_product_create_warns_and_requires_explicit_save_anyway_outside_responsibility(): void
+    {
+        [$owner, $staff] = $this->users();
+        $brand = ProductBrand::factory()->create();
+        $category = ProductCategory::factory()->create();
+        $data = new CreateProductData(name: 'Responsibility warning product', brandId: $brand->id, categoryId: $category->id);
+
+        $this->assertFalse(app(ProductResponsibilityPreviewService::class)->isVisible($staff, [
+            'brand_id' => $brand->id, 'category_id' => $category->id, 'condition' => 'new',
+        ]));
+
+        $this->actingAs($staff);
+        Livewire::test(CreateProductPage::class)
+            ->fillForm(['name' => $data->name, 'brand_id' => $brand->id, 'category_id' => $category->id, 'condition' => 'new', 'warranty' => 12])
+            ->assertSee('Product Responsibility Warning')
+            ->assertSee('Save Anyway');
+
+        try {
+            app(CreateProduct::class)->handle($data, $staff);
+            $this->fail('Out-of-scope product creation must require explicit confirmation.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('responsibility_override_confirmed', $exception->errors());
+        }
+        $this->assertDatabaseCount('products', 0);
+
+        $created = app(CreateProduct::class)->handle(new CreateProductData(
+            name: $data->name, brandId: $brand->id, categoryId: $category->id, responsibilityOverrideConfirmed: true,
+        ), $staff);
+        $this->assertSame($staff->id, $created->created_by_user_id);
+        $this->assertDatabaseHas('activity_logs', ['event' => 'product.responsibility_visibility_override_confirmed', 'subject_id' => $created->id]);
+        $this->assertSame([], ProductResource::getEloquentQuery()->pluck('id')->all());
+    }
+
+    public function test_editing_product_outside_future_responsibility_scope_requires_confirmation(): void
+    {
+        [$owner, $staff] = $this->users();
+        $brand = ProductBrand::factory()->create();
+        $outsideBrand = ProductBrand::factory()->create();
+        $category = ProductCategory::factory()->create();
+        $product = $this->product($brand, ['name' => 'Product to move outside scope']);
+        $this->assign($owner, $staff, ['brand_id' => $brand->id]);
+        $data = new UpdateProductData(
+            name: $product->name, brandId: $outsideBrand->id, categoryId: $category->id, condition: $product->condition,
+        );
+
+        try {
+            app(UpdateProduct::class)->handle($product, $data, $staff);
+            $this->fail('Changing a Product to a future out-of-scope state must require confirmation.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('responsibility_override_confirmed', $exception->errors());
+        }
+        $this->assertSame($brand->id, $product->refresh()->brand_id);
+
+        $updated = app(UpdateProduct::class)->handle($product, new UpdateProductData(
+            name: $product->name, brandId: $outsideBrand->id, categoryId: $category->id, condition: $product->condition,
+            responsibilityOverrideConfirmed: true,
+        ), $staff);
+        $this->assertSame($outsideBrand->id, $updated->brand_id);
+        $this->assertDatabaseHas('activity_logs', ['event' => 'product.responsibility_visibility_override_confirmed', 'subject_id' => $product->id]);
+    }
+
+    public function test_exact_duplicate_outside_scope_is_not_disclosed_but_still_requires_review_reason(): void
+    {
+        [$owner, $staff] = $this->users();
+        $visibleBrand = ProductBrand::factory()->create(['name' => 'Visible duplicate scope']);
+        $privateBrand = ProductBrand::factory()->create(['name' => 'Private duplicate scope']);
+        $category = ProductCategory::factory()->create();
+        $private = $this->product($privateBrand, [
+            'name' => 'Sensitive Exact Title HP Laptop 16GB 512GB',
+            'sku' => 'PRIVATE-DUPLICATE-SKU',
+        ]);
+        $this->assign($owner, $staff, ['brand_id' => $visibleBrand->id]);
+        $matches = app(ProductDuplicateGuard::class)->candidates($staff, [
+            'name' => 'Sensitive Exact Title HP Laptop 16GB 512GB', 'brand_id' => $visibleBrand->id,
+        ]);
+        $this->assertCount(0, $matches);
+        $this->assertTrue(app(ProductDuplicateGuard::class)
+            ->hasUnreviewableExactTitle($staff, $private->name));
+
+        try {
+            app(CreateProduct::class)->handle(new CreateProductData(
+                name: $private->name, brandId: $visibleBrand->id, categoryId: $category->id,
+            ), $staff);
+            $this->fail('An exact title match in a hidden scope must still require a generic reviewer warning.');
+        } catch (ValidationException $exception) {
+            $message = $exception->errors()['duplicate_override_reason'][0];
+            $this->assertStringContainsString('outside your Product visibility scope', $message);
+            $this->assertStringNotContainsString($private->sku, $message);
+            $this->assertStringNotContainsString($private->name, $message);
+        }
+    }
+
     private function users(): array
     {
         $owner = $this->responsibilityUser(EmployeeRole::Owner);
@@ -405,7 +501,8 @@ class ProductResponsibilityVisibilityTest extends TestCase
 
     private function updateData(Product $product): UpdateProductData
     {
-        return new UpdateProductData(name: 'Updated in-scope Product', brandId: $product->brand_id, categoryId: $product->category_id, condition: $product->condition);
+        return new UpdateProductData(name: 'Updated in-scope Product', brandId: $product->brand_id, categoryId: $product->category_id, condition: $product->condition,
+            responsibilityOverrideConfirmed: true);
     }
 
     private function product(ProductBrand $brand, array $attributes = []): Product

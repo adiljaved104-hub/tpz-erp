@@ -41,6 +41,8 @@ class CreateProduct extends CreateRecord
             sellingPriceProvided: array_key_exists('selling_price', $data),
             description: $data['description'] ?? null,
             duplicateOverrideReason: $data['duplicate_override_reason'] ?? null,
+            duplicateOverrideConfirmed: (bool) ($data['duplicate_override_confirmed'] ?? false),
+            responsibilityOverrideConfirmed: (bool) ($data['responsibility_override_confirmed'] ?? false),
         ), auth()->user());
     }
 }

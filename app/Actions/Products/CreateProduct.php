@@ -13,9 +13,11 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\ProductIntelligence\ProductDuplicateGuard;
+use App\Services\Products\ProductResponsibilityPreviewService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CreateProduct
 {
@@ -24,6 +26,7 @@ class CreateProduct
         private readonly GenerateProductSku $sku,
         private readonly ActivityLogger $activity,
         private readonly ProductDuplicateGuard $duplicates,
+        private readonly ProductResponsibilityPreviewService $responsibilityPreview,
     ) {}
 
     public function handle(CreateProductData $data, User $actor): Product
@@ -31,13 +34,20 @@ class CreateProduct
         $this->authorization->authorize($actor, ProductPermission::Create);
         $this->authorizeFinancialFields($data, $actor);
         $validated = Validator::make($this->attributes($data), $this->rules($data))->validate();
+        $withinResponsibility = $this->responsibilityPreview->isVisible($actor, $validated);
+        if (! $withinResponsibility && ! $data->responsibilityOverrideConfirmed) {
+            throw ValidationException::withMessages([
+                'responsibility_override_confirmed' => 'Review the Product visibility warning and explicitly confirm Save Anyway.',
+            ]);
+        }
         $duplicateCandidates = $this->duplicates->validateContinuation($actor, [
             ...$validated,
             'duplicate_override_reason' => $data->duplicateOverrideReason,
-        ]);
+        ], confirmed: $data->duplicateOverrideConfirmed);
+        $hiddenExactTitleMatch = $this->duplicates->hasUnreviewableExactTitle($actor, $validated['name']);
         $sku = $this->sku->handle($actor);
 
-        return DB::transaction(function () use ($validated, $sku, $data, $actor, $duplicateCandidates): Product {
+        return DB::transaction(function () use ($validated, $sku, $data, $actor, $duplicateCandidates, $hiddenExactTitleMatch, $withinResponsibility): Product {
             $brand = ProductBrand::query()->lockForUpdate()->whereKey($validated['brand_id'])->where('status', true)->firstOrFail();
             $category = ProductCategory::query()->lockForUpdate()->whereKey($validated['category_id'])->where('status', true)->firstOrFail();
             $product = new Product;
@@ -55,11 +65,20 @@ class CreateProduct
             $this->activity->log('product.sku_assigned', $actor, $product);
             $this->activity->log('product.created', $actor, $product);
 
-            if ($duplicateCandidates->isNotEmpty()) {
+            if ($duplicateCandidates->isNotEmpty() || $hiddenExactTitleMatch) {
                 $this->activity->log('product.duplicate_warning_overridden', $actor, $product, [
                     'candidate_product_ids' => $duplicateCandidates->pluck('productId')->all(),
                     'classifications' => $duplicateCandidates->pluck('classification')->map->value->all(),
+                    'unreviewable_exact_title_match' => $hiddenExactTitleMatch,
                     'reason' => trim((string) $data->duplicateOverrideReason),
+                ]);
+            }
+
+            if (! $withinResponsibility) {
+                $this->activity->log('product.responsibility_visibility_override_confirmed', $actor, $product, [
+                    'brand_id' => $product->brand_id,
+                    'category_id' => $product->category_id,
+                    'condition' => $product->condition?->value,
                 ]);
             }
 

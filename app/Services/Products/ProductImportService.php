@@ -171,6 +171,9 @@ class ProductImportService
             $data['name'] = $existing?->name ?? $this->titles->accounting($draft);
             $matches = $this->duplicates->candidates($actor, $data, $existing?->id);
             $warnings = $matches->map(fn ($match): string => "Possible duplicate of {$match->sku}.")->all();
+            if ($matches->isEmpty() && $this->duplicates->hasUnreviewableExactTitle($actor, $data['name'], $existing?->id)) {
+                $warnings[] = 'An exact normalized title match exists outside the visible Product result set.';
+            }
         }
 
         return ['row' => $number, 'status' => $errors !== [] ? 'invalid' : ($existing ? 'update' : 'new'), 'data' => $data, 'errors' => $errors, 'warnings' => $warnings];
@@ -208,7 +211,8 @@ class ProductImportService
             processorClass: $data['processor_class'], processorModel: $data['processor_model'], processorGeneration: $data['processor_generation'], model: $data['model'],
             ram: $data['ram'], storage: $data['storage'], screenSize: $data['screen_size'], graphics: $data['graphics'], color: $data['color'], touchScreen: $data['touch_screen'],
             isConvertible360: $data['is_convertible_360'], accountingTitleOverride: $data['accounting_title_override'], websiteTitleOverride: $data['website_title_override'],
-            warranty: $data['warranty'], sellingPrice: $data['selling_price'], sellingPriceProvided: $data['selling_price'] !== null, duplicateOverrideReason: $reason);
+            warranty: $data['warranty'], sellingPrice: $data['selling_price'], sellingPriceProvided: $data['selling_price'] !== null, duplicateOverrideReason: $reason,
+            duplicateOverrideConfirmed: filled($reason));
     }
 
     /** @param array<string, mixed> $data */
@@ -218,7 +222,8 @@ class ProductImportService
             processor: $product->processor, processorClass: $data['processor_class'], processorModel: $data['processor_model'], processorGeneration: $data['processor_generation'], model: $data['model'],
             ram: $data['ram'], storage: $data['storage'], screenSize: $data['screen_size'], graphics: $data['graphics'], color: $data['color'], touchScreen: $data['touch_screen'],
             isConvertible360: $data['is_convertible_360'], accountingTitleOverride: $data['accounting_title_override'], websiteTitleOverride: $data['website_title_override'],
-            warranty: $data['warranty'], sellingPrice: $data['selling_price'], sellingPriceProvided: $data['selling_price'] !== null, description: $product->description, duplicateOverrideReason: $reason);
+            warranty: $data['warranty'], sellingPrice: $data['selling_price'], sellingPriceProvided: $data['selling_price'] !== null, description: $product->description, duplicateOverrideReason: $reason,
+            duplicateOverrideConfirmed: filled($reason));
     }
 
     private function authorize(User $actor): void

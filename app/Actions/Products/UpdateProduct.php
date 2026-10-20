@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\ProductIntelligence\ProductDuplicateGuard;
+use App\Services\Products\ProductResponsibilityPreviewService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -23,6 +24,7 @@ class UpdateProduct
         private readonly ProductAuthorization $authorization,
         private readonly ActivityLogger $activity,
         private readonly ProductDuplicateGuard $duplicates,
+        private readonly ProductResponsibilityPreviewService $responsibilityPreview,
     ) {}
 
     public function handle(Product $product, UpdateProductData $data, User $actor): Product
@@ -30,12 +32,19 @@ class UpdateProduct
         $this->authorization->authorize($actor, ProductPermission::Update, $product);
         $this->authorizeFinancialFields($data, $actor, $product);
         $validated = Validator::make($this->attributes($data), $this->rules($data))->validate();
+        $withinResponsibility = $this->responsibilityPreview->isVisible($actor, $validated, $product->id);
+        if (! $withinResponsibility && ! $data->responsibilityOverrideConfirmed) {
+            throw ValidationException::withMessages([
+                'responsibility_override_confirmed' => 'Review the Product visibility warning and explicitly confirm Save Anyway.',
+            ]);
+        }
         $duplicateCandidates = $this->duplicates->validateContinuation($actor, [
             ...$validated,
             'duplicate_override_reason' => $data->duplicateOverrideReason,
-        ], $product->id);
+        ], $product->id, $data->duplicateOverrideConfirmed);
+        $hiddenExactTitleMatch = $this->duplicates->hasUnreviewableExactTitle($actor, $validated['name'], $product->id);
 
-        return DB::transaction(function () use ($product, $data, $validated, $actor, $duplicateCandidates): Product {
+        return DB::transaction(function () use ($product, $data, $validated, $actor, $duplicateCandidates, $hiddenExactTitleMatch, $withinResponsibility): Product {
             $product = Product::query()->lockForUpdate()->findOrFail($product->getKey());
             $brand = ProductBrand::query()->lockForUpdate()->findOrFail($validated['brand_id']);
             $category = ProductCategory::query()->lockForUpdate()->findOrFail($validated['category_id']);
@@ -72,11 +81,20 @@ class UpdateProduct
                 $this->activity->log('product.financial_fields_changed', $actor, $product, ['changed_fields' => $financial]);
             }
 
-            if ($duplicateCandidates->isNotEmpty()) {
+            if ($duplicateCandidates->isNotEmpty() || $hiddenExactTitleMatch) {
                 $this->activity->log('product.duplicate_warning_overridden', $actor, $product, [
                     'candidate_product_ids' => $duplicateCandidates->pluck('productId')->all(),
                     'classifications' => $duplicateCandidates->pluck('classification')->map->value->all(),
+                    'unreviewable_exact_title_match' => $hiddenExactTitleMatch,
                     'reason' => trim((string) $data->duplicateOverrideReason),
+                ]);
+            }
+
+            if (! $withinResponsibility) {
+                $this->activity->log('product.responsibility_visibility_override_confirmed', $actor, $product, [
+                    'brand_id' => $product->brand_id,
+                    'category_id' => $product->category_id,
+                    'condition' => $product->condition?->value,
                 ]);
             }
 

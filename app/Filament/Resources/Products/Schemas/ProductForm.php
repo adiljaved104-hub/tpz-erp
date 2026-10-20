@@ -16,7 +16,9 @@ use App\Models\User;
 use App\Services\Authorization\CatalogAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\ProductIntelligence\ProductDuplicateGuard;
+use App\Services\Products\ProductResponsibilityPreviewService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -150,16 +152,36 @@ class ProductForm
                 Placeholder::make('possible_duplicates')
                     ->label('Possible Duplicate Products')
                     ->content(fn (Get $get, ?Product $record): HtmlString => self::duplicateWarning($get, $record))
-                    ->visible(fn (Get $get, ?Product $record): bool => self::duplicateCandidates($get, $record)->isNotEmpty())
+                    ->visible(fn (Get $get, ?Product $record): bool => self::duplicateReviewRequired($get, $record))
+                    ->columnSpanFull(),
+
+                Checkbox::make('duplicate_override_confirmed')
+                    ->label('Save Anyway')
+                    ->helperText('Confirm that you reviewed the matching Products and still need a separate catalog record.')
+                    ->visible(fn (Get $get, ?Product $record): bool => self::duplicateReviewRequired($get, $record))
+                    ->required(fn (Get $get, ?Product $record): bool => self::duplicateReviewRequired($get, $record))
                     ->columnSpanFull(),
 
                 Textarea::make('duplicate_override_reason')
                     ->label('Reason to Continue With a Separate Product')
-                    ->helperText('Required only when a likely duplicate is shown. The decision is recorded in the Activity Log.')
+                    ->helperText('Required when a normalized title or likely duplicate is found. The decision is recorded in the Activity Log.')
                     ->rows(2)
                     ->maxLength(500)
-                    ->required(fn (Get $get, ?Product $record): bool => self::duplicateCandidates($get, $record)->isNotEmpty())
-                    ->visible(fn (Get $get, ?Product $record): bool => self::duplicateCandidates($get, $record)->isNotEmpty())
+                    ->required(fn (Get $get, ?Product $record): bool => self::duplicateReviewRequired($get, $record))
+                    ->visible(fn (Get $get, ?Product $record): bool => self::duplicateReviewRequired($get, $record))
+                    ->columnSpanFull(),
+
+                Placeholder::make('responsibility_visibility_warning')
+                    ->label('Product Responsibility Warning')
+                    ->content('Review Product responsibilities: this product may be outside your current assignments and may not appear in your Product list.')
+                    ->visible(fn (Get $get, ?Product $record): bool => ! self::responsibilityVisible($get, $record))
+                    ->columnSpanFull(),
+
+                Checkbox::make('responsibility_override_confirmed')
+                    ->label('Save Anyway')
+                    ->helperText('I reviewed the Product responsibility warning and confirm that this Product should still be saved.')
+                    ->visible(fn (Get $get, ?Product $record): bool => ! self::responsibilityVisible($get, $record))
+                    ->required(fn (Get $get, ?Product $record): bool => ! self::responsibilityVisible($get, $record))
                     ->columnSpanFull(),
 
                 // =========================
@@ -254,9 +276,37 @@ class ProductForm
             return collect();
         }
 
-        return app(ProductDuplicateGuard::class)->candidates($user, [
+        return app(ProductDuplicateGuard::class)->candidates($user, self::attributesFromForm($get), $record?->id);
+    }
+
+    private static function duplicateReviewRequired(Get $get, ?Product $record): bool
+    {
+        $user = auth()->user();
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return app(ProductDuplicateGuard::class)->requiresReview($user, self::attributesFromForm($get), $record?->id);
+    }
+
+    private static function responsibilityVisible(Get $get, ?Product $record): bool
+    {
+        $user = auth()->user();
+        if (! $user instanceof User || blank($get('brand_id')) || blank($get('category_id')) || blank($get('condition'))) {
+            return true;
+        }
+
+        return app(ProductResponsibilityPreviewService::class)
+            ->isVisible($user, self::attributesFromForm($get), $record?->id);
+    }
+
+    /** @return array<string, mixed> */
+    private static function attributesFromForm(Get $get): array
+    {
+        return [
             'name' => $get('name'),
             'brand_id' => $get('brand_id'),
+            'category_id' => $get('category_id'),
             'model' => $get('model'),
             'processor' => $get('processor'),
             'processor_class' => $get('processor_class'),
@@ -270,7 +320,7 @@ class ProductForm
             'touch_screen' => $get('touch_screen'),
             'is_convertible_360' => $get('is_convertible_360'),
             'condition' => $get('condition'),
-        ], $record?->id);
+        ];
     }
 
     private static function duplicateWarning(Get $get, ?Product $record): HtmlString
@@ -282,10 +332,18 @@ class ProductForm
             return '<li class="min-w-0 rounded-lg border border-warning-200 p-3 dark:border-warning-700">'
                 .'<div class="break-words font-medium">'.e($result->sku.' · '.$result->name).'</div>'
                 .'<div class="break-words text-sm text-gray-600 dark:text-gray-300">'.e($result->classification->label()).' · '.$reasons.'</div>'
-                .'<a class="mt-2 inline-flex text-sm font-medium text-primary-600 hover:underline" href="'.$url.'" target="_blank" rel="noopener">Review / use existing Product</a>'
+                .'<a class="mt-2 inline-flex text-sm font-medium text-primary-600 hover:underline" href="'.$url.'" target="_blank" rel="noopener">Review Product</a>'
                 .'</li>';
         })->implode('');
 
-        return new HtmlString('<div class="min-w-0 rounded-xl bg-warning-50 p-4 text-sm dark:bg-warning-950/30"><p class="mb-3 font-medium">Review these existing Products before continuing. Nothing will be merged or changed automatically.</p><ul class="min-w-0 space-y-2">'.$items.'</ul></div>');
+        $user = auth()->user();
+        $hiddenMatch = $user instanceof User && app(ProductDuplicateGuard::class)->hasUnreviewableExactTitle(
+            $user, (string) $get('name'), $record?->id,
+        );
+        $privateMessage = $hiddenMatch
+            ? '<p class="mt-3">An exact title match may exist outside your Product visibility scope. Its identity is hidden; contact an authorized reviewer.</p>'
+            : '';
+
+        return new HtmlString('<div class="min-w-0 rounded-xl bg-warning-50 p-4 text-sm dark:bg-warning-950/30"><p class="mb-3 font-medium">Review these existing Products before continuing. Nothing will be merged or changed automatically.</p><ul class="min-w-0 space-y-2">'.$items.'</ul>'.$privateMessage.'</div>');
     }
 }

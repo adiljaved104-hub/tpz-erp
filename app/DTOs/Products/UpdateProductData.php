@@ -32,5 +32,7 @@ final readonly class UpdateProductData
         public bool $sellingPriceProvided = false,
         public ?string $description = null,
         public ?string $duplicateOverrideReason = null,
+        public bool $duplicateOverrideConfirmed = false,
+        public bool $responsibilityOverrideConfirmed = false,
     ) {}
 }

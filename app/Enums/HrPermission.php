@@ -15,6 +15,7 @@ enum HrPermission: string
     case LeaveViewTeam = 'leave.view_team';
     case LeaveViewAll = 'leave.view_all';
     case LeaveApprove = 'leave.approve';
+    case LeaveRecordOnBehalf = 'leave.record_on_behalf';
     case LeaveManagePolicy = 'leave.manage_policy';
     case WorkScheduleManage = 'work_schedule.manage';
     case WarningViewOwn = 'warning.view_own';

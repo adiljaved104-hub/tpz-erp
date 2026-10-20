@@ -16,6 +16,7 @@ class LeaveRequest extends Model
             'from_date' => 'immutable_date', 'to_date' => 'immutable_date',
             'requested_working_days' => 'decimal:2', 'annual_entitlement_snapshot' => 'decimal:2',
             'submitted_at' => 'immutable_datetime', 'decided_at' => 'immutable_datetime', 'cancelled_at' => 'immutable_datetime',
+            'recorded_at' => 'immutable_datetime',
         ];
     }
 
@@ -37,6 +38,16 @@ class LeaveRequest extends Model
     public function policy(): BelongsTo
     {
         return $this->belongsTo(LeavePolicy::class, 'leave_policy_id');
+    }
+
+    public function recordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by_user_id');
+    }
+
+    public function decidedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'decided_by_user_id');
     }
 
     public function events(): HasMany

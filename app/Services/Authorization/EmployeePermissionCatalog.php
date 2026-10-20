@@ -86,6 +86,7 @@ class EmployeePermissionCatalog
                 $this->item(HrPermission::LeaveViewTeam, 'View Team Leave'),
                 $this->item(HrPermission::LeaveViewAll, 'View All Leave', true),
                 $this->item(HrPermission::LeaveApprove, 'Approve Leave', true),
+                $this->item(HrPermission::LeaveRecordOnBehalf, 'Record Leave on Behalf', true),
                 $this->item(HrPermission::LeaveManagePolicy, 'Manage Leave Policy', true),
                 $this->item(HrPermission::WorkScheduleManage, 'Manage Work Schedules', true),
                 $this->item(HrPermission::WarningViewOwn, 'View Own Warnings'),

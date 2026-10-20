@@ -72,6 +72,51 @@ class HrScopeService
         return $user->employee?->team_id !== null && $user->employee->team_id === $employee->team_id;
     }
 
+    public function canRecordLeaveOnBehalf(User $user, Employee $employee): bool
+    {
+        return $this->recordableEmployeeQuery($user)->whereKey($employee->id)->exists();
+    }
+
+    public function recordableEmployeeQuery(User $user): Builder
+    {
+        $query = Employee::query()->where('status', true);
+
+        if (! $this->authorization->allows($user, HrPermission::LeaveRecordOnBehalf)
+            || $user->employee === null) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $query->where('employees.id', '<>', $user->employee->id);
+
+        if (in_array($user->employee->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
+            return $query;
+        }
+
+        if ($user->employee->role === EmployeeRole::Manager) {
+            if ($user->employee->team_id === null
+                || ! $this->authorization->allows($user, HrPermission::LeaveViewTeam)) {
+                return $query->whereRaw('1 = 0');
+            }
+
+            return $query->where('team_id', $user->employee->team_id);
+        }
+
+        if ($user->employee->role !== EmployeeRole::Staff) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        if ($this->authorization->allows($user, HrPermission::LeaveViewAll)) {
+            return $query;
+        }
+
+        if ($this->authorization->allows($user, HrPermission::LeaveViewTeam)
+            && $user->employee->team_id !== null) {
+            return $query->where('team_id', $user->employee->team_id);
+        }
+
+        return $query->whereRaw('1 = 0');
+    }
+
     public function employeeQuery(User $user, bool $attendance): Builder
     {
         $all = $attendance ? HrPermission::AttendanceViewAll : HrPermission::LeaveViewAll;

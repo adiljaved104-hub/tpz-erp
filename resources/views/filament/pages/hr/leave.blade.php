@@ -1,4 +1,10 @@
 <x-filament-panels::page>
+    @if ($canRecordOnBehalf)
+        <div class="flex justify-end">
+            <x-filament::button icon="heroicon-o-plus" wire:click="openRecordLeave">Record Employee Leave</x-filament::button>
+        </div>
+    @endif
+
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
             <h2 class="text-xl font-semibold text-gray-950 dark:text-white">Annual leave balance</h2>
@@ -96,7 +102,10 @@
                             <p class="font-semibold text-gray-950 dark:text-white">{{ $row->reference }}</p>
                             @if ($showEmployee)<p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $row->employee->name }} <span class="text-gray-400">· {{ $row->employee->employee_id }}</span></p>@endif
                         </div>
-                        <x-filament::badge :color="match($row->status) {'approved' => 'success', 'rejected' => 'danger', 'pending' => 'warning', default => 'gray'}">{{ str($row->status)->title() }}</x-filament::badge>
+                        <div class="flex flex-wrap items-center gap-2">
+                            @if ($row->recorded_source === 'management')<x-filament::badge color="info">Recorded by Management</x-filament::badge>@endif
+                            <x-filament::badge :color="match($row->status) {'approved' => 'success', 'rejected' => 'danger', 'pending' => 'warning', default => 'gray'}">{{ str($row->status)->title() }}</x-filament::badge>
+                        </div>
                     </div>
 
                     <div class="mt-4 grid gap-3 sm:grid-cols-3">
@@ -108,7 +117,9 @@
                     <div class="mt-4 flex flex-wrap items-end justify-between gap-3 border-t border-gray-100 pt-3 dark:border-white/10">
                         <div class="text-xs text-gray-500">
                             <p>Submitted {{ $row->submitted_at->timezone('Asia/Karachi')->format('d M Y, h:i A') }}</p>
-                            @if ($row->decided_at)<p class="mt-1">Decision recorded {{ $row->decided_at->timezone('Asia/Karachi')->format('d M Y, h:i A') }}</p>@endif
+                            @if ($row->recorded_source === 'management')<p class="mt-1">Recorded by Management{{ $row->recordedBy ? ' · '.$row->recordedBy->name : '' }}{{ $row->recorded_at ? ' · '.$row->recorded_at->timezone('Asia/Karachi')->format('d M Y, h:i A') : '' }}</p>@endif
+                            @if ($row->recorded_source === 'management')<p class="mt-1 max-w-prose">Reason: {{ $row->reason }}</p>@endif
+                            @if ($row->decided_at)<p class="mt-1">Decision recorded{{ $row->decidedBy ? ' by '.$row->decidedBy->name : '' }} · {{ $row->decided_at->timezone('Asia/Karachi')->format('d M Y, h:i A') }}</p>@endif
                             @if ($row->decision_reason)<p class="mt-1 max-w-prose">{{ $row->decision_reason }}</p>@endif
                         </div>
                         <div class="flex flex-wrap gap-2">
@@ -130,6 +141,102 @@
         </div>
         <div class="mt-5">{{ $rows->links() }}</div>
     </x-filament::section>
+
+    @if ($canRecordOnBehalf)
+        <x-filament::modal id="record-employee-leave" width="4xl">
+            <x-slot name="heading">Record Employee Leave</x-slot>
+            <x-slot name="description">Record a leave request for an employee. Historical dates are allowed; existing schedule and balance rules still apply.</x-slot>
+
+            <div class="hr-page-form space-y-5">
+                <div class="space-y-2">
+                    <label for="record-employee-search" class="block text-sm font-medium text-gray-700 dark:text-gray-200">Employee <span class="text-danger-600">*</span></label>
+                    @if ($recordEmployeeId)
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 dark:border-primary-500/30 dark:bg-primary-500/10">
+                            <span class="text-sm font-medium text-gray-900 dark:text-white">{{ $recordEmployeeSearch }}</span>
+                            <x-filament::button size="sm" color="gray" wire:click="clearRecordEmployee">Change</x-filament::button>
+                        </div>
+                    @else
+                        <input id="record-employee-search" type="search" wire:model.live.debounce.250ms="recordEmployeeSearch" class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5" placeholder="Search by employee name or ID">
+                        <div class="max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-white/10" role="listbox" aria-label="Employees in your authorized leave scope">
+                            @forelse ($recordableEmployees as $employee)
+                                <button type="button" wire:key="record-leave-employee-{{ $employee->id }}" wire:click="selectRecordEmployee({{ $employee->id }})" class="block w-full border-b border-gray-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5">
+                                    <span class="font-medium text-gray-900 dark:text-white">{{ $employee->name }}</span>
+                                    <span class="ml-2 text-gray-500">{{ $employee->employee_id }}</span>
+                                </button>
+                            @empty
+                                <p class="px-3 py-3 text-sm text-gray-500">No employees match your authorized scope.</p>
+                            @endforelse
+                        </div>
+                    @endif
+                    @error('recordEmployeeId')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <label class="space-y-1.5 text-sm">
+                        <span class="font-medium text-gray-700 dark:text-gray-200">Leave Type <span class="text-danger-600">*</span></span>
+                        <select wire:model.live="recordLeaveTypeId" class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5">
+                            <option value="">Select leave type</option>
+                            @foreach ($leaveTypes as $type)<option value="{{ $type->id }}">{{ $type->name }}</option>@endforeach
+                        </select>
+                        @error('recordLeaveTypeId')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
+                    </label>
+                    @if ($canRecordApproval)
+                        <label class="space-y-1.5 text-sm">
+                            <span class="font-medium text-gray-700 dark:text-gray-200">Approval Status</span>
+                            <select wire:model="recordApprovalStatus" class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5">
+                                <option value="pending">Pending Approval</option>
+                                <option value="approved">Approved</option>
+                            </select>
+                            @error('recordApprovalStatus')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
+                        </label>
+                    @else
+                        <div class="space-y-1.5 text-sm">
+                            <span class="block font-medium text-gray-700 dark:text-gray-200">Approval Status</span>
+                            <div class="flex h-10 items-center"><x-filament::badge color="warning">Pending Approval</x-filament::badge></div>
+                            <p class="text-xs text-gray-500">Recording leave does not grant approval authority.</p>
+                        </div>
+                    @endif
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <label class="space-y-1.5 text-sm">
+                        <span class="font-medium text-gray-700 dark:text-gray-200">From Date <span class="text-danger-600">*</span></span>
+                        <input type="date" wire:model.live="recordFromDate" class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5">
+                        @error('recordFromDate')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
+                    </label>
+                    <label class="space-y-1.5 text-sm">
+                        <span class="font-medium text-gray-700 dark:text-gray-200">To Date <span class="text-danger-600">*</span></span>
+                        <input type="date" wire:model.live="recordToDate" class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5">
+                        @error('recordToDate')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
+                    </label>
+                </div>
+
+                @if ($recordWorkingDays !== null)
+                    <div class="grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 sm:grid-cols-2 dark:border-white/10 dark:bg-white/[.03]">
+                        <div><p class="text-xs font-medium uppercase tracking-wide text-gray-500">Calculated Working Days</p><p class="mt-1 text-lg font-semibold text-gray-950 dark:text-white">{{ number_format((float) $recordWorkingDays, 2) }} days</p></div>
+                        <div><p class="text-xs font-medium uppercase tracking-wide text-gray-500">Annual Leave Available After Pending</p><p class="mt-1 text-lg font-semibold text-gray-950 dark:text-white">{{ is_numeric($recordAvailableBalance) ? number_format((float) $recordAvailableBalance, 2).' days' : ($recordAvailableBalance ?? 'Select an employee, type and dates') }}</p></div>
+                        @if (is_numeric($recordAvailableBalance) && (float) $recordWorkingDays > (float) $recordAvailableBalance)
+                            <p class="text-sm text-danger-600 sm:col-span-2">This request exceeds the employee’s Annual Leave available after pending requests.</p>
+                        @endif
+                    </div>
+                @endif
+                @if ($recordPreviewError)
+                    <p role="alert" class="rounded-lg border border-danger-200 bg-danger-50 p-3 text-sm text-danger-700 dark:border-danger-500/30 dark:bg-danger-950/30 dark:text-danger-300">{{ $recordPreviewError }}</p>
+                @endif
+
+                <label class="block space-y-1.5 text-sm">
+                    <span class="font-medium text-gray-700 dark:text-gray-200">Reason <span class="text-danger-600">*</span></span>
+                    <textarea wire:model="recordReason" rows="4" maxlength="2000" required class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5" placeholder="Explain why management is recording this leave request"></textarea>
+                    @error('recordReason')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
+                </label>
+            </div>
+
+            <x-slot name="footerActions">
+                <x-filament::button color="gray" x-on:click="$dispatch('close-modal', { id: 'record-employee-leave' })">Cancel</x-filament::button>
+                <x-filament::button icon="heroicon-o-clipboard-document-check" wire:click="recordLeave">Record Leave</x-filament::button>
+            </x-slot>
+        </x-filament::modal>
+    @endif
 
     <x-filament::modal id="reject-leave">
         <x-slot name="heading">Reject leave request</x-slot>

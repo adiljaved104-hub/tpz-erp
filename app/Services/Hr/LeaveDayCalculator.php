@@ -21,10 +21,12 @@ class LeaveDayCalculator
         }
 
         $holidays = PublicHoliday::query()->where('status', true)
-            ->whereBetween('holiday_date', [$from->toDateString(), $to->toDateString()])
+            ->whereDate('holiday_date', '>=', $from->toDateString())
+            ->whereDate('holiday_date', '<=', $to->toDateString())
             ->get(['id', 'holiday_date'])->mapWithKeys(fn (PublicHoliday $holiday): array => [$holiday->holiday_date->toDateString() => $holiday->id]);
         $compOffs = CompensatoryOff::query()->where('employee_id', $employee->id)->whereIn('status', ['approved', 'used'])
-            ->whereBetween('off_date', [$from->toDateString(), $to->toDateString()])
+            ->whereDate('off_date', '>=', $from->toDateString())
+            ->whereDate('off_date', '<=', $to->toDateString())
             ->get(['id', 'off_date'])->mapWithKeys(fn (CompensatoryOff $compOff): array => [$compOff->off_date->toDateString() => $compOff->id]);
 
         $days = [];

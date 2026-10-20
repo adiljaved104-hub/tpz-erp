@@ -3,6 +3,7 @@
 namespace App\Filament\Pages\Hr;
 
 use App\Enums\HrPermission;
+use App\Models\Employee;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Models\User;
@@ -15,6 +16,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
@@ -51,6 +53,26 @@ class LeaveManagement extends Page
 
     public string $reason = '';
 
+    public string $recordEmployeeSearch = '';
+
+    public ?int $recordEmployeeId = null;
+
+    public ?int $recordLeaveTypeId = null;
+
+    public string $recordFromDate = '';
+
+    public string $recordToDate = '';
+
+    public string $recordReason = '';
+
+    public string $recordApprovalStatus = 'pending';
+
+    public ?string $recordWorkingDays = null;
+
+    public ?string $recordAvailableBalance = null;
+
+    public ?string $recordPreviewError = null;
+
     public ?int $rejectingRequestId = null;
 
     public string $rejectionReason = '';
@@ -60,6 +82,111 @@ class LeaveManagement extends Page
         if (in_array($property, ['statusFilter', 'employeeFilter'], true)) {
             $this->resetPage();
         }
+
+        if (in_array($property, ['recordLeaveTypeId', 'recordFromDate', 'recordToDate'], true)) {
+            $this->refreshRecordPreview();
+        }
+    }
+
+    public function updatedRecordEmployeeSearch(): void
+    {
+        $this->recordEmployeeId = null;
+        $this->refreshRecordPreview();
+    }
+
+    public function openRecordLeave(): void
+    {
+        abort_unless(app(HrScopeService::class)->recordableEmployeeQuery($this->user())->exists(), 403);
+        $this->resetRecordForm();
+        $this->dispatch('open-modal', id: 'record-employee-leave');
+    }
+
+    public function selectRecordEmployee(int $employeeId): void
+    {
+        $employee = app(HrScopeService::class)->recordableEmployeeQuery($this->user())->whereKey($employeeId)->first();
+        abort_unless($employee instanceof Employee, 403);
+        $this->recordEmployeeId = $employee->id;
+        $this->recordEmployeeSearch = "{$employee->employee_id} · {$employee->name}";
+        $this->refreshRecordPreview();
+    }
+
+    public function clearRecordEmployee(): void
+    {
+        $this->recordEmployeeId = null;
+        $this->recordEmployeeSearch = '';
+        $this->refreshRecordPreview();
+    }
+
+    public function recordLeave(): void
+    {
+        try {
+            app(LeaveService::class)->recordOnBehalf([
+                'employee_id' => $this->recordEmployeeId,
+                'leave_type_id' => $this->recordLeaveTypeId,
+                'from_date' => $this->recordFromDate,
+                'to_date' => $this->recordToDate,
+                'reason' => $this->recordReason,
+                'approval_status' => $this->recordApprovalStatus,
+            ], $this->user());
+            $approved = $this->recordApprovalStatus === 'approved';
+            $this->resetRecordForm();
+            $this->resetValidation();
+            $this->dispatch('close-modal', id: 'record-employee-leave');
+            Notification::make()->success()->title($approved ? 'Employee leave recorded and approved' : 'Employee leave recorded for approval')->send();
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            $map = [
+                'employee_id' => 'recordEmployeeId', 'leave_type_id' => 'recordLeaveTypeId',
+                'from_date' => 'recordFromDate', 'fromDate' => 'recordFromDate',
+                'to_date' => 'recordToDate', 'toDate' => 'recordToDate', 'reason' => 'recordReason',
+                'approval_status' => 'recordApprovalStatus',
+            ];
+            foreach ($exception->errors() as $field => $messages) {
+                $this->addError($map[$field] ?? 'recordReason', $messages[0]);
+            }
+        }
+    }
+
+    public function refreshRecordPreview(): void
+    {
+        $this->recordWorkingDays = null;
+        $this->recordAvailableBalance = null;
+        $this->recordPreviewError = null;
+
+        if ($this->recordEmployeeId === null || $this->recordLeaveTypeId === null || $this->recordFromDate === '' || $this->recordToDate === '') {
+            return;
+        }
+
+        try {
+            $preview = app(LeaveService::class)->previewOnBehalf([
+                'employee_id' => $this->recordEmployeeId,
+                'leave_type_id' => $this->recordLeaveTypeId,
+                'from_date' => $this->recordFromDate,
+                'to_date' => $this->recordToDate,
+            ], $this->user());
+            $this->recordWorkingDays = $preview['working_days'];
+            $this->recordAvailableBalance = $preview['annual_leave']
+                ? $preview['available_after_pending']
+                : 'Not applicable (Unpaid Leave)';
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            $this->recordPreviewError = collect($exception->errors())->flatten()->first();
+        }
+    }
+
+    public function recordableEmployees(): Collection
+    {
+        $query = app(HrScopeService::class)->recordableEmployeeQuery($this->user());
+        $search = trim($this->recordEmployeeSearch);
+        if ($search !== '') {
+            $query->where(fn ($employees) => $employees
+                ->where('name', 'like', "%{$search}%")
+                ->orWhere('employee_id', 'like', "%{$search}%"));
+        }
+
+        return $query->orderBy('name')->limit(15)->get(['id', 'employee_id', 'name']);
     }
 
     public function clearFilters(): void
@@ -156,12 +283,15 @@ class LeaveManagement extends Page
         $employees = $scope->employeeQuery($user, false)->orderBy('name')->get(['id', 'employee_id', 'name']);
         $showEmployee = $employees->count() > 1;
         $query = $scope->leaveQuery($user)
-            ->with(['employee:id,employee_id,name,team_id,user_id', 'type:id,name,code,consumes_annual_entitlement'])
+            ->with(['employee:id,employee_id,name,team_id,user_id', 'type:id,name,code,consumes_annual_entitlement', 'recordedBy:id,name', 'decidedBy:id,name'])
             ->when($this->statusFilter !== '', fn ($query) => $query->where('status', $this->statusFilter))
             ->when($showEmployee && $this->employeeFilter !== null, fn ($query) => $query->where('employee_id', $this->employeeFilter))
             ->latest('submitted_at');
         $balanceYear = (int) now()->format('Y');
         $balance = app(LeaveBalanceService::class)->for($user->employee, $balanceYear);
+        $recordEmployee = $this->recordEmployeeId === null
+            ? null
+            : $scope->recordableEmployeeQuery($user)->whereKey($this->recordEmployeeId)->first();
 
         return [
             'rows' => $query->paginate(20),
@@ -171,6 +301,9 @@ class LeaveManagement extends Page
             'leaveTypes' => LeaveType::query()->where('status', true)->whereIn('code', ['annual', 'unpaid'])->orderBy('name')->get(),
             'canRequest' => app(HrAuthorization::class)->allows($user, HrPermission::LeaveRequest),
             'canApprove' => app(HrAuthorization::class)->allows($user, HrPermission::LeaveApprove),
+            'canRecordOnBehalf' => $scope->recordableEmployeeQuery($user)->exists(),
+            'recordableEmployees' => $this->recordableEmployees(),
+            'canRecordApproval' => $recordEmployee instanceof Employee && $scope->canApproveEmployee($user, $recordEmployee),
             'showEmployee' => $showEmployee,
             'scheduleConfigured' => WorkScheduleAssignment::query()
                 ->where(fn ($query) => $query->where('employee_id', $user->employee->id)
@@ -189,5 +322,14 @@ class LeaveManagement extends Page
         abort_unless(static::canAccess(), 403);
 
         return auth()->user();
+    }
+
+    private function resetRecordForm(): void
+    {
+        $this->reset(
+            'recordEmployeeSearch', 'recordEmployeeId', 'recordLeaveTypeId', 'recordFromDate', 'recordToDate',
+            'recordReason', 'recordWorkingDays', 'recordAvailableBalance', 'recordPreviewError',
+        );
+        $this->recordApprovalStatus = 'pending';
     }
 }

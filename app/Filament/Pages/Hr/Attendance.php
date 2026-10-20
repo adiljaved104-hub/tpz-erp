@@ -163,7 +163,7 @@ class Attendance extends Page
 
     public function openManualAttendance(): void
     {
-        abort_unless(app(HrAuthorization::class)->allows($this->user(), HrPermission::AttendanceCorrect), 403);
+        abort_unless(app(AttendanceCorrectionService::class)->canCreateManual($this->user()), 403);
         $this->reset('manualEmployeeId', 'manualFirstCheckIn', 'manualLastCheckOut', 'manualReason');
         $this->manualAttendanceDate = now('Asia/Karachi')->toDateString();
         $this->manualStatus = AttendanceStatus::Present->value;
@@ -173,6 +173,8 @@ class Attendance extends Page
 
     public function saveManualAttendance(): void
     {
+        abort_unless(app(AttendanceCorrectionService::class)->canCreateManual($this->user()), 403);
+
         $this->validate([
             'manualEmployeeId' => ['required', 'integer'],
             'manualAttendanceDate' => ['required', 'date'],
@@ -255,7 +257,7 @@ class Attendance extends Page
             'teams' => Team::query()->whereKey($scopedEmployees->pluck('team_id')->filter()->unique())->orderBy('name')->pluck('name', 'id'),
             'showEmployee' => $scopedEmployees->count() > 1,
             'canCorrect' => app(HrAuthorization::class)->allows($this->user(), HrPermission::AttendanceCorrect),
-            'canManual' => app(HrAuthorization::class)->allows($this->user(), HrPermission::AttendanceCorrect) && $scopedEmployees->isNotEmpty(),
+            'canManual' => app(AttendanceCorrectionService::class)->canCreateManual($this->user()) && $scopedEmployees->isNotEmpty(),
             'statuses' => collect(AttendanceStatus::cases())->mapWithKeys(fn (AttendanceStatus $status): array => [$status->value => str($status->value)->replace('_', ' ')->title()->toString()]),
             'rangeLabel' => $from->format('d M Y').' – '.$to->format('d M Y'),
             'calendarDays' => $calendarDays,

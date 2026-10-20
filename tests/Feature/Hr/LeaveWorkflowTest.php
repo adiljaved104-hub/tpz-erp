@@ -6,8 +6,10 @@ use App\Contracts\EmployeePermissionOverrideResolver;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
+use App\Filament\Pages\Hr\LeaveManagement;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
+use App\Models\LeavePolicy;
 use App\Models\LeaveRequest;
 use App\Models\LeaveRequestDay;
 use App\Models\LeaveType;
@@ -23,6 +25,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class LeaveWorkflowTest extends TestCase
@@ -121,6 +124,53 @@ class LeaveWorkflowTest extends TestCase
             'leave_type_id' => LeaveType::query()->where('code', 'annual')->value('id'),
             'from_date' => '2026-09-07', 'to_date' => '2026-09-07', 'reason' => 'Personal leave',
         ], $staff);
+    }
+
+    public function test_leave_page_shows_balance_employee_and_status_filters_without_cross_team_disclosure(): void
+    {
+        [$owner, $staff, $manager] = $this->people();
+        $otherTeam = Team::query()->create(['name' => 'Other team', 'status' => true]);
+        $outsider = $this->user(EmployeeRole::Staff, $otherTeam);
+        $annual = LeaveType::query()->where('code', 'annual')->firstOrFail();
+        $policy = LeavePolicy::query()->where('status', true)->firstOrFail();
+
+        $insideRequest = $this->pendingRequest($staff->employee, $annual, $policy, 'LVR-2026-009991');
+        $outsideRequest = $this->pendingRequest($outsider->employee, $annual, $policy, 'LVR-2026-009992');
+
+        Livewire::actingAs($manager)->test(LeaveManagement::class)
+            ->assertSee('Annual leave balance')
+            ->assertSee('Used')
+            ->assertSee('Pending')
+            ->assertSee('Available')
+            ->assertSee('Employee')
+            ->assertSee('Approval status')
+            ->assertSee($insideRequest->reference)
+            ->assertDontSee($outsideRequest->reference)
+            ->set('employeeFilter', $staff->employee->id)
+            ->assertSee($insideRequest->reference)
+            ->set('statusFilter', 'approved')
+            ->assertDontSee($insideRequest->reference)
+            ->call('clearFilters')
+            ->assertSee($insideRequest->reference)
+            ->assertDontSee($outsideRequest->reference);
+    }
+
+    private function pendingRequest(Employee $employee, LeaveType $type, LeavePolicy $policy, string $reference): LeaveRequest
+    {
+        return LeaveRequest::query()->create([
+            'reference' => $reference,
+            'employee_id' => $employee->id,
+            'team_id_at_request' => $employee->team_id,
+            'leave_type_id' => $type->id,
+            'leave_policy_id' => $policy->id,
+            'from_date' => '2026-09-07',
+            'to_date' => '2026-09-07',
+            'requested_working_days' => '1.00',
+            'status' => 'pending',
+            'reason' => 'Test request for scoped filters',
+            'submitted_at' => now(),
+            'idempotency_key' => fake()->uuid(),
+        ]);
     }
 
     private function people(): array

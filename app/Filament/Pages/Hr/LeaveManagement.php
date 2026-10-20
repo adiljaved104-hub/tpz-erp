@@ -40,6 +40,9 @@ class LeaveManagement extends Page
     #[Url]
     public string $statusFilter = '';
 
+    #[Url]
+    public ?int $employeeFilter = null;
+
     public ?int $leaveTypeId = null;
 
     public string $fromDate = '';
@@ -51,6 +54,19 @@ class LeaveManagement extends Page
     public ?int $rejectingRequestId = null;
 
     public string $rejectionReason = '';
+
+    public function updated(string $property): void
+    {
+        if (in_array($property, ['statusFilter', 'employeeFilter'], true)) {
+            $this->resetPage();
+        }
+    }
+
+    public function clearFilters(): void
+    {
+        $this->reset('statusFilter', 'employeeFilter');
+        $this->resetPage();
+    }
 
     public static function canAccess(): bool
     {
@@ -136,19 +152,26 @@ class LeaveManagement extends Page
     public function getViewData(): array
     {
         $user = $this->user();
-        $query = app(HrScopeService::class)->leaveQuery($user)
+        $scope = app(HrScopeService::class);
+        $employees = $scope->employeeQuery($user, false)->orderBy('name')->get(['id', 'employee_id', 'name']);
+        $showEmployee = $employees->count() > 1;
+        $query = $scope->leaveQuery($user)
             ->with(['employee:id,employee_id,name,team_id,user_id', 'type:id,name,code,consumes_annual_entitlement'])
             ->when($this->statusFilter !== '', fn ($query) => $query->where('status', $this->statusFilter))
+            ->when($showEmployee && $this->employeeFilter !== null, fn ($query) => $query->where('employee_id', $this->employeeFilter))
             ->latest('submitted_at');
-        $balance = app(LeaveBalanceService::class)->for($user->employee);
+        $balanceYear = (int) now()->format('Y');
+        $balance = app(LeaveBalanceService::class)->for($user->employee, $balanceYear);
 
         return [
             'rows' => $query->paginate(20),
             'balance' => $balance,
+            'balanceYear' => $balanceYear,
+            'employees' => $employees,
             'leaveTypes' => LeaveType::query()->where('status', true)->whereIn('code', ['annual', 'unpaid'])->orderBy('name')->get(),
             'canRequest' => app(HrAuthorization::class)->allows($user, HrPermission::LeaveRequest),
             'canApprove' => app(HrAuthorization::class)->allows($user, HrPermission::LeaveApprove),
-            'showEmployee' => app(HrScopeService::class)->employeeQuery($user, false)->count() > 1,
+            'showEmployee' => $showEmployee,
             'scheduleConfigured' => WorkScheduleAssignment::query()
                 ->where(fn ($query) => $query->where('employee_id', $user->employee->id)
                     ->orWhere(fn ($team) => $team->whereNull('employee_id')->where('team_id', $user->employee->team_id)))

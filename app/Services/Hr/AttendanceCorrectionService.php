@@ -3,11 +3,14 @@
 namespace App\Services\Hr;
 
 use App\Enums\AttendanceStatus;
+use App\Enums\EmployeeRole;
+use App\Enums\HrPermission;
 use App\Models\AttendanceCorrection;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Services\Authorization\HrAuthorization;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +25,14 @@ class AttendanceCorrectionService
         private readonly HrScopeService $scope,
         private readonly ActivityLogger $activity,
         private readonly EffectiveWorkScheduleResolver $schedules,
+        private readonly HrAuthorization $authorization,
     ) {}
+
+    public function canCreateManual(User $actor): bool
+    {
+        return in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+            && $this->authorization->allows($actor, HrPermission::AttendanceCorrect);
+    }
 
     /** @param array<string, mixed> $values */
     public function correct(EmployeeAttendance $attendance, array $values, string $reason, User $actor): EmployeeAttendance
@@ -71,6 +81,8 @@ class AttendanceCorrectionService
     /** @param array<string, mixed> $data */
     public function createManual(array $data, User $actor): EmployeeAttendance
     {
+        throw_unless($this->canCreateManual($actor), AuthorizationException::class);
+
         $data['reason'] = trim((string) ($data['reason'] ?? ''));
         $validated = Validator::make($data, [
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
@@ -129,7 +141,7 @@ class AttendanceCorrectionService
 
         return DB::transaction(function () use ($actor, $employee, $date, $assignment, $policy, $expectedStart, $expectedEnd, $first, $last, $graceMinutes, $lateMinutes, $earlyMinutes, $workedMinutes, $status, $validated): EmployeeAttendance {
             $lockedEmployee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
-            throw_unless($this->scope->canCorrect($actor, $lockedEmployee), AuthorizationException::class);
+            throw_unless($this->canCreateManual($actor) && $this->scope->canCorrect($actor, $lockedEmployee), AuthorizationException::class);
             if (EmployeeAttendance::query()->where('employee_id', $lockedEmployee->id)->whereDate('attendance_date', $date)->exists()) {
                 throw ValidationException::withMessages(['attendance_date' => 'An Attendance record already exists for this Employee and date. Use the correction workflow instead.']);
             }

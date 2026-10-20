@@ -3,6 +3,7 @@
 namespace Tests\Feature\Hr;
 
 use App\Enums\EmployeeRole;
+use App\Exceptions\HikvisionTransportException;
 use App\Filament\Pages\Hr\Attendance;
 use App\Filament\Pages\Hr\BiometricSync;
 use App\Models\AttendancePolicy;
@@ -31,9 +32,11 @@ use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -383,6 +386,65 @@ class HikvisionIntegrationTest extends TestCase
         $this->assertNotNull($run->completed_at);
         $this->assertSame('device_unreachable', $run->safe_error_code);
         $this->assertStringNotContainsString('super-secret', (string) $run->safe_error_message);
+    }
+
+    public function test_hikvision_failure_logs_only_http_status_and_never_response_body(): void
+    {
+        $privatePayload = 'password=not-for-logs serialNo=BIOMETRIC-42 Authorization: Digest token=not-for-logs';
+        Http::fake(['*' => Http::response($privatePayload, 500)]);
+        Log::shouldReceive('warning')->once()->with('Hikvision ISAPI request failed.', ['http_status' => 500]);
+
+        try {
+            app(HikvisionIsapiClient::class)->searchEvents(
+                CarbonImmutable::parse('2026-10-20 09:00:00'),
+                CarbonImmutable::parse('2026-10-20 10:00:00'),
+                'safe-search-id',
+                0,
+                10,
+            );
+            $this->fail('The failed device response was accepted.');
+        } catch (HikvisionTransportException $exception) {
+            $this->assertSame('device_http_error', $exception->safeCode);
+            $this->assertStringNotContainsString('BIOMETRIC-42', $exception->getMessage());
+            $this->assertStringNotContainsString('not-for-logs', $exception->getMessage());
+        }
+    }
+
+    public function test_hikvision_https_tls_verification_follows_configuration(): void
+    {
+        config(['hikvision.scheme' => 'https', 'hikvision.host' => 'device.test', 'hikvision.port' => 443, 'hikvision.verify_ssl' => true]);
+        $method = new \ReflectionMethod(HikvisionIsapiClient::class, 'request');
+        $this->assertTrue($method->invoke(app(HikvisionIsapiClient::class))->getOptions()['verify']);
+
+        config(['hikvision.verify_ssl' => false]);
+        $this->assertFalse($method->invoke(app(HikvisionIsapiClient::class))->getOptions()['verify']);
+    }
+
+    public function test_hikvision_private_http_route_remains_http_when_tls_is_disabled_for_https(): void
+    {
+        config([
+            'hikvision.scheme' => 'http',
+            'hikvision.host' => '100.64.0.23',
+            'hikvision.port' => 80,
+            'hikvision.verify_ssl' => false,
+        ]);
+        Http::fake(['*' => Http::response(['AcsEvent' => ['responseStatusStrg' => 'OK', 'InfoList' => []]])]);
+
+        app(HikvisionIsapiClient::class)->searchEvents(
+            CarbonImmutable::parse('2026-10-20 09:00:00'),
+            CarbonImmutable::parse('2026-10-20 10:00:00'),
+            'safe-search-id',
+            0,
+            10,
+        );
+
+        Http::assertSent(function (Request $request): bool {
+            $url = parse_url($request->url());
+
+            return ($url['scheme'] ?? null) === 'http'
+                && ($url['host'] ?? null) === '100.64.0.23'
+                && str_starts_with($url['path'] ?? '', '/ISAPI/AccessControl/AcsEvent');
+        });
     }
 
     public function test_attendance_application_failure_preserves_evidence_and_finishes_partial(): void

@@ -230,7 +230,7 @@ class HrPhaseBUiTest extends TestCase
         $this->assertDatabaseHas('attendance_evidence_links', ['biometric_attendance_event_id' => $specialEvent->id]);
     }
 
-    public function test_manager_with_explicit_correction_permission_cannot_create_out_of_team_attendance(): void
+    public function test_manager_with_correction_permission_can_correct_existing_rows_but_cannot_create_missing_attendance(): void
     {
         $teamA = Team::query()->create(['name' => 'A', 'status' => true]);
         $teamB = Team::query()->create(['name' => 'B', 'status' => true]);
@@ -247,22 +247,83 @@ class HrPhaseBUiTest extends TestCase
             'employee_id' => $inside->employee->id,
             'attendance_date' => '2026-10-20',
             'status' => 'present',
-            'reason' => 'Manager confirmed the team attendance log',
-        ], $manager);
+            'reason' => 'Owner recorded the missing attendance',
+        ], $owner);
         $this->assertSame($inside->employee->id, $created->employee_id);
+
+        app(AttendanceCorrectionService::class)->correct($created, [
+            'status' => 'late',
+            'first_check_in_at' => null,
+            'last_check_out_at' => null,
+            'late_minutes' => 6,
+            'early_departure_minutes' => 0,
+        ], 'Manager corrected a verified existing attendance row', $manager);
+        $this->assertSame('late', $created->fresh()->status->value);
 
         try {
             app(AttendanceCorrectionService::class)->createManual([
-                'employee_id' => $outside->employee->id,
-                'attendance_date' => '2026-10-20',
+                'employee_id' => $inside->employee->id,
+                'attendance_date' => '2026-10-21',
                 'status' => 'present',
-                'reason' => 'Out-of-team attempt',
+                'reason' => 'Manager attempt to create missing attendance',
             ], $manager);
-            $this->fail('A manager created attendance outside their team scope.');
+            $this->fail('A manager created a missing attendance record with only AttendanceCorrect.');
         } catch (AuthorizationException) {
             $this->addToAssertionCount(1);
         }
+        $ownerCreatedOutsideTeam = app(AttendanceCorrectionService::class)->createManual([
+            'employee_id' => $outside->employee->id,
+            'attendance_date' => '2026-10-21',
+            'status' => 'present',
+            'reason' => 'Owner verified an out-of-team missing attendance',
+        ], $owner);
+        $this->assertSame($outside->employee->id, $ownerCreatedOutsideTeam->employee_id);
+        $this->assertDatabaseCount('employee_attendances', 2);
+        $this->assertDatabaseCount('attendance_corrections', 3);
+    }
+
+    public function test_admin_can_create_missing_attendance_but_staff_with_correction_override_cannot(): void
+    {
+        $team = Team::query()->create(['name' => 'Operations', 'status' => true]);
+        $owner = $this->user(EmployeeRole::Owner, $team);
+        $admin = $this->user(EmployeeRole::Admin, $team);
+        $manager = $this->user(EmployeeRole::Manager, $team);
+        $staff = $this->user(EmployeeRole::Staff, $team);
+        $this->grant($manager, HrPermission::AttendanceCorrect, $owner);
+        $this->grant($staff, HrPermission::AttendanceCorrect, $owner);
+        $employee = $this->user(EmployeeRole::Staff, $team);
+        $this->ensurePattern(WorkSchedule::query()->where('code', 'PK_OFFICE')->firstOrFail(), $owner);
+        $this->assign($employee->employee, $owner, 5);
+
+        $created = app(AttendanceCorrectionService::class)->createManual([
+            'employee_id' => $employee->employee->id,
+            'attendance_date' => '2026-10-20',
+            'status' => 'present',
+            'reason' => 'Admin verified the missing attendance',
+        ], $admin);
+        $this->assertSame($employee->employee->id, $created->employee_id);
+        $this->assertDatabaseCount('attendance_corrections', 1);
+
+        foreach ([$manager, $staff] as $unauthorizedCreator) {
+            try {
+                app(AttendanceCorrectionService::class)->createManual([
+                    'employee_id' => $employee->employee->id,
+                    'attendance_date' => '2026-10-21',
+                    'status' => 'present',
+                    'reason' => 'Attempt with AttendanceCorrect only',
+                ], $unauthorizedCreator);
+                $this->fail('A non-Owner/Admin role created a missing attendance record.');
+            } catch (AuthorizationException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+
+        $managerAttendancePage = Livewire::actingAs($manager)->test(Attendance::class);
+        $managerAttendancePage->assertDontSee('Record Manual Attendance');
+        $managerAttendancePage->call('openManualAttendance')->assertForbidden();
+        Livewire::actingAs($manager)->test(Attendance::class)->call('saveManualAttendance')->assertForbidden();
         $this->assertDatabaseCount('employee_attendances', 1);
+        $this->assertDatabaseCount('attendance_corrections', 1);
     }
 
     public function test_comp_off_and_biometric_pages_expose_status_summaries_and_keep_actions_explicit(): void

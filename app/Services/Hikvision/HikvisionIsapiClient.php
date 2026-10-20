@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Services\Hikvision;
-use Illuminate\Support\Facades\Log;
+
 use App\DTOs\Hikvision\HikvisionConnectionResult;
 use App\DTOs\Hikvision\HikvisionEventPage;
 use App\Exceptions\HikvisionTransportException;
@@ -10,6 +10,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class HikvisionIsapiClient
@@ -83,15 +84,19 @@ class HikvisionIsapiClient
             throw new HikvisionTransportException('configuration_invalid', 'Hikvision connection settings are incomplete.');
         }
 
-return Http::baseUrl("{$scheme}://{$host}:{$port}")
-    ->withoutVerifying()
-    ->withOptions([
-        'auth' => [
-            (string) config('hikvision.username'),
-            (string) config('hikvision.password'),
-            'digest',  ],
-      ]);
-}
+        return Http::baseUrl("{$scheme}://{$host}:{$port}")
+            ->timeout((int) config('hikvision.timeout', 10))
+            ->withOptions([
+                'auth' => [
+                    (string) config('hikvision.username'),
+                    (string) config('hikvision.password'),
+                    'digest',
+                ],
+                // TLS is meaningful only for HTTPS. Keeping HTTP unchanged preserves
+                // the private Tailscale route used by existing installations.
+                'verify' => $scheme === 'https' ? (bool) config('hikvision.verify_ssl', true) : true,
+            ]);
+    }
 
     private function get(string $uri): Response
     {
@@ -104,34 +109,32 @@ return Http::baseUrl("{$scheme}://{$host}:{$port}")
         return $this->send(fn (): Response => $this->request()->post($uri, $payload));
     }
 
-  /** @param callable(): Response $request */
-private function send(callable $request): Response
-{
-    try {
-        $response = $request();
-    } catch (ConnectionException $exception) {
-        throw $this->connectionException($exception);
+    /** @param callable(): Response $request */
+    private function send(callable $request): Response
+    {
+        try {
+            $response = $request();
+        } catch (ConnectionException $exception) {
+            throw $this->connectionException($exception);
+        }
+
+        if ($response->failed()) {
+            $status = $response->status();
+
+            // Device bodies can contain employee and biometric identifiers. Keep
+            // logs to transport metadata only; never record response content.
+            Log::warning('Hikvision ISAPI request failed.', ['http_status' => $status]);
+
+            throw new HikvisionTransportException(
+                $status === 401 ? 'authentication_failed' : 'device_http_error',
+                $status === 401
+                    ? 'Hikvision authentication failed.'
+                    : "The Hikvision device rejected the request with HTTP {$status}.",
+            );
+        }
+
+        return $response;
     }
-
-    if ($response->failed()) {
-        $status = $response->status();
-
-        Log::warning('Hikvision ISAPI request failed.', [
-            'http_status' => $status,
-            'content_type' => $response->header('Content-Type'),
-            'response_excerpt' => mb_substr($response->body(), 0, 1000),
-        ]);
-
-        throw new HikvisionTransportException(
-            $status === 401 ? 'authentication_failed' : 'device_http_error',
-            $status === 401
-                ? 'Hikvision authentication failed.'
-                : "The Hikvision device rejected the request with HTTP {$status}.",
-        );
-    }
-
-    return $response;
-}
 
     /** @return array<string, mixed> */
     private function decode(Response $response): array

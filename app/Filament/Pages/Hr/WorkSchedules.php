@@ -42,6 +42,8 @@ class WorkSchedules extends Page
 
     public string $scheduleType = 'standard';
 
+    public int $graceMinutes = 5;
+
     public int $cycleLengthWeeks = 1;
 
     /** @var array<int, array<string, mixed>> */
@@ -53,6 +55,11 @@ class WorkSchedules extends Page
 
     public ?int $assignmentEmployeeId = null;
 
+    /** @var array<int, int> */
+    public array $assignmentEmployeeIds = [];
+
+    public string $assignmentEmployeeSearch = '';
+
     public ?int $assignmentTeamId = null;
 
     public string $assignmentEffectiveFrom = '';
@@ -60,6 +67,8 @@ class WorkSchedules extends Page
     public string $assignmentEffectiveTo = '';
 
     public string $assignmentReason = '';
+
+    public ?int $assignmentGraceMinutesOverride = null;
 
     public static function canAccess(): bool
     {
@@ -94,6 +103,7 @@ class WorkSchedules extends Page
         $this->code = $schedule->code;
         $this->timezone = $schedule->timezone;
         $this->scheduleType = $schedule->schedule_type;
+        $this->graceMinutes = (int) ($schedule->grace_minutes ?? $schedule->attendancePolicy?->grace_minutes ?? 0);
         $this->cycleLengthWeeks = $schedule->cycle_length_weeks;
         $this->days = $schedule->days->isEmpty() ? $this->defaultDays($schedule->cycle_length_weeks) : $schedule->days->map(fn ($day): array => [
             'cycle_week' => $day->cycle_week, 'weekday' => $day->weekday, 'is_working_day' => $day->is_working_day,
@@ -111,11 +121,13 @@ class WorkSchedules extends Page
                 app(WorkScheduleService::class)->update(WorkSchedule::query()->findOrFail($this->editingScheduleId), [
                     'name' => $this->name, 'code' => $this->code, 'timezone' => $this->timezone,
                     'schedule_type' => $this->scheduleType, 'cycle_length_weeks' => $this->cycleLengthWeeks,
+                    'grace_minutes' => $this->graceMinutes,
                 ], $this->days, $this->user());
             } else {
                 app(WorkScheduleService::class)->create([
                     'name' => $this->name, 'code' => $this->code, 'timezone' => $this->timezone,
                     'schedule_type' => $this->scheduleType, 'cycle_length_weeks' => $this->cycleLengthWeeks,
+                    'grace_minutes' => $this->graceMinutes,
                 ], $this->days, $this->user());
             }
             $this->resetScheduleForm();
@@ -130,21 +142,50 @@ class WorkSchedules extends Page
     public function assignSchedule(): void
     {
         try {
-            app(WorkScheduleService::class)->assign([
-                'work_schedule_id' => $this->assignmentScheduleId,
-                'employee_id' => $this->assignmentTargetType === 'employee' ? $this->assignmentEmployeeId : null,
-                'team_id' => $this->assignmentTargetType === 'team' ? $this->assignmentTeamId : null,
-                'effective_from' => $this->assignmentEffectiveFrom,
-                'effective_to' => $this->assignmentEffectiveTo ?: null,
-                'reason' => $this->assignmentReason,
-            ], $this->user());
-            $this->reset('assignmentScheduleId', 'assignmentEmployeeId', 'assignmentTeamId', 'assignmentEffectiveFrom', 'assignmentEffectiveTo', 'assignmentReason');
-            Notification::make()->success()->title('Schedule assigned')->send();
+            if ($this->assignmentTargetType === 'employee') {
+                $employeeIds = array_values(array_unique(array_map('intval', $this->assignmentEmployeeIds)));
+                if ($employeeIds === [] && $this->assignmentEmployeeId !== null) {
+                    $employeeIds = [$this->assignmentEmployeeId];
+                }
+                $assignments = app(WorkScheduleService::class)->assignEmployees([
+                    'work_schedule_id' => $this->assignmentScheduleId,
+                    'employee_ids' => $employeeIds,
+                    'effective_from' => $this->assignmentEffectiveFrom,
+                    'effective_to' => $this->assignmentEffectiveTo ?: null,
+                    'grace_minutes_override' => $this->assignmentGraceMinutesOverride,
+                    'reason' => $this->assignmentReason,
+                ], $this->user());
+                $count = count($assignments);
+            } else {
+                app(WorkScheduleService::class)->assign([
+                    'work_schedule_id' => $this->assignmentScheduleId,
+                    'employee_id' => null,
+                    'team_id' => $this->assignmentTeamId,
+                    'effective_from' => $this->assignmentEffectiveFrom,
+                    'effective_to' => $this->assignmentEffectiveTo ?: null,
+                    'grace_minutes_override' => null,
+                    'reason' => $this->assignmentReason,
+                ], $this->user());
+                $count = 1;
+            }
+            $this->reset('assignmentScheduleId', 'assignmentEmployeeId', 'assignmentEmployeeIds', 'assignmentEmployeeSearch', 'assignmentTeamId', 'assignmentEffectiveFrom', 'assignmentEffectiveTo', 'assignmentReason', 'assignmentGraceMinutesOverride');
+            Notification::make()->success()->title($count === 1 ? 'Schedule assigned' : 'Schedules assigned')->body($count === 1 ? 'Assignment history was recorded.' : "{$count} Employee assignments were saved together.")->send();
         } catch (AuthorizationException) {
             abort(403);
         } catch (ValidationException $exception) {
             $this->showErrors($exception, 'assignment');
         }
+    }
+
+    public function selectVisibleEmployees(): void
+    {
+        $this->user();
+        $visibleIds = Employee::query()->where('status', true)
+            ->when(trim($this->assignmentEmployeeSearch) !== '', fn ($query) => $query->where(fn ($query) => $query
+                ->where('name', 'like', '%'.trim($this->assignmentEmployeeSearch).'%')
+                ->orWhere('employee_id', 'like', '%'.trim($this->assignmentEmployeeSearch).'%')))
+            ->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        $this->assignmentEmployeeIds = array_values(array_unique(array_merge($this->assignmentEmployeeIds, $visibleIds)));
     }
 
     public function toggleStatus(int $scheduleId): void
@@ -200,16 +241,43 @@ class WorkSchedules extends Page
 
     public function getViewData(): array
     {
+        $activeEmployees = Employee::query()->where('status', true)->get(['id', 'team_id']);
+        $currentAssignments = WorkScheduleAssignment::query()
+            ->whereDate('effective_from', '<=', today())
+            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today()))
+            ->whereHas('schedule', fn ($query) => $query->where('status', true))
+            ->get(['employee_id', 'team_id']);
+        $directEmployeeIds = $currentAssignments->pluck('employee_id')->filter()->map(fn ($id): int => (int) $id);
+        $assignedTeamIds = $currentAssignments->pluck('team_id')->filter()->map(fn ($id): int => (int) $id)->unique();
+        $assignedEmployeeIds = $directEmployeeIds->merge($activeEmployees->whereIn('team_id', $assignedTeamIds)->pluck('id'))->unique();
+        $search = trim($this->assignmentEmployeeSearch);
+        $employeeQuery = Employee::query()->where('status', true);
+        if ($search !== '' || $this->assignmentEmployeeIds !== []) {
+            $employeeQuery->where(function ($query) use ($search): void {
+                if ($search !== '') {
+                    $query->where('name', 'like', '%'.$search.'%')->orWhere('employee_id', 'like', '%'.$search.'%');
+                }
+                if ($this->assignmentEmployeeIds !== []) {
+                    $query->orWhereIn('id', $this->assignmentEmployeeIds);
+                }
+            });
+        }
+
         return [
+            'activeScheduleCount' => WorkSchedule::query()->where('status', true)->count(),
+            'assignedEmployeeCount' => $activeEmployees->whereIn('id', $assignedEmployeeIds)->count(),
+            'unassignedEmployeeCount' => max(0, $activeEmployees->count() - $activeEmployees->whereIn('id', $assignedEmployeeIds)->count()),
             'schedules' => WorkSchedule::query()->withCount([
                 'days',
                 'assignments as current_assignments_count' => fn ($query) => $query
+                    ->whereDate('effective_from', '<=', today())
                     ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today())),
                 'assignments as ended_assignments_count' => fn ($query) => $query->whereDate('effective_to', '<', today()),
-            ])->with(['assignments' => fn ($query) => $query->with(['employee:id,name,employee_id', 'team:id,name'])->latest('effective_from')->limit(20)])->orderBy('name')->get(),
-            'employees' => Employee::query()->where('status', true)->orderBy('name')->get(['id', 'name', 'employee_id']),
+            ])->with(['attendancePolicy:id,grace_minutes', 'days', 'assignments' => fn ($query) => $query->with(['employee:id,name,employee_id', 'team:id,name'])->latest('effective_from')->limit(20)])->orderBy('name')->get(),
+            'employees' => $employeeQuery->orderBy('name')->get(['id', 'name', 'employee_id']),
             'teams' => Team::query()->where('status', true)->orderBy('name')->get(['id', 'name']),
             'weekdays' => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+            'today' => today(),
         ];
     }
 
@@ -218,6 +286,7 @@ class WorkSchedules extends Page
         $this->reset('editingScheduleId', 'name', 'code');
         $this->timezone = 'Asia/Karachi';
         $this->scheduleType = 'standard';
+        $this->graceMinutes = 5;
         $this->cycleLengthWeeks = 1;
         $this->days = $this->defaultDays(1);
         $this->resetValidation();

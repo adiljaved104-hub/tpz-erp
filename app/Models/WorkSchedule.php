@@ -12,7 +12,7 @@ class WorkSchedule extends Model
 
     protected function casts(): array
     {
-        return ['status' => 'boolean'];
+        return ['status' => 'boolean', 'grace_minutes' => 'integer'];
     }
 
     public function attendancePolicy(): BelongsTo

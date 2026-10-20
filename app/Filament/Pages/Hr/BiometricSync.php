@@ -282,6 +282,17 @@ class BiometricSync extends Page
         $source = (string) config('hikvision.source');
         $device = trim((string) config('hikvision.host')).':'.(int) config('hikvision.port');
         $base = BiometricAttendanceSyncRun::query()->where('source', $source)->where('device_identifier', $device);
+        $unmapped = app(BiometricEmployeeMappingService::class)->unmappedQueue($source);
+        $pendingRunCount = (clone $base)->where('status', 'running')->count();
+        $failedRuns = (clone $base)->whereIn('status', ['failed', 'partial'])->latest('attempted_at')->latest('id')->limit(10)->get([
+            'id', 'mode', 'status', 'attempted_at', 'completed_at', 'imported_count', 'duplicate_count',
+            'skipped_count', 'unmapped_count', 'safe_error_code',
+        ]);
+        $unprocessedEventCount = BiometricAttendanceEvent::query()->where('source', $source)
+            ->whereHas('employeeMappings', fn ($query) => $query->whereNull('superseded_at'))
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('attendance_evidence_links')
+                ->whereColumn('attendance_evidence_links.biometric_attendance_event_id', 'biometric_attendance_events.id'))
+            ->count();
 
         return [
             'enabled' => (bool) config('hikvision.enabled'),
@@ -290,7 +301,11 @@ class BiometricSync extends Page
             'port' => (int) config('hikvision.port'),
             'lastAttempt' => (clone $base)->latest('attempted_at')->latest('id')->first(),
             'lastSuccessful' => (clone $base)->where('status', 'successful')->latest('completed_at')->latest('id')->first(),
-            'unmapped' => app(BiometricEmployeeMappingService::class)->unmappedQueue($source),
+            'unmapped' => $unmapped,
+            'unmappedEmployeeCount' => $unmapped->count(),
+            'unprocessedEventCount' => $unprocessedEventCount,
+            'pendingRunCount' => $pendingRunCount,
+            'failedRuns' => $failedRuns,
             'maximumBackfillDays' => (int) config('hikvision.maximum_backfill_days', 31),
         ];
     }

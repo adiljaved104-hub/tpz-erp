@@ -13,13 +13,21 @@ class EffectiveWorkScheduleResolver
     public function assignment(Employee $employee, CarbonImmutable $date): ?WorkScheduleAssignment
     {
         $base = WorkScheduleAssignment::query()
-            ->with('schedule.days')
+            ->with(['schedule.days', 'schedule.attendancePolicy'])
             ->whereDate('effective_from', '<=', $date)
             ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $date))
             ->latest('effective_from');
 
         return (clone $base)->where('employee_id', $employee->id)->first()
             ?? ($employee->team_id === null ? null : (clone $base)->whereNull('employee_id')->where('team_id', $employee->team_id)->first());
+    }
+
+    public function graceMinutes(WorkScheduleAssignment $assignment): int
+    {
+        return (int) ($assignment->grace_minutes_override
+            ?? $assignment->schedule?->grace_minutes
+            ?? $assignment->schedule?->attendancePolicy?->grace_minutes
+            ?? 0);
     }
 
     /** @return array{assignment: WorkScheduleAssignment, day: WorkScheduleDay} */
@@ -31,13 +39,13 @@ class EffectiveWorkScheduleResolver
         }
         $cycleLength = max(1, (int) $assignment->schedule->cycle_length_weeks);
         $weeksSinceStart = (int) $assignment->effective_from
-    ->startOfWeek()
-    ->startOfDay()
-    ->diffInWeeks(
-        $date->startOfWeek()->startOfDay()
-    );
+            ->startOfWeek()
+            ->startOfDay()
+            ->diffInWeeks(
+                $date->startOfWeek()->startOfDay()
+            );
 
-$cycleWeek = ($weeksSinceStart % $cycleLength) + 1;
+        $cycleWeek = ($weeksSinceStart % $cycleLength) + 1;
         $day = $assignment->schedule->days->first(fn (WorkScheduleDay $candidate): bool => (int) $candidate->cycle_week === $cycleWeek
             && (int) $candidate->weekday === $date->dayOfWeek);
         if ($day === null) {

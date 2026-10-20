@@ -17,7 +17,7 @@ class EmployeeAttendance extends Model
             'attendance_date' => 'immutable_date', 'status' => AttendanceStatus::class,
             'expected_start_at' => 'immutable_datetime', 'expected_end_at' => 'immutable_datetime',
             'first_check_in_at' => 'immutable_datetime', 'last_check_out_at' => 'immutable_datetime',
-            'is_overridden' => 'boolean', 'calculated_at' => 'immutable_datetime',
+            'grace_minutes' => 'integer', 'is_overridden' => 'boolean', 'calculated_at' => 'immutable_datetime',
         ];
     }
 

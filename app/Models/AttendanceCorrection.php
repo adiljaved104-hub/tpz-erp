@@ -27,4 +27,9 @@ class AttendanceCorrection extends Model
     {
         return $this->belongsTo(EmployeeAttendance::class, 'employee_attendance_id');
     }
+
+    public function actor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'actor_user_id');
+    }
 }

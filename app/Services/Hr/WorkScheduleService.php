@@ -28,13 +28,21 @@ class WorkScheduleService
     {
         $this->authorize($actor);
         $data['code'] = strtoupper(trim((string) ($data['code'] ?? '')));
+        $data['grace_minutes'] ??= null;
         $validated = Validator::make($data, [
             'name' => ['required', 'string', 'max:255'],
             'code' => ['required', 'string', 'max:50', 'regex:/^[A-Z0-9_-]+$/', 'unique:work_schedules,code'],
             'timezone' => ['required', 'timezone:all'],
             'schedule_type' => ['required', Rule::in(['standard', 'alternative_weekend', 'custom'])],
             'cycle_length_weeks' => ['required', 'integer', 'min:1', 'max:12'],
+            'grace_minutes' => ['nullable', 'integer', 'between:0,240'],
         ])->validate();
+        if ($validated['grace_minutes'] === null) {
+            $validated['grace_minutes'] = DB::table('attendance_policies')->where('status', true)
+                ->whereDate('effective_from', '<=', today())
+                ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today()))
+                ->latest('effective_from')->value('grace_minutes') ?? 0;
+        }
         $normalizedDays = $this->validateDays($days, (int) $validated['cycle_length_weeks']);
 
         return DB::transaction(function () use ($validated, $normalizedDays, $actor): WorkSchedule {
@@ -59,12 +67,14 @@ class WorkScheduleService
     {
         $this->authorize($actor);
         $data['code'] = strtoupper(trim((string) ($data['code'] ?? '')));
+        $data['grace_minutes'] ??= $schedule->grace_minutes ?? $schedule->attendancePolicy?->grace_minutes ?? 0;
         $validated = Validator::make($data, [
             'name' => ['required', 'string', 'max:255'],
             'code' => ['required', 'string', 'max:50', 'regex:/^[A-Z0-9_-]+$/', Rule::unique('work_schedules', 'code')->ignore($schedule->id)],
             'timezone' => ['required', 'timezone:all'],
             'schedule_type' => ['required', Rule::in(['standard', 'alternative_weekend', 'custom'])],
             'cycle_length_weeks' => ['required', 'integer', 'min:1', 'max:12'],
+            'grace_minutes' => ['required', 'integer', 'between:0,240'],
         ])->validate();
         $normalizedDays = $this->validateDays($days, (int) $validated['cycle_length_weeks']);
 
@@ -122,6 +132,7 @@ class WorkScheduleService
             'team_id' => ['nullable', 'integer', 'exists:teams,id'],
             'effective_from' => ['required', 'date'],
             'effective_to' => ['nullable', 'date', 'after_or_equal:effective_from'],
+            'grace_minutes_override' => ['nullable', 'integer', 'between:0,240'],
             'reason' => ['required', 'string', 'max:2000'],
         ])->validate();
         if ((($validated['employee_id'] ?? null) === null) === (($validated['team_id'] ?? null) === null)) {
@@ -159,6 +170,68 @@ class WorkScheduleService
             ]);
 
             return $assignment;
+        });
+    }
+
+    /** @param array<string, mixed> $data @return array<int, WorkScheduleAssignment> */
+    public function assignEmployees(array $data, User $actor): array
+    {
+        $this->authorize($actor);
+        $validated = Validator::make($data, [
+            'work_schedule_id' => ['required', 'integer', 'exists:work_schedules,id'],
+            'employee_ids' => ['required', 'array', 'min:1'],
+            'employee_ids.*' => ['required', 'integer', 'distinct', 'exists:employees,id'],
+            'effective_from' => ['required', 'date'],
+            'effective_to' => ['nullable', 'date', 'after_or_equal:effective_from'],
+            'grace_minutes_override' => ['nullable', 'integer', 'between:0,240'],
+            'reason' => ['required', 'string', 'max:2000'],
+        ])->validate();
+        $employeeIds = array_values(array_unique(array_map('intval', $validated['employee_ids'])));
+
+        return DB::transaction(function () use ($validated, $employeeIds, $actor): array {
+            $schedule = WorkSchedule::query()->whereKey($validated['work_schedule_id'])->where('status', true)->first();
+            if ($schedule === null) {
+                throw ValidationException::withMessages(['work_schedule_id' => 'Only an active Work Schedule can be assigned.']);
+            }
+            $expectedPatternRows = max(1, (int) $schedule->cycle_length_weeks) * 7;
+            if ($schedule->days()->count() !== $expectedPatternRows) {
+                throw ValidationException::withMessages(['work_schedule_id' => 'Configure and save the complete Work Schedule day pattern before assigning it.']);
+            }
+
+            $employees = Employee::query()->whereKey($employeeIds)->orderBy('id')->lockForUpdate()->get();
+            if ($employees->count() !== count($employeeIds) || $employees->contains(fn (Employee $employee): bool => ! $employee->status)) {
+                throw ValidationException::withMessages(['employee_ids' => 'Select only active Employees.']);
+            }
+            $overlap = WorkScheduleAssignment::query()->whereIn('employee_id', $employeeIds)
+                ->whereDate('effective_from', '<=', $validated['effective_to'] ?? '9999-12-31')
+                ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $validated['effective_from']))
+                ->exists();
+            if ($overlap) {
+                throw ValidationException::withMessages(['employee_ids' => 'One or more selected Employees already have an overlapping employee-specific Schedule assignment.']);
+            }
+
+            $assignments = [];
+            foreach ($employees as $employee) {
+                $assignment = WorkScheduleAssignment::query()->create([
+                    'work_schedule_id' => $schedule->id,
+                    'employee_id' => $employee->id,
+                    'team_id' => null,
+                    'effective_from' => $validated['effective_from'],
+                    'effective_to' => $validated['effective_to'] ?? null,
+                    'grace_minutes_override' => $validated['grace_minutes_override'] ?? null,
+                    'assigned_by_user_id' => $actor->id,
+                    'reason' => trim($validated['reason']),
+                ]);
+                $assignments[] = $assignment;
+            }
+            $this->activity->log('work_schedule.bulk_assigned', $actor, $schedule, [
+                'employee_ids' => $employees->pluck('id')->all(),
+                'effective_from' => $validated['effective_from'],
+                'effective_to' => $validated['effective_to'] ?? null,
+                'grace_minutes_override' => $validated['grace_minutes_override'] ?? null,
+            ]);
+
+            return $assignments;
         });
     }
 

@@ -50,7 +50,12 @@ class BiometricAttendanceProcessor
             $rawLate = $first !== null && $expectedStart !== null && $first->greaterThan($expectedStart)
                 ? max(0, (int) $expectedStart->diffInMinutes($first))
                 : 0;
-            $late = $rawLate >= (int) ($policy?->late_after_minutes ?? 1) ? $rawLate : 0;
+            $graceMinutes = $this->schedules->graceMinutes($schedule['assignment']);
+            $lateThreshold = $schedule['assignment']->grace_minutes_override !== null
+                || $schedule['assignment']->schedule?->grace_minutes !== null
+                ? $graceMinutes + 1
+                : (int) ($policy?->late_after_minutes ?? 1);
+            $late = $rawLate >= $lateThreshold ? $rawLate : 0;
             $rawEarly = $last !== null && $expectedEnd !== null && $last->lessThan($expectedEnd)
                 ? max(0, (int) $last->diffInMinutes($expectedEnd))
                 : 0;
@@ -81,6 +86,7 @@ class BiometricAttendanceProcessor
                 $attendance->fill([
                     'work_schedule_id' => $schedule['assignment']->schedule->id,
                     'attendance_policy_id' => $policy?->id,
+                    'grace_minutes' => $graceMinutes,
                     // Calculations use the effective Schedule timezone above;
                     // datetime columns follow the application's UTC convention.
                     'expected_start_at' => $expectedStart?->utc(),

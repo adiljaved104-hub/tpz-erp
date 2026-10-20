@@ -1,5 +1,6 @@
 <x-filament-panels::page>
-    <div class="grid gap-3 md:grid-cols-3">
+    <x-filament::section heading="Read-only monitoring" compact>
+    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <x-filament::section compact>
             <div class="text-xs font-medium text-gray-500">Device</div>
             <div class="mt-1 font-semibold">{{ $host }}:{{ $port }}</div>
@@ -16,9 +17,21 @@
             <div class="mt-1 font-semibold">{{ $lastSuccessful?->completed_at?->timezone('Asia/Karachi')->format('d M Y, h:i A') ?? 'Never' }}</div>
             @if($lastSuccessful)<div class="mt-1 text-xs text-gray-500">Imported {{ $lastSuccessful->imported_count }} · Duplicate {{ $lastSuccessful->duplicate_count }} · Skipped {{ $lastSuccessful->skipped_count }} · Unmapped {{ $lastSuccessful->unmapped_count }}</div>@endif
         </x-filament::section>
+        <x-filament::section compact>
+            <div class="text-xs font-medium text-gray-500">Pending work</div>
+            <div class="mt-2 flex flex-wrap gap-2"><x-filament::badge :color="$unmappedEmployeeCount ? 'warning' : 'success'">{{ $unmappedEmployeeCount }} unmapped identifiers</x-filament::badge><x-filament::badge :color="$unprocessedEventCount ? 'warning' : 'success'">{{ $unprocessedEventCount }} unprocessed mapped events</x-filament::badge><x-filament::badge :color="$pendingRunCount ? 'warning' : 'gray'">{{ $pendingRunCount }} running syncs</x-filament::badge></div>
+            <p class="mt-2 text-xs text-gray-500">This panel only reports state. It does not start or enable synchronization.</p>
+        </x-filament::section>
     </div>
+    @if($failedRuns->isNotEmpty())
+        <div class="mt-4 overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10"><table class="w-full min-w-[650px] text-sm"><thead class="bg-gray-50 dark:bg-white/5"><tr>@foreach(['Recent failed / partial attempt', 'Mode', 'When', 'Imported', 'Duplicates', 'Skipped', 'Unmapped', 'Safe code'] as $heading)<th class="px-3 py-2 text-left font-semibold">{{ $heading }}</th>@endforeach</tr></thead><tbody class="divide-y divide-gray-100 dark:divide-white/5">@foreach($failedRuns as $run)<tr><td class="px-3 py-2"><x-filament::badge :color="$run->status === 'failed' ? 'danger' : 'warning'">{{ str($run->status)->title() }}</x-filament::badge></td><td class="px-3 py-2">{{ str($run->mode)->title() }}</td><td class="whitespace-nowrap px-3 py-2">{{ $run->attempted_at?->timezone('Asia/Karachi')->format('d M Y, h:i A') }}</td><td class="px-3 py-2">{{ $run->imported_count }}</td><td class="px-3 py-2">{{ $run->duplicate_count }}</td><td class="px-3 py-2">{{ $run->skipped_count }}</td><td class="px-3 py-2">{{ $run->unmapped_count }}</td><td class="px-3 py-2">{{ $run->safe_error_code ?: '—' }}</td></tr>@endforeach</tbody></table></div>
+    @else
+        <p class="mt-3 text-sm text-gray-500">No failed or partial synchronization attempts were recorded.</p>
+    @endif
+    </x-filament::section>
 
-    <x-filament::section heading="Synchronization Actions" compact>
+    <x-filament::section heading="Synchronization and recovery actions" compact>
+        <p class="mb-4 text-sm text-gray-500">Actions below may contact the device or modify derived Attendance. Original biometric events remain immutable. No action runs automatically from this page.</p>
         <div class="grid gap-4 lg:grid-cols-2">
             <div class="min-w-0">
                 <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Device</div>

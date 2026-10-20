@@ -3,6 +3,7 @@
 namespace Tests\Feature\Hr;
 
 use App\Enums\EmployeeRole;
+use App\Filament\Pages\Hr\Attendance;
 use App\Filament\Pages\Hr\BiometricSync;
 use App\Models\AttendancePolicy;
 use App\Models\BiometricAttendanceEvent;
@@ -24,6 +25,7 @@ use App\Services\Hikvision\HikvisionAttendanceImporter;
 use App\Services\Hikvision\HikvisionErrorSanitizer;
 use App\Services\Hikvision\HikvisionEventNormalizer;
 use App\Services\Hikvision\HikvisionIsapiClient;
+use App\Services\Hr\AttendanceQueryService;
 use App\Services\Hr\WorkScheduleService;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
@@ -247,7 +249,15 @@ class HikvisionIntegrationTest extends TestCase
         $this->assertNull($attendance->last_check_out_at);
         $this->assertSame(0, $attendance->early_departure_minutes);
         $this->assertTrue($attendance->hasMissingCheckout());
-        $this->actingAs($owner)->get('/admin/hr/attendance')->assertOk()->assertSee('Missing Check-out');
+        $attendanceDate = CarbonImmutable::parse($attendance->attendance_date->toDateString());
+        $attendanceQuery = app(AttendanceQueryService::class)->query($owner, $attendanceDate, $attendanceDate);
+        $this->assertSame(1, $attendanceQuery->count());
+        Livewire::actingAs($owner)->test(Attendance::class)
+            ->set('period', 'custom')
+            ->set('fromDate', $attendance->attendance_date->toDateString())
+            ->set('toDate', $attendance->attendance_date->toDateString())
+            ->set('dateFilter', $attendance->attendance_date->toDateString())
+            ->assertSee('Missing Check-out');
     }
 
     public function test_scheduled_off_never_produces_early_checkout(): void

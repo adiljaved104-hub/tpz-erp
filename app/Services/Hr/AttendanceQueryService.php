@@ -19,15 +19,21 @@ class AttendanceQueryService
     public function query(User $user, CarbonImmutable $from, CarbonImmutable $to, ?int $employeeId = null, ?int $teamId = null): Builder
     {
         return $this->scope->attendanceQuery($user)
-            ->with(['employee:id,employee_id,name,team_id', 'policy:id,late_occurrences_for_penalty,absence_equivalent_penalty_days', 'schedule:id,timezone'])
-            ->whereBetween('attendance_date', [$from->toDateString(), $to->toDateString()])
+            ->with([
+                'employee:id,employee_id,name,team_id',
+                'policy:id,late_occurrences_for_penalty,absence_equivalent_penalty_days,grace_minutes',
+                'schedule:id,timezone,grace_minutes',
+                'corrections.actor:id,name',
+            ])
+            ->where('attendance_date', '>=', $from->toDateString())
+            ->where('attendance_date', '<', $to->addDay()->toDateString())
             ->when($employeeId, fn (Builder $query): Builder => $query->where('employee_id', $employeeId))
             ->when($teamId, fn (Builder $query): Builder => $query->whereHas('employee', fn (Builder $employees): Builder => $employees->where('team_id', $teamId)))
             ->latest('attendance_date')
             ->latest('id');
     }
 
-    /** @return array{present:int,late:int,absent:int,approved_leave:int,comp_off:int,early_checkout:int,early_checkout_minutes:int,missing_checkout:int,late_penalty:string} */
+    /** @return array{present:int,late:int,absent:int,half_day:int,approved_leave:int,comp_off:int,early_checkout:int,early_checkout_minutes:int,missing_checkout:int,late_penalty:string} */
     public function summary(Builder $query): array
     {
         $counts = (clone $query)->reorder()->selectRaw('status, COUNT(*) AS aggregate')->groupBy('status')->pluck('aggregate', 'status');
@@ -64,6 +70,7 @@ class AttendanceQueryService
             'present' => (int) ($counts[AttendanceStatus::Present->value] ?? 0),
             'late' => (int) ($counts[AttendanceStatus::Late->value] ?? 0),
             'absent' => (int) ($counts[AttendanceStatus::Absent->value] ?? 0),
+            'half_day' => (int) ($counts[AttendanceStatus::HalfDay->value] ?? 0),
             'approved_leave' => (int) ($counts[AttendanceStatus::ApprovedLeave->value] ?? 0) + (int) ($counts[AttendanceStatus::UnpaidLeave->value] ?? 0),
             'comp_off' => (int) ($counts[AttendanceStatus::CompensatoryOff->value] ?? 0),
             'early_checkout' => $earlyCheckout,

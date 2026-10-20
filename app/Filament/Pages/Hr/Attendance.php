@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Hr;
 
 use App\Enums\AttendanceStatus;
 use App\Enums\HrPermission;
+use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\Team;
 use App\Models\User;
@@ -51,6 +52,17 @@ class Attendance extends Page
     #[Url]
     public ?int $teamId = null;
 
+    #[Url]
+    public string $employeeSearch = '';
+
+    #[Url]
+    public string $statusFilter = '';
+
+    #[Url]
+    public string $dateFilter = '';
+
+    public string $calendarMonth = '';
+
     public ?int $correctionAttendanceId = null;
 
     public string $correctionStatus = '';
@@ -64,6 +76,18 @@ class Attendance extends Page
     public int $correctionEarlyCheckoutMinutes = 0;
 
     public string $correctionReason = '';
+
+    public ?int $manualEmployeeId = null;
+
+    public string $manualAttendanceDate = '';
+
+    public string $manualStatus = 'present';
+
+    public string $manualFirstCheckIn = '';
+
+    public string $manualLastCheckOut = '';
+
+    public string $manualReason = '';
 
     public static function canAccess(): bool
     {
@@ -82,11 +106,13 @@ class Attendance extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+        $this->calendarMonth = now('Asia/Karachi')->format('Y-m');
+        $this->manualAttendanceDate = now('Asia/Karachi')->toDateString();
     }
 
     public function updated(string $property): void
     {
-        if (in_array($property, ['period', 'fromDate', 'toDate', 'employeeId', 'teamId'], true)) {
+        if (in_array($property, ['period', 'fromDate', 'toDate', 'employeeId', 'teamId', 'employeeSearch', 'statusFilter', 'dateFilter'], true)) {
             $this->resetPage();
         }
     }
@@ -135,22 +161,107 @@ class Attendance extends Page
         }
     }
 
+    public function openManualAttendance(): void
+    {
+        abort_unless(app(HrAuthorization::class)->allows($this->user(), HrPermission::AttendanceCorrect), 403);
+        $this->reset('manualEmployeeId', 'manualFirstCheckIn', 'manualLastCheckOut', 'manualReason');
+        $this->manualAttendanceDate = now('Asia/Karachi')->toDateString();
+        $this->manualStatus = AttendanceStatus::Present->value;
+        $this->resetValidation();
+        $this->dispatch('open-modal', id: 'create-manual-attendance');
+    }
+
+    public function saveManualAttendance(): void
+    {
+        $this->validate([
+            'manualEmployeeId' => ['required', 'integer'],
+            'manualAttendanceDate' => ['required', 'date'],
+            'manualStatus' => ['required'],
+            'manualFirstCheckIn' => ['nullable', 'date_format:H:i'],
+            'manualLastCheckOut' => ['nullable', 'date_format:H:i'],
+            'manualReason' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $date = $this->manualAttendanceDate;
+        try {
+            app(AttendanceCorrectionService::class)->createManual([
+                'employee_id' => $this->manualEmployeeId,
+                'attendance_date' => $date,
+                'status' => $this->manualStatus,
+                'first_check_in_at' => $this->manualFirstCheckIn !== '' ? $date.' '.$this->manualFirstCheckIn : null,
+                'last_check_out_at' => $this->manualLastCheckOut !== '' ? $date.' '.$this->manualLastCheckOut : null,
+                'reason' => $this->manualReason,
+            ], $this->user());
+            $this->dispatch('close-modal', id: 'create-manual-attendance');
+            $this->reset('manualEmployeeId', 'manualFirstCheckIn', 'manualLastCheckOut', 'manualReason');
+            $this->manualAttendanceDate = now('Asia/Karachi')->toDateString();
+            Notification::make()->success()->title('Manual Attendance recorded')->body('The entry is audited and protected from biometric overwrite.')->send();
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            foreach ($exception->errors() as $field => $messages) {
+                $this->addError('manual'.str($field)->studly()->toString(), $messages[0]);
+            }
+            Notification::make()->danger()->title('Manual Attendance could not be recorded')->body(collect($exception->errors())->flatten()->first())->send();
+        }
+    }
+
     public function getViewData(): array
     {
         [$from, $to] = $this->dateRange();
         $service = app(AttendanceQueryService::class);
-        $query = $service->query($this->user(), $from, $to, $this->employeeId, $this->teamId);
-        $employees = app(HrScopeService::class)->employeeQuery($this->user(), true)->orderBy('name')->get(['id', 'name', 'employee_id', 'team_id']);
+        $user = $this->user();
+        $scope = app(HrScopeService::class);
+        $queryFrom = $this->dateFilter !== '' ? CarbonImmutable::parse($this->dateFilter, 'Asia/Karachi') : $from;
+        $queryTo = $this->dateFilter !== '' ? $queryFrom : $to;
+        $query = $service->query($user, $queryFrom, $queryTo, $this->employeeId, $this->teamId)
+            ->when($this->statusFilter !== '', fn ($query) => $query->where('status', $this->statusFilter));
+        $scopedEmployees = $scope->employeeQuery($user, true)->orderBy('name')->get(['id', 'name', 'employee_id', 'team_id']);
+        $search = trim($this->employeeSearch);
+        $employees = $scopedEmployees->filter(fn (Employee $employee): bool => $search === ''
+            || str($employee->name.' '.$employee->employee_id)->lower()->contains(str($search)->lower())
+            || (int) $employee->id === (int) $this->employeeId)->values();
+        $today = CarbonImmutable::today('Asia/Karachi');
+        $todayQuery = $service->query($user, $today, $today);
+
+        try {
+            $month = $this->calendarMonth === ''
+                ? $today->startOfMonth()
+                : CarbonImmutable::createFromFormat('!Y-m', $this->calendarMonth, 'Asia/Karachi')->startOfMonth();
+        } catch (\Throwable) {
+            $month = $today->startOfMonth();
+        }
+        $calendarRecords = $service->query($user, $month, $month->endOfMonth(), $this->employeeId, $this->teamId)
+            ->when($this->statusFilter !== '', fn ($query) => $query->where('status', $this->statusFilter))
+            ->get();
+        $byDate = $calendarRecords->groupBy(fn (EmployeeAttendance $row): string => $row->attendance_date->toDateString());
+        $calendarStart = $month->startOfWeek();
+        $calendarDays = [];
+        for ($dayIndex = 0; $dayIndex < 42; $dayIndex++) {
+            $day = $calendarStart->addDays($dayIndex);
+            $calendarDays[] = [
+                'date' => $day,
+                'in_month' => $day->month === $month->month,
+                'records' => $byDate->get($day->toDateString(), collect())->take(4),
+                'more_count' => max(0, $byDate->get($day->toDateString(), collect())->count() - 4),
+            ];
+        }
 
         return [
-            'rows' => (clone $query)->paginate(25),
-            'summary' => $service->summary(clone $query),
+            'rows' => (clone $query)->with('corrections.actor:id,name')->paginate(25),
+            'summary' => $service->summary(clone $todayQuery),
+            'rangeSummary' => $service->summary(clone $query),
             'employees' => $employees,
-            'teams' => Team::query()->whereKey($employees->pluck('team_id')->filter()->unique())->orderBy('name')->pluck('name', 'id'),
-            'showEmployee' => $employees->count() > 1,
+            'teams' => Team::query()->whereKey($scopedEmployees->pluck('team_id')->filter()->unique())->orderBy('name')->pluck('name', 'id'),
+            'showEmployee' => $scopedEmployees->count() > 1,
             'canCorrect' => app(HrAuthorization::class)->allows($this->user(), HrPermission::AttendanceCorrect),
+            'canManual' => app(HrAuthorization::class)->allows($this->user(), HrPermission::AttendanceCorrect) && $scopedEmployees->isNotEmpty(),
             'statuses' => collect(AttendanceStatus::cases())->mapWithKeys(fn (AttendanceStatus $status): array => [$status->value => str($status->value)->replace('_', ' ')->title()->toString()]),
             'rangeLabel' => $from->format('d M Y').' – '.$to->format('d M Y'),
+            'calendarDays' => $calendarDays,
+            'calendarRecords' => $calendarRecords,
+            'calendarMonthLabel' => $month->format('F Y'),
+            'manualStatuses' => collect([AttendanceStatus::Present, AttendanceStatus::Late, AttendanceStatus::Absent, AttendanceStatus::HalfDay])->mapWithKeys(fn (AttendanceStatus $status): array => [$status->value => str($status->value)->replace('_', ' ')->title()->toString()]),
         ];
     }
 

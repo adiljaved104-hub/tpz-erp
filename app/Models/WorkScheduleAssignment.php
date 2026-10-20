@@ -11,7 +11,11 @@ class WorkScheduleAssignment extends Model
 
     protected function casts(): array
     {
-        return ['effective_from' => 'immutable_date', 'effective_to' => 'immutable_date'];
+        return [
+            'effective_from' => 'immutable_date',
+            'effective_to' => 'immutable_date',
+            'grace_minutes_override' => 'integer',
+        ];
     }
 
     public function employee(): BelongsTo

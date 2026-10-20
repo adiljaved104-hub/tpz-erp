@@ -246,7 +246,7 @@ class SharedCategoryResponsibilityTest extends TestCase
         $this->assertDatabaseCount('product_marketplace_listings', 0);
         $requests = app(StockRequestService::class);
         $this->assertTrue($requests->searchInventories($staff, $f['product']->sku)->contains('id', $f['inventory']->id));
-        $availability = $requests->sourceAvailability($f['inventory']->id);
+        $availability = $requests->sourceAvailability($staff, $f['inventory']->id);
         $this->assertSame($account->id, $availability['holders']->sole()['account_id']);
         $request = $requests->create(new CreateStockRequestData(StockRequestPurpose::PermanentTransfer, null, [new StockRequestItemData($f['inventory']->id, 2)], 'Request stock from its actual holder', (string) Str::uuid()), $staff);
         $this->assertSame($account->id, $request->items->sole()->proposed_sources[0]['account_id']);

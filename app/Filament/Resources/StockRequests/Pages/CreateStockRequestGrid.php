@@ -103,7 +103,7 @@ class CreateStockRequestGrid extends Page
             'allocationBalances.account.employee:id,employee_id,name', 'allocationBalances.account.team:id,name',
         ])->select(['id', 'product_id', 'warehouse_id', 'available_quantity', 'reserved_quantity', 'damaged_quantity']);
         if (app(ResponsibilityProductScopeService::class)->requiresScope($actor)) {
-            $query->whereIn('id', app(ResponsibilityProductScopeService::class)->inventoryIds($actor));
+            $query->whereIn('id', app(ResponsibilityProductScopeService::class)->stockRequestInventoryIds($actor));
         }
         $search = trim($this->search);
         if ($search !== '') {
@@ -158,7 +158,7 @@ class CreateStockRequestGrid extends Page
         $this->authorizeAccess();
         $query = DB::table('product_inventories as pi');
         if (app(ResponsibilityProductScopeService::class)->requiresScope(auth()->user())) {
-            $query->whereIn('pi.id', app(ResponsibilityProductScopeService::class)->inventoryIds(auth()->user()));
+            $query->whereIn('pi.id', app(ResponsibilityProductScopeService::class)->stockRequestInventoryIds(auth()->user()));
         }
         $ids = $query->select('pi.id');
 

@@ -45,7 +45,7 @@ class StockRequestController extends MobileController
             'inventories' => $canCreate
                 ? $service->searchInventories($user, $search)->map(fn ($inventory) => [
                     'id' => $inventory->id,
-                    'label' => $service->inventoryLabel($inventory),
+                    'label' => $service->inventoryLabel($user, $inventory),
                 ])->values()
                 : collect(),
             'orders' => $canCreate

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\StockRequests\Schemas;
 use App\Enums\StockRequestPurpose;
 use App\Models\Order;
 use App\Models\ProductInventory;
+use App\Models\User;
 use App\Services\Inventory\StockRequestService;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
@@ -50,11 +51,16 @@ class StockRequestForm
                 Repeater::make('items')->minItems(1)->maxItems(100)->defaultItems(1)->addActionLabel('Add Product')->columns(['default' => 1, 'md' => 12])->schema([
                     Select::make('product_inventory_id')->label('Product / Warehouse')->required()->distinct()->searchable()->live()
                         ->getSearchResultsUsing(fn (string $search): array => app(StockRequestService::class)->searchInventories(auth()->user(), $search)
-                            ->mapWithKeys(fn (ProductInventory $inventory): array => [$inventory->id => app(StockRequestService::class)->inventoryLabel($inventory)])->all())
+                            ->mapWithKeys(fn (ProductInventory $inventory): array => [$inventory->id => app(StockRequestService::class)->inventoryLabel(auth()->user(), $inventory)])->all())
                         ->getOptionLabelUsing(function ($value): ?string {
-                            $inventory = ProductInventory::query()->with(['product', 'warehouse'])->find($value);
+                            $user = auth()->user();
+                            if (! $user instanceof User) {
+                                return null;
+                            }
 
-                            return $inventory === null ? null : app(StockRequestService::class)->inventoryLabel($inventory);
+                            $inventory = app(StockRequestService::class)->requestableInventory($user, (int) $value);
+
+                            return $inventory === null ? null : app(StockRequestService::class)->inventoryLabel($user, $inventory);
                         })->wrapOptionLabels()->columnSpan(['default' => 1, 'md' => 10]),
                     TextInput::make('quantity')->numeric()->integer()->minValue(1)->required()->default(1)->columnSpan(['default' => 1, 'md' => 2]),
                     Placeholder::make('source_availability')->label('Proposed Available Sources')->content(function (Get $get): string {
@@ -62,7 +68,11 @@ class StockRequestForm
                         if ($inventoryId < 1) {
                             return 'Select a product to see Employee/Team source availability.';
                         }
-                        $availability = app(StockRequestService::class)->sourceAvailability($inventoryId);
+                        $user = auth()->user();
+                        if (! $user instanceof User) {
+                            return 'An active employee login is required to view stock sources.';
+                        }
+                        $availability = app(StockRequestService::class)->sourceAvailability($user, $inventoryId);
                         $holders = $availability['holders']->map(fn (array $source): string => "{$source['label']}: {$source['available_quantity']}")->join(' · ');
 
                         return ($holders === '' ? 'Employee/Team sources: none' : $holders)." · System / Unassigned: {$availability['system_unassigned']} · Total requestable: {$availability['requestable_available']}";

@@ -20,6 +20,7 @@ use App\Services\Notifications\StockRequestNotificationDispatcher;
 use App\Services\Orders\OrderReadService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -98,7 +99,7 @@ class StockRequestService
             if (! $inventory instanceof ProductInventory) {
                 throw ValidationException::withMessages(["items.{$index}.product_inventory_id" => 'The selected inventory is no longer available.']);
             }
-            $this->inventoryAuthorization->authorize($actor, InventoryPermission::CreateStockRequests, $inventory);
+            $this->authorizeRequestInventory($actor, $inventory);
         }
 
         $reference = $this->references->nextStockRequestReference();
@@ -125,7 +126,7 @@ class StockRequestService
 
             foreach ($validated['items'] as $index => $item) {
                 $inventory = $inventories->get($item['product_inventory_id']);
-                $availability = $this->sourceAvailability((int) $inventory->id, true);
+                $availability = $this->sourceAvailability($actor, (int) $inventory->id, true);
                 $requested = (int) $item['quantity'];
                 if ($requested > $availability['requestable_available']) {
                     $available = $availability['requestable_available'];
@@ -242,10 +243,21 @@ class StockRequestService
                 ->orWhereHas('brandRelation', fn (Builder $brand): Builder => $brand->where('name', 'like', "%{$search}%"));
         });
         if ($this->responsibilities->requiresScope($actor)) {
-            $query->whereIn('id', $this->responsibilities->inventoryIds($actor));
+            $query->whereIn('id', $this->responsibilities->stockRequestInventoryIds($actor));
         }
 
         return $query->orderBy('id')->limit(20)->get();
+    }
+
+    public function requestableInventory(User $actor, int $inventoryId): ?ProductInventory
+    {
+        $this->inventoryAuthorization->authorize($actor, InventoryPermission::CreateStockRequests);
+        $query = ProductInventory::query()->with(['product', 'warehouse'])->whereKey($inventoryId);
+        if ($this->responsibilities->requiresScope($actor)) {
+            $query->whereIn('id', $this->responsibilities->stockRequestInventoryIds($actor));
+        }
+
+        return $query->first();
     }
 
     /** @return Collection<int, Order> */
@@ -262,8 +274,11 @@ class StockRequestService
     }
 
     /** @return array{holders: Collection<int, array{account_id:int,type:string,label:string,available_quantity:int}>, transferable_available:int, system_unassigned:int, system_account_id:?int, requestable_available:int} */
-    public function sourceAvailability(int $inventoryId, bool $lock = false): array
+    public function sourceAvailability(User $actor, int $inventoryId, bool $lock = false): array
     {
+        $inventory = ProductInventory::query()->findOrFail($inventoryId);
+        $this->authorizeRequestInventory($actor, $inventory);
+
         $query = InventoryAllocationBalance::query()
             ->with(['account.employee', 'account.team'])
             ->where('product_inventory_id', $inventoryId)
@@ -292,11 +307,26 @@ class StockRequestService
         ];
     }
 
-    public function inventoryLabel(ProductInventory $inventory): string
+    public function inventoryLabel(User $actor, ProductInventory $inventory): string
     {
-        $availability = $this->sourceAvailability((int) $inventory->id);
+        $availability = $this->sourceAvailability($actor, (int) $inventory->id);
 
         return "{$inventory->product->sku} — {$inventory->product->name} — {$inventory->warehouse->name} · Transferable: {$availability['transferable_available']} · System/Unassigned: {$availability['system_unassigned']}";
+    }
+
+    private function authorizeRequestInventory(User $actor, ProductInventory $inventory): void
+    {
+        $this->inventoryAuthorization->authorize($actor, InventoryPermission::CreateStockRequests);
+
+        if ($this->responsibilities->canAccessInventory($actor, (int) $inventory->id)) {
+            $this->inventoryAuthorization->authorize($actor, InventoryPermission::CreateStockRequests, $inventory);
+
+            return;
+        }
+
+        if (! $this->responsibilities->canViewWarehouseHolders($actor, (int) $inventory->id)) {
+            throw new AuthorizationException;
+        }
     }
 
     private function accountLabel(InventoryAllocationAccount $account): string

@@ -130,7 +130,7 @@ class StockRequestFoundationTest extends TestCase
         $allocations->reconcile($f['inventory'], $allocations->employeeAccount($source->id), 2, $f['owner'], 'Employee holder');
         $allocations->reconcile($f['inventory'], $allocations->teamAccount($team->id), 3, $f['owner'], 'Team holder');
         $allocations->reconcile($second, $allocations->employeeAccount($source->id), 1, $f['owner'], 'Second holder');
-        $availability = app(StockRequestService::class)->sourceAvailability($f['inventory']->id);
+        $availability = app(StockRequestService::class)->sourceAvailability($f['owner'], $f['inventory']->id);
         $this->assertSame(5, $availability['transferable_available']);
         $this->assertSame(5, $availability['system_unassigned']);
         $this->assertCount(2, $availability['holders']);

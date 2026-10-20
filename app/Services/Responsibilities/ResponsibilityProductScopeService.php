@@ -298,6 +298,25 @@ class ResponsibilityProductScopeService
             ->select('product_inventories.id');
     }
 
+    /**
+     * Stock Requests may use existing operational product scope or a shared
+     * warehouse grant that permits both stock and holder visibility. The
+     * latter is required because the existing approval workflow snapshots and
+     * displays the original allocation sources.
+     */
+    public function stockRequestInventoryIds(User $user): Builder
+    {
+        $query = DB::table('product_inventories');
+        if (! $this->requiresScope($user)) {
+            return $query->select('product_inventories.id');
+        }
+
+        return $query->where(function (Builder $visible) use ($user): void {
+            $visible->where(fn (Builder $operational) => $this->applyInventories($operational, 'product_inventories', $user))
+                ->orWhere(fn (Builder $shared) => $this->applyWarehouseAssignedInventoriesWithHolderVisibility($shared, 'product_inventories', $user));
+        })->select('product_inventories.id');
+    }
+
     public function canAccessInventory(User $user, int $inventoryId): bool
     {
         return $this->applyInventories(

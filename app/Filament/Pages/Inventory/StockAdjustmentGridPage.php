@@ -77,7 +77,7 @@ abstract class StockAdjustmentGridPage extends Page
         app(PurchaseAuthorization::class)->authorize(auth()->user(), PurchasePermission::ViewReceipts, $receiptItem->receipt->purchase);
         $inventory = ProductInventory::query()->where('product_id', $receiptItem->product_id)
             ->where('warehouse_id', $receiptItem->receipt->warehouse_id)->firstOrFail();
-        app(InventoryAuthorization::class)->authorize(auth()->user(), InventoryPermission::AdjustStock, $inventory);
+        abort_unless($this->canAdjustInventory($inventory), 403);
         $this->linkedInventoryId = $inventory->id;
         $this->linkedReceiptItemId = $receiptItem->id;
         $this->drafts[$inventory->id] = ['selected' => true, 'quantity' => 1, 'receipt_item_id' => $receiptItem->id, 'idempotency_key' => (string) Str::uuid()];
@@ -130,6 +130,22 @@ abstract class StockAdjustmentGridPage extends Page
         return $actor instanceof User && app(InventoryAuthorization::class)->allows($actor, InventoryPermission::AdjustStock);
     }
 
+    private function canAdjustInventory(ProductInventory $inventory): bool
+    {
+        $actor = auth()->user();
+        if (! $actor instanceof User) {
+            return false;
+        }
+
+        $authorization = app(InventoryAuthorization::class);
+
+        return $authorization->allows($actor, InventoryPermission::AdjustStock, $inventory)
+            || ($authorization->allows($actor, InventoryPermission::AdjustStock)
+                && app(WarehouseStockActionScopeService::class)->allows(
+                    $actor, $inventory, WarehouseStockActionScopeService::ADJUST_STOCK,
+                ));
+    }
+
     public function canQuickPurchase(): bool
     {
         return QuickStockPurchase::canAccess();
@@ -138,9 +154,9 @@ abstract class StockAdjustmentGridPage extends Page
     public function rows(): LengthAwarePaginator
     {
         abort_unless(static::canAccess(), 403);
-        $query = app(InventoryReadService::class)->inventories(auth()->user())->with([
+        $query = app(InventoryReadService::class)->adjustmentGridInventories(auth()->user())->with([
             'product:id,sku,name,status,brand_id',
-            'product.brandRelation:id,name', 'allocationBalances.account:id,name,status,is_system,employee_id,team_id',
+            'product.brandRelation:id,name',
         ]);
         $search = trim($this->search);
         if ($search !== '') {
@@ -172,6 +188,9 @@ abstract class StockAdjustmentGridPage extends Page
         $rows->getCollection()->each(function (ProductInventory $row): void {
             $maySeeHolders = app(EmployeeOwnedInventoryReadService::class)
                 ->canViewWarehouseStockHolders(auth()->user(), $row->id);
+            if ($maySeeHolders) {
+                $row->loadMissing('allocationBalances.account:id,name,status,is_system,employee_id,team_id');
+            }
             $row->holder_labels = $maySeeHolders
                 ? $row->allocationBalances
                     ->filter(fn ($balance): bool => $balance->allocated_quantity > 0 && $balance->account?->status)
@@ -186,7 +205,7 @@ abstract class StockAdjustmentGridPage extends Page
     public function filterOptions(): array
     {
         $reader = app(EmployeeOwnedInventoryReadService::class);
-        $ids = app(InventoryReadService::class)->inventories(auth()->user())->select('product_inventories.id');
+        $ids = app(InventoryReadService::class)->adjustmentGridInventories(auth()->user())->select('product_inventories.id');
         $holderIds = $reader->isEmployeeView(auth()->user())
             ? $reader->warehouseHolderVisibleInventoryIds(auth()->user())
             : $ids;
@@ -205,7 +224,7 @@ abstract class StockAdjustmentGridPage extends Page
     /** @return array<int, string> */
     public function increaseHolderOptions(ProductInventory $inventory): array
     {
-        if (! $this->canAdjust()) {
+        if (! $this->canAdjustInventory($inventory)) {
             return [];
         }
 
@@ -224,6 +243,7 @@ abstract class StockAdjustmentGridPage extends Page
 
         return $actor instanceof User
             && ! in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+            && $this->canAdjustInventory($inventory)
             && app(WarehouseStockActionScopeService::class)->allows($actor, $inventory, WarehouseStockActionScopeService::ADJUST_STOCK);
     }
 
@@ -254,7 +274,7 @@ abstract class StockAdjustmentGridPage extends Page
     public function adjustmentHolderOptions(ProductInventory $inventory, ?string $type = null): array
     {
         $actor = auth()->user();
-        if (! $actor instanceof User || ! $this->canAdjust()) {
+        if (! $actor instanceof User || ! $this->canAdjustInventory($inventory)) {
             return [];
         }
 
@@ -304,7 +324,7 @@ abstract class StockAdjustmentGridPage extends Page
         if (! ($draft['selected'] ?? false) || blank($draft['type'] ?? null) || (int) ($draft['quantity'] ?? 0) < 1) {
             return 'No Change';
         }
-        if (! app(InventoryAuthorization::class)->allows(auth()->user(), InventoryPermission::AdjustStock, $inventory)) {
+        if (! $this->canAdjustInventory($inventory)) {
             return 'Permission Denied';
         }
         if ($draft['type'] === 'saleable_increase' && ($draft['is_new_purchase'] ?? null) === 'yes') {
@@ -347,7 +367,7 @@ abstract class StockAdjustmentGridPage extends Page
                 continue;
             }
             $inventory = ProductInventory::query()->findOrFail((int) $inventoryId);
-            app(InventoryAuthorization::class)->authorize(auth()->user(), InventoryPermission::AdjustStock, $inventory);
+            abort_unless($this->canAdjustInventory($inventory), 403);
             if (($draft['type'] ?? null) === 'saleable_increase' && ($draft['is_new_purchase'] ?? null) === 'yes') {
                 abort_unless($this->canQuickPurchase(), 403);
                 $purchaseRows++;
@@ -415,7 +435,7 @@ abstract class StockAdjustmentGridPage extends Page
 
     public function recentHistory(): Collection
     {
-        $ids = app(InventoryReadService::class)->inventories(auth()->user())->select('product_inventories.id');
+        $ids = app(InventoryReadService::class)->adjustmentGridInventories(auth()->user())->select('product_inventories.id');
 
         return InventoryAdjustment::query()->with(['product:id,sku,name', 'warehouse:id,name', 'performedBy:id,name'])
             ->whereIn('product_inventory_id', $ids)->orderByDesc('performed_at')->orderByDesc('id')->limit(25)->get();

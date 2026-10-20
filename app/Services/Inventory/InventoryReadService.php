@@ -8,6 +8,7 @@ use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
+use App\Services\Responsibilities\WarehouseStockActionScopeService;
 use Illuminate\Database\Eloquent\Builder;
 
 class InventoryReadService
@@ -15,9 +16,41 @@ class InventoryReadService
     public function __construct(
         private readonly InventoryAuthorization $authorization,
         private readonly ResponsibilityProductScopeService $responsibilities,
+        private readonly WarehouseStockActionScopeService $warehouseActions,
     ) {}
 
     public function inventories(User $user): Builder
+    {
+        $query = $this->inventoryQuery($user);
+        $this->responsibilities->applyInventories($query->getQuery(), 'product_inventories', $user);
+
+        return $query;
+    }
+
+    /**
+     * Stock Adjustment grid visibility preserves operational responsibilities
+     * and adds only active, view-enabled adjustment grants when the actor also
+     * has the separate inventory.adjust_stock permission.
+     */
+    public function adjustmentGridInventories(User $user): Builder
+    {
+        $query = $this->inventoryQuery($user);
+
+        if (! $this->authorization->allows($user, InventoryPermission::AdjustStock)) {
+            $this->responsibilities->applyInventories($query->getQuery(), 'product_inventories', $user);
+
+            return $query;
+        }
+
+        $query->where(function (Builder $visible) use ($user): void {
+            $visible->whereIn('product_inventories.id', $this->responsibilities->inventoryIds($user));
+            $visible->orWhereIn('product_inventories.id', $this->warehouseActions->adjustmentInventoryIds($user));
+        });
+
+        return $query;
+    }
+
+    private function inventoryQuery(User $user): Builder
     {
         $fields = ['id', 'product_id', 'warehouse_id', 'available_quantity', 'reserved_quantity', 'damaged_quantity', 'created_at', 'updated_at'];
 
@@ -25,10 +58,7 @@ class InventoryReadService
             $fields[] = 'average_cost';
         }
 
-        $query = ProductInventory::query()->select($fields)->with(['product:id,sku,name,status', 'warehouse:id,name,code,status']);
-        $this->responsibilities->applyInventories($query->getQuery(), 'product_inventories', $user);
-
-        return $query;
+        return ProductInventory::query()->select($fields)->with(['product:id,sku,name,status', 'warehouse:id,name,code,status']);
     }
 
     public function movements(User $user): Builder

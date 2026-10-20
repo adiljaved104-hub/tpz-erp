@@ -10,6 +10,7 @@ use App\Enums\InventoryLocationType;
 use App\Enums\InventoryPermission;
 use App\Enums\ProductCondition;
 use App\Enums\ResponsibilityAssignmentMode;
+use App\Filament\Pages\Inventory\StockAdjustments;
 use App\Filament\Resources\ProductInventories\Pages\ListProductInventories;
 use App\Filament\Resources\ResponsibilityAssignments\Pages\CreateResponsibilityAssignment as CreateResponsibilityAssignmentPage;
 use App\Filament\Resources\WarehouseStockVisibilityGrants\Pages\CreateWarehouseStockVisibilityGrant;
@@ -216,6 +217,8 @@ class WarehouseConditionVisibilityTest extends TestCase
             [$f['inventory']->id, $usedInventory->id],
             app(EmployeeOwnedInventoryReadService::class)->locationInventories($anas)->pluck('id')->all(),
         );
+        $gridRows = Livewire::actingAs($anas)->test(StockAdjustments::class)->instance()->rows()->getCollection();
+        $this->assertEqualsCanonicalizing([$f['inventory']->id, $usedInventory->id], $gridRows->pluck('id')->all());
     }
 
     public function test_shared_visibility_duplicate_and_operational_scope_errors_are_shown_in_the_form(): void

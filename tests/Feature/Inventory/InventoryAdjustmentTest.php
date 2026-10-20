@@ -577,6 +577,111 @@ class InventoryAdjustmentTest extends TestCase
             ->firstWhere('id', $inventory->id)->holder_labels);
     }
 
+    public function test_grid_includes_only_explicitly_adjustable_shared_warehouse_stock_and_posts_to_selected_holder(): void
+    {
+        [$owner] = $this->receivedPurchase();
+        $inventory = ProductInventory::query()->sole();
+        $inventory->product->update(['condition' => ProductCondition::Renewed]);
+        $actor = $this->user(EmployeeRole::Manager);
+        $this->allowInventoryPermission($actor, $owner, InventoryPermission::AdjustStock);
+        $this->createWarehouseGrant($actor, $owner, $inventory, adjust: true);
+
+        $otherWarehouse = Warehouse::factory()->create();
+        $wrongWarehouse = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['condition' => ProductCondition::Renewed])->id,
+            'warehouse_id' => $otherWarehouse->id,
+            'available_quantity' => 7,
+        ]);
+        $wrongCondition = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['condition' => ProductCondition::New])->id,
+            'warehouse_id' => $inventory->warehouse_id,
+            'available_quantity' => 8,
+        ]);
+
+        $component = Livewire::actingAs($actor)->test(StockAdjustments::class);
+        $rows = $component->instance()->rows()->getCollection();
+        $this->assertTrue($rows->contains('id', $inventory->id));
+        $this->assertFalse($rows->contains('id', $wrongWarehouse->id));
+        $this->assertFalse($rows->contains('id', $wrongCondition->id));
+        $this->assertContains($inventory->warehouse->name, $component->instance()->filterOptions()['warehouses']);
+
+        $holderAccountId = PurchaseReceiptAllocationLine::query()->sole()->account_id;
+        $this->assertArrayHasKey($holderAccountId, $component->instance()->stockAdjustmentHolderOptions($inventory, 'saleable_decrease'));
+        $component->set("drafts.{$inventory->id}", [
+            'selected' => true,
+            'type' => 'saleable_decrease',
+            'quantity' => 1,
+            'reason' => 'Physical count confirms one missing unit.',
+            'allocation_account_id' => $holderAccountId,
+            'idempotency_key' => (string) Str::uuid(),
+        ])->call('saveAll')->assertHasNoErrors();
+
+        $this->assertSame(3, $inventory->refresh()->available_quantity);
+        $this->assertSame(3, InventoryAllocationBalance::query()
+            ->where('account_id', $holderAccountId)->where('product_inventory_id', $inventory->id)->value('allocated_quantity'));
+        $this->assertDatabaseHas('inventory_adjustments', [
+            'product_inventory_id' => $inventory->id,
+            'allocation_account_id' => $holderAccountId,
+            'available_delta' => -1,
+        ]);
+    }
+
+    public function test_read_only_shared_visibility_does_not_add_adjustment_grid_access_or_allow_submission(): void
+    {
+        [$owner] = $this->receivedPurchase();
+        $inventory = ProductInventory::query()->sole();
+        $inventory->product->update(['condition' => ProductCondition::Renewed]);
+        $actor = $this->user(EmployeeRole::Manager);
+        $this->allowInventoryPermission($actor, $owner, InventoryPermission::AdjustStock);
+        $this->createWarehouseGrant($actor, $owner, $inventory, adjust: false);
+
+        $component = Livewire::actingAs($actor)->test(StockAdjustments::class);
+        $this->assertFalse($component->instance()->rows()->getCollection()->contains('id', $inventory->id));
+        $component->set("drafts.{$inventory->id}", [
+            'selected' => true,
+            'type' => 'saleable_decrease',
+            'quantity' => 1,
+            'reason' => 'Physical count confirms one missing unit.',
+            'allocation_account_id' => PurchaseReceiptAllocationLine::query()->sole()->account_id,
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $this->assertSame('Permission Denied', $component->instance()->rowStatus($inventory));
+        $component->call('saveAll')->assertForbidden();
+
+        try {
+            app(InventoryAdjustmentService::class)->post($this->data(
+                $inventory, 'saleable_decrease', 1, accountId: PurchaseReceiptAllocationLine::query()->sole()->account_id,
+            ), $actor);
+            $this->fail('Read-only warehouse visibility authorized a stock adjustment.');
+        } catch (AuthorizationException) {
+            $this->assertDatabaseCount('inventory_adjustments', 0);
+            $this->assertSame(4, $inventory->refresh()->available_quantity);
+        }
+    }
+
+    public function test_shared_adjustment_grant_does_not_replace_inventory_adjust_stock_permission(): void
+    {
+        [$owner] = $this->receivedPurchase();
+        $inventory = ProductInventory::query()->sole();
+        $inventory->product->update(['condition' => ProductCondition::Renewed]);
+        $actor = $this->user(EmployeeRole::Manager);
+        $this->createWarehouseGrant($actor, $owner, $inventory, adjust: true);
+
+        $component = Livewire::actingAs($actor)->test(StockAdjustments::class);
+        $this->assertFalse($component->instance()->canAdjust());
+        $this->assertFalse($component->instance()->rows()->getCollection()->contains('id', $inventory->id));
+
+        try {
+            app(InventoryAdjustmentService::class)->post($this->data(
+                $inventory, 'saleable_decrease', 1, accountId: PurchaseReceiptAllocationLine::query()->sole()->account_id,
+            ), $actor);
+            $this->fail('A warehouse action grant replaced inventory.adjust_stock.');
+        } catch (AuthorizationException) {
+            $this->assertDatabaseCount('inventory_adjustments', 0);
+            $this->assertSame(4, $inventory->refresh()->available_quantity);
+        }
+    }
+
     public function test_grid_keeps_edits_as_drafts_and_rejects_an_invalid_batch_without_posting(): void
     {
         [$owner] = $this->receivedPurchase();

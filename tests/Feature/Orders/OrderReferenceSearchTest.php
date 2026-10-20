@@ -8,6 +8,7 @@ use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\Enums\EmployeeRole;
 use App\Enums\OrderStatus;
 use App\Filament\Resources\CustomerReturns\Pages\CreateCustomerReturn;
+use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Models\Employee;
 use App\Models\MarketplacePlatform;
 use App\Models\Order;
@@ -153,6 +154,33 @@ class OrderReferenceSearchTest extends TestCase
         $this->assertSame('SO-RETURN-001 — Amazon UAE — AMZ-RETURN-001', $results[$fulfilled->id]);
         $this->assertArrayHasKey($fulfilled->id, $field->getSearchResults('amz-return-001'));
         $this->assertArrayNotHasKey($draft->id, $field->getSearchResults('AMZ-RETURN-002'));
+    }
+
+    public function test_sales_order_table_search_covers_product_identity_employee_and_order_dates(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $owner->employee->update(['name' => 'Order Search Handler']);
+        $warehouse = Warehouse::factory()->create();
+        $platform = MarketplacePlatform::factory()->create(['name' => 'Amazon UAE']);
+        $product = Product::factory()->create([
+            'sku' => 'SMART-SKU-481',
+            'name' => 'Searchable MacBook Pro Product',
+            'model' => 'MODEL-SEARCH-481',
+        ]);
+        $order = $this->order($owner, $warehouse, $platform, 'SO-SMART-481', 'AMZ-SMART-481', $product);
+        $order->forceFill(['handled_by_employee_id' => $owner->employee->id, 'order_date' => '2026-05-14'])->save();
+        $other = $this->order($owner, $warehouse, $platform, 'SO-SMART-482', 'AMZ-SMART-482');
+        $other->forceFill(['order_date' => '2026-06-14'])->save();
+
+        $this->actingAs($owner);
+        foreach (['SMART-SKU-481', 'Searchable MacBook', 'MODEL-SEARCH-481', 'Order Search Handler', 'AMZ-SMART-481'] as $term) {
+            Livewire::test(ListOrders::class)->searchTable($term)->assertCanSeeTableRecords([$order])->assertCanNotSeeTableRecords([$other]);
+        }
+
+        Livewire::test(ListOrders::class)
+            ->filterTable('order_date_range', ['from' => '2026-05-01', 'through' => '2026-05-31'])
+            ->assertCanSeeTableRecords([$order])
+            ->assertCanNotSeeTableRecords([$other]);
     }
 
     private function user(EmployeeRole $role): User

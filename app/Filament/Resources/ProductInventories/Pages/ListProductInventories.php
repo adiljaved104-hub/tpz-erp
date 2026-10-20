@@ -8,4 +8,6 @@ use Filament\Resources\Pages\ListRecords;
 class ListProductInventories extends ListRecords
 {
     protected static string $resource = ProductInventoryResource::class;
+
+    protected static ?string $title = 'My Inventory';
 }

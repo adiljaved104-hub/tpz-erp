@@ -29,11 +29,11 @@ class ProductInventoryResource extends Resource
 
     protected static ?int $navigationSort = 3;
 
-    protected static ?string $navigationLabel = 'Stock by Location';
+    protected static ?string $navigationLabel = 'My Inventory';
 
-    protected static ?string $modelLabel = 'Stock Location';
+    protected static ?string $modelLabel = 'Inventory Record';
 
-    protected static ?string $pluralModelLabel = 'Stock by Location';
+    protected static ?string $pluralModelLabel = 'My Inventory';
 
     public static function getEloquentQuery(): Builder
     {

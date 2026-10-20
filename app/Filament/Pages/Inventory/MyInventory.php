@@ -52,7 +52,9 @@ class MyInventory extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory';
 
-    protected static ?string $navigationLabel = 'My Inventory';
+    protected static ?string $navigationLabel = 'My Allocated Stock';
+
+    protected static ?string $title = 'My Allocated Stock';
 
     protected static ?int $navigationSort = 1;
 

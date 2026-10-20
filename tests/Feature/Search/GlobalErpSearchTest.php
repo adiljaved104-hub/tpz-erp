@@ -94,7 +94,7 @@ class GlobalErpSearchTest extends TestCase
 
         foreach ([
             'product' => 'Products',
-            'inventory overview' => 'Inventory Overview',
+            'inventory by location' => 'Inventory by Location',
             'purchase' => 'Purchases',
             'order' => 'Sales Orders',
             'quotation' => 'Quotations',

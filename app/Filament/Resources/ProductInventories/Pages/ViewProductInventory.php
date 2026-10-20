@@ -8,4 +8,6 @@ use Filament\Resources\Pages\ViewRecord;
 class ViewProductInventory extends ViewRecord
 {
     protected static string $resource = ProductInventoryResource::class;
+
+    protected static ?string $title = 'My Inventory Details';
 }

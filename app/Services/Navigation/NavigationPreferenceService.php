@@ -191,12 +191,14 @@ class NavigationPreferenceService
             'admin/web-sales-orders' => ['Orders'],
             'admin/web-sales-dashboard' => ['Dashboard'],
             'admin/orders' => ['Orders'],
+            'admin/my-inventory' => ['My Inventory'],
+            'admin/inventory-overview' => ['Inventory Overview', 'Inventory Overview by Location'],
+            'admin/product-inventories' => ['Stock by Location', 'Location Balances'],
             default => [],
         }];
         $labels = [...$labels, ...match ($item->getLabel()) {
             'Tax Invoices' => ['Invoices'],
             'Stock Ownership' => ['Stock by Holder'],
-            'Stock by Location' => ['Location Balances'],
             'Customer Returns' => ['Returns'],
             'Claims / Safe-T' => ['Claims'],
             'HR Settings' => ['Settings'],

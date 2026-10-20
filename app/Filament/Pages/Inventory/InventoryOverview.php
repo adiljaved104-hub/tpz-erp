@@ -37,9 +37,9 @@ class InventoryOverview extends Page
 
     protected static ?int $navigationSort = 2;
 
-    protected static ?string $navigationLabel = 'Inventory Overview';
+    protected static ?string $navigationLabel = 'Inventory by Location';
 
-    protected static ?string $title = 'Inventory Overview by Location';
+    protected static ?string $title = 'Inventory by Location';
 
     public static function canAccess(): bool
     {

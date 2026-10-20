@@ -131,7 +131,7 @@ class AccessControlMatrixTest extends TestCase
             ->call('selectEmployee', $staff->id)
             ->assertSee('People & HR')
             ->assertSee('Products & Inventory')
-            ->assertSee('Stock by Location')
+            ->assertSee('My Inventory')
             ->assertSee('Web Sales')
             ->assertSee('Quotations & Invoices')
             ->assertSee('Tax Invoices')

@@ -204,25 +204,52 @@ class EmployeeOwnedInventoryTest extends TestCase
         $this->assertSame(8, $f['holderAccount']->balances()->sole()->allocated_quantity);
     }
 
-    public function test_stock_by_location_rename_preserves_existing_hidden_navigation_preference(): void
+    public function test_inventory_menu_renames_preserve_legacy_navigation_preferences(): void
     {
         $owner = $this->responsibilityUser(EmployeeRole::Owner);
         $this->actingAs($owner);
-        $this->assertSame('Stock Location', ProductInventoryResource::getModelLabel());
-        $this->assertSame('Stock by Location', ProductInventoryResource::getPluralModelLabel());
-        $this->assertSame('Stock by Location', ProductInventoryResource::getNavigationLabel());
+        $this->assertSame('Inventory Record', ProductInventoryResource::getModelLabel());
+        $this->assertSame('My Inventory', ProductInventoryResource::getPluralModelLabel());
+        $this->assertSame('My Inventory', ProductInventoryResource::getNavigationLabel());
+        $this->assertSame('My Allocated Stock', MyInventory::getNavigationLabel());
+        $this->assertSame('Inventory by Location', InventoryOverview::getNavigationLabel());
         $path = trim(parse_url(ProductInventoryResource::getUrl(), PHP_URL_PATH), '/');
-        $legacyKey = 'item:'.hash('sha256', implode('|', ['Inventory', '', 'Location Balances', $path]));
-        app(UserUiPreferenceService::class)->put($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS, [$legacyKey]);
+        $legacyKeys = collect(['Stock by Location', 'Location Balances'])
+            ->map(fn (string $label): string => 'item:'.hash('sha256', implode('|', ['Inventory', '', $label, $path])))
+            ->all();
+        app(UserUiPreferenceService::class)->put($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS, $legacyKeys);
         $groups = [NavigationGroup::make('Inventory')->items([
-            NavigationItem::make('Stock by Location')->url(ProductInventoryResource::getUrl()),
-            NavigationItem::make('My Inventory')->url('/admin/my-inventory'),
+            NavigationItem::make('My Inventory')->url(ProductInventoryResource::getUrl()),
+            NavigationItem::make('My Allocated Stock')->url('/admin/my-inventory'),
         ])];
 
         $result = app(NavigationPreferenceService::class)->apply($owner, $groups);
 
-        $this->assertSame(['My Inventory'], collect($result[0]->getItems())->map(fn ($item) => $item->getLabel())->all());
-        $this->assertSame([$legacyKey], app(UserUiPreferenceService::class)->get($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS));
+        $this->assertSame(['My Allocated Stock'], collect($result[0]->getItems())->map(fn ($item) => $item->getLabel())->all());
+        $this->assertSame($legacyKeys, app(UserUiPreferenceService::class)->get($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS));
+    }
+
+    public function test_hidden_preferences_for_old_my_inventory_and_overview_labels_still_hide_renamed_pages(): void
+    {
+        $owner = $this->responsibilityUser(EmployeeRole::Owner);
+        $pathLabels = [
+            ['admin/my-inventory', 'My Inventory'],
+            ['admin/inventory-overview', 'Inventory Overview'],
+        ];
+        $legacyKeys = collect($pathLabels)->map(fn (array $pair): string => 'item:'.hash(
+            'sha256', implode('|', ['Inventory', '', $pair[1], $pair[0]]),
+        ))->all();
+        app(UserUiPreferenceService::class)->put($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS, $legacyKeys);
+
+        $groups = [NavigationGroup::make('Inventory')->items([
+            NavigationItem::make('My Allocated Stock')->url('/admin/my-inventory'),
+            NavigationItem::make('Inventory by Location')->url('/admin/inventory-overview'),
+        ])];
+        $result = app(NavigationPreferenceService::class)->apply($owner, $groups);
+
+        $this->assertSame([], collect($result)->flatMap(fn ($group) => $group->getItems())
+            ->map(fn ($item) => $item->getLabel())->all());
+        $this->assertSame($legacyKeys, app(UserUiPreferenceService::class)->get($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS));
     }
 
     private function assertOwnedQuantity($user, ProductInventory $inventory, int $quantity): void

@@ -51,7 +51,7 @@ class NavigationPhaseOneTest extends TestCase
         foreach ([
             'Workspace' => ['My Work', 'Notifications', 'Chat', 'Tasks', 'Customize Navigation', 'Security'],
             'Sales' => ['Sales Orders', 'Web Sales Orders', 'Quotations', 'Tax Invoices', 'Web Sales Dashboard'],
-            'Inventory' => ['My Inventory', 'Inventory Overview', 'Location Balances', 'Stock Requests', 'Stock Transfers', 'Damaged Items', 'QC Pending', 'Stock Adjustments', 'Stock Ownership'],
+            'Inventory' => ['My Allocated Stock', 'Inventory by Location', 'My Inventory', 'Stock Requests', 'Stock Transfers', 'Damaged Items', 'QC Pending', 'Stock Adjustments', 'Quality Control', 'Renewed QC / Dispatch', 'Stock Ownership'],
         ] as $label => $expected) {
             $group = collect($groups)->first(fn ($candidate) => $candidate->getLabel() === $label);
             $this->assertSame($expected, collect($group->getItems())->map->getLabel()->all());

@@ -27,6 +27,7 @@ use App\Services\Hr\WorkScheduleService;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -49,6 +50,8 @@ class HrPhaseBUiTest extends TestCase
             ->assertSee('Active schedules')
             ->assertSee('Employees without a schedule')
             ->assertSee('Grace period (minutes)')
+            ->assertSee('Pakistan Office — Standard 9 AM to 5 PM')
+            ->assertSee('1 = same schedule every week. 2 = alternating two-week schedule. 3 = repeating three-week schedule.')
             ->assertSee('Select visible')
             ->set('assignmentScheduleId', $schedule->id)
             ->set('assignmentTargetType', 'employee')
@@ -68,6 +71,28 @@ class HrPhaseBUiTest extends TestCase
         $this->assertSame(5, $schedule->fresh()->grace_minutes);
     }
 
+    public function test_attendance_calendar_renders_a_seven_column_month_and_never_fabricates_missing_attendance(): void
+    {
+        $team = Team::query()->create(['name' => 'Operations', 'status' => true]);
+        $owner = $this->user(EmployeeRole::Owner, $team);
+
+        Livewire::actingAs($owner)->test(Attendance::class)
+            ->assertSee('grid grid-cols-7 gap-1 text-center', false)
+            ->assertSee('grid grid-cols-7 gap-1 sm:gap-1.5', false)
+            ->assertSee('Mon')->assertSee('Tue')->assertSee('Wed')->assertSee('Thu')->assertSee('Fri')->assertSee('Sat')->assertSee('Sun')
+            ->assertSee('No attendance records in this month. Missing records are not silently fabricated.')
+            ->set('calendarMonth', '2026-10')
+            ->assertViewHas('calendarDays', fn (array $days): bool => count($days) === 42 && $days[0]['date']->isMonday() && $days[41]['date']->isSunday())
+            ->assertViewHas('calendarRecords', fn ($records): bool => $records->isEmpty())
+            ->assertSee('October 2026')
+            ->call('previousCalendarMonth')
+            ->assertSet('calendarMonth', '2026-09')
+            ->assertSee('September 2026')
+            ->call('nextCalendarMonth')
+            ->assertSet('calendarMonth', '2026-10')
+            ->assertSee('Next month');
+    }
+
     public function test_owner_can_record_missing_attendance_once_and_later_biometric_sync_cannot_overwrite_it(): void
     {
         $team = Team::query()->create(['name' => 'Operations', 'status' => true]);
@@ -79,6 +104,8 @@ class HrPhaseBUiTest extends TestCase
         Livewire::actingAs($owner)->test(Attendance::class)
             ->assertSee('Attendance calendar')
             ->assertSee('Record Manual Attendance')
+            ->assertSee('Search employees')
+            ->assertSee('Example: Biometric device was not working, attendance verified by management.')
             ->call('openManualAttendance')
             ->set('manualEmployeeId', $employee->employee->id)
             ->set('manualAttendanceDate', '2026-10-20')
@@ -346,7 +373,11 @@ class HrPhaseBUiTest extends TestCase
 
         Livewire::actingAs($owner)->test(CompOff::class)
             ->assertSee('Total Comp Off')->assertSee('Pending approvals')->assertSee('Used')
-            ->assertSee('Record Sunday duty')->assertSee('Worked Sunday')->assertSee('Requested Off Date');
+            ->assertSee('Record Sunday duty')->assertSee('Worked Sunday')->assertSee('Requested Off Date')
+            ->assertSee('Search Employee')
+            ->assertSee('Example: Employee completed approved Sunday duty and requests compensatory off.')
+            ->set('employeePickerSearch', $employee->employee->employee_id)
+            ->assertViewHas('employeeOptions', fn ($options): bool => $options->count() === 1 && $options->first()->id === $employee->employee->id);
         Livewire::actingAs($owner)->test(BiometricSync::class)
             ->assertSee('Read-only monitoring')
             ->assertSee('Synchronization and recovery actions')
@@ -354,6 +385,24 @@ class HrPhaseBUiTest extends TestCase
             ->assertSee('1 unprocessed mapped events')
             ->assertSee('No failed or partial synchronization attempts were recorded.')
             ->assertSee('Sync Now');
+    }
+
+    public function test_intentionally_disabled_biometric_integration_has_a_clear_neutral_status_and_sends_no_request(): void
+    {
+        $team = Team::query()->create(['name' => 'Operations', 'status' => true]);
+        $owner = $this->user(EmployeeRole::Owner, $team);
+        config()->set('hikvision.enabled', false);
+        Http::fake();
+
+        Livewire::actingAs($owner)->test(BiometricSync::class)
+            ->assertSee('Biometric Integration Disabled')
+            ->assertSee('Hikvision synchronization is not enabled in this environment.')
+            ->call('testConnection')
+            ->assertSet('connectionResult.status', 'Disabled')
+            ->assertSee('Disabled')
+            ->assertDontSee('Unexpected Response');
+
+        Http::assertNothingSent();
     }
 
     private function assign(Employee $employee, User $actor, int $grace): WorkScheduleAssignment

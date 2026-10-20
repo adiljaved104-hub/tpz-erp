@@ -78,7 +78,7 @@ class BiometricSync extends Page
         Notification::make()
             ->title($result->status)
             ->body($result->message)
-            ->color($result->connected ? 'success' : 'danger')
+            ->color($result->connected ? 'success' : ($result->status === 'Disabled' ? 'gray' : 'danger'))
             ->send();
     }
 

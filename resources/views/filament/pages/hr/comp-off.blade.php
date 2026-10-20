@@ -1,4 +1,4 @@
-<x-filament-panels::page>
+<x-filament-panels::page class="hr-page-form">
     <div class="flex flex-wrap items-start justify-between gap-4"><div><h2 class="text-xl font-semibold text-gray-950 dark:text-white">Comp Off</h2><p class="mt-1 text-sm text-gray-500">Review eligibility, approvals and employee Comp Off history.</p></div>@if($canCreate)<x-filament::button icon="heroicon-o-plus" wire:click="openCreateModal">Record Sunday duty</x-filament::button>@endif</div>
 
     <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -43,10 +43,11 @@
             <x-slot name="heading">Record qualifying Sunday duty</x-slot>
             <p class="mb-4 text-sm text-gray-500">Eligibility requires an effective schedule that marks this Sunday as working and eligible, plus actual qualifying Attendance evidence. Approval follows the effective Leave Policy.</p>
             <div class="space-y-4">
-                <label class="block space-y-1 text-sm"><span class="font-medium">Employee *</span><select wire:model="employeeId" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"><option value="">Select Employee</option>@foreach($employees as $employee)<option value="{{ $employee->id }}">{{ $employee->employee_id }} · {{ $employee->name }}</option>@endforeach</select>@error('employeeId')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="block space-y-1 text-sm"><span class="font-medium">Worked Sunday *</span><input type="date" wire:model="earnedWorkDate" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('earnedWorkDate')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="block space-y-1 text-sm"><span class="font-medium">Requested Off Date *</span><input type="date" wire:model="offDate" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('offDate')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="block space-y-1 text-sm"><span class="font-medium">Reason *</span><textarea wire:model="reason" rows="3" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"></textarea>@error('reason')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="block space-y-1 text-sm"><span class="font-medium">Search Employee</span><input type="search" wire:model.live.debounce.300ms="employeePickerSearch" placeholder="Search by name or employee code"></label>
+                <label class="block space-y-1 text-sm"><span class="font-medium">Employee *</span><select wire:model="employeeId"><option value="">Select Employee</option>@foreach($employeeOptions as $employee)<option value="{{ $employee->id }}">{{ $employee->employee_id }} · {{ $employee->name }}</option>@endforeach</select>@error('employeeId')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="block space-y-1 text-sm"><span class="font-medium">Worked Sunday *</span><input type="date" wire:model="earnedWorkDate">@error('earnedWorkDate')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="block space-y-1 text-sm"><span class="font-medium">Requested Off Date *</span><input type="date" wire:model="offDate">@error('offDate')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="block space-y-1 text-sm"><span class="font-medium">Reason *</span><textarea wire:model="reason" rows="3" placeholder="Example: Employee completed approved Sunday duty and requests compensatory off."></textarea>@error('reason')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
             </div>
             <x-slot name="footerActions"><x-filament::button wire:click="createFromSundayDuty">Submit for approval</x-filament::button></x-slot>
         </x-filament::modal>

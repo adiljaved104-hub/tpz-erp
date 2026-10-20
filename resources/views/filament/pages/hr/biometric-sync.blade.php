@@ -1,16 +1,17 @@
-<x-filament-panels::page>
+<x-filament-panels::page class="hr-page-form">
     <x-filament::section heading="Read-only monitoring" compact>
     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <x-filament::section compact>
             <div class="text-xs font-medium text-gray-500">Device</div>
             <div class="mt-1 font-semibold">{{ $host }}:{{ $port }}</div>
-            <div class="mt-1"><x-filament::badge :color="$enabled ? 'success' : 'gray'">{{ $enabled ? 'Enabled' : 'Disabled' }}</x-filament::badge></div>
-            <div class="mt-1 text-xs text-gray-500">Scheduled sync: {{ $scheduledSyncEnabled ? 'Armed' : 'Off' }}</div>
+            <div class="mt-1"><x-filament::badge :color="$enabled ? 'success' : 'gray'">{{ $enabled ? 'Enabled' : 'Biometric Integration Disabled' }}</x-filament::badge></div>
+            @unless($enabled)<p class="mt-2 text-xs text-gray-500">Hikvision synchronization is not enabled in this environment.</p>@endunless
+            <div class="mt-1 text-xs text-gray-500">Scheduled sync: {{ ! $enabled ? 'Unavailable while integration is disabled' : ($scheduledSyncEnabled ? 'Armed' : 'Off') }}</div>
         </x-filament::section>
         <x-filament::section compact>
             <div class="text-xs font-medium text-gray-500">Last Attempt</div>
             <div class="mt-1 font-semibold">{{ $lastAttempt?->attempted_at?->timezone('Asia/Karachi')->format('d M Y, h:i A') ?? 'Never' }}</div>
-            @if($lastAttempt)<div class="mt-1 text-xs text-gray-500">{{ str($lastAttempt->status)->title() }} · {{ $lastAttempt->window_from->format('d M H:i') }}–{{ $lastAttempt->window_to->format('d M H:i') }}</div>@endif
+            @if($lastAttempt)<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500"><x-filament::badge :color="$lastAttempt->status === 'failed' ? 'danger' : ($lastAttempt->status === 'succeeded' ? 'success' : 'warning')">{{ $lastAttempt->status === 'failed' ? 'Synchronization Failed' : str($lastAttempt->status)->title() }}</x-filament::badge><span>{{ $lastAttempt->window_from->format('d M H:i') }}–{{ $lastAttempt->window_to->format('d M H:i') }}</span></div>@endif
         </x-filament::section>
         <x-filament::section compact>
             <div class="text-xs font-medium text-gray-500">Last Successful Sync</div>
@@ -54,7 +55,7 @@
 
     @if($connectionResult)
         <x-filament::section compact>
-            <div class="font-semibold">{{ $connectionResult['status'] }}</div>
+            <x-filament::badge :color="$connectionResult['connected'] ? 'success' : ($connectionResult['status'] === 'Disabled' ? 'gray' : 'danger')">{{ $connectionResult['status'] }}</x-filament::badge>
             <div class="text-sm text-gray-500">{{ $connectionResult['message'] }}</div>
             @if($connectionResult['metadata'])<div class="mt-1 text-xs text-gray-500">Model {{ $connectionResult['metadata']['model'] ?? '—' }} · Firmware {{ $connectionResult['metadata']['firmware'] ?? '—' }}</div>@endif
         </x-filament::section>

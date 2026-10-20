@@ -41,6 +41,8 @@ class CompOff extends Page
 
     public string $search = '';
 
+    public string $employeePickerSearch = '';
+
     public string $statusFilter = '';
 
     public ?int $filterEmployeeId = null;
@@ -75,7 +77,7 @@ class CompOff extends Page
     public function openCreateModal(): void
     {
         abort_unless(app(HrAuthorization::class)->allows($this->user(), HrPermission::WorkScheduleManage), 403);
-        $this->reset('employeeId', 'earnedWorkDate', 'offDate', 'reason');
+        $this->reset('employeeId', 'earnedWorkDate', 'offDate', 'reason', 'employeePickerSearch');
         $this->resetValidation();
         $this->dispatch('open-modal', id: 'create-comp-off');
     }
@@ -87,7 +89,7 @@ class CompOff extends Page
                 'employee_id' => $this->employeeId, 'earned_work_date' => $this->earnedWorkDate,
                 'off_date' => $this->offDate, 'reason' => $this->reason,
             ], $this->user());
-            $this->reset('employeeId', 'earnedWorkDate', 'offDate', 'reason');
+            $this->reset('employeeId', 'earnedWorkDate', 'offDate', 'reason', 'employeePickerSearch');
             $this->resetValidation();
             Notification::make()->success()->title('Comp Off submitted for approval')->send();
         } catch (AuthorizationException) {
@@ -120,6 +122,11 @@ class CompOff extends Page
     {
         $user = $this->user();
         $employees = app(HrScopeService::class)->employeeQuery($user, false)->orderBy('name')->get(['id', 'name', 'employee_id', 'team_id']);
+        $employeeOptions = $employees->filter(function ($employee): bool {
+            $search = trim($this->employeePickerSearch);
+
+            return $search === '' || str($employee->name.' '.$employee->employee_id)->lower()->contains(str($search)->lower());
+        })->values();
         $base = CompensatoryOff::query()->whereIn('employee_id', $employees->pluck('id'));
         $query = (clone $base)->with('employee:id,name,employee_id,team_id')
             ->when($this->filterEmployeeId, fn ($query) => $query->where('employee_id', $this->filterEmployeeId))
@@ -134,6 +141,7 @@ class CompOff extends Page
         return [
             'records' => $query->paginate(25),
             'employees' => $employees,
+            'employeeOptions' => $employeeOptions,
             'canCreate' => app(HrAuthorization::class)->allows($user, HrPermission::WorkScheduleManage),
             'summary' => [
                 'total' => (clone $base)->count(),

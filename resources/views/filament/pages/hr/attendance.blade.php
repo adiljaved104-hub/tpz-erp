@@ -1,4 +1,4 @@
-<x-filament-panels::page>
+<x-filament-panels::page class="hr-page-form">
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
             <h2 class="text-xl font-semibold text-gray-950 dark:text-white">{{ $showEmployee ? 'Attendance Management' : 'My Attendance' }}</h2>
@@ -21,22 +21,27 @@
     </section>
 
     <x-filament::section :heading="'Attendance calendar · '.$calendarMonthLabel" compact>
-        <div class="mb-3 flex justify-end">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+                <x-filament::button size="xs" color="gray" wire:click="previousCalendarMonth">Previous month</x-filament::button>
+                <x-filament::button size="xs" color="gray" wire:click="nextCalendarMonth">Next month</x-filament::button>
+            </div>
             <label class="sr-only" for="attendance-calendar-month">Calendar month</label>
-            <input id="attendance-calendar-month" type="month" wire:model.live="calendarMonth" class="rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-white/5">
+            <input id="attendance-calendar-month" type="month" wire:model.live="calendarMonth" class="w-auto text-sm">
         </div>
-        <div class="grid grid-cols-7 gap-1.5 text-center text-xs font-semibold text-gray-500">
-            @foreach (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as $weekday)<div class="px-1 py-2">{{ $weekday }}</div>@endforeach
+        <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold text-gray-500 sm:gap-1.5 sm:text-xs">
+            @foreach (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as $weekday)<div class="px-0.5 py-2 sm:px-1">{{ $weekday }}</div>@endforeach
         </div>
-        <div class="grid grid-cols-7 gap-1.5">
+        <div class="grid grid-cols-7 gap-1 sm:gap-1.5">
             @foreach ($calendarDays as $cell)
-                <div wire:key="attendance-calendar-{{ $cell['date']->toDateString() }}" class="min-h-24 rounded-lg border p-1.5 {{ $cell['in_month'] ? 'border-gray-200 bg-white dark:border-white/10 dark:bg-white/5' : 'border-transparent bg-gray-50/70 text-gray-400 dark:bg-white/[.02]' }}">
-                    <div class="text-xs font-semibold">{{ $cell['date']->day }}</div>
+                <div wire:key="attendance-calendar-{{ $cell['date']->toDateString() }}" class="min-h-16 min-w-0 rounded-lg border p-1 sm:min-h-24 sm:p-1.5 {{ $cell['in_month'] ? 'border-gray-200 bg-white dark:border-white/10 dark:bg-white/5' : 'border-transparent bg-gray-50/70 text-gray-400 dark:bg-white/[.02]' }}">
+                    <div class="text-xs font-bold sm:text-sm">{{ $cell['date']->day }}</div>
                     <div class="mt-1 space-y-1">
                         @foreach ($cell['records'] as $calendarRecord)
-                            <div class="truncate text-[10px] leading-tight" title="{{ $calendarRecord->employee->name }} · {{ $statuses[$calendarRecord->status->value] }}">
-                                <span class="font-medium">{{ $calendarRecord->employee->name }}</span>
-                                <span class="text-gray-500">· {{ str($calendarRecord->status->value)->replace('_', ' ')->title() }}</span>
+                            <div class="flex min-w-0 items-center gap-1 truncate text-[9px] leading-tight sm:text-[10px]" title="{{ $calendarRecord->employee->name }} · {{ $statuses[$calendarRecord->status->value] }}">
+                                <span aria-hidden="true" class="inline-block size-1.5 shrink-0 rounded-full {{ match($calendarRecord->status->value) {'present' => 'bg-emerald-500', 'late' => 'bg-amber-500', 'absent' => 'bg-red-500', 'half_day' => 'bg-blue-500', default => 'bg-gray-400'} }}"></span>
+                                <span class="truncate font-medium">{{ $calendarRecord->employee->name }}</span>
+                                <span class="hidden shrink-0 text-gray-500 sm:inline">· {{ str($calendarRecord->status->value)->replace('_', ' ')->title() }}</span>
                             </div>
                         @endforeach
                         @if ($cell['more_count'] > 0)<div class="text-[10px] text-gray-500">+{{ $cell['more_count'] }} more</div>@endif
@@ -114,13 +119,16 @@
         <x-filament::modal id="create-manual-attendance" width="2xl">
             <x-slot name="heading">Record Manual Attendance</x-slot>
             <p class="mb-4 text-sm text-gray-500">Use only when no Attendance record exists. This entry is immediately audited, marked as overridden, and will not be replaced by later biometric synchronization.</p>
+            <div class="mb-4">
+                <label class="block space-y-1 text-sm"><span class="font-medium">Search employees</span><input type="search" wire:model.live.debounce.300ms="employeeSearch" placeholder="Search by name or employee code" class="w-full"></label>
+            </div>
             <div class="grid gap-4 sm:grid-cols-2">
-                <label class="space-y-1 text-sm"><span class="font-medium">Employee *</span><select wire:model="manualEmployeeId" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"><option value="">Select visible employee</option>@foreach($employees as $employee)<option value="{{ $employee->id }}">{{ $employee->employee_id }} · {{ $employee->name }}</option>@endforeach</select>@error('manualEmployeeId')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="space-y-1 text-sm"><span class="font-medium">Date *</span><input type="date" wire:model="manualAttendanceDate" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('manualAttendanceDate')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="space-y-1 text-sm"><span class="font-medium">Status *</span><select wire:model="manualStatus" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@foreach($manualStatuses as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select>@error('manualStatus')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="space-y-1 text-sm"><span class="font-medium">Check-in</span><input type="time" wire:model="manualFirstCheckIn" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('manualFirstCheckIn')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="space-y-1 text-sm"><span class="font-medium">Check-out</span><input type="time" wire:model="manualLastCheckOut" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('manualLastCheckOut')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="space-y-1 text-sm sm:col-span-2"><span class="font-medium">Reason *</span><textarea wire:model="manualReason" rows="3" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"></textarea>@error('manualReason')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Employee *</span><select wire:model="manualEmployeeId" class="w-full"><option value="">Select visible employee</option>@foreach($employees as $employee)<option value="{{ $employee->id }}">{{ $employee->employee_id }} · {{ $employee->name }}</option>@endforeach</select>@error('manualEmployeeId')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Date *</span><input type="date" wire:model="manualAttendanceDate" class="w-full">@error('manualAttendanceDate')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Status *</span><select wire:model="manualStatus" class="w-full">@foreach($manualStatuses as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select>@error('manualStatus')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Check-in</span><input type="time" wire:model="manualFirstCheckIn" class="w-full">@error('manualFirstCheckIn')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Check-out</span><input type="time" wire:model="manualLastCheckOut" class="w-full">@error('manualLastCheckOut')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm sm:col-span-2"><span class="font-medium">Reason *</span><textarea wire:model="manualReason" rows="3" placeholder="Example: Biometric device was not working, attendance verified by management."></textarea>@error('manualReason')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
             </div>
             <x-slot name="footerActions"><x-filament::button wire:click="saveManualAttendance">Record Attendance</x-filament::button></x-slot>
         </x-filament::modal>

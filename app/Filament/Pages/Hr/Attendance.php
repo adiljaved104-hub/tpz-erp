@@ -117,6 +117,16 @@ class Attendance extends Page
         }
     }
 
+    public function previousCalendarMonth(): void
+    {
+        $this->shiftCalendarMonth(-1);
+    }
+
+    public function nextCalendarMonth(): void
+    {
+        $this->shiftCalendarMonth(1);
+    }
+
     public function openCorrection(int $attendanceId): void
     {
         $attendance = app(HrScopeService::class)->attendanceQuery($this->user())->with(['employee', 'schedule'])->findOrFail($attendanceId);
@@ -278,6 +288,19 @@ class Attendance extends Page
             'custom' => [CarbonImmutable::parse($this->fromDate ?: $today->startOfMonth()), CarbonImmutable::parse($this->toDate ?: $today)],
             default => [$today->startOfMonth(), $today->endOfMonth()],
         };
+    }
+
+    private function shiftCalendarMonth(int $months): void
+    {
+        try {
+            $month = $this->calendarMonth === ''
+                ? CarbonImmutable::today('Asia/Karachi')->startOfMonth()
+                : CarbonImmutable::createFromFormat('!Y-m', $this->calendarMonth, 'Asia/Karachi')->startOfMonth();
+        } catch (\Throwable) {
+            $month = CarbonImmutable::today('Asia/Karachi')->startOfMonth();
+        }
+
+        $this->calendarMonth = ($months < 0 ? $month->subMonthNoOverflow() : $month->addMonthNoOverflow())->format('Y-m');
     }
 
     private function user(): User

@@ -20,7 +20,7 @@ class HikvisionIsapiClient
     public function testConnection(): HikvisionConnectionResult
     {
         if (! config('hikvision.enabled')) {
-            return new HikvisionConnectionResult(false, 'Unexpected Response', 'Hikvision integration is disabled.');
+            return new HikvisionConnectionResult(false, 'Disabled', 'Hikvision synchronization is not enabled in this environment.');
         }
 
         try {

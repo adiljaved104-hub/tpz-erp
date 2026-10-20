@@ -1,4 +1,4 @@
-<x-filament-panels::page>
+<x-filament-panels::page class="hr-page-form">
     <div>
         <h2 class="text-xl font-semibold text-gray-950 dark:text-white">Work Schedules</h2>
         <p class="mt-1 text-sm text-gray-500">Plan weekly hours, grace periods and effective-dated employee assignments.</p>
@@ -13,20 +13,23 @@
     <x-filament::section :heading="$editingScheduleId ? 'Configure schedule version' : 'Create a work schedule'" compact>
         <form wire:submit="saveSchedule" class="space-y-5">
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <label class="space-y-1 text-sm"><span class="font-medium">Schedule name</span><input wire:model="name" @disabled($editingScheduleId) class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('name')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Schedule name</span><input wire:model="name" @disabled($editingScheduleId) placeholder="Pakistan Office — Standard 9 AM to 5 PM">@error('name')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
                 <label class="space-y-1 text-sm"><span class="font-medium">Code</span><input wire:model="code" @disabled($editingScheduleId) placeholder="STANDARD_9_5" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('code')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="space-y-1 text-sm"><span class="font-medium">Timezone</span><input wire:model="timezone" @disabled($editingScheduleId) class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('timezone')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Timezone</span><input wire:model="timezone" @disabled($editingScheduleId) placeholder="Asia/Karachi">@error('timezone')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
                 <label class="space-y-1 text-sm"><span class="font-medium">Schedule type</span><select wire:model="scheduleType" @disabled($editingScheduleId) class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"><option value="standard">Standard</option><option value="alternative_weekend">Alternative Weekend</option><option value="custom">Custom</option></select></label>
-                <label class="space-y-1 text-sm"><span class="font-medium">Rotation Weeks</span><input type="number" min="1" max="12" wire:model.live="cycleLengthWeeks" @disabled($editingScheduleId) class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('cycleLengthWeeks')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Rotation Weeks</span><input type="number" min="1" max="12" wire:model.live="cycleLengthWeeks" @disabled($editingScheduleId) placeholder="1">@error('cycleLengthWeeks')<p class="text-danger-600">{{ $message }}</p>@enderror<p class="text-xs text-gray-500">1 = same schedule every week. 2 = alternating two-week schedule. 3 = repeating three-week schedule.</p></label>
                 <label class="space-y-1 text-sm"><span class="font-medium">Grace period (minutes)</span><input type="number" min="0" max="240" wire:model="graceMinutes" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('graceMinutes')<p class="text-danger-600">{{ $message }}</p>@enderror<p class="text-xs text-gray-500">Independent from shift start. 09:00 + 5 min means late after 09:05.</p></label>
             </div>
+            @if ($scheduleType === 'alternative_weekend' && $cycleLengthWeeks > 1)
+                <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">Configure Sunday independently in each labeled week. Week 1 and Week 2 show the alternating Sunday duty pattern clearly.</p>
+            @endif
             @error('schedule')<div class="rounded-lg bg-danger-50 p-3 text-sm text-danger-700 dark:bg-danger-500/10 dark:text-danger-300">{{ $message }}</div>@enderror
             @error('days')<div class="rounded-lg bg-danger-50 p-3 text-sm text-danger-700 dark:bg-danger-500/10 dark:text-danger-300">{{ $message }}</div>@enderror
 
             <div class="space-y-4">
                 @foreach (collect($days)->groupBy('cycle_week') as $week => $weekDays)
                     <section class="rounded-xl border border-gray-200 p-3 dark:border-white/10">
-                        <div class="mb-3 flex items-center justify-between"><h3 class="font-semibold">Week {{ $week }}</h3><span class="text-xs text-gray-500">Weekly pattern</span></div>
+                        <div class="mb-3 flex items-center justify-between"><h3 class="font-semibold">Week {{ $week }}</h3><span class="text-xs text-gray-500">{{ $cycleLengthWeeks > 1 ? 'Rotation week '.$week.' of '.$cycleLengthWeeks : 'Repeats every week' }}</span></div>
                         <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                             @foreach ($weekDays as $index => $day)
                                 <article wire:key="schedule-day-{{ $index }}" class="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-white/5 dark:bg-white/[.03]">
@@ -61,10 +64,11 @@
                     <label class="space-y-1 text-sm"><span class="font-medium">Search employees</span><input type="search" wire:model.live.debounce.300ms="assignmentEmployeeSearch" placeholder="Name or employee code" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"></label>
                     <label class="space-y-1 text-sm"><span class="font-medium">Employee grace override</span><input type="number" min="0" max="240" wire:model="assignmentGraceMinutesOverride" placeholder="Use schedule default" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"><span class="text-xs text-gray-500">Optional, effective only for the selected Employees.</span></label>
                 @endif
-                <label class="space-y-1 text-sm"><span class="font-medium">Effective from</span><input type="date" wire:model="assignmentEffectiveFrom" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('assignmentEffectiveFrom')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm"><span class="font-medium">Effective from</span><input type="date" wire:model="assignmentEffectiveFrom">@error('assignmentEffectiveFrom')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
                 <label class="space-y-1 text-sm"><span class="font-medium">Effective to</span><input type="date" wire:model="assignmentEffectiveTo" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('assignmentEffectiveTo')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
-                <label class="space-y-1 text-sm lg:col-span-2"><span class="font-medium">Reason</span><input wire:model="assignmentReason" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('assignmentReason')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <label class="space-y-1 text-sm lg:col-span-2"><span class="font-medium">Reason</span><input wire:model="assignmentReason" placeholder="Reason for this effective-dated assignment">@error('assignmentReason')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
             </div>
+            <p class="text-xs text-gray-500">Effective dates preserve assignment history; schedules are never assigned automatically.</p>
             @if($assignmentTargetType === 'employee')
                 <div class="rounded-xl border border-gray-200 dark:border-white/10">
                     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-white/10"><span class="text-sm font-medium">Select employees · {{ count($assignmentEmployeeIds) }} selected</span><button type="button" wire:click="selectVisibleEmployees" class="text-sm font-medium text-primary-700">Select visible</button></div>

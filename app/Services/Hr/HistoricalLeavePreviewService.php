@@ -31,7 +31,7 @@ class HistoricalLeavePreviewService
     ) {}
 
     /** @param array<string,mixed> $input @return array<string,mixed> */
-    public function preview(array $input, User $actor, HrPermission $requiredPermission = HrPermission::LeaveHistoricalRecord): array
+    public function preview(array $input, User $actor, HrPermission $requiredPermission = HrPermission::LeaveHistoricalRecord, ?int $replacedRecordId = null): array
     {
         $data = Validator::make($input, [
             'employee_id' => ['required', 'integer'], 'leave_type_id' => ['required', 'integer', 'exists:leave_types,id'],
@@ -62,6 +62,7 @@ class HistoricalLeavePreviewService
         $overlap = LeaveRequest::query()->where('employee_id', $employee->id)->whereIn('status', ['pending', 'approved'])
             ->whereDate('from_date', '<=', $to->toDateString())->whereDate('to_date', '>=', $from->toDateString())->exists()
             || HistoricalLeaveRecord::query()->where('employee_id', $employee->id)->whereIn('approval_status', ['pending', 'approved'])
+                ->when($replacedRecordId !== null, fn ($query) => $query->whereKeyNot($replacedRecordId))
                 ->whereDate('from_date', '<=', $to->toDateString())->whereDate('to_date', '>=', $from->toDateString())->exists();
         if ($overlap) {
             throw ValidationException::withMessages(['from_date' => 'The selected dates overlap pending or approved ERP/historical leave.']);
@@ -74,7 +75,17 @@ class HistoricalLeavePreviewService
             $chargeable = $calculation['working_days'];
             if (filled($data['chargeable_days'] ?? null)
                 && bccomp((string) $data['chargeable_days'], (string) $chargeable, 3) !== 0) {
-                throw ValidationException::withMessages(['chargeable_days' => 'The supplied chargeable days do not match the employee schedule calculation.']);
+                if (blank($data['manual_override_reason'] ?? null)) {
+                    throw ValidationException::withMessages(['manual_override_reason' => 'Explain and verify a historical day count that differs from the schedule calculation.']);
+                }
+                $fromCycle = $this->cycles->forDate($employee, $from);
+                $toCycle = $this->cycles->forDate($employee, $to);
+                if (! $fromCycle->start->equalTo($toCycle->start)) {
+                    throw ValidationException::withMessages(['chargeable_days' => 'Manual day overrides cannot span two anniversary periods. Split the historical entry by leave period.']);
+                }
+                $manual = true;
+                $chargeable = number_format((float) $data['chargeable_days'], 2, '.', '');
+                $days = [];
             }
         } catch (ValidationException $exception) {
             $scheduleErrors = $exception->errors()['schedule'] ?? $exception->errors()['fromDate'] ?? [];
@@ -131,6 +142,11 @@ class HistoricalLeavePreviewService
         $warnings = [];
         foreach ($segments as $segment) {
             if (! $type->consumes_annual_entitlement || in_array($data['approval_status'], ['rejected', 'cancelled'], true)) {
+                continue;
+            }
+            if ($replacedRecordId !== null) {
+                $warnings[] = 'Correction balance is rechecked atomically when the original record is voided.';
+
                 continue;
             }
             $balance = $this->balances->forDate($employee, $segment['start']);

@@ -2,13 +2,16 @@
 
 namespace App\Filament\Pages\Hr;
 
+use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Models\Employee;
 use App\Models\HistoricalLeaveImportBatch;
+use App\Models\HistoricalLeaveRecord;
 use App\Models\LeaveCycleAdjustment;
 use App\Models\LeaveType;
 use App\Models\User;
 use App\Services\Authorization\HrAuthorization;
+use App\Services\Hr\HistoricalLeaveActivationService;
 use App\Services\Hr\HistoricalLeaveAuthorization;
 use App\Services\Hr\HistoricalLeaveImportService;
 use App\Services\Hr\HistoricalLeavePreviewService;
@@ -79,6 +82,14 @@ class HistoricalLeaveRecords extends Page
     public string $idempotencyKey = '';
 
     public bool $confirmed = false;
+
+    public ?int $correctingRecordId = null;
+
+    public string $correctionReason = '';
+
+    public ?int $voidingRecordId = null;
+
+    public string $voidReason = '';
 
     public $importFile = null;
 
@@ -355,7 +366,9 @@ class HistoricalLeaveRecords extends Page
         }
 
         try {
-            $this->preview = app(HistoricalLeavePreviewService::class)->preview($this->formData(), $this->user());
+            $this->preview = app(HistoricalLeavePreviewService::class)->preview(
+                $this->formData(), $this->user(), HrPermission::LeaveHistoricalRecord, $this->correctingRecordId,
+            );
         } catch (AuthorizationException) {
             abort(403);
         } catch (ValidationException $exception) {
@@ -366,7 +379,7 @@ class HistoricalLeaveRecords extends Page
     public function recordHistoricalLeave(): void
     {
         try {
-            $records = app(HistoricalLeaveService::class)->record($this->formData() + [
+            $data = $this->formData() + [
                 'reason' => $this->reason,
                 'historical_source' => $this->historicalSource,
                 'original_reference' => $this->originalReference,
@@ -375,9 +388,15 @@ class HistoricalLeaveRecords extends Page
                 'remarks' => $this->remarks,
                 'idempotency_key' => $this->idempotencyKey,
                 'confirmed' => $this->confirmed,
-            ], $this->user());
+            ];
+            $records = $this->correctingRecordId === null
+                ? app(HistoricalLeaveService::class)->record($data, $this->user())
+                : app(HistoricalLeaveService::class)->correct(
+                    HistoricalLeaveRecord::query()->findOrFail($this->correctingRecordId),
+                    $data, $this->correctionReason, $this->user(),
+                );
             $this->resetForm();
-            Notification::make()->success()->title($records->count() === 1 ? 'Historical leave recorded' : 'Historical leave recorded across leave periods')->send();
+            Notification::make()->success()->title($records->count() === 1 ? 'Historical leave recorded or corrected' : 'Historical leave recorded across leave periods')->send();
         } catch (AuthorizationException) {
             abort(403);
         } catch (ValidationException $exception) {
@@ -390,10 +409,105 @@ class HistoricalLeaveRecords extends Page
                     'original_approved_at' => 'originalApprovedAt', 'original_approver' => 'originalApprover',
                     'reason' => 'reason', 'remarks' => 'remarks', 'idempotency_key' => 'idempotencyKey',
                     'confirmed' => 'confirmed',
+                    'correction_reason' => 'correctionReason',
                 ];
                 $this->addError($map[$field] ?? 'reason', $messages[0]);
             }
         }
+    }
+
+    public function startCorrection(int $recordId): void
+    {
+        abort_unless($this->canRecord(), 403);
+        $record = $this->recordsQuery()->whereKey($recordId)->firstOrFail();
+        abort_unless(in_array($record->approval_status, ['pending', 'approved'], true), 403);
+        abort_if($record->approval_status === 'approved' && ! $this->canApprove(), 403);
+        $this->resetForm();
+        $this->correctingRecordId = $record->id;
+        $this->employeeId = $record->employee_id;
+        $this->employeeSearch = $record->employee->employee_id.' · '.$record->employee->name;
+        $this->leaveTypeId = $record->leave_type_id;
+        $this->fromDate = $record->from_date->toDateString();
+        $this->toDate = $record->to_date->toDateString();
+        $this->chargeableDays = $record->calculation_method === 'manual_verified' ? (string) $record->chargeable_days : '';
+        $this->manualOverrideReason = $record->manual_override_reason ?? '';
+        $this->approvalStatus = $record->approval_status;
+        $this->historicalSource = $record->historical_source ?? '';
+        $this->originalReference = $record->original_reference ?? '';
+        $this->originalApprovedAt = $record->original_approved_at?->toDateString() ?? '';
+        $this->originalApprover = $record->original_approver ?? '';
+        $this->reason = $record->reason;
+        $this->remarks = $record->remarks ?? '';
+        $this->refreshPreview();
+    }
+
+    public function cancelCorrection(): void
+    {
+        $this->resetForm();
+    }
+
+    public function startVoid(int $recordId): void
+    {
+        abort_unless($this->canRecord(), 403);
+        $record = $this->recordsQuery()->whereKey($recordId)->firstOrFail();
+        abort_unless(in_array($record->approval_status, ['pending', 'approved'], true), 403);
+        abort_if($record->approval_status === 'approved' && ! $this->canApprove(), 403);
+        $this->voidingRecordId = $record->id;
+        $this->voidReason = '';
+    }
+
+    public function confirmVoid(): void
+    {
+        abort_unless($this->voidingRecordId !== null, 403);
+        try {
+            app(HistoricalLeaveService::class)->void(
+                HistoricalLeaveRecord::query()->findOrFail($this->voidingRecordId), $this->voidReason, $this->user(),
+            );
+            $this->voidingRecordId = null;
+            $this->voidReason = '';
+            Notification::make()->success()->title('Historical leave entry voided')->send();
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            $this->addError('voidReason', (string) collect($exception->errors())->flatten()->first());
+        }
+    }
+
+    public function confirmEmployeeReconciliation(int $employeeId): void
+    {
+        $employee = Employee::query()->findOrFail($employeeId);
+        try {
+            app(HistoricalLeaveActivationService::class)->review($employee, $this->user());
+            Notification::make()->success()->title('Employee reconciliation confirmed')->send();
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            $this->addError('activation', (string) collect($exception->errors())->flatten()->first());
+        }
+    }
+
+    public function activateAnnualLeaveWorkflow(): void
+    {
+        try {
+            app(HistoricalLeaveActivationService::class)->activate($this->user());
+            Notification::make()->success()->title('Annual Leave workflow activated')->send();
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            $this->addError('activation', (string) collect($exception->errors())->flatten()->first());
+        }
+    }
+
+    #[Computed]
+    public function activationStatus(): array
+    {
+        return app(HistoricalLeaveActivationService::class)->status();
+    }
+
+    public function canActivate(): bool
+    {
+        return in_array($this->user()->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+            && app(HrAuthorization::class)->allows($this->user(), HrPermission::LeaveManagePolicy);
     }
 
     #[Computed]
@@ -503,9 +617,10 @@ class HistoricalLeaveRecords extends Page
             return [
                 'employee' => $employee, 'current' => $current, 'current_cycle' => $currentCycle,
                 'previous' => $previous, 'error' => null,
+                'reviewed' => app(HistoricalLeaveActivationService::class)->isReviewed($employee),
             ];
         } catch (ValidationException $exception) {
-            return ['employee' => $employee, 'current' => null, 'current_cycle' => null, 'previous' => [],
+            return ['employee' => $employee, 'current' => null, 'current_cycle' => null, 'previous' => [], 'reviewed' => false,
                 'error' => (string) collect($exception->errors())->flatten()->first()];
         }
     }
@@ -565,6 +680,7 @@ class HistoricalLeaveRecords extends Page
             'employeeSearch', 'employeeId', 'leaveTypeId', 'fromDate', 'toDate', 'chargeableDays',
             'manualOverrideReason', 'historicalSource', 'originalReference', 'originalApprovedAt',
             'originalApprover', 'reason', 'remarks', 'preview', 'previewError', 'confirmed',
+            'correctingRecordId', 'correctionReason',
         );
         $this->approvalStatus = 'pending';
         $this->idempotencyKey = (string) Str::uuid();

@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Models\WorkSchedule;
 use App\Models\WorkScheduleAssignment;
 use App\Models\WorkScheduleDay;
+use App\Services\Hr\HistoricalLeaveActivationService;
 use App\Services\Hr\HrScopeService;
 use App\Services\Hr\LeaveBalanceService;
 use App\Services\Hr\LeaveService;
@@ -31,6 +32,17 @@ use Tests\TestCase;
 class LeaveWorkflowTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $fixtureActor = User::factory()->create();
+        DB::table('historical_leave_workflow_activations')->insert([
+            'workflow' => 'annual_leave', 'approved_by_user_id' => $fixtureActor->id,
+            'reviewed_employee_count' => 0, 'activated_at' => now(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
 
     public function test_staff_sees_own_leave_and_annual_balance_tracks_pending_approved_and_rejected(): void
     {
@@ -240,6 +252,8 @@ class LeaveWorkflowTest extends TestCase
             'email' => $user->email, 'team_id' => $team->id, 'status' => true, 'joining_date' => '2025-01-01',
         ]);
         $employee->forceFill(['joining_date_verified_at' => now(), 'joining_date_verified_by_user_id' => $user->id])->save();
+        $owner = Employee::query()->where('role', EmployeeRole::Owner->value)->first()?->user;
+        app(HistoricalLeaveActivationService::class)->review($employee, $owner ?? $user);
 
         return $user->refresh();
     }

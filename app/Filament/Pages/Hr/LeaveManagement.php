@@ -10,6 +10,7 @@ use App\Models\LeaveType;
 use App\Models\User;
 use App\Models\WorkScheduleAssignment;
 use App\Services\Authorization\HrAuthorization;
+use App\Services\Hr\HistoricalLeaveActivationService;
 use App\Services\Hr\HrScopeService;
 use App\Services\Hr\LeaveBalanceService;
 use App\Services\Hr\LeaveService;
@@ -310,6 +311,8 @@ class LeaveManagement extends Page
             'balancePolicy' => $balancePolicy,
             'balanceError' => $balanceError,
             'balancePeriod' => $balancePeriod,
+            'annualWorkflowActive' => app(HistoricalLeaveActivationService::class)->isActive()
+                && app(HistoricalLeaveActivationService::class)->isReviewed($user->employee),
             'employees' => $employees,
             'leaveTypes' => LeaveType::query()->where('status', true)->whereIn('code', ['annual', 'unpaid'])->orderBy('name')->get(),
             'canRequest' => app(HrAuthorization::class)->allows($user, HrPermission::LeaveRequest),

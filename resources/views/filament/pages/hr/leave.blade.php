@@ -8,6 +8,7 @@
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
             <h2 class="text-xl font-semibold text-gray-950 dark:text-white">Annual leave balance</h2>
+            @if (! $annualWorkflowActive) <p class="mt-1 text-sm font-semibold text-warning-700">Provisional — Pending HR Verification. Annual Leave requests are not yet available.</p> @endif
             @if ($balancePeriod)
                 <p class="mt-1 text-sm text-gray-500">Your current joining-anniversary leave period: {{ $balancePeriod }}.</p>
             @else

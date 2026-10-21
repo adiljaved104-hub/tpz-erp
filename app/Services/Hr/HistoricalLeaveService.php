@@ -11,6 +11,7 @@ use App\Models\HistoricalLeaveRecordDay;
 use App\Models\LeaveType;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Services\Authorization\HrAuthorization;
 use App\Services\Leave\AnnualLeaveCycleResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -28,8 +29,9 @@ class HistoricalLeaveService
         private readonly HistoricalLeavePreviewService $previewer,
         private readonly AnnualLeaveCycleResolver $cycles,
         private readonly JoiningDateLeaveBalanceService $balances,
-        private readonly LeaveService $leaveService,
         private readonly ActivityLogger $activity,
+        private readonly HrAuthorization $authorization,
+        private readonly HrScopeService $scope,
     ) {}
 
     /**
@@ -51,6 +53,86 @@ class HistoricalLeaveService
         return $this->write($input, $actor, HrPermission::LeaveHistoricalImport, 'import', $batch->id, $sourceRowNumber);
     }
 
+    /** @param array<string,mixed> $replacement @return Collection<int,HistoricalLeaveRecord> */
+    public function correct(HistoricalLeaveRecord $record, array $replacement, string $correctionReason, User $actor): Collection
+    {
+        $reason = trim($correctionReason);
+        if ($reason === '' || mb_strlen($reason) > 2000) {
+            throw ValidationException::withMessages(['correction_reason' => 'A correction reason of at most 2,000 characters is required.']);
+        }
+        if (! isset($replacement['idempotency_key']) || HistoricalLeaveRecord::query()
+            ->where('record_group_uuid', $replacement['idempotency_key'])->exists()) {
+            throw ValidationException::withMessages(['idempotency_key' => 'Use a fresh confirmation key for this correction.']);
+        }
+
+        return DB::transaction(function () use ($record, $replacement, $reason, $actor): Collection {
+            Employee::query()->lockForUpdate()->findOrFail($record->employee_id);
+            $old = HistoricalLeaveRecord::query()->lockForUpdate()->findOrFail($record->id);
+            $this->assertCanChange($old, $actor);
+            if ((int) ($replacement['employee_id'] ?? 0) !== $old->employee_id) {
+                throw ValidationException::withMessages(['employee_id' => 'A correction cannot transfer historical leave to another employee.']);
+            }
+            $this->voidLocked($old, $reason, $actor);
+            $new = $this->write($replacement, $actor, HrPermission::LeaveHistoricalRecord, 'manual', null, null, $old->id);
+            $this->activity->log('hr.historical_leave_corrected', $actor, $old, [
+                'original_reference' => $old->reference,
+                'replacement_references' => $new->pluck('reference')->all(),
+            ]);
+
+            return $new;
+        }, 3);
+    }
+
+    public function void(HistoricalLeaveRecord $record, string $reason, User $actor): void
+    {
+        $reason = trim($reason);
+        if ($reason === '' || mb_strlen($reason) > 2000) {
+            throw ValidationException::withMessages(['void_reason' => 'A void reason of at most 2,000 characters is required.']);
+        }
+        DB::transaction(function () use ($record, $reason, $actor): void {
+            Employee::query()->lockForUpdate()->findOrFail($record->employee_id);
+            $locked = HistoricalLeaveRecord::query()->lockForUpdate()->findOrFail($record->id);
+            $this->assertCanChange($locked, $actor);
+            $this->voidLocked($locked, $reason, $actor);
+        }, 3);
+    }
+
+    private function assertCanChange(HistoricalLeaveRecord $record, User $actor): void
+    {
+        $employee = Employee::query()->findOrFail($record->employee_id);
+        if (! $this->access->canRecordEmployee($actor, $employee, HrPermission::LeaveHistoricalRecord)
+            || ($record->approval_status === 'approved'
+                && (! $this->authorization->allows($actor, HrPermission::LeaveApprove)
+                    || ! $this->scope->canApproveEmployee($actor, $employee)))) {
+            throw new AuthorizationException;
+        }
+        if (! in_array($record->approval_status, ['pending', 'approved'], true)) {
+            throw ValidationException::withMessages(['record' => 'Only an active historical entry can be corrected or voided.']);
+        }
+    }
+
+    private function voidLocked(HistoricalLeaveRecord $record, string $reason, User $actor): void
+    {
+        $before = [
+            'approval_status' => $record->approval_status,
+            'leave_type_id' => $record->leave_type_id,
+            'from_date' => $record->from_date->toDateString(),
+            'to_date' => $record->to_date->toDateString(),
+            'chargeable_days' => (string) $record->chargeable_days,
+            'remarks' => $record->remarks,
+        ];
+        $record->forceFill(['approval_status' => 'voided'])->save();
+        HistoricalLeaveEvent::query()->create([
+            'historical_leave_record_id' => $record->id, 'actor_user_id' => $actor->id,
+            'event_type' => 'voided', 'previous_values' => $before,
+            'new_values' => ['approval_status' => 'voided'], 'reason' => $reason,
+            'source' => 'manual', 'occurred_at' => now(), 'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $this->activity->log('hr.historical_leave_voided', $actor, $record, [
+            'reference' => $record->reference, 'reason' => $reason,
+        ]);
+    }
+
     public function hasExactExistingRecord(int $employeeId, int $leaveTypeId, string $fromDate, string $toDate): bool
     {
         return HistoricalLeaveRecord::query()->select('record_group_uuid')
@@ -62,7 +144,7 @@ class HistoricalLeaveService
     }
 
     /** @param array<string,mixed> $input @return Collection<int,HistoricalLeaveRecord> */
-    private function write(array $input, User $actor, HrPermission $requiredPermission, string $source, ?int $importBatchId, ?int $sourceRowNumber): Collection
+    private function write(array $input, User $actor, HrPermission $requiredPermission, string $source, ?int $importBatchId, ?int $sourceRowNumber, ?int $correctionOfRecordId = null): Collection
     {
         $data = Validator::make($input, [
             'employee_id' => ['required', 'integer'],
@@ -87,7 +169,7 @@ class HistoricalLeaveService
             ->whereKey($data['employee_id'])->first();
         throw_unless($employee instanceof Employee, AuthorizationException::class);
 
-        return DB::transaction(function () use ($data, $actor, $employee, $requiredPermission, $source, $importBatchId, $sourceRowNumber): Collection {
+        return DB::transaction(function () use ($data, $actor, $employee, $requiredPermission, $source, $importBatchId, $sourceRowNumber, $correctionOfRecordId): Collection {
             $lockedEmployee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
             if (! $this->access->canRecordEmployee($actor, $lockedEmployee, $requiredPermission)) {
                 throw new AuthorizationException;
@@ -124,6 +206,7 @@ class HistoricalLeaveService
                 $record = HistoricalLeaveRecord::query()->create([
                     'reference' => $this->reference(),
                     'record_group_uuid' => $data['idempotency_key'],
+                    'correction_of_record_id' => $correctionOfRecordId,
                     'employee_id' => $lockedEmployee->id,
                     'leave_type_id' => $type->id,
                     'leave_policy_id' => $this->balances->policyForCycle($cycle, $start)->id,
@@ -175,17 +258,6 @@ class HistoricalLeaveService
                     'occurred_at' => now(),
                     'idempotency_key' => (string) Str::uuid(),
                 ]);
-
-                if ($approved) {
-                    $dates = collect($segment['daily_rows'])
-                        ->where('counts_as_leave', true)
-                        ->pluck('leave_date')
-                        ->map(fn ($date): string => CarbonImmutable::parse($date)->toDateString())
-                        ->all();
-                    $this->leaveService->reconcileApprovedHistoricalLeave(
-                        $lockedEmployee, $type, $dates, $record->reference, $actor,
-                    );
-                }
 
                 $this->activity->log($source === 'import' ? 'hr.historical_leave_imported' : 'hr.historical_leave_recorded', $actor, $record, [
                     'reference' => $record->reference,

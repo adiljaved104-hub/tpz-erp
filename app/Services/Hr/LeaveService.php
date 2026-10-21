@@ -36,6 +36,7 @@ class LeaveService
         private readonly ReferenceSequenceService $references,
         private readonly LeaveNotificationDispatcher $notifications,
         private readonly ActivityLogger $activity,
+        private readonly HistoricalLeaveActivationService $historicalActivation,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -46,6 +47,9 @@ class LeaveService
         throw_unless($employee instanceof Employee, AuthorizationException::class);
         $validated = $this->validatedRequestData($data);
         $type = $this->availableLeaveType((int) $validated['leave_type_id']);
+        if ($type->consumes_annual_entitlement) {
+            $this->historicalActivation->assertAnnualRequestsActive($employee);
+        }
         $request = $this->createRequest($validated, $employee, $type, $actor);
         $this->notifications->submitted($request);
 
@@ -67,6 +71,9 @@ class LeaveService
         $employee = $this->scope->recordableEmployeeQuery($actor)->whereKey($validated['employee_id'])->first();
         throw_unless($employee instanceof Employee, AuthorizationException::class);
         $type = $this->availableLeaveType((int) $validated['leave_type_id']);
+        if ($type->consumes_annual_entitlement) {
+            $this->historicalActivation->assertAnnualRequestsActive($employee);
+        }
         $from = CarbonImmutable::parse($validated['from_date']);
         $calculation = $this->days->calculate($employee, $from, CarbonImmutable::parse($validated['to_date']));
         $available = $type->consumes_annual_entitlement
@@ -92,6 +99,9 @@ class LeaveService
         throw_unless($employee instanceof Employee, AuthorizationException::class);
         $requestData = $this->validatedRequestData($data);
         $type = $this->availableLeaveType((int) $requestData['leave_type_id']);
+        if ($type->consumes_annual_entitlement) {
+            $this->historicalActivation->assertAnnualRequestsActive($employee);
+        }
         $approved = $validated['approval_status'] === 'approved';
 
         if ($approved) {
@@ -131,7 +141,13 @@ class LeaveService
                     ? $storedDays
                     : $this->days->calculate($locked->employee, CarbonImmutable::parse($locked->from_date), CarbonImmutable::parse($locked->to_date))['days'];
 
-                $this->assertAnnualAvailability($locked->employee, CarbonImmutable::parse($locked->from_date), CarbonImmutable::parse($locked->to_date), $days, 'remaining');
+                if ($this->historicalActivation->isActive()) {
+                    $this->assertAnnualAvailability($locked->employee, CarbonImmutable::parse($locked->from_date), CarbonImmutable::parse($locked->to_date), $days, 'remaining');
+                } else {
+                    // An already-pending ERP request remains approvable under the
+                    // existing calendar-year policy while HR reconciles history.
+                    $this->assertLegacyAnnualAvailability($locked->employee, $days);
+                }
             }
             $this->reconcileAbsentAttendanceForApprovedLeave($locked, $actor);
             $locked->forceFill(['status' => 'approved', 'decided_by_user_id' => $actor->id, 'decided_at' => now()])->save();
@@ -312,6 +328,24 @@ class LeaveService
         }
     }
 
+    /** @param array<int, array<string, mixed>> $days */
+    private function assertLegacyAnnualAvailability(Employee $employee, array $days): void
+    {
+        $requestedByYear = [];
+        foreach ($days as $day) {
+            if (! (bool) ($day['counts_as_leave'] ?? false)) {
+                continue;
+            }
+            $year = (int) CarbonImmutable::parse($day['leave_date'])->format('Y');
+            $requestedByYear[$year] = bcadd($requestedByYear[$year] ?? '0.00', (string) $day['leave_units'], 2);
+        }
+        foreach ($requestedByYear as $year => $requested) {
+            if (bccomp($requested, $this->balances->for($employee, $year)->remaining, 2) > 0) {
+                throw ValidationException::withMessages(['from_date' => 'The employee no longer has enough Annual Leave in the existing calendar-year policy.']);
+            }
+        }
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $days
      * @return array<string, array{balance: AnnualLeaveBalance, requested: string}>
@@ -428,17 +462,6 @@ class LeaveService
             ->map(fn ($date): string => CarbonImmutable::parse($date)->toDateString())->unique()->values()->all();
 
         $this->reconcileApprovedLeaveDates($request->employee, $request->type, $dates, $request->reference, $actor, $request->id);
-    }
-
-    /**
-     * Historical approved records reuse the same audited Absent-only transition.
-     * Callers must run this inside their record-creation transaction.
-     *
-     * @param  array<int, string>  $dates
-     */
-    public function reconcileApprovedHistoricalLeave(Employee $employee, LeaveType $type, array $dates, string $reference, User $actor): void
-    {
-        $this->reconcileApprovedLeaveDates($employee, $type, $dates, $reference, $actor, null);
     }
 
     /** @param array<int, string> $dates */

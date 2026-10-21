@@ -2,9 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Str;
 
 return new class extends Migration
 {
@@ -155,44 +153,6 @@ return new class extends Migration
             $table->index(['historical_leave_record_id', 'occurred_at'], 'hist_leave_event_record_date_idx');
         });
 
-        // New policy data is additive. Existing requests retain their original policy FK and snapshots.
-        $today = now()->toDateString();
-        $previous = DB::table('leave_policies')->where('status', true)->whereNull('effective_to')
-            ->whereDate('effective_from', '<', $today)->orderByDesc('effective_from')->first();
-        if ($previous !== null) {
-            DB::table('leave_policies')->where('id', $previous->id)->update([
-                'effective_to' => now()->subDay()->toDateString(), 'updated_at' => now(),
-            ]);
-            $newPolicyId = DB::table('leave_policies')->insertGetId([
-                'name' => 'Joining Anniversary Annual Leave Policy',
-                'annual_leave_entitlement_days' => '12.00',
-                'leave_year_mode' => $previous->leave_year_mode,
-                'leave_year_basis' => 'joining_anniversary',
-                'monthly_accrual_enabled' => false,
-                'carry_forward_enabled' => false,
-                'maximum_carry_forward_days' => '0.00',
-                'carry_forward_expiry_months' => null,
-                'policy_description' => 'Annual entitlement follows the employee joining anniversary. No monthly accrual or carry-forward.',
-                'policy_change_reason' => 'Initial adoption of the approved joining-anniversary leave policy.',
-                // Preserve existing mid-cycle entitlement semantics until the next anniversary.
-                'cycle_transition_decision' => 'next_anniversary',
-                'half_day_leave_enabled' => $previous->half_day_leave_enabled,
-                'manager_approval_enabled' => $previous->manager_approval_enabled,
-                'compensatory_off_requires_approval' => $previous->compensatory_off_requires_approval,
-                'compensatory_off_expiry_days' => $previous->compensatory_off_expiry_days,
-                'scheduled_sunday_compensatory_off_enabled' => $previous->scheduled_sunday_compensatory_off_enabled,
-                'effective_from' => $today, 'effective_to' => null, 'status' => true,
-                'created_by_user_id' => null, 'created_at' => now(), 'updated_at' => now(),
-            ]);
-            DB::table('leave_policy_events')->insert([
-                'leave_policy_id' => $newPolicyId, 'actor_user_id' => null, 'event_type' => 'initial_anniversary_policy',
-                'effective_date' => $today,
-                'previous_values' => json_encode(['annual_entitlement' => $previous->annual_leave_entitlement_days, 'leave_year_basis' => 'calendar_year', 'carry_forward_enabled' => false]),
-                'new_values' => json_encode(['annual_entitlement' => '12.00', 'leave_year_basis' => 'joining_anniversary', 'carry_forward_enabled' => false, 'monthly_accrual_enabled' => false]),
-                'reason' => 'Initial adoption of the approved joining-anniversary policy. Existing leave requests and attendance evidence are not rewritten.',
-                'occurred_at' => now(), 'idempotency_key' => (string) Str::uuid(),
-            ]);
-        }
     }
 
     public function down(): void

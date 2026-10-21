@@ -1,6 +1,19 @@
 <x-filament-panels::page>
+    <x-filament::section heading="Annual Leave activation" description="Historical balances remain provisional until HR reviews every employee and Owner/Admin approves the rollout.">
+        <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <p>{{ $this->activationStatus['reviewed'] }} of {{ $this->activationStatus['total'] }} employees reviewed · {{ $this->activationStatus['pending'] }} pending</p>
+            <x-filament::badge :color="$this->activationStatus['active'] ? 'success' : 'warning'">{{ $this->activationStatus['active'] ? 'Active' : 'Provisional — Pending HR Verification' }}</x-filament::badge>
+        </div>
+        @if ($this->canActivate() && ! $this->activationStatus['active'])
+            <div class="mt-3"><x-filament::button type="button" wire:click="activateAnnualLeaveWorkflow" wire:confirm="Confirm that every employee's joining date and historical leave balance has been reviewed? This activates employee Annual Leave requests." :disabled="$this->activationStatus['pending'] > 0">Approve final activation</x-filament::button></div>
+        @endif
+        @error('activation') <p class="mt-2 text-sm text-danger-600">{{ $message }}</p> @enderror
+    </x-filament::section>
     @if ($this->canRecord())
-        <x-filament::section heading="Record historical leave" description="Use verified source records. Preview is read-only; no leave record is written until you confirm below.">
+        <x-filament::section :heading="$correctingRecordId ? 'Correct historical leave' : 'Record historical leave'" description="Use verified source records. Preview is read-only; no leave record is written until you confirm below.">
+            @if ($correctingRecordId)
+                <div class="mb-4 rounded-lg border border-warning-300 p-3 text-sm dark:border-warning-500/30">Correcting one historical record. The original remains in the audit history and is voided only if the replacement passes validation. <button type="button" wire:click="cancelCorrection" class="font-medium text-primary-600 underline">Cancel correction</button></div>
+            @endif
             <form wire:submit="recordHistoricalLeave" class="grid gap-4 md:grid-cols-2">
                 <div class="space-y-2 md:col-span-2">
                     <label for="historical-employee" class="text-sm font-medium">Employee</label>
@@ -39,6 +52,9 @@
                 <label class="space-y-1.5 text-sm"><span class="font-medium">Original approval date (if recorded)</span><input type="date" wire:model="originalApprovedAt" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('originalApprovedAt') <p class="text-danger-600">{{ $message }}</p> @enderror</label>
                 <label class="space-y-1.5 text-sm md:col-span-2"><span class="font-medium">Reason</span><textarea rows="3" required maxlength="2000" wire:model="reason" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"></textarea>@error('reason') <p class="text-danger-600">{{ $message }}</p> @enderror</label>
                 <label class="space-y-1.5 text-sm md:col-span-2"><span class="font-medium">Additional remarks</span><textarea rows="2" maxlength="10000" wire:model="remarks" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"></textarea>@error('remarks') <p class="text-danger-600">{{ $message }}</p> @enderror</label>
+                @if ($correctingRecordId)
+                    <label class="space-y-1.5 text-sm md:col-span-2"><span class="font-medium">Correction reason</span><textarea rows="2" required maxlength="2000" wire:model="correctionReason" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"></textarea>@error('correctionReason') <p class="text-danger-600">{{ $message }}</p> @enderror</label>
+                @endif
 
                 @if ($preview)
                     <div class="rounded-lg border border-primary-200 bg-primary-50 p-4 text-sm dark:border-primary-500/30 dark:bg-primary-950/20 md:col-span-2">
@@ -46,7 +62,7 @@
                         <p class="mt-1">{{ $preview['employee_code'] }} · {{ $preview['employee_name'] }} · {{ $preview['leave_type'] }} · {{ number_format((float) $preview['chargeable_days'], 2) }} chargeable days</p>
                         <ul class="mt-2 list-inside list-disc">@foreach ($preview['segments'] as $segment)<li>{{ $segment['period_start'] }} – {{ $segment['period_end'] }}: {{ number_format((float) $segment['days'], 2) }} days</li>@endforeach</ul>
                         @foreach ($preview['warnings'] as $warning)<p class="mt-2 text-warning-700 dark:text-warning-300">{{ $warning }}</p>@endforeach
-                        <p class="mt-2 text-gray-600 dark:text-gray-300">{{ $preview['attendance_change'] }} Approval may reconcile only existing Absent attendance rows; original biometric evidence is retained.</p>
+                        <p class="mt-2 text-gray-600 dark:text-gray-300">Approved historical leave affects leave balances only. Existing attendance and biometric records remain unchanged.</p>
                     </div>
                 @elseif ($previewError)
                     <p class="rounded-lg border border-warning-300 bg-warning-50 p-3 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-950/20 dark:text-warning-200 md:col-span-2">{{ $previewError }}</p>
@@ -58,7 +74,7 @@
                 </label>
                 @error('confirmed') <p class="text-danger-600 md:col-span-2">{{ $message }}</p> @enderror
                 @error('reason') <p class="text-danger-600 md:col-span-2">{{ $message }}</p> @enderror
-                <div class="flex justify-end md:col-span-2"><x-filament::button type="submit" :disabled="! $preview" icon="heroicon-o-check">Confirm historical record</x-filament::button></div>
+                <div class="flex justify-end md:col-span-2"><x-filament::button type="submit" :disabled="! $preview" icon="heroicon-o-check">{{ $correctingRecordId ? 'Confirm correction' : 'Confirm historical record' }}</x-filament::button></div>
             </form>
         </x-filament::section>
     @endif
@@ -150,11 +166,12 @@
 
     @if ($this->canViewHistory())
     <x-filament::section heading="Employee leave balances" description="Balances are calculated for each employee’s verified joining-anniversary cycle. Previous completed periods are shown separately; future policy versions do not rewrite historical periods.">
+        @if (! $this->activationStatus['active']) <p class="mb-3 text-sm font-semibold text-warning-700">Provisional — Pending HR Verification</p> @endif
         <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="border-b text-xs uppercase text-gray-500"><th class="p-2">Employee</th><th class="p-2">Verified joining date</th><th class="p-2">Current leave period</th><th class="p-2">Annual entitlement</th><th class="p-2">Historical used</th><th class="p-2">Current used</th><th class="p-2">Pending</th><th class="p-2">Available</th></tr></thead><tbody>
             @forelse($this->employeeBalances as $row)
                 @php($employee = $row['employee'])
                 @if($row['current'])
-                    <tr class="border-b border-gray-100 align-top dark:border-white/10"><td class="p-2">{{ $employee->employee_id }} · {{ $employee->name }}</td><td class="p-2">{{ $employee->joining_date->format('d M Y') }}</td><td class="p-2">{{ $row['current_cycle']->start->format('d M Y') }} – {{ $row['current_cycle']->end->format('d M Y') }}@if($row['previous'])<details class="mt-1"><summary class="cursor-pointer text-xs text-primary-600">Previous periods</summary><div class="mt-2 space-y-1">@foreach($row['previous'] as $period)<p class="text-xs">{{ $period['start'] }} – {{ $period['end'] }} · entitlement {{ number_format((float) $period['entitlement'], 2) }} · historical {{ number_format((float) $period['historical_used'], 2) }} · current {{ number_format((float) $period['current_used'], 2) }} · pending {{ number_format((float) $period['pending'], 2) }} · remaining {{ number_format((float) $period['remaining'], 2) }}</p>@endforeach</div></details>@endif</td><td class="p-2">{{ number_format((float) $row['current']->entitlement, 2) }}</td><td class="p-2">{{ number_format((float) $row['current']->historicalUsed, 2) }}</td><td class="p-2">{{ number_format((float) $row['current']->currentUsed, 2) }}</td><td class="p-2">{{ number_format((float) $row['current']->pending, 2) }}</td><td class="p-2 font-semibold">{{ number_format((float) $row['current']->availableAfterPending, 2) }}</td></tr>
+                    <tr class="border-b border-gray-100 align-top dark:border-white/10"><td class="p-2">{{ $employee->employee_id }} · {{ $employee->name }}<span class="block text-xs {{ $row['reviewed'] ? 'text-success-600' : 'text-warning-600' }}">{{ $row['reviewed'] ? 'HR reviewed' : 'Pending HR review' }}</span>@if($this->canRecord() && $this->canViewHistory() && ! $row['reviewed'])<button type="button" wire:click="confirmEmployeeReconciliation({{ $employee->id }})" wire:confirm="Confirm this employee's joining date, historical leave (including none), and calculated balance are reconciled?" class="mt-1 text-xs font-medium text-primary-600 underline">Confirm reconciliation</button>@endif</td><td class="p-2">{{ $employee->joining_date->format('d M Y') }}</td><td class="p-2">{{ $row['current_cycle']->start->format('d M Y') }} – {{ $row['current_cycle']->end->format('d M Y') }}@if($row['previous'])<details class="mt-1"><summary class="cursor-pointer text-xs text-primary-600">Previous periods</summary><div class="mt-2 space-y-1">@foreach($row['previous'] as $period)<p class="text-xs">{{ $period['start'] }} – {{ $period['end'] }} · entitlement {{ number_format((float) $period['entitlement'], 2) }} · historical {{ number_format((float) $period['historical_used'], 2) }} · current {{ number_format((float) $period['current_used'], 2) }} · pending {{ number_format((float) $period['pending'], 2) }} · remaining {{ number_format((float) $period['remaining'], 2) }}</p>@endforeach</div></details>@endif</td><td class="p-2">{{ number_format((float) $row['current']->entitlement, 2) }}</td><td class="p-2">{{ number_format((float) $row['current']->historicalUsed, 2) }}</td><td class="p-2">{{ number_format((float) $row['current']->currentUsed, 2) }}</td><td class="p-2">{{ number_format((float) $row['current']->pending, 2) }}</td><td class="p-2 font-semibold">{{ number_format((float) $row['current']->availableAfterPending, 2) }}</td></tr>
                 @else
                     <tr class="border-b border-gray-100 dark:border-white/10"><td class="p-2">{{ $employee->employee_id }} · {{ $employee->name }}</td><td class="p-2">{{ $employee->joining_date?->format('d M Y') }}</td><td colspan="6" class="p-2 text-warning-700">{{ $row['error'] }}</td></tr>
                 @endif
@@ -164,9 +181,17 @@
         </tbody></table></div><div class="mt-4">{{ $this->employeeBalances->links() }}</div>
     </x-filament::section>
     <x-filament::section heading="Historical leave history" description="Records are separate from ordinary leave requests and retain their source and audit trail.">
+        @if ($voidingRecordId)
+            <form wire:submit="confirmVoid" class="mb-4 space-y-2 rounded-lg border border-warning-300 p-3 text-sm dark:border-warning-500/30">
+                <p>Void the selected historical entry. Its original details and audit history remain retained.</p>
+                <textarea wire:model="voidReason" required maxlength="2000" rows="2" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5" placeholder="Required reason for voiding"></textarea>
+                @error('voidReason') <p class="text-danger-600">{{ $message }}</p> @enderror
+                <x-filament::button type="submit" color="danger">Confirm void</x-filament::button>
+            </form>
+        @endif
         <div class="mb-4 grid gap-3 md:grid-cols-[1fr_220px_auto]">
             <input type="search" wire:model.live.debounce.300ms="historyEmployeeFilter" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5" placeholder="Search authorized employees by code or name">
-            <select wire:model.live="historyStatusFilter" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"><option value="">All approval statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="cancelled">Cancelled</option></select>
+            <select wire:model.live="historyStatusFilter" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"><option value="">All approval statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="cancelled">Cancelled</option><option value="voided">Voided</option></select>
             <x-filament::button type="button" wire:click="downloadHistoryExport" icon="heroicon-o-arrow-down-tray" color="gray">Export current filters</x-filament::button>
         </div>
         <div class="overflow-x-auto">
@@ -175,7 +200,7 @@
                 <tbody>
                     @forelse ($this->records as $record)
                         <tr class="border-b border-gray-100 dark:border-white/10">
-                            <td class="p-2 font-medium">{{ $record->reference }}</td>
+                            <td class="p-2 font-medium">{{ $record->reference }}@if($record->correction_of_record_id)<span class="block text-xs text-gray-500">Correction of #{{ $record->correction_of_record_id }}</span>@endif @if($this->canRecord() && in_array($record->approval_status, ['pending', 'approved'], true) && ($record->approval_status !== 'approved' || $this->canApprove()))<span class="block space-x-2 text-xs"><button type="button" wire:click="startCorrection({{ $record->id }})" class="text-primary-600 underline">Correct</button><button type="button" wire:click="startVoid({{ $record->id }})" class="text-danger-600 underline">Void</button></span>@endif</td>
                             <td class="p-2">{{ $record->employee->employee_id }} · {{ $record->employee->name }}</td>
                             <td class="p-2">{{ $record->type->name }}<span class="block text-xs text-gray-500">{{ $record->from_date->format('d M Y') }} – {{ $record->to_date->format('d M Y') }}</span></td>
                             <td class="p-2">{{ number_format((float) $record->chargeable_days, 2) }}</td>

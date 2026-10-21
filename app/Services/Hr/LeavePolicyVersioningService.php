@@ -23,6 +23,7 @@ class LeavePolicyVersioningService
         private readonly HrAuthorization $authorization,
         private readonly AnnualLeaveCycleResolver $cycles,
         private readonly ActivityLogger $activity,
+        private readonly HistoricalLeaveActivationService $historicalActivation,
     ) {}
 
     /** @return array{employees_in_mid_cycle:int,unresolved_leap_day_rule:int,effective_date:string} */
@@ -71,6 +72,9 @@ class LeavePolicyVersioningService
         ])->validate();
         if ($validated['status'] === 'active' && ! $validated['activation_confirmed']) {
             throw ValidationException::withMessages(['activation_confirmed' => 'Confirm activation before replacing the applicable policy.']);
+        }
+        if ($validated['status'] === 'active' && ! $this->historicalActivation->isActive()) {
+            throw ValidationException::withMessages(['status' => 'Complete Owner/Admin historical leave activation before applying an anniversary policy.']);
         }
         $effective = CarbonImmutable::parse($validated['effective_date'])->startOfDay();
         $impact = $this->transitionImpact($effective->toDateString(), $actor);
@@ -142,6 +146,9 @@ class LeavePolicyVersioningService
         $this->authorizeManagement($actor);
         if (! $confirmed) {
             throw ValidationException::withMessages(['activation_confirmed' => 'Confirm activation before replacing the applicable policy.']);
+        }
+        if (! $this->historicalActivation->isActive()) {
+            throw ValidationException::withMessages(['policy' => 'Complete Owner/Admin historical leave activation before applying this Draft.']);
         }
 
         return DB::transaction(function () use ($policyId, $actor): LeavePolicy {

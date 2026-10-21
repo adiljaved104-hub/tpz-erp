@@ -16,6 +16,7 @@ use App\Services\Hr\LeavePolicyVersioningService;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -24,23 +25,54 @@ class JoiningAnniversaryPolicyTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_migration_seeds_the_approved_12_day_anniversary_policy_without_carry_forward_or_monthly_accrual(): void
+    public function test_migration_preserves_the_existing_12_day_policy_without_activating_anniversary_leave(): void
     {
         $policy = LeavePolicy::query()->where('status', true)->whereNull('effective_to')
-            ->where('leave_year_basis', 'joining_anniversary')->latest('effective_from')->firstOrFail();
+            ->latest('effective_from')->firstOrFail();
 
         $this->assertSame('12.00', (string) $policy->annual_leave_entitlement_days);
-        $this->assertSame('joining_anniversary', $policy->leave_year_basis);
+        $this->assertSame('calendar_year', $policy->leave_year_basis);
         $this->assertFalse($policy->monthly_accrual_enabled);
         $this->assertFalse($policy->carry_forward_enabled);
         $this->assertSame('0.00', (string) $policy->maximum_carry_forward_days);
-        $this->assertSame('next_anniversary', $policy->cycle_transition_decision);
-        $this->assertDatabaseHas('leave_policy_events', ['leave_policy_id' => $policy->id, 'event_type' => 'initial_anniversary_policy']);
+        $this->assertNull($policy->effective_to);
+        $this->assertDatabaseMissing('leave_policy_events', ['event_type' => 'initial_anniversary_policy']);
+        $this->assertDatabaseCount('historical_leave_workflow_activations', 0);
+    }
+
+    public function test_active_policy_replacement_is_blocked_until_historical_activation_but_draft_is_allowed(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $service = app(LeavePolicyVersioningService::class);
+        $data = [
+            'annual_entitlement_days' => '12', 'carry_forward_enabled' => false,
+            'effective_date' => now()->addMonth()->toDateString(),
+            'description' => 'Prospective leave policy', 'reason' => 'HR planning',
+            'cycle_transition_decision' => 'next_anniversary',
+            'status' => 'active', 'activation_confirmed' => true,
+        ];
+        try {
+            $service->createVersion($data, $owner);
+            $this->fail('An anniversary policy was activated before Owner/Admin reconciliation approval.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('status', $exception->errors());
+        }
+
+        $draft = $service->createVersion(array_replace($data, ['status' => 'draft', 'activation_confirmed' => false]), $owner);
+        $this->assertFalse($draft->status);
+        try {
+            $service->activateDraft($draft->id, $owner, true);
+            $this->fail('A Draft was activated before historical reconciliation approval.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('policy', $exception->errors());
+        }
+        $this->assertSame('calendar_year', LeavePolicy::query()->where('status', true)->whereNull('effective_to')->firstOrFail()->leave_year_basis);
     }
 
     public function test_admin_can_create_a_future_15_day_version_with_explicit_carry_forward_settings(): void
     {
         $admin = $this->user(EmployeeRole::Admin);
+        $this->enableHistoricalWorkflow($admin);
         $future = now()->addMonths(3)->toDateString();
 
         $policy = app(LeavePolicyVersioningService::class)->createVersion([
@@ -62,6 +94,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
     public function test_mid_cycle_change_requires_an_explicit_transition_decision_and_does_not_close_old_version(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
+        $this->enableHistoricalWorkflow($owner);
         $employee = Employee::factory()->create(['joining_date' => '2025-06-01']);
         $employee->forceFill(['joining_date_verified_at' => now(), 'joining_date_verified_by_user_id' => $owner->id])->save();
         $current = LeavePolicy::query()->whereNull('effective_to')->latest('effective_from')->firstOrFail();
@@ -78,13 +111,14 @@ class JoiningAnniversaryPolicyTest extends TestCase
         }
 
         $this->assertNull($current->fresh()->effective_to);
-        $this->assertSame(2, LeavePolicy::query()->count());
+        $this->assertSame(1, LeavePolicy::query()->count());
         $this->assertNull($current->fresh()->effective_to);
     }
 
     public function test_next_anniversary_transition_preserves_current_cycle_and_applies_new_entitlement_prospectively(): void
     {
         $admin = $this->user(EmployeeRole::Admin);
+        $this->enableHistoricalWorkflow($admin);
         $employeeUser = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);
         $employee = Employee::factory()->for($employeeUser)->role(EmployeeRole::Staff)->create([
             'email' => $employeeUser->email, 'status' => true, 'joining_date' => '2025-01-01',
@@ -115,6 +149,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
     public function test_future_carry_forward_is_capped_and_expires_without_backfilling_old_cycles(): void
     {
         $admin = $this->user(EmployeeRole::Admin);
+        $this->enableHistoricalWorkflow($admin);
         $employeeUser = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);
         $employee = Employee::factory()->for($employeeUser)->role(EmployeeRole::Staff)->create([
             'email' => $employeeUser->email, 'status' => true, 'joining_date' => '2025-01-01',
@@ -156,7 +191,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
         } catch (AuthorizationException) {
             $this->addToAssertionCount(1);
         }
-        $this->assertSame(2, LeavePolicy::query()->count());
+        $this->assertSame(1, LeavePolicy::query()->count());
     }
 
     public function test_authorized_hr_staff_can_manage_policy_only_after_an_explicit_permission_grant(): void
@@ -180,7 +215,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
         ], $hrStaff);
 
         $this->assertFalse($draft->status);
-        $this->assertSame(3, LeavePolicy::query()->count());
+        $this->assertSame(2, LeavePolicy::query()->count());
     }
 
     public function test_draft_does_not_close_or_change_the_applicable_policy_or_employee_balance(): void
@@ -220,6 +255,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
 
     public function test_active_replacement_requires_confirmation_and_applies_only_from_its_effective_date(): void
     {
+        $this->enableHistoricalWorkflow($this->user(EmployeeRole::Owner));
         $admin = $this->user(EmployeeRole::Admin);
         $employee = $this->verifiedEmployee($admin, '2025-01-01');
         $current = LeavePolicy::query()->where('status', true)->whereNull('effective_to')->firstOrFail();
@@ -255,6 +291,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
 
     public function test_draft_activation_requires_confirmation_and_permission_and_preserves_continuity(): void
     {
+        $this->enableHistoricalWorkflow($this->user(EmployeeRole::Owner));
         $admin = $this->user(EmployeeRole::Admin);
         $employee = $this->verifiedEmployee($admin, '2025-01-01');
         $current = LeavePolicy::query()->where('status', true)->whereNull('effective_to')->firstOrFail();
@@ -283,6 +320,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
 
     public function test_confirmed_draft_activation_keeps_old_policy_for_prior_dates_and_logs_replacement(): void
     {
+        $this->enableHistoricalWorkflow($this->user(EmployeeRole::Owner));
         $admin = $this->user(EmployeeRole::Admin);
         $employee = $this->verifiedEmployee($admin, '2025-01-01');
         $effective = now()->addMonth()->toDateString();
@@ -323,6 +361,15 @@ class JoiningAnniversaryPolicyTest extends TestCase
             ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $date))->count();
 
         $this->assertSame(1, $count, "Expected exactly one active leave policy for {$date}.");
+    }
+
+    private function enableHistoricalWorkflow(User $actor): void
+    {
+        DB::table('historical_leave_workflow_activations')->insert([
+            'workflow' => 'annual_leave', 'approved_by_user_id' => $actor->id,
+            'reviewed_employee_count' => 0, 'activated_at' => now(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     private function user(EmployeeRole $role): User

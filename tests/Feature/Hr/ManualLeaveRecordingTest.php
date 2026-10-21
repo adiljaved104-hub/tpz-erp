@@ -29,6 +29,7 @@ use App\Models\WorkScheduleDay;
 use App\Services\Authorization\AccessControlModuleRegistry;
 use App\Services\Authorization\EmployeePermissionCatalog;
 use App\Services\Hr\AttendanceQueryService;
+use App\Services\Hr\HistoricalLeaveActivationService;
 use App\Services\Hr\HrScopeService;
 use App\Services\Hr\LeaveBalanceService;
 use App\Services\Hr\LeaveService;
@@ -43,6 +44,17 @@ use Tests\TestCase;
 class ManualLeaveRecordingTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $fixtureActor = User::factory()->create();
+        DB::table('historical_leave_workflow_activations')->insert([
+            'workflow' => 'annual_leave', 'approved_by_user_id' => $fixtureActor->id,
+            'reviewed_employee_count' => 0, 'activated_at' => now(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
 
     public function test_owner_and_admin_can_record_leave_for_any_active_employee_and_audit_management_provenance(): void
     {
@@ -243,6 +255,7 @@ class ManualLeaveRecordingTest extends TestCase
         [$owner, , $team] = $this->managementUsers();
         $staff = $this->user(EmployeeRole::Staff, $team);
         $staff->employee->forceFill(['joining_date' => '2025-03-15'])->save();
+        app(HistoricalLeaveActivationService::class)->review($staff->employee->fresh(), $owner);
         $this->configureSchedule($staff->employee, $owner);
         $annual = LeaveType::query()->where('code', 'annual')->firstOrFail();
 
@@ -266,6 +279,7 @@ class ManualLeaveRecordingTest extends TestCase
         [$owner, , $team] = $this->managementUsers();
         $staff = $this->user(EmployeeRole::Staff, $team);
         $staff->employee->forceFill(['joining_date' => '2025-03-15'])->save();
+        app(HistoricalLeaveActivationService::class)->review($staff->employee->fresh(), $owner);
         $this->configureSchedule($staff->employee, $owner);
         $annual = LeaveType::query()->where('code', 'annual')->firstOrFail();
         $policy = LeavePolicy::query()->where('status', true)->orderBy('effective_from')->firstOrFail();
@@ -640,6 +654,8 @@ class ManualLeaveRecordingTest extends TestCase
             'email' => $user->email, 'team_id' => $team->id, 'status' => true, 'joining_date' => '2025-01-01',
         ]);
         $employee->forceFill(['joining_date_verified_at' => now(), 'joining_date_verified_by_user_id' => $user->id])->save();
+        $owner = Employee::query()->where('role', EmployeeRole::Owner->value)->first()?->user;
+        app(HistoricalLeaveActivationService::class)->review($employee, $owner ?? $user);
 
         return $user->refresh();
     }

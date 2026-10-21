@@ -18,6 +18,7 @@ use App\Models\EmployeeAttendance;
 use App\Models\EmployeePermissionOverride;
 use App\Models\LeavePolicy;
 use App\Models\LeaveRequest;
+use App\Models\LeaveRequestDay;
 use App\Models\LeaveRequestEvent;
 use App\Models\LeaveType;
 use App\Models\Team;
@@ -205,12 +206,12 @@ class ManualLeaveRecordingTest extends TestCase
         $pending = app(LeaveService::class)->recordOnBehalf($this->requestData($target, $annual, '2026-09-07'), $manager);
         $this->assertSame('2026-09-07', $pending->from_date->toDateString());
         $this->assertSame('1.00', $pending->requested_working_days);
-        $this->assertSame('1.00', $balanceService->for($target->employee, 2026)->pending);
-        $this->assertSame('11.00', $balanceService->for($target->employee, 2026)->availableAfterPending);
+        $this->assertSame('1.00', $balanceService->forDate($target->employee, '2026-09-07')->pending);
+        $this->assertSame('11.00', $balanceService->forDate($target->employee, '2026-09-07')->availableAfterPending);
 
         $this->grant($manager, HrPermission::LeaveApprove, $owner);
         $approved = app(LeaveService::class)->recordOnBehalf($this->requestData($target, $annual, '2026-09-08', 'approved'), $manager);
-        $balance = $balanceService->for($target->employee, 2026);
+        $balance = $balanceService->forDate($target->employee, '2026-09-08');
         $this->assertSame('1.00', $balance->used);
         $this->assertSame('1.00', $balance->pending);
         $this->assertSame('10.00', $balance->availableAfterPending);
@@ -223,18 +224,85 @@ class ManualLeaveRecordingTest extends TestCase
         $manager = $this->user(EmployeeRole::Manager, $team);
         $target = $this->user(EmployeeRole::Staff, $team);
         $this->configureSchedule($target->employee, $owner);
-        $before = app(LeaveBalanceService::class)->for($target->employee, 2026);
+        $before = app(LeaveBalanceService::class)->forDate($target->employee, '2026-09-07');
 
         $request = app(LeaveService::class)->recordOnBehalf(
             $this->requestData($target, LeaveType::query()->where('code', 'unpaid')->firstOrFail(), '2026-09-07'),
             $manager,
         );
-        $after = app(LeaveBalanceService::class)->for($target->employee, 2026);
+        $after = app(LeaveBalanceService::class)->forDate($target->employee, '2026-09-07');
 
         $this->assertNull($request->annual_entitlement_snapshot);
         $this->assertSame('1.00', $request->requested_working_days);
         $this->assertSame($before->availableAfterPending, $after->availableAfterPending);
         $this->assertSame('0.00', $after->pending);
+    }
+
+    public function test_ordinary_annual_leave_crossing_joining_anniversary_is_split_between_cycles(): void
+    {
+        [$owner, , $team] = $this->managementUsers();
+        $staff = $this->user(EmployeeRole::Staff, $team);
+        $staff->employee->forceFill(['joining_date' => '2025-03-15'])->save();
+        $this->configureSchedule($staff->employee, $owner);
+        $annual = LeaveType::query()->where('code', 'annual')->firstOrFail();
+
+        $request = app(LeaveService::class)->submit([
+            'leave_type_id' => $annual->id, 'from_date' => '2026-03-13', 'to_date' => '2026-03-16',
+            'reason' => 'Leave spanning the joining anniversary',
+        ], $staff);
+
+        $previous = app(LeaveBalanceService::class)->forDate($staff->employee, '2026-03-13');
+        $current = app(LeaveBalanceService::class)->forDate($staff->employee, '2026-03-16');
+        $this->assertSame('2.00', $request->requested_working_days);
+        $this->assertSame('2025-03-15', $previous->periodStart);
+        $this->assertSame('1.00', $previous->pending);
+        $this->assertSame('2026-03-15', $current->periodStart);
+        $this->assertSame('1.00', $current->pending);
+        $this->assertSame(['2026-03-13', '2026-03-16'], $request->days()->where('counts_as_leave', true)->orderBy('leave_date')->pluck('leave_date')->map(fn ($date): string => CarbonImmutable::parse($date)->toDateString())->all());
+    }
+
+    public function test_annual_leave_cannot_borrow_available_days_from_the_next_anniversary_cycle(): void
+    {
+        [$owner, , $team] = $this->managementUsers();
+        $staff = $this->user(EmployeeRole::Staff, $team);
+        $staff->employee->forceFill(['joining_date' => '2025-03-15'])->save();
+        $this->configureSchedule($staff->employee, $owner);
+        $annual = LeaveType::query()->where('code', 'annual')->firstOrFail();
+        $policy = LeavePolicy::query()->where('status', true)->orderBy('effective_from')->firstOrFail();
+        $priorRequest = LeaveRequest::query()->create([
+            'reference' => 'LVR-ANNIVERSARY-CYCLE-FULL', 'employee_id' => $staff->employee->id,
+            'team_id_at_request' => $team->id, 'leave_type_id' => $annual->id, 'leave_policy_id' => $policy->id,
+            'from_date' => '2026-02-20', 'to_date' => '2026-03-09', 'requested_working_days' => '12.00',
+            'status' => 'approved', 'reason' => 'Previously approved leave in the prior cycle', 'submitted_at' => now(),
+            'decided_by_user_id' => $owner->id, 'decided_at' => now(), 'idempotency_key' => fake()->uuid(),
+        ]);
+        $cursor = CarbonImmutable::parse('2026-02-20');
+        $units = 0;
+        while ($units < 12) {
+            if ($cursor->isWeekday()) {
+                LeaveRequestDay::query()->create([
+                    'leave_request_id' => $priorRequest->id, 'leave_date' => $cursor->toDateString(),
+                    'classification' => 'working_leave', 'counts_as_leave' => true, 'leave_units' => '1.00',
+                ]);
+                $units++;
+            }
+            $cursor = $cursor->addDay();
+        }
+
+        try {
+            app(LeaveService::class)->submit([
+                'leave_type_id' => $annual->id, 'from_date' => '2026-03-13', 'to_date' => '2026-03-16',
+                'reason' => 'One day falls in an exhausted anniversary cycle',
+            ], $staff);
+            $this->fail('A later cycle’s balance was incorrectly used to cover an exhausted prior cycle.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('from_date', $exception->errors());
+            $this->assertStringContainsString('joining-anniversary', collect($exception->errors())->flatten()->first());
+        }
+
+        $this->assertSame(1, LeaveRequest::query()->where('employee_id', $staff->employee->id)->count());
+        $this->assertSame('0.00', app(LeaveBalanceService::class)->forDate($staff->employee, '2026-03-14')->remaining);
+        $this->assertSame('12.00', app(LeaveBalanceService::class)->forDate($staff->employee, '2026-03-16')->remaining);
     }
 
     public function test_existing_comp_off_is_respected_and_pending_comp_off_blocks_a_conflicting_manual_record(): void
@@ -381,14 +449,14 @@ class ManualLeaveRecordingTest extends TestCase
             'late_minutes' => 0, 'early_departure_minutes' => 0, 'source' => 'system_derived',
             'is_overridden' => false, 'calculated_at' => now(),
         ]);
-        $before = app(LeaveBalanceService::class)->for($target->employee, 2026);
+        $before = app(LeaveBalanceService::class)->forDate($target->employee, '2026-09-07');
 
         $request = app(LeaveService::class)->recordOnBehalf(
             $this->requestData($target, LeaveType::query()->where('code', 'unpaid')->firstOrFail(), $date, 'approved'),
             $owner,
         );
 
-        $after = app(LeaveBalanceService::class)->for($target->employee, 2026);
+        $after = app(LeaveBalanceService::class)->forDate($target->employee, '2026-09-07');
         $this->assertSame('approved', $request->status);
         $this->assertSame(AttendanceStatus::UnpaidLeave, $attendance->fresh()->status);
         $this->assertSame($before->used, $after->used);
@@ -568,9 +636,10 @@ class ManualLeaveRecordingTest extends TestCase
     private function user(EmployeeRole $role, Team $team): User
     {
         $user = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);
-        Employee::factory()->for($user)->role($role)->create([
-            'email' => $user->email, 'team_id' => $team->id, 'status' => true,
+        $employee = Employee::factory()->for($user)->role($role)->create([
+            'email' => $user->email, 'team_id' => $team->id, 'status' => true, 'joining_date' => '2025-01-01',
         ]);
+        $employee->forceFill(['joining_date_verified_at' => now(), 'joining_date_verified_by_user_id' => $user->id])->save();
 
         return $user->refresh();
     }

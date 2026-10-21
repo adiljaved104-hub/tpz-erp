@@ -139,7 +139,10 @@ class EmployeeForm
                             ->default(EmployeeRole::Staff->value)
                             ->required(),
                         DatePicker::make('joining_date')
-                            ->label('Joining Date'),
+                            ->label('Joining Date')
+                            ->disabledOn('edit')
+                            ->dehydrated(fn (string $operation): bool => $operation === 'create')
+                            ->helperText(fn (string $operation): ?string => $operation === 'edit' ? 'Use Verify / Correct Joining Date to record a reasoned and audited change.' : 'This initial value remains unverified until reviewed by authorized management.'),
                         Toggle::make('status')
                             ->label('Active')
                             ->default(true)

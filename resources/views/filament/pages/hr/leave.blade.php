@@ -8,32 +8,52 @@
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
             <h2 class="text-xl font-semibold text-gray-950 dark:text-white">Annual leave balance</h2>
-            <p class="mt-1 text-sm text-gray-500">Your leave allowance and request status for {{ $balanceYear }}.</p>
+            @if ($balancePeriod)
+                <p class="mt-1 text-sm text-gray-500">Your current joining-anniversary leave period: {{ $balancePeriod }}.</p>
+            @else
+                <p class="mt-1 text-sm text-gray-500">The annual balance is unavailable until the joining date is verified.</p>
+            @endif
         </div>
-        <x-filament::badge color="info">{{ $balanceYear }} leave year</x-filament::badge>
+        @if ($balancePeriod)
+            <x-filament::badge color="info">{{ $balancePeriod }}</x-filament::badge>
+        @endif
     </div>
 
-    <section aria-label="Annual leave balance summary" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        @foreach ([
-            ['Annual entitlement', $balance->entitlement, 'days', 'info'],
-            ['Used', $balance->used, 'approved days', 'success'],
-            ['Pending', $balance->pending, 'days awaiting decision', 'warning'],
-            ['Available', $balance->availableAfterPending, 'days after pending requests', 'primary'],
-        ] as [$label, $value, $caption, $color])
-            <x-filament::section compact>
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <p class="text-sm font-medium text-gray-500">{{ $label }}</p>
-                        <p class="mt-2 text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ number_format((float) $value, 2) }}</p>
-                        <p class="mt-1 text-xs text-gray-500">{{ $caption }}</p>
+    @if ($balance)
+        <section aria-label="Annual leave balance summary" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            @foreach ([
+                ['Annual entitlement', $balance->entitlement, 'days', 'info'],
+                ['Current leave used', $balance->currentUsed, 'approved days', 'success'],
+                ['Historical leave used', $balance->historicalUsed, 'approved days', 'gray'],
+                ['Pending', $balance->pending, 'days awaiting decision', 'warning'],
+                ['Available', $balance->availableAfterPending, 'days after pending requests', 'primary'],
+            ] as [$label, $value, $caption, $color])
+                <x-filament::section compact>
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="text-sm font-medium text-gray-500">{{ $label }}</p>
+                            <p class="mt-2 text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ number_format((float) $value, 2) }}</p>
+                            <p class="mt-1 text-xs text-gray-500">{{ $caption }}</p>
+                        </div>
+                        <x-filament::badge :color="$color">{{ $label === 'Available' ? 'Balance' : 'Annual' }}</x-filament::badge>
                     </div>
-                    <x-filament::badge :color="$color">{{ $label === 'Available' ? 'Balance' : 'Annual' }}</x-filament::badge>
-                </div>
-            </x-filament::section>
-        @endforeach
-    </section>
+                </x-filament::section>
+            @endforeach
+            @if ($balancePolicy?->carry_forward_enabled)
+                <x-filament::section compact>
+                    <p class="text-sm font-medium text-gray-500">Carry forward</p>
+                    <p class="mt-2 text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ number_format((float) $balance->carryForward, 2) }}</p>
+                    <p class="mt-1 text-xs text-gray-500">days available before configured expiry</p>
+                </x-filament::section>
+            @endif
+        </section>
 
-    <p class="-mt-3 text-xs text-gray-500">Balance before pending requests: {{ number_format((float) $balance->remaining, 2) }} days. Entitlement adjustments: {{ number_format((float) $balance->adjustments, 2) }} days.</p>
+        <p class="-mt-3 text-xs text-gray-500">Leave period: {{ \Carbon\CarbonImmutable::parse($balance->periodStart)->format('d M Y') }} – {{ \Carbon\CarbonImmutable::parse($balance->periodEnd)->format('d M Y') }}. Balance before pending requests: {{ number_format((float) $balance->remaining, 2) }} days. Entitlement adjustments: {{ number_format((float) $balance->adjustments, 2) }} days.</p>
+    @else
+        <div role="status" class="rounded-xl border border-warning-200 bg-warning-50 p-4 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-950/30 dark:text-warning-300">
+            {{ $balanceError ?: 'Ask HR to verify your actual joining date before an Annual Leave balance is calculated.' }}
+        </div>
+    @endif
 
     @if ($canRequest)
         <x-filament::section heading="Request Leave" description="Choose a leave type and dates. Working days are calculated by the existing HR schedule rules." icon="heroicon-o-paper-airplane">

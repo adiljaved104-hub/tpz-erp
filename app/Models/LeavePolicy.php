@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LeavePolicy extends Model
 {
@@ -19,6 +20,16 @@ class LeavePolicy extends Model
             'effective_from' => 'immutable_date',
             'effective_to' => 'immutable_date',
             'status' => 'boolean',
+            'leave_year_basis' => 'string',
+            'monthly_accrual_enabled' => 'boolean',
+            'carry_forward_enabled' => 'boolean',
+            'maximum_carry_forward_days' => 'decimal:2',
+            'carry_forward_expiry_months' => 'integer',
         ];
+    }
+
+    public function events(): HasMany
+    {
+        return $this->hasMany(LeavePolicyEvent::class, 'leave_policy_id');
     }
 }

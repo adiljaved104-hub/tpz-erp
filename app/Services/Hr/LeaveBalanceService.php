@@ -8,12 +8,40 @@ use App\Models\LeaveEntitlementAdjustment;
 use App\Models\LeavePolicy;
 use App\Models\LeaveRequestDay;
 use App\Services\Leave\AnnualLeaveBalanceCalculator;
+use App\Services\Leave\AnnualLeaveCycleResolver;
 use Carbon\CarbonImmutable;
 
 class LeaveBalanceService
 {
-    public function __construct(private readonly AnnualLeaveBalanceCalculator $calculator) {}
+    public function __construct(
+        private readonly AnnualLeaveBalanceCalculator $calculator,
+        private readonly JoiningDateLeaveBalanceService $anniversaryBalances,
+        private readonly AnnualLeaveCycleResolver $cycles,
+    ) {}
 
+    /**
+     * Calculate an anniversary-based balance for a specific leave date.
+     * Callers that validate or display a balance for a leave period must use
+     * this method rather than infer entitlement from the calendar year.
+     */
+    public function forDate(Employee $employee, CarbonImmutable|string $date): AnnualLeaveBalance
+    {
+        return $this->anniversaryBalances->forDate($employee, $date);
+    }
+
+    public function currentFor(Employee $employee): AnnualLeaveBalance
+    {
+        return $this->forDate($employee, CarbonImmutable::today());
+    }
+
+    public function policyForDate(Employee $employee, CarbonImmutable|string $date): LeavePolicy
+    {
+        $cycle = $this->cycles->forDate($employee, $date);
+
+        return $this->anniversaryBalances->policyForCycle($cycle, $date instanceof CarbonImmutable ? $date : CarbonImmutable::parse($date));
+    }
+
+    /** @deprecated Use forDate() for anniversary-cycle balances. Kept for legacy integrations only. */
     public function for(Employee $employee, ?int $year = null): AnnualLeaveBalance
     {
         $year ??= (int) now()->format('Y');

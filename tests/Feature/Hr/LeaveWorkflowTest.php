@@ -40,7 +40,7 @@ class LeaveWorkflowTest extends TestCase
         $service = app(LeaveService::class);
 
         $pending = $service->submit(['leave_type_id' => $annual->id, 'from_date' => '2026-09-07', 'to_date' => '2026-09-08', 'reason' => 'Personal leave'], $staff);
-        $balance = app(LeaveBalanceService::class)->for($staff->employee, 2026);
+        $balance = app(LeaveBalanceService::class)->forDate($staff->employee, '2026-09-07');
         $this->assertSame('12.00', $balance->entitlement);
         $this->assertSame('2.00', $balance->pending);
         $this->assertSame('12.00', $balance->remaining);
@@ -49,13 +49,13 @@ class LeaveWorkflowTest extends TestCase
         $this->actingAs($staff)->get('/admin/hr/leave')->assertOk()->assertSee('Request Leave');
 
         $service->reject($pending, 'Coverage cannot be arranged', $owner);
-        $balance = app(LeaveBalanceService::class)->for($staff->employee, 2026);
+        $balance = app(LeaveBalanceService::class)->forDate($staff->employee, '2026-09-07');
         $this->assertSame('0.00', $balance->pending);
         $this->assertSame('0.00', $balance->used);
 
         $approved = $service->submit(['leave_type_id' => $annual->id, 'from_date' => '2026-09-09', 'to_date' => '2026-09-10', 'reason' => 'Family leave'], $staff);
         $service->approve($approved, $owner);
-        $balance = app(LeaveBalanceService::class)->for($staff->employee, 2026);
+        $balance = app(LeaveBalanceService::class)->forDate($staff->employee, '2026-09-09');
         $this->assertSame('2.00', $balance->used);
         $this->assertSame('10.00', $balance->remaining);
     }
@@ -72,7 +72,7 @@ class LeaveWorkflowTest extends TestCase
         ]);
         LeaveRequestDay::query()->create(['leave_request_id' => $request->id, 'leave_date' => '2026-09-07', 'classification' => 'working_leave', 'counts_as_leave' => true, 'leave_units' => '1.00']);
 
-        $this->assertSame('0.00', app(LeaveBalanceService::class)->for($staff->employee, 2026)->used);
+        $this->assertSame('0.00', app(LeaveBalanceService::class)->forDate($staff->employee, '2026-09-07')->used);
     }
 
     public function test_employee_cannot_self_approve_and_manager_needs_override_and_team_scope(): void
@@ -126,6 +126,36 @@ class LeaveWorkflowTest extends TestCase
         ], $staff);
     }
 
+    public function test_annual_leave_is_rejected_until_joining_date_is_verified(): void
+    {
+        [$owner, $staff] = $this->people();
+        $this->configureSchedule($staff->employee, $owner);
+        $staff->employee->forceFill(['joining_date_verified_at' => null, 'joining_date_verified_by_user_id' => null])->save();
+
+        try {
+            app(LeaveService::class)->submit([
+                'leave_type_id' => LeaveType::query()->where('code', 'annual')->value('id'),
+                'from_date' => '2026-09-07', 'to_date' => '2026-09-07', 'reason' => 'Annual leave before verification',
+            ], $staff);
+            $this->fail('An anniversary-based annual balance was calculated from an unverified joining date.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('joining_date', $exception->errors());
+            $this->assertStringContainsString('joining date must be verified', collect($exception->errors())->flatten()->first());
+        }
+
+        $this->assertSame(0, LeaveRequest::query()->where('employee_id', $staff->employee->id)->count());
+    }
+
+    public function test_leave_page_explains_when_joining_date_verification_is_required(): void
+    {
+        [, $staff] = $this->people();
+        $staff->employee->forceFill(['joining_date_verified_at' => null, 'joining_date_verified_by_user_id' => null])->save();
+
+        $this->actingAs($staff)->get('/admin/hr/leave')->assertOk()
+            ->assertSee('The annual balance is unavailable until the joining date is verified.')
+            ->assertSee('must be verified before an annual leave balance can be calculated');
+    }
+
     public function test_leave_page_shows_balance_employee_and_status_filters_without_cross_team_disclosure(): void
     {
         [$owner, $staff, $manager] = $this->people();
@@ -139,7 +169,8 @@ class LeaveWorkflowTest extends TestCase
 
         Livewire::actingAs($manager)->test(LeaveManagement::class)
             ->assertSee('Annual leave balance')
-            ->assertSee('Used')
+            ->assertSee('Current leave used')
+            ->assertSee('Historical leave used')
             ->assertSee('Pending')
             ->assertSee('Available')
             ->assertSee('Employee')
@@ -205,7 +236,10 @@ class LeaveWorkflowTest extends TestCase
     private function user(EmployeeRole $role, Team $team): User
     {
         $user = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);
-        Employee::factory()->for($user)->role($role)->create(['email' => $user->email, 'team_id' => $team->id, 'status' => true]);
+        $employee = Employee::factory()->for($user)->role($role)->create([
+            'email' => $user->email, 'team_id' => $team->id, 'status' => true, 'joining_date' => '2025-01-01',
+        ]);
+        $employee->forceFill(['joining_date_verified_at' => now(), 'joining_date_verified_by_user_id' => $user->id])->save();
 
         return $user->refresh();
     }

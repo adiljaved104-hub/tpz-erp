@@ -35,6 +35,7 @@ class Employee extends Model
             'role' => EmployeeRole::class,
             'status' => 'boolean',
             'joining_date' => 'date',
+            'joining_date_verified_at' => 'immutable_datetime',
         ];
     }
 
@@ -81,6 +82,11 @@ class Employee extends Model
     public function leaveRequests(): HasMany
     {
         return $this->hasMany(LeaveRequest::class);
+    }
+
+    public function joiningDateAudits(): HasMany
+    {
+        return $this->hasMany(EmployeeJoiningDateAudit::class);
     }
 
     public function compensatoryOffs(): HasMany

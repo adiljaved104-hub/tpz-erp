@@ -70,10 +70,14 @@ use App\Models\EmployeeLoan;
 use App\Models\EmployeeLoanRepayment;
 use App\Models\EmployeeWarning;
 use App\Models\Expense;
+use App\Models\HistoricalLeaveImportBatch;
+use App\Models\HistoricalLeaveRecord;
 use App\Models\HrNotice;
 use App\Models\InventoryAdjustment;
 use App\Models\InventoryReservation;
 use App\Models\InvoiceSetting;
+use App\Models\LeaveCycleAdjustment;
+use App\Models\LeavePolicy;
 use App\Models\LeaveRequest;
 use App\Models\LoginSecuritySetting;
 use App\Models\MarketplaceAccount;
@@ -588,6 +592,10 @@ class AppServiceProvider extends ServiceProvider
             'attendance_policy' => AttendancePolicy::class,
             'employee_attendance' => EmployeeAttendance::class,
             'leave_request' => LeaveRequest::class,
+            'leave_policy' => LeavePolicy::class,
+            'historical_leave_record' => HistoricalLeaveRecord::class,
+            'historical_leave_import_batch' => HistoricalLeaveImportBatch::class,
+            'leave_cycle_adjustment' => LeaveCycleAdjustment::class,
             'work_schedule' => WorkSchedule::class,
             'work_schedule_assignment' => WorkScheduleAssignment::class,
             'public_holiday' => PublicHoliday::class,

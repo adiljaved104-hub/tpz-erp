@@ -6,9 +6,9 @@ use App\DTOs\Leave\AnnualLeaveBalance;
 
 class AnnualLeaveBalanceCalculator
 {
-    public function calculate(string $entitlement, string $adjustments, string $approvedUsed, string $pending): AnnualLeaveBalance
+    public function calculate(string $entitlement, string $adjustments, string $approvedUsed, string $pending, string $carryForward = '0.00'): AnnualLeaveBalance
     {
-        $remaining = bcsub(bcadd($entitlement, $adjustments, 2), $approvedUsed, 2);
+        $remaining = bcsub(bcadd(bcadd($entitlement, $adjustments, 2), $carryForward, 2), $approvedUsed, 2);
 
         return new AnnualLeaveBalance(
             entitlement: bcadd($entitlement, '0', 2),
@@ -17,6 +17,7 @@ class AnnualLeaveBalanceCalculator
             pending: bcadd($pending, '0', 2),
             remaining: $remaining,
             availableAfterPending: bcsub($remaining, $pending, 2),
+            carryForward: bcadd($carryForward, '0', 2),
         );
     }
 }

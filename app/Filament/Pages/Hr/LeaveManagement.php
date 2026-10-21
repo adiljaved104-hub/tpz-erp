@@ -4,6 +4,7 @@ namespace App\Filament\Pages\Hr;
 
 use App\Enums\HrPermission;
 use App\Models\Employee;
+use App\Models\LeavePolicy;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Models\User;
@@ -12,6 +13,7 @@ use App\Services\Authorization\HrAuthorization;
 use App\Services\Hr\HrScopeService;
 use App\Services\Hr\LeaveBalanceService;
 use App\Services\Hr\LeaveService;
+use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -140,7 +142,7 @@ class LeaveManagement extends Page
                 'employee_id' => 'recordEmployeeId', 'leave_type_id' => 'recordLeaveTypeId',
                 'from_date' => 'recordFromDate', 'fromDate' => 'recordFromDate',
                 'to_date' => 'recordToDate', 'toDate' => 'recordToDate', 'reason' => 'recordReason',
-                'approval_status' => 'recordApprovalStatus',
+                'approval_status' => 'recordApprovalStatus', 'joining_date' => 'recordFromDate',
             ];
             foreach ($exception->errors() as $field => $messages) {
                 $this->addError($map[$field] ?? 'recordReason', $messages[0]);
@@ -227,7 +229,7 @@ class LeaveManagement extends Page
         } catch (AuthorizationException) {
             abort(403);
         } catch (ValidationException $exception) {
-            $map = ['leave_type_id' => 'leaveTypeId', 'from_date' => 'fromDate', 'to_date' => 'toDate'];
+            $map = ['leave_type_id' => 'leaveTypeId', 'from_date' => 'fromDate', 'to_date' => 'toDate', 'joining_date' => 'fromDate'];
             foreach ($exception->errors() as $field => $messages) {
                 $this->addError($map[$field] ?? $field, $messages[0]);
             }
@@ -287,8 +289,17 @@ class LeaveManagement extends Page
             ->when($this->statusFilter !== '', fn ($query) => $query->where('status', $this->statusFilter))
             ->when($showEmployee && $this->employeeFilter !== null, fn ($query) => $query->where('employee_id', $this->employeeFilter))
             ->latest('submitted_at');
-        $balanceYear = (int) now()->format('Y');
-        $balance = app(LeaveBalanceService::class)->for($user->employee, $balanceYear);
+        $balance = null;
+        $balanceError = null;
+        try {
+            $balance = app(LeaveBalanceService::class)->currentFor($user->employee);
+        } catch (ValidationException $exception) {
+            $balanceError = collect($exception->errors())->flatten()->first();
+        }
+        $balancePolicy = $balance?->policyId === null ? null : LeavePolicy::query()->find($balance->policyId);
+        $balancePeriod = $balance?->periodStart !== null && $balance->periodEnd !== null
+            ? CarbonImmutable::parse($balance->periodStart)->format('d M Y').' – '.CarbonImmutable::parse($balance->periodEnd)->format('d M Y')
+            : null;
         $recordEmployee = $this->recordEmployeeId === null
             ? null
             : $scope->recordableEmployeeQuery($user)->whereKey($this->recordEmployeeId)->first();
@@ -296,7 +307,9 @@ class LeaveManagement extends Page
         return [
             'rows' => $query->paginate(20),
             'balance' => $balance,
-            'balanceYear' => $balanceYear,
+            'balancePolicy' => $balancePolicy,
+            'balanceError' => $balanceError,
+            'balancePeriod' => $balancePeriod,
             'employees' => $employees,
             'leaveTypes' => LeaveType::query()->where('status', true)->whereIn('code', ['annual', 'unpaid'])->orderBy('name')->get(),
             'canRequest' => app(HrAuthorization::class)->allows($user, HrPermission::LeaveRequest),

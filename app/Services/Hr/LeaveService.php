@@ -2,6 +2,7 @@
 
 namespace App\Services\Hr;
 
+use App\DTOs\Leave\AnnualLeaveBalance;
 use App\Enums\AttendanceStatus;
 use App\Enums\HrPermission;
 use App\Models\AttendanceCorrection;
@@ -68,13 +69,13 @@ class LeaveService
         $type = $this->availableLeaveType((int) $validated['leave_type_id']);
         $from = CarbonImmutable::parse($validated['from_date']);
         $calculation = $this->days->calculate($employee, $from, CarbonImmutable::parse($validated['to_date']));
-        $balance = $type->consumes_annual_entitlement
-            ? $this->balances->for($employee, (int) $from->format('Y'))
+        $available = $type->consumes_annual_entitlement
+            ? $this->availableAfterPendingForRange($employee, $from, CarbonImmutable::parse($validated['to_date']), $calculation['days'])
             : null;
 
         return [
             'working_days' => $calculation['working_days'],
-            'available_after_pending' => $balance?->availableAfterPending,
+            'available_after_pending' => $available,
             'annual_leave' => $type->consumes_annual_entitlement,
         ];
     }
@@ -117,13 +118,20 @@ class LeaveService
             if ($locked->status !== 'pending') {
                 throw ValidationException::withMessages(['status' => 'Only a pending Leave request can be approved.']);
             }
-            Employee::query()->lockForUpdate()->findOrFail($locked->employee_id);
+            $lockedEmployee = Employee::query()->lockForUpdate()->findOrFail($locked->employee_id);
+            $locked->setRelation('employee', $lockedEmployee);
             $this->assertNoOverlappingLeaveRequest($locked);
             if ($locked->type->consumes_annual_entitlement) {
-                $balance = $this->balances->for($locked->employee, (int) $locked->from_date->format('Y'));
-                if (bccomp((string) $locked->requested_working_days, $balance->remaining, 2) > 0) {
-                    throw ValidationException::withMessages(['status' => 'The employee no longer has enough Annual Leave available.']);
-                }
+                $storedDays = $locked->days()->get()->map(fn (LeaveRequestDay $day): array => [
+                    'leave_date' => $day->leave_date->toDateString(),
+                    'counts_as_leave' => (bool) $day->counts_as_leave,
+                    'leave_units' => (string) $day->leave_units,
+                ])->all();
+                $days = $storedDays !== []
+                    ? $storedDays
+                    : $this->days->calculate($locked->employee, CarbonImmutable::parse($locked->from_date), CarbonImmutable::parse($locked->to_date))['days'];
+
+                $this->assertAnnualAvailability($locked->employee, CarbonImmutable::parse($locked->from_date), CarbonImmutable::parse($locked->to_date), $days, 'remaining');
             }
             $this->reconcileAbsentAttendanceForApprovedLeave($locked, $actor);
             $locked->forceFill(['status' => 'approved', 'decided_by_user_id' => $actor->id, 'decided_at' => now()])->save();
@@ -213,8 +221,8 @@ class LeaveService
     {
         $from = CarbonImmutable::parse($validated['from_date']);
         $to = CarbonImmutable::parse($validated['to_date']);
-        $policy = $this->policyFor($from);
         $calculation = $this->days->calculate($employee, $from, $to);
+        $policy = $type->consumes_annual_entitlement ? null : $this->policyFor($from);
         $reference = $this->references->nextLeaveRequestReference((int) $from->format('Y'));
 
         return DB::transaction(function () use ($validated, $employee, $type, $policy, $calculation, $reference, $actor, $managementRecorded, $approved, $from, $to): LeaveRequest {
@@ -223,19 +231,22 @@ class LeaveService
                 throw ValidationException::withMessages(['employee_id' => 'Leave can only be recorded for an active employee.']);
             }
 
+            $effectivePolicy = $type->consumes_annual_entitlement
+                ? $this->balances->policyForDate($lockedEmployee, $from)
+                : $policy;
+
             if ($managementRecorded) {
                 $this->assertNoManagementRecordConflicts($lockedEmployee, $from, $to, $calculation['days']);
             }
 
             if ($type->consumes_annual_entitlement) {
-                $balance = $this->balances->for($lockedEmployee, (int) $from->format('Y'));
-                $available = $approved ? $balance->remaining : $balance->availableAfterPending;
-                if (bccomp($calculation['working_days'], $available, 2) > 0) {
-                    $message = $approved
-                        ? 'The employee no longer has enough Annual Leave available to approve this record.'
-                        : 'The request exceeds the Annual Leave available after pending requests.';
-                    throw ValidationException::withMessages(['from_date' => $message]);
-                }
+                $this->assertAnnualAvailability(
+                    $lockedEmployee,
+                    $from,
+                    $to,
+                    $calculation['days'],
+                    $approved ? 'remaining' : 'availableAfterPending',
+                );
             }
 
             $request = LeaveRequest::query()->create([
@@ -243,11 +254,11 @@ class LeaveService
                 'employee_id' => $lockedEmployee->id,
                 'team_id_at_request' => $lockedEmployee->team_id,
                 'leave_type_id' => $type->id,
-                'leave_policy_id' => $policy->id,
+                'leave_policy_id' => $effectivePolicy->id,
                 'from_date' => $validated['from_date'],
                 'to_date' => $validated['to_date'],
                 'requested_working_days' => $calculation['working_days'],
-                'annual_entitlement_snapshot' => $type->consumes_annual_entitlement ? $policy->annual_leave_entitlement_days : null,
+                'annual_entitlement_snapshot' => $type->consumes_annual_entitlement ? $effectivePolicy->annual_leave_entitlement_days : null,
                 'status' => $approved ? 'approved' : 'pending',
                 'reason' => trim($validated['reason']),
                 'submitted_at' => now(),
@@ -282,6 +293,79 @@ class LeaveService
 
             return $request;
         });
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $days
+     */
+    private function assertAnnualAvailability(Employee $employee, CarbonImmutable $from, CarbonImmutable $to, array $days, string $availabilityField): void
+    {
+        foreach ($this->annualBalanceSlices($employee, $from, $to, $days) as $slice) {
+            if (bccomp($slice['requested'], $slice['balance']->{$availabilityField}, 2) <= 0) {
+                continue;
+            }
+
+            $message = $availabilityField === 'remaining'
+                ? 'The employee no longer has enough Annual Leave available in one or more joining-anniversary leave periods.'
+                : 'The request exceeds the Annual Leave available after pending requests in one or more joining-anniversary leave periods.';
+            throw ValidationException::withMessages(['from_date' => $message]);
+        }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $days
+     * @return array<string, array{balance: AnnualLeaveBalance, requested: string}>
+     */
+    private function annualBalanceSlices(Employee $employee, CarbonImmutable $from, CarbonImmutable $to, array $days): array
+    {
+        $balancesByPeriod = [];
+        $sliceForDate = function (CarbonImmutable $date) use ($employee, &$balancesByPeriod): array {
+            $balance = $this->balances->forDate($employee, $date);
+            $period = $balance->periodStart;
+            if ($period === null) {
+                throw ValidationException::withMessages(['joining_date' => 'The employee’s joining-anniversary leave period could not be resolved.']);
+            }
+
+            $balancesByPeriod[$period] ??= $balance;
+
+            return [$period, $balancesByPeriod[$period]];
+        };
+
+        // Validate the entire requested interval, even when an endpoint is a weekend or holiday.
+        $sliceForDate($from);
+        $sliceForDate($to);
+        $slices = [];
+
+        foreach ($days as $day) {
+            if (! (bool) ($day['counts_as_leave'] ?? false)) {
+                continue;
+            }
+
+            $date = CarbonImmutable::parse($day['leave_date'])->startOfDay();
+            [$period, $balance] = $sliceForDate($date);
+            $slices[$period] ??= ['balance' => $balance, 'requested' => '0.00'];
+            $slices[$period]['requested'] = bcadd($slices[$period]['requested'], (string) $day['leave_units'], 2);
+        }
+
+        if ($slices === []) {
+            [$period, $balance] = $sliceForDate($from);
+            $slices[$period] = ['balance' => $balance, 'requested' => '0.00'];
+        }
+
+        return $slices;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $days
+     */
+    private function availableAfterPendingForRange(Employee $employee, CarbonImmutable $from, CarbonImmutable $to, array $days): string
+    {
+        $available = '0.00';
+        foreach ($this->annualBalanceSlices($employee, $from, $to, $days) as $slice) {
+            $available = bcadd($available, $slice['balance']->availableAfterPending, 2);
+        }
+
+        return $available;
     }
 
     /** @param array<int, array<string, mixed>> $days */
@@ -340,18 +424,37 @@ class LeaveService
      */
     private function reconcileAbsentAttendanceForApprovedLeave(LeaveRequest $request, User $actor): void
     {
-        $status = match ($request->type->code) {
+        $dates = $request->days()->where('counts_as_leave', true)->pluck('leave_date')
+            ->map(fn ($date): string => CarbonImmutable::parse($date)->toDateString())->unique()->values()->all();
+
+        $this->reconcileApprovedLeaveDates($request->employee, $request->type, $dates, $request->reference, $actor, $request->id);
+    }
+
+    /**
+     * Historical approved records reuse the same audited Absent-only transition.
+     * Callers must run this inside their record-creation transaction.
+     *
+     * @param  array<int, string>  $dates
+     */
+    public function reconcileApprovedHistoricalLeave(Employee $employee, LeaveType $type, array $dates, string $reference, User $actor): void
+    {
+        $this->reconcileApprovedLeaveDates($employee, $type, $dates, $reference, $actor, null);
+    }
+
+    /** @param array<int, string> $dates */
+    private function reconcileApprovedLeaveDates(Employee $employee, LeaveType $type, array $dates, string $reference, User $actor, ?int $requestId): void
+    {
+        $status = match ($type->code) {
             'annual' => AttendanceStatus::ApprovedLeave,
             'unpaid' => AttendanceStatus::UnpaidLeave,
             default => throw ValidationException::withMessages(['status' => 'This Leave Type cannot be applied to Attendance.']),
         };
-        $dates = $request->days()->where('counts_as_leave', true)->pluck('leave_date')
-            ->map(fn ($date): string => CarbonImmutable::parse($date)->toDateString())->unique()->values();
+        $dates = collect($dates)->map(fn ($date): string => CarbonImmutable::parse($date)->toDateString())->unique()->values();
         if ($dates->isEmpty()) {
             return;
         }
 
-        $attendanceRows = EmployeeAttendance::query()->where('employee_id', $request->employee_id)
+        $attendanceRows = EmployeeAttendance::query()->where('employee_id', $employee->id)
             ->where(function ($query) use ($dates): void {
                 foreach ($dates as $date) {
                     $query->orWhereDate('attendance_date', $date);
@@ -377,7 +480,7 @@ class LeaveService
             AttendanceCorrection::query()->create([
                 'employee_attendance_id' => $attendance->id,
                 'actor_user_id' => $actor->id,
-                'reason' => 'Attendance status reconciled when Leave request '.$request->reference.' was approved.',
+                'reason' => 'Attendance status reconciled when leave record '.$reference.' was approved.',
                 'old_values' => $before,
                 'new_values' => ['status' => $status->value, 'is_overridden' => true],
                 'idempotency_key' => (string) Str::uuid(),
@@ -385,8 +488,8 @@ class LeaveService
                 'created_at' => now(),
             ]);
             $this->activity->log('attendance.leave_status_reconciled', $actor, $attendance, [
-                'leave_reference' => $request->reference,
-                'leave_request_id' => $request->id,
+                'leave_reference' => $reference,
+                'leave_request_id' => $requestId,
                 'status' => $status->value,
                 'changed_fields' => ['status'],
             ]);

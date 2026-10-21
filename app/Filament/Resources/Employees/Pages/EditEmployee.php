@@ -5,10 +5,13 @@ namespace App\Filament\Resources\Employees\Pages;
 use App\Actions\Employees\ChangeEmployeeRole;
 use App\Actions\Employees\SetEmployeeStatus;
 use App\Enums\EmployeeRole;
+use App\Enums\HrPermission;
 use App\Filament\Pages\ChangeLoginEmail;
+use App\Filament\Pages\Hr\VerifyEmployeeJoiningDate;
 use App\Filament\Resources\Employees\EmployeeResource;
 use App\Models\Employee;
 use App\Services\ActivityLogger;
+use App\Services\Authorization\HrAuthorization;
 use App\Services\LoginEmailChangeService;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
@@ -27,6 +30,12 @@ class EditEmployee extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('verifyJoiningDate')
+                ->label('Verify / Correct Joining Date')
+                ->icon('heroicon-o-calendar-days')
+                ->url(fn (): string => VerifyEmployeeJoiningDate::getUrl(['employee' => $this->getRecord()->id]))
+                ->visible(fn (): bool => auth()->user() !== null
+                    && app(HrAuthorization::class)->allows(auth()->user(), HrPermission::LeaveJoiningDateCorrect)),
             Action::make('changeLoginEmail')
                 ->label('Change Login Email')
                 ->icon('heroicon-o-envelope')
@@ -86,7 +95,6 @@ class EditEmployee extends EditRecord
                 'phone',
                 'team_id',
                 'designation',
-                'joining_date',
             ]);
             $record->fill($profileData);
             $changedFields = array_keys($record->getDirty());

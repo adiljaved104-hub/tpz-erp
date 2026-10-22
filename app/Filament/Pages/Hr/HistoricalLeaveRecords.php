@@ -16,7 +16,7 @@ use App\Services\Hr\HistoricalLeaveAuthorization;
 use App\Services\Hr\HistoricalLeaveImportService;
 use App\Services\Hr\HistoricalLeavePreviewService;
 use App\Services\Hr\HistoricalLeaveService;
-use App\Services\Hr\HrScopeService;
+use App\Services\Hr\JoiningDateCorrectionService;
 use App\Services\Hr\JoiningDateLeaveBalanceService;
 use App\Services\Hr\LeaveCycleAdjustmentService;
 use App\Services\Leave\AnnualLeaveCycleResolver;
@@ -522,11 +522,10 @@ class HistoricalLeaveRecords extends Page
     #[Computed]
     public function joiningDateEmployees()
     {
-        // Retain the joining-date capability and apply the existing leave
-        // employee scope, including employees whose dates still need checking.
+        // Use the same employee authorization as the destination and service.
         abort_unless(VerifyEmployeeJoiningDate::canAccess(), 403);
 
-        return app(HrScopeService::class)->employeeQuery($this->user(), attendance: false)
+        return app(JoiningDateCorrectionService::class)->employeeQuery($this->user())
             ->when(trim($this->joiningDateSearch) !== '', function ($query): void {
                 $search = trim($this->joiningDateSearch);
                 $query->where(fn ($employees) => $employees->where('name', 'like', "%{$search}%")

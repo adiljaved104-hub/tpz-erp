@@ -131,6 +131,8 @@ class HrLeaveInterfaceTest extends TestCase
             ->set('joiningDateSearch', $outsider->employee->employee_id)
             ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 0)
             ->set('joiningDateSearch', $unassigned->employee->employee_id)
+            ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 0)
+            ->set('joiningDateSearch', $inactive->employee->employee_id)
             ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 0);
 
         $this->assertDatabaseCount('employee_joining_date_audits', 0);
@@ -158,7 +160,7 @@ class HrLeaveInterfaceTest extends TestCase
             ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 0);
     }
 
-    public function test_owner_and_admin_joining_date_picker_keeps_all_active_employees_visible(): void
+    public function test_owner_and_admin_joining_date_picker_includes_all_employees_required_for_activation(): void
     {
         $employee = $this->user(EmployeeRole::Staff, 'Active Missing Date', verified: false);
         $employee->employee->forceFill(['joining_date' => null, 'team_id' => null])->save();
@@ -167,11 +169,14 @@ class HrLeaveInterfaceTest extends TestCase
 
         foreach ([EmployeeRole::Owner, EmployeeRole::Admin] as $role) {
             $actor = $this->user($role);
-            $expectedIds = Employee::query()->where('status', true)->orderBy('id')->pluck('id')->all();
+            $expectedIds = Employee::query()->orderBy('id')->pluck('id')->all();
             Livewire::actingAs($actor)->test(HistoricalLeaveRecords::class)
                 ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->pluck('id')->sort()->values()->all() === $expectedIds)
+                ->assertSet('activationStatus', fn ($status): bool => $status['total'] === count($expectedIds))
                 ->set('joiningDateSearch', $employee->employee->employee_id)
-                ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 1 && $employees->first()->is($employee->employee));
+                ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 1 && $employees->first()->is($employee->employee))
+                ->set('joiningDateSearch', $inactive->employee->employee_id)
+                ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 1 && $employees->first()->is($inactive->employee));
         }
     }
 

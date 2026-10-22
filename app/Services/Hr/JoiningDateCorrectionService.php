@@ -2,6 +2,7 @@
 
 namespace App\Services\Hr;
 
+use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Models\Employee;
 use App\Models\EmployeeJoiningDateAudit;
@@ -13,6 +14,7 @@ use App\Services\Authorization\HrAuthorization;
 use App\Services\Leave\AnnualLeaveCycleResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -22,15 +24,37 @@ class JoiningDateCorrectionService
 {
     public function __construct(
         private readonly HrAuthorization $authorization,
+        private readonly HrScopeService $scope,
         private readonly AnnualLeaveCycleResolver $cycles,
         private readonly JoiningDateLeaveBalanceService $balances,
         private readonly ActivityLogger $activity,
     ) {}
 
+    public function employeeQuery(User $actor): Builder
+    {
+        if (! $this->authorization->allows($actor, HrPermission::LeaveJoiningDateCorrect)) {
+            return Employee::query()->whereRaw('1 = 0');
+        }
+
+        // Activation requires every existing employee, including inactive ones.
+        // Other actors retain the existing leave employee scope unchanged.
+        if (in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+            && $this->authorization->allows($actor, HrPermission::LeaveViewAll)) {
+            return Employee::query();
+        }
+
+        return $this->scope->employeeQuery($actor, attendance: false);
+    }
+
+    public function canVerifyEmployee(User $actor, Employee $employee): bool
+    {
+        return $this->employeeQuery($actor)->whereKey($employee->getKey())->exists();
+    }
+
     /** @return array<string, mixed> */
     public function preview(Employee $employee, string $joiningDate, User $actor): array
     {
-        $this->authorize($actor);
+        $this->authorize($actor, $employee);
         $date = CarbonImmutable::parse($joiningDate)->startOfDay();
         if ($date->gt(CarbonImmutable::today())) {
             throw ValidationException::withMessages(['joining_date' => 'The actual joining date cannot be in the future.']);
@@ -89,7 +113,7 @@ class JoiningDateCorrectionService
 
     public function verifyOrCorrect(Employee $employee, array $data, User $actor): Employee
     {
-        $this->authorize($actor);
+        $this->authorize($actor, $employee);
         $validated = Validator::make($data, [
             'joining_date' => ['required', 'date', 'before_or_equal:today'],
             'reason' => ['required', 'string', 'max:2000'],
@@ -128,12 +152,9 @@ class JoiningDateCorrectionService
         });
     }
 
-    private function authorize(User $actor): void
+    private function authorize(User $actor, Employee $employee): void
     {
-        // Owner/Admin receive this through their role defaults. An HR employee
-        // may receive the same narrowly named capability through an explicit
-        // Access Control grant; no other HR permissions are implied.
-        throw_unless($this->authorization->allows($actor, HrPermission::LeaveJoiningDateCorrect), AuthorizationException::class);
+        throw_unless($this->canVerifyEmployee($actor, $employee), AuthorizationException::class);
     }
 
     /** @return array{entitlement:string,used:string,pending:string,remaining:string,available:string,available_after_pending:string}|array{unavailable:string} */

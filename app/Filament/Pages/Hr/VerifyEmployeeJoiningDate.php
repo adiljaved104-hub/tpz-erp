@@ -47,8 +47,16 @@ class VerifyEmployeeJoiningDate extends Page
     {
         abort_unless(static::canAccess(), 403);
         $this->employee = $employee;
+        $this->user();
         $this->joiningDate = $employee->joining_date?->toDateString() ?? '';
         $this->refreshPreview();
+    }
+
+    public function hydrate(): void
+    {
+        // Recheck scope on every Livewire request, even a plain refresh after
+        // an employee or permission change since the page was opened.
+        $this->user();
     }
 
     public function updatedJoiningDate(): void
@@ -58,12 +66,13 @@ class VerifyEmployeeJoiningDate extends Page
 
     public function refreshPreview(): void
     {
+        $actor = $this->user();
         $this->preview = null;
         if ($this->joiningDate === '') {
             return;
         }
         try {
-            $this->preview = app(JoiningDateCorrectionService::class)->preview($this->employee, $this->joiningDate, $this->user());
+            $this->preview = app(JoiningDateCorrectionService::class)->preview($this->employee, $this->joiningDate, $actor);
         } catch (AuthorizationException) {
             abort(403);
         } catch (ValidationException $exception) {
@@ -98,6 +107,9 @@ class VerifyEmployeeJoiningDate extends Page
     {
         abort_unless(static::canAccess(), 403);
 
-        return auth()->user();
+        $actor = auth()->user();
+        abort_unless(app(JoiningDateCorrectionService::class)->canVerifyEmployee($actor, $this->employee), 403);
+
+        return $actor;
     }
 }

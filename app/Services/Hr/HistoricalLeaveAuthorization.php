@@ -19,9 +19,12 @@ class HistoricalLeaveAuthorization
         return $this->authorization->allows($user, HrPermission::LeaveManagePolicy);
     }
 
-    public function employeeQuery(User $user, HrPermission $requiredPermission, bool $excludeSelf = false): Builder
+    public function employeeQuery(User $user, HrPermission $requiredPermission, bool $excludeSelf = false, bool $requireVerifiedJoiningDate = true): Builder
     {
-        $query = Employee::query()->whereNotNull('joining_date')->whereNotNull('joining_date_verified_at');
+        $query = Employee::query();
+        if ($requireVerifiedJoiningDate) {
+            $query->whereNotNull('joining_date')->whereNotNull('joining_date_verified_at');
+        }
         if (! $this->authorization->allows($user, $requiredPermission) || $user->employee === null) {
             return $query->whereRaw('1 = 0');
         }

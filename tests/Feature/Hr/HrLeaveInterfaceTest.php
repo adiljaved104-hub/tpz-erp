@@ -16,6 +16,7 @@ use App\Models\LeavePolicy;
 use App\Models\LeaveRequest;
 use App\Models\LeaveRequestDay;
 use App\Models\LeaveType;
+use App\Models\Team;
 use App\Models\User;
 use App\Services\Hr\HistoricalLeaveService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -89,6 +90,10 @@ class HrLeaveInterfaceTest extends TestCase
             ->assertSee('Add Previous Leave')
             ->assertSee('Employee Leave Balances')
             ->assertSee('Enable Annual Leave')
+            ->assertSee('Waiting for HR Review')
+            ->assertDontSee('Provisional')
+            ->assertSee('href="#joining-date-checks"', escape: false)
+            ->assertSee("\$dispatch('expand-section', { id: 'joining-date-checks' })", escape: false)
             ->set('joiningDateSearch', 'Employee Needs Date')
             ->assertSee('Not entered')
             ->assertSee(VerifyEmployeeJoiningDate::getUrl(['employee' => $missing->employee->id]), escape: false)
@@ -97,6 +102,77 @@ class HrLeaveInterfaceTest extends TestCase
         $this->actingAs($owner)->get(VerifyEmployeeJoiningDate::getUrl(['employee' => $missing->employee->id]))->assertOk();
         $this->assertNull($missing->employee->fresh()->joining_date);
         $this->assertDatabaseCount('employee_joining_date_audits', 0);
+    }
+
+    public function test_joining_date_picker_keeps_team_scope_for_missing_and_unverified_dates_including_search(): void
+    {
+        $team = Team::query()->create(['name' => 'Leave UI Team', 'status' => true]);
+        $otherTeam = Team::query()->create(['name' => 'Other Leave UI Team', 'status' => true]);
+        $manager = $this->user(EmployeeRole::Manager, 'Scoped HR Manager');
+        $colleague = $this->user(EmployeeRole::Staff, 'In Scope Needs Date', verified: false);
+        foreach ([$manager, $colleague] as $user) {
+            $user->employee->forceFill(['team_id' => $team->id])->save();
+        }
+        $colleague->employee->forceFill(['joining_date' => null])->save();
+        $outsider = $this->user(EmployeeRole::Staff, 'Outside Team Needs Date', verified: false);
+        $outsider->employee->forceFill(['team_id' => $otherTeam->id])->save();
+        $unassigned = $this->user(EmployeeRole::Staff, 'No Team Needs Date', verified: false);
+        $unassigned->employee->forceFill(['team_id' => null])->save();
+        $inactive = $this->user(EmployeeRole::Staff, 'Inactive Team Employee', verified: false);
+        $inactive->employee->forceFill(['team_id' => $team->id, 'status' => false])->save();
+        $this->allowJoiningDatePicker($manager);
+
+        Livewire::actingAs($manager)->test(HistoricalLeaveRecords::class)
+            ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 2
+                && $employees->pluck('id')->sort()->values()->all() === collect([$manager->employee->id, $colleague->employee->id])->sort()->values()->all())
+            ->set('joiningDateSearch', $colleague->employee->employee_id)
+            ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 1 && $employees->first()->is($colleague->employee))
+            ->assertSee('Not entered')
+            ->set('joiningDateSearch', $outsider->employee->employee_id)
+            ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 0)
+            ->set('joiningDateSearch', $unassigned->employee->employee_id)
+            ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 0);
+
+        $this->assertDatabaseCount('employee_joining_date_audits', 0);
+    }
+
+    public function test_joining_date_picker_respects_own_scope_and_explicit_scope_denial(): void
+    {
+        $staff = $this->user(EmployeeRole::Staff, 'Own Scope HR Employee', verified: false);
+        $other = $this->user(EmployeeRole::Staff, 'Unrelated Needs Date', verified: false);
+        $this->allowJoiningDatePicker($staff);
+
+        Livewire::actingAs($staff)->test(HistoricalLeaveRecords::class)
+            ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 1 && $employees->first()->is($staff->employee))
+            ->set('joiningDateSearch', $other->employee->employee_id)
+            ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 0);
+
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $staff->employee->id, 'permission_key' => HrPermission::LeaveViewOwn->value,
+            'effect' => EmployeePermissionEffect::Deny, 'granted_by_user_id' => $staff->id,
+            'reason' => 'Existing employee scope denial must be respected',
+        ]);
+        app(EmployeePermissionOverrideResolver::class)->forgetEmployee($staff->employee->id);
+
+        Livewire::actingAs($staff)->test(HistoricalLeaveRecords::class)
+            ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 0);
+    }
+
+    public function test_owner_and_admin_joining_date_picker_keeps_all_active_employees_visible(): void
+    {
+        $employee = $this->user(EmployeeRole::Staff, 'Active Missing Date', verified: false);
+        $employee->employee->forceFill(['joining_date' => null, 'team_id' => null])->save();
+        $inactive = $this->user(EmployeeRole::Staff, 'Inactive Missing Date', verified: false);
+        $inactive->employee->forceFill(['status' => false])->save();
+
+        foreach ([EmployeeRole::Owner, EmployeeRole::Admin] as $role) {
+            $actor = $this->user($role);
+            $expectedIds = Employee::query()->where('status', true)->orderBy('id')->pluck('id')->all();
+            Livewire::actingAs($actor)->test(HistoricalLeaveRecords::class)
+                ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->pluck('id')->sort()->values()->all() === $expectedIds)
+                ->set('joiningDateSearch', $employee->employee->employee_id)
+                ->assertSet('joiningDateEmployees', fn ($employees): bool => $employees->total() === 1 && $employees->first()->is($employee->employee));
+        }
     }
 
     public function test_employee_search_and_leave_preview_remain_read_only(): void
@@ -141,7 +217,9 @@ class HrLeaveInterfaceTest extends TestCase
             (new Xlsx($sheet))->save($path);
             $sourceHash = hash_file('sha256', $path);
             $file = new UploadedFile($path, 'leave.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
-            $component = Livewire::actingAs($owner)->test(HistoricalLeaveRecords::class);
+            $component = Livewire::actingAs($owner)->test(HistoricalLeaveRecords::class)
+                ->assertSee('Check Excel File')
+                ->assertDontSee('Check and Import');
             $filePaths = (new FileUploadController)->validateAndStore([$file], FileUploadConfiguration::disk());
             $storedPath = Storage::disk(FileUploadConfiguration::disk())->path(FileUploadConfiguration::path($filePaths[0]));
             $this->assertSame($sourceHash, hash_file('sha256', $storedPath), 'The stored XLSX upload must preserve the workbook bytes.');
@@ -245,6 +323,18 @@ class HrLeaveInterfaceTest extends TestCase
             ->set('historyEmployeeFilter', $employee->employee_id)
             ->assertSet('paginators.balancePage', 1)
             ->assertSet('records', fn ($records): bool => $records->total() === 1);
+    }
+
+    private function allowJoiningDatePicker(User $user): void
+    {
+        foreach ([HrPermission::LeaveHistoricalView, HrPermission::LeaveJoiningDateCorrect] as $permission) {
+            EmployeePermissionOverride::query()->create([
+                'employee_id' => $user->employee->id, 'permission_key' => $permission->value,
+                'effect' => EmployeePermissionEffect::Allow, 'granted_by_user_id' => $user->id,
+                'reason' => 'Joining-date picker scope regression test',
+            ]);
+        }
+        app(EmployeePermissionOverrideResolver::class)->forgetEmployee($user->employee->id);
     }
 
     private function user(EmployeeRole $role, ?string $name = null, bool $verified = true): User

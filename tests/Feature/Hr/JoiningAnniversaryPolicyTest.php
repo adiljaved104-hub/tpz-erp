@@ -248,8 +248,11 @@ class JoiningAnniversaryPolicyTest extends TestCase
         Livewire::actingAs($admin)->test(LeavePolicySettings::class)
             ->assertSee('Policy status')
             ->assertSee('Draft — does not affect balances')
-            ->assertSee('Active — schedule as replacement on effective date')
+            ->assertSee('Active — replace the current rules from the start date')
             ->assertSee('Save as Draft')
+            ->assertSee('How the New Rules Affect Employees')
+            ->assertDontSee('Effective-date impact')
+            ->assertSee('wire:confirm="Save these proposed rules as a Draft?"', escape: false)
             ->assertSee('I confirm activating a selected Draft replacement')
             ->assertDontSee('Inactive');
     }

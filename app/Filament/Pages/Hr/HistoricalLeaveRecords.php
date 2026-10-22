@@ -16,6 +16,7 @@ use App\Services\Hr\HistoricalLeaveAuthorization;
 use App\Services\Hr\HistoricalLeaveImportService;
 use App\Services\Hr\HistoricalLeavePreviewService;
 use App\Services\Hr\HistoricalLeaveService;
+use App\Services\Hr\HrScopeService;
 use App\Services\Hr\JoiningDateLeaveBalanceService;
 use App\Services\Hr\LeaveCycleAdjustmentService;
 use App\Services\Leave\AnnualLeaveCycleResolver;
@@ -312,7 +313,7 @@ class HistoricalLeaveRecords extends Page
         abort_unless($this->canAdjust(), 403);
         $cycle = $this->adjustmentCycle();
         if ($cycle === null) {
-            throw ValidationException::withMessages(['adjustmentCycleStart' => 'Select an authorized employee and a valid anniversary cycle date first.']);
+            throw ValidationException::withMessages(['adjustmentCycleStart' => 'Choose an employee you can manage and a valid date within the Leave Year first.']);
         }
         try {
             app(LeaveCycleAdjustmentService::class)->record([
@@ -521,11 +522,11 @@ class HistoricalLeaveRecords extends Page
     #[Computed]
     public function joiningDateEmployees()
     {
-        // Use the existing joining-date capability, which also protects the
-        // destination page and correction service. No leave balance is exposed.
+        // Retain the joining-date capability and apply the existing leave
+        // employee scope, including employees whose dates still need checking.
         abort_unless(VerifyEmployeeJoiningDate::canAccess(), 403);
 
-        return Employee::query()
+        return app(HrScopeService::class)->employeeQuery($this->user(), attendance: false)
             ->when(trim($this->joiningDateSearch) !== '', function ($query): void {
                 $search = trim($this->joiningDateSearch);
                 $query->where(fn ($employees) => $employees->where('name', 'like', "%{$search}%")

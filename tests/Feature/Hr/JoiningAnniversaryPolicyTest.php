@@ -93,6 +93,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
 
     public function test_mid_cycle_change_requires_an_explicit_transition_decision_and_does_not_close_old_version(): void
     {
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00:00'));
         $owner = $this->user(EmployeeRole::Owner);
         $this->enableHistoricalWorkflow($owner);
         $employee = Employee::factory()->create(['joining_date' => '2025-06-01']);
@@ -248,7 +249,7 @@ class JoiningAnniversaryPolicyTest extends TestCase
             ->assertSee('Policy status')
             ->assertSee('Draft — does not affect balances')
             ->assertSee('Active — schedule as replacement on effective date')
-            ->assertSee('Save Draft')
+            ->assertSee('Save as Draft')
             ->assertSee('I confirm activating a selected Draft replacement')
             ->assertDontSee('Inactive');
     }

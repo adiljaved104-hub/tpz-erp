@@ -309,14 +309,14 @@ class HistoricalLeaveServiceTest extends TestCase
         $this->actingAs($owner);
 
         Livewire::test(HistoricalLeaveRecords::class)
-            ->assertSee('Record historical leave')
+            ->assertSee('Add Previous Leave')
             ->assertSee('Provisional — Pending HR Verification')
-            ->assertSee('Confirm historical record')
+            ->assertSee('Save Previous Leave')
             ->assertSee('I confirm this entry is supported by the stated historical source.')
-            ->assertSee('Import historical leave')
-            ->assertSee('Download XLSX template')
-            ->assertSee('Employee leave balances')
-            ->assertSee('Opening balance adjustment')
+            ->assertSee('Import Previous Leave')
+            ->assertSee('Download Template')
+            ->assertSee('Employee Leave Balances')
+            ->assertSee('Adjust Leave Balance')
             ->assertSee('Export current filters');
     }
 

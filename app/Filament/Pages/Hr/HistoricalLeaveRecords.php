@@ -47,11 +47,13 @@ class HistoricalLeaveRecords extends Page
 
     protected static ?int $navigationSort = 3;
 
-    protected static ?string $navigationLabel = 'Historical Leave';
+    protected static ?string $navigationLabel = 'Past Leave';
 
-    protected static ?string $title = 'Historical Leave Records';
+    protected static ?string $title = 'Previous Employee Leave';
 
     public string $employeeSearch = '';
+
+    public string $joiningDateSearch = '';
 
     public ?int $employeeId = null;
 
@@ -164,6 +166,12 @@ class HistoricalLeaveRecords extends Page
     public function updatedHistoryEmployeeFilter(): void
     {
         $this->resetPage();
+        $this->resetPage('balancePage');
+    }
+
+    public function updatedJoiningDateSearch(): void
+    {
+        $this->resetPage('joiningDatePage');
     }
 
     public function updatedHistoryStatusFilter(): void
@@ -504,6 +512,28 @@ class HistoricalLeaveRecords extends Page
         return app(HistoricalLeaveActivationService::class)->status();
     }
 
+    #[Computed]
+    public function joiningDatesChecked(): int
+    {
+        return Employee::query()->whereNotNull('joining_date')->whereNotNull('joining_date_verified_at')->count();
+    }
+
+    #[Computed]
+    public function joiningDateEmployees()
+    {
+        // Use the existing joining-date capability, which also protects the
+        // destination page and correction service. No leave balance is exposed.
+        abort_unless(VerifyEmployeeJoiningDate::canAccess(), 403);
+
+        return Employee::query()
+            ->when(trim($this->joiningDateSearch) !== '', function ($query): void {
+                $search = trim($this->joiningDateSearch);
+                $query->where(fn ($employees) => $employees->where('name', 'like', "%{$search}%")
+                    ->orWhere('employee_id', 'like', "%{$search}%"));
+            })
+            ->orderBy('name')->paginate(10, ['id', 'employee_id', 'name', 'joining_date', 'joining_date_verified_at'], 'joiningDatePage');
+    }
+
     public function canActivate(): bool
     {
         return in_array($this->user()->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
@@ -586,7 +616,7 @@ class HistoricalLeaveRecords extends Page
             $query->whereHas('employee', fn ($employees) => $employees->where('employee_id', 'like', "%{$search}%")
                 ->orWhere('name', 'like', "%{$search}%"));
         }
-        if (in_array($this->historyStatusFilter, ['pending', 'approved', 'rejected', 'cancelled'], true)) {
+        if (in_array($this->historyStatusFilter, ['pending', 'approved', 'rejected', 'cancelled', 'voided'], true)) {
             $query->where('approval_status', $this->historyStatusFilter);
         }
 

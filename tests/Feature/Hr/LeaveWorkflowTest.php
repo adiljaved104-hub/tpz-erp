@@ -180,11 +180,11 @@ class LeaveWorkflowTest extends TestCase
         $outsideRequest = $this->pendingRequest($outsider->employee, $annual, $policy, 'LVR-2026-009992');
 
         Livewire::actingAs($manager)->test(LeaveManagement::class)
-            ->assertSee('Annual leave balance')
-            ->assertSee('Current leave used')
-            ->assertSee('Historical leave used')
-            ->assertSee('Pending')
-            ->assertSee('Available')
+            ->assertSee('Your Leave Balance')
+            ->assertSee('Leave Used')
+            ->assertSee('Previous Leave Used')
+            ->assertSee('Waiting for Approval')
+            ->assertSee('Days Left')
             ->assertSee('Employee')
             ->assertSee('Approval status')
             ->assertSee($insideRequest->reference)

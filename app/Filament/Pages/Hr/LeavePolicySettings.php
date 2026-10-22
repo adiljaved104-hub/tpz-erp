@@ -6,6 +6,7 @@ use App\Enums\HrPermission;
 use App\Models\LeavePolicy;
 use App\Models\User;
 use App\Services\Authorization\HrAuthorization;
+use App\Services\Hr\HistoricalLeaveActivationService;
 use App\Services\Hr\LeavePolicyVersioningService;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -28,7 +29,7 @@ class LeavePolicySettings extends Page
 
     protected static ?string $navigationLabel = 'Leave Policy Settings';
 
-    protected static ?string $title = 'Leave Policy Settings';
+    protected static ?string $title = 'Annual Leave Settings';
 
     public string $annualEntitlementDays = '12.00';
 
@@ -70,7 +71,7 @@ class LeavePolicySettings extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
-        $policy = LeavePolicy::query()->where('status', true)->whereNull('effective_to')->latest('effective_from')->firstOrFail();
+        $policy = $this->currentPolicy;
         $this->annualEntitlementDays = (string) $policy->annual_leave_entitlement_days;
         $this->carryForwardEnabled = (bool) $policy->carry_forward_enabled;
         $this->maximumCarryForwardDays = (string) $policy->maximum_carry_forward_days;
@@ -180,6 +181,12 @@ class LeavePolicySettings extends Page
         return LeavePolicy::query()->where('status', true)->whereDate('effective_from', '<=', $today)
             ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $today))
             ->latest('effective_from')->firstOrFail();
+    }
+
+    #[Computed]
+    public function annualWorkflowActive(): bool
+    {
+        return app(HistoricalLeaveActivationService::class)->isActive();
     }
 
     #[Computed]

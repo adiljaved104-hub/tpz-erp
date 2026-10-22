@@ -1,4 +1,4 @@
-<x-filament-panels::page>
+<x-filament-panels::page class="hr-page-form hr-leave-ui">
     @if ($canRecordOnBehalf)
         <div class="flex justify-end">
             <x-filament::button icon="heroicon-o-plus" wire:click="openRecordLeave">Record Employee Leave</x-filament::button>
@@ -7,10 +7,10 @@
 
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-            <h2 class="text-xl font-semibold text-gray-950 dark:text-white">Annual leave balance</h2>
-            @if (! $annualWorkflowActive) <p class="mt-1 text-sm font-semibold text-warning-700">Provisional — Pending HR Verification. Annual Leave requests are not yet available.</p> @endif
+            <h2 class="text-xl font-semibold text-gray-950 dark:text-white">Your Leave Balance</h2>
+            @if (! $annualWorkflowActive)<p role="status" class="mt-2 max-w-prose text-sm text-warning-700 dark:text-warning-300">Your annual leave is not ready yet. HR must check your joining date and previous leave records.</p><p class="mt-1 text-xs font-medium text-gray-500">Provisional — Pending HR Verification</p>@endif
             @if ($balancePeriod)
-                <p class="mt-1 text-sm text-gray-500">Your current joining-anniversary leave period: {{ $balancePeriod }}.</p>
+                <p class="mt-1 text-sm text-gray-500">Your current leave year: {{ $balancePeriod }}.</p>
             @else
                 <p class="mt-1 text-sm text-gray-500">The annual balance is unavailable until the joining date is verified.</p>
             @endif
@@ -23,11 +23,10 @@
     @if ($balance)
         <section aria-label="Annual leave balance summary" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             @foreach ([
-                ['Annual entitlement', $balance->entitlement, 'days', 'info'],
-                ['Current leave used', $balance->currentUsed, 'approved days', 'success'],
-                ['Historical leave used', $balance->historicalUsed, 'approved days', 'gray'],
-                ['Pending', $balance->pending, 'days awaiting decision', 'warning'],
-                ['Available', $balance->availableAfterPending, 'days after pending requests', 'primary'],
+                ['Annual Leave', $balance->entitlement, 'days allowed this leave year', 'gray'],
+                ['Leave Used', $balance->used, 'approved days, including previous leave', 'gray'],
+                ['Waiting for Approval', $balance->pending, 'days awaiting a decision', 'warning'],
+                ['Days Left', $balance->availableAfterPending, 'days after pending requests', 'primary'],
             ] as [$label, $value, $caption, $color])
                 <x-filament::section compact>
                     <div class="flex items-start justify-between gap-3">
@@ -36,20 +35,13 @@
                             <p class="mt-2 text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ number_format((float) $value, 2) }}</p>
                             <p class="mt-1 text-xs text-gray-500">{{ $caption }}</p>
                         </div>
-                        <x-filament::badge :color="$color">{{ $label === 'Available' ? 'Balance' : 'Annual' }}</x-filament::badge>
+                        <x-filament::icon :icon="$label === 'Days Left' ? 'heroicon-o-calendar-days' : 'heroicon-o-chart-bar'" class="h-5 w-5 shrink-0 text-gray-400" />
                     </div>
                 </x-filament::section>
             @endforeach
-            @if ($balancePolicy?->carry_forward_enabled)
-                <x-filament::section compact>
-                    <p class="text-sm font-medium text-gray-500">Carry forward</p>
-                    <p class="mt-2 text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ number_format((float) $balance->carryForward, 2) }}</p>
-                    <p class="mt-1 text-xs text-gray-500">days available before configured expiry</p>
-                </x-filament::section>
-            @endif
         </section>
 
-        <p class="-mt-3 text-xs text-gray-500">Leave period: {{ \Carbon\CarbonImmutable::parse($balance->periodStart)->format('d M Y') }} – {{ \Carbon\CarbonImmutable::parse($balance->periodEnd)->format('d M Y') }}. Balance before pending requests: {{ number_format((float) $balance->remaining, 2) }} days. Entitlement adjustments: {{ number_format((float) $balance->adjustments, 2) }} days.</p>
+        <details class="hr-leave-details"><summary>Balance Details <span>Previous leave, ERP requests and adjustments</span></summary><div class="grid gap-3 text-sm sm:grid-cols-2"><p>Previous Leave Used: <strong>{{ number_format((float) $balance->historicalUsed, 2) }} days</strong></p><p>ERP Leave Used: <strong>{{ number_format((float) $balance->currentUsed, 2) }} days</strong></p><p>Balance Before Pending Requests: <strong>{{ number_format((float) $balance->remaining, 2) }} days</strong></p><p>Balance Adjustments: <strong>{{ number_format((float) $balance->adjustments, 2) }} days</strong></p>@if ($balancePolicy?->carry_forward_enabled)<p>Unused Days Carried Forward: <strong>{{ number_format((float) $balance->carryForward, 2) }} days</strong></p>@endif</div></details>
     @else
         <div role="status" class="rounded-xl border border-warning-200 bg-warning-50 p-4 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-950/30 dark:text-warning-300">
             {{ $balanceError ?: 'Ask HR to verify your actual joining date before an Annual Leave balance is calculated.' }}
@@ -61,10 +53,10 @@
             @if (! $scheduleConfigured)
                 <div role="status" class="mb-5 flex gap-3 rounded-xl border border-warning-200 bg-warning-50 p-4 text-sm text-warning-800 dark:border-warning-500/30 dark:bg-warning-950/30 dark:text-warning-300">
                     <x-filament::icon icon="heroicon-o-exclamation-triangle" class="mt-0.5 h-5 w-5 shrink-0" />
-                    <span>Your work schedule day pattern is not configured. HR must configure it before a request can be calculated and submitted.</span>
+                    <span>Your workdays are not set up yet. Please ask HR to set your work schedule.</span>
                 </div>
             @endif
-            <form wire:submit="submitLeave" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <form wire:submit="submitLeave" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <label class="space-y-1.5 text-sm">
                     <span class="font-medium text-gray-700 dark:text-gray-200">Leave type</span>
                     <select wire:model="leaveTypeId" class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5"><option value="">Select leave type</option>@foreach ($leaveTypes as $type)<option value="{{ $type->id }}">{{ $type->name }}</option>@endforeach</select>
@@ -80,12 +72,12 @@
                     <input type="date" wire:model="toDate" class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5">
                     @error('toDate')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
                 </label>
-                <label class="space-y-1.5 text-sm md:col-span-2 xl:col-span-4">
+                <label class="space-y-1.5 text-sm md:col-span-2 xl:col-span-3">
                     <span class="font-medium text-gray-700 dark:text-gray-200">Reason</span>
                     <textarea wire:model="reason" rows="3" maxlength="2000" class="w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5" placeholder="Briefly explain your request"></textarea>
                     @error('reason')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
                 </label>
-                <div class="flex justify-end md:col-span-2 xl:col-span-4">
+                <div class="flex justify-end md:col-span-2 xl:col-span-3">
                     <x-filament::button type="submit" icon="heroicon-o-paper-airplane">Submit leave request</x-filament::button>
                 </div>
             </form>

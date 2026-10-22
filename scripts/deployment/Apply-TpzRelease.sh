@@ -6,7 +6,73 @@ umask 077
 
 step=preflight
 backup_path=NOT_REQUIRED
-trap 'code=$?; printf "DEPLOYMENT=FAILED\nSTOPPED_STAGE=%s\nBACKUP_LOCATION=%s\nNO_AUTOMATIC_ROLLBACK=true\n" "$step" "$backup_path" >&2; exit "$code"' ERR
+run=
+baseline=
+data_change=unknown
+maintenance_attempted=false
+maintenance_preflight_state=UNKNOWN
+migrations_started=false
+declare -a pending=()
+
+maintenance_state() {
+    php /dev/stdin <<'PHP'
+<?php
+require getcwd().'/vendor/autoload.php';
+$app = require getcwd().'/bootstrap/app.php';
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+echo $app->isDownForMaintenance() ? 'ACTIVE' : 'INACTIVE';
+PHP
+}
+
+ensure_not_in_maintenance() {
+    maintenance_preflight_state=$(maintenance_state) || return 1
+    if [[ "$maintenance_preflight_state" != INACTIVE ]]; then
+        printf 'MAINTENANCE_PREFLIGHT=FAILED_ALREADY_ACTIVE_OR_UNKNOWN\n' >&2
+        return 1
+    fi
+    printf 'MAINTENANCE_PREFLIGHT=INACTIVE\n'
+}
+
+deployment_exit() {
+    local original_code=$1 original_stage=$step recovery=NOT_NEEDED state=UNKNOWN recovery_log=/dev/null
+    trap - EXIT
+    if (( original_code == 0 )); then
+        return 0
+    fi
+    set +e
+    if [[ -n "$run" && -d "$run" ]]; then
+        recovery_log=$run/maintenance-recovery.log
+    fi
+    if [[ "$maintenance_attempted" == true ]]; then
+        state=$(maintenance_state 2>/dev/null)
+        [[ -n "$state" ]] || state=UNKNOWN
+        if [[ "$state" == INACTIVE ]]; then
+            recovery=ALREADY_DISABLED
+        elif (( ${#pending[@]} == 0 )) && [[ "$data_change" == false ]] \
+            || { [[ "$migrations_started" == false && -n "$baseline" ]] \
+                && [[ "$(git rev-parse HEAD 2>/dev/null)" == "$baseline" ]]; }; then
+            # A UI-only release cannot have changed schema or data. For schema
+            # releases, only the untouched baseline is safe to bring back up.
+            php artisan up --no-interaction >>"$recovery_log" 2>&1
+            if [[ "$(maintenance_state 2>/dev/null)" == INACTIVE ]]; then
+                state=INACTIVE
+                recovery=DISABLED
+            else
+                state=ACTIVE_OR_UNKNOWN
+                recovery=FAILED
+            fi
+        else
+            # Never expose a partially migrated release automatically.
+            recovery=SKIPPED_UNSAFE
+        fi
+    else
+        state=$maintenance_preflight_state
+    fi
+    printf 'DEPLOYMENT=FAILED\nORIGINAL_EXIT_CODE=%s\nSTOPPED_STAGE=%s\nBACKUP_LOCATION=%s\nMAINTENANCE_STATUS=%s\nMAINTENANCE_RECOVERY=%s\nNO_AUTOMATIC_ROLLBACK=true\n' \
+        "$original_code" "$original_stage" "$backup_path" "$state" "$recovery" >&2
+    exit "$original_code"
+}
+trap 'deployment_exit "$?"' EXIT
 
 [[ $# == 8 ]]
 environment=$1
@@ -55,6 +121,8 @@ for path in app config database routes resources public vendor; do
 done
 [[ -z "$(find bootstrap -path bootstrap/cache -prune -o \( -type d -o -type f \) ! -user "$(id -u)" -print -quit)" ]]
 env_sha_before=$(sha256sum .env | cut -d ' ' -f 1)
+step=maintenance_preflight
+ensure_not_in_maintenance
 
 step=remote_identity
 origin=$(git remote get-url origin)
@@ -144,7 +212,9 @@ if [[ "$uploaded_asset" != NONE ]]; then
 fi
 
 step=maintenance
+maintenance_attempted=true
 php artisan down --retry=60 --no-interaction >"$run/maintenance.log" 2>&1
+[[ "$(maintenance_state)" == ACTIVE ]]
 
 step=fast_forward
 git merge --ff-only "$approved" >"$run/fast-forward.log" 2>&1
@@ -158,6 +228,7 @@ composer dump-autoload --no-dev --optimize --no-scripts --no-interaction >"$run/
 
 step=approved_migrations
 for name in "${pending[@]}"; do
+    migrations_started=true
     php artisan migrate --force --no-interaction --path="database/migrations/$name.php" >"$run/migrate-$name.log" 2>&1
 done
 if (( ${#pending[@]} > 0 )); then
@@ -214,9 +285,10 @@ printf 'PERMISSIONS_STATUS=PASS\nWORKTREE_STATUS=CLEAN\n'
 
 step=website_health
 php artisan up --no-interaction >"$run/online.log" 2>&1
+[[ "$(maintenance_state)" == INACTIVE ]]
 http_code=$(curl --silent --show-error --location --max-time 30 --output /dev/null --write-out '%{http_code}' "$url/admin/login")
 [[ "$http_code" == 200 ]]
 printf 'LOGIN_HTTP_STATUS=%s\nWWW_DATA_HTTP_READABILITY=PASS\n' "$http_code"
 [[ "$env_sha_before" == "$(sha256sum .env | cut -d ' ' -f 1)" ]]
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]]
-printf 'DEPLOYMENT=SUCCESS\nDEPLOYED_COMMIT=%s\nBACKUP_LOCATION=%s\nMIGRATIONS_EXECUTED=%s\nPERMISSIONS_STATUS=PASS\nWORKTREE_STATUS=CLEAN\nSTOPPED_STAGE=NONE\n' "$approved" "$backup_path" "${#pending[@]}"
+printf 'DEPLOYMENT=SUCCESS\nDEPLOYED_COMMIT=%s\nBACKUP_LOCATION=%s\nMIGRATIONS_EXECUTED=%s\nPERMISSIONS_STATUS=PASS\nMAINTENANCE_STATUS=INACTIVE\nMAINTENANCE_RECOVERY=NOT_NEEDED\nWORKTREE_STATUS=CLEAN\nSTOPPED_STAGE=NONE\n' "$approved" "$backup_path" "${#pending[@]}"

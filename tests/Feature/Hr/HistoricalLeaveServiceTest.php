@@ -310,7 +310,7 @@ class HistoricalLeaveServiceTest extends TestCase
 
         Livewire::test(HistoricalLeaveRecords::class)
             ->assertSee('Add Previous Leave')
-            ->assertSee('Waiting for HR Review')
+            ->assertSee('Activate each employee separately after HR review')
             ->assertSee('Save Previous Leave')
             ->assertSee('I confirm this entry is supported by the stated historical source.')
             ->assertSee('Import Previous Leave')

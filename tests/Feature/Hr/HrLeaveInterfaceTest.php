@@ -90,7 +90,7 @@ class HrLeaveInterfaceTest extends TestCase
             ->assertSee('Add Previous Leave')
             ->assertSee('Employee Leave Balances')
             ->assertSee('Enable Annual Leave')
-            ->assertSee('Waiting for HR Review')
+            ->assertSee('Activate each employee separately after HR review')
             ->assertDontSee('Provisional')
             ->assertSee('href="#joining-date-checks"', escape: false)
             ->assertSee("\$dispatch('expand-section', { id: 'joining-date-checks' })", escape: false)
@@ -276,7 +276,7 @@ class HrLeaveInterfaceTest extends TestCase
 
         Livewire::actingAs($staff)->test(LeaveManagement::class)
             ->assertSee('Leave Used')->assertSee('Waiting for Approval')->assertSee('Days Left')
-            ->assertSee('Your annual leave is not ready yet. HR must check your joining date and previous leave records.')
+            ->assertSee('Your annual leave is not ready yet. HR must check your joining date and previous leave records before Owner/Admin enables it for you.')
             ->assertSee('Your workdays are not set up yet. Please ask HR to set your work schedule.')
             ->assertViewHas('balance', fn ($balance): bool => $balance->entitlement === '12.00' && $balance->used === '2.00' && $balance->pending === '1.00' && $balance->availableAfterPending === '9.00');
 

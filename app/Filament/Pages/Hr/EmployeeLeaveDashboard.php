@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages\Hr;
 
+use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Models\Employee;
 use App\Models\EmployeeJoiningDateAudit;
@@ -16,6 +17,7 @@ use App\Services\Hr\HistoricalLeaveAuthorization;
 use App\Services\Hr\LeaveBalanceService;
 use App\Services\Leave\AnnualLeaveCycleResolver;
 use Carbon\CarbonImmutable;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
@@ -113,6 +115,23 @@ class EmployeeLeaveDashboard extends Page
         }
     }
 
+    public function canActivateAnnualLeave(): bool
+    {
+        $user = $this->user();
+
+        return in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+            && app(HrAuthorization::class)->allows($user, HrPermission::LeaveManagePolicy);
+    }
+
+    public function activateSelectedEmployee(): void
+    {
+        abort_unless($this->canActivateAnnualLeave(), 403);
+        $employee = $this->selectedEmployee();
+        abort_unless($employee instanceof Employee, 403);
+        app(HistoricalLeaveActivationService::class)->activateEmployees([$employee->id], $this->user());
+        Notification::make()->success()->title('Annual Leave enabled for this employee')->send();
+    }
+
     public function getViewData(): array
     {
         $employees = $this->visibleEmployees()
@@ -137,7 +156,7 @@ class EmployeeLeaveDashboard extends Page
         if ($employee !== null) {
             $activation = app(HistoricalLeaveActivationService::class);
             $reviewed = $activation->isReviewed($employee);
-            $activated = $activation->isActive() && $reviewed;
+            $activated = $activation->isActiveFor($employee);
             try {
                 $balance = app(LeaveBalanceService::class)->currentFor($employee);
                 $cycle = app(AnnualLeaveCycleResolver::class)->forDate($employee, CarbonImmutable::today());
@@ -154,6 +173,7 @@ class EmployeeLeaveDashboard extends Page
             'balanceError' => $balanceError,
             'reviewed' => $reviewed,
             'activated' => $activated,
+            'activationStatus' => $employee === null ? null : app(HistoricalLeaveActivationService::class)->employeeStatus($employee),
             'latestReview' => $employee === null ? null : DB::table('historical_leave_reconciliation_reviews')
                 ->where('employee_id', $employee->id)->orderByDesc('id')->first(['reviewed_at']),
             'historicalRecords' => $employee === null ? null : HistoricalLeaveRecord::query()
@@ -186,8 +206,7 @@ class EmployeeLeaveDashboard extends Page
         }
         $activation = app(HistoricalLeaveActivationService::class);
         $reviewed = $activation->isReviewed($employee);
-        $status = $activation->isActive() && $reviewed
-            ? 'Annual Leave Enabled' : ($reviewed ? 'Reviewed — Waiting for Activation' : 'Waiting for HR Review');
+        $status = $activation->employeeStatus($employee);
 
         return response()->streamDownload(function () use ($employee, $balance, $status): void {
             $workbook = new Spreadsheet;

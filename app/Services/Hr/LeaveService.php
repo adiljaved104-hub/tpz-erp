@@ -141,7 +141,7 @@ class LeaveService
                     ? $storedDays
                     : $this->days->calculate($locked->employee, CarbonImmutable::parse($locked->from_date), CarbonImmutable::parse($locked->to_date))['days'];
 
-                if ($this->historicalActivation->isActive()) {
+                if ($this->historicalActivation->isActiveFor($lockedEmployee)) {
                     $this->assertAnnualAvailability($locked->employee, CarbonImmutable::parse($locked->from_date), CarbonImmutable::parse($locked->to_date), $days, 'remaining');
                 } else {
                     // An already-pending ERP request remains approvable under the
@@ -245,6 +245,9 @@ class LeaveService
             $lockedEmployee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
             if ($lockedEmployee->status !== true) {
                 throw ValidationException::withMessages(['employee_id' => 'Leave can only be recorded for an active employee.']);
+            }
+            if ($type->consumes_annual_entitlement) {
+                $this->historicalActivation->assertAnnualRequestsActive($lockedEmployee);
             }
 
             $effectivePolicy = $type->consumes_annual_entitlement

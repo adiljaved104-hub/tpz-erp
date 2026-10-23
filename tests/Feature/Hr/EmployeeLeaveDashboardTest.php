@@ -7,6 +7,7 @@ use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Filament\Pages\Hr\EmployeeLeaveDashboard;
+use App\Filament\Pages\Hr\LeavePolicySettings;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\LeavePolicy;
@@ -15,6 +16,7 @@ use App\Models\LeaveRequestDay;
 use App\Models\LeaveType;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Hr\HistoricalLeaveActivationService;
 use App\Services\Hr\HistoricalLeaveService;
 use App\Services\Hr\JoiningDateCorrectionService;
 use Carbon\CarbonImmutable;
@@ -25,6 +27,29 @@ use Tests\TestCase;
 class EmployeeLeaveDashboardTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_owner_can_activate_one_reviewed_employee_from_dashboard_without_unlocking_other_employees(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner, 'Owner');
+        $staff = $this->user(EmployeeRole::Staff, 'Reviewed Colleague');
+        $other = $this->user(EmployeeRole::Staff, 'Unreviewed Colleague');
+        $service = app(HistoricalLeaveActivationService::class);
+        $service->review($staff->employee, $owner);
+
+        Livewire::actingAs($owner)->test(EmployeeLeaveDashboard::class)
+            ->call('selectEmployee', $staff->employee->id)
+            ->assertSee('Ready for Activation')
+            ->call('activateSelectedEmployee')
+            ->assertSee('Active');
+
+        $this->assertTrue($service->isActiveFor($staff->employee));
+        $this->assertSame('Pending HR Review', $service->employeeStatus($other->employee));
+        $this->assertDatabaseCount('employee_annual_leave_activations', 1);
+        Livewire::actingAs($owner)->test(LeavePolicySettings::class)
+            ->assertSee('Individual employee activation in progress')
+            ->assertSee('the shared policy above was not changed');
+        Livewire::actingAs($staff)->test(EmployeeLeaveDashboard::class)->assertForbidden();
+    }
 
     public function test_owner_sees_active_inactive_and_unverified_employees_without_trusting_unverified_balances(): void
     {
@@ -42,7 +67,7 @@ class EmployeeLeaveDashboardTest extends TestCase
             ->assertDontSee('Active Colleague')
             ->set('verificationFilter', 'unverified')
             ->call('selectEmployee', $inactive->employee->id)
-            ->assertSee('Waiting for HR Review')
+            ->assertSee('Not Verified')
             ->assertSee('Not yet verified')
             ->assertSee('The employee joining date must be verified')
             ->assertDontSee('Annual Leave Enabled');

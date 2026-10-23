@@ -12,6 +12,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 
@@ -187,6 +188,12 @@ class LeavePolicySettings extends Page
     public function annualWorkflowActive(): bool
     {
         return app(HistoricalLeaveActivationService::class)->isActive();
+    }
+
+    #[Computed]
+    public function individuallyActivatedCount(): int
+    {
+        return DB::table('employee_annual_leave_activations')->distinct()->count('employee_id');
     }
 
     #[Computed]

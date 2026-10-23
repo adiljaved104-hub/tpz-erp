@@ -93,16 +93,20 @@ class EmployeeOwnedInventoryReadService
         return $query;
     }
 
-    /** Existing employee ownership plus warehouse-authorized physical rows for the location screen. */
+    /** Own allocations plus active operational and warehouse-scoped rows for My Inventory. */
     public function locationVisibleInventoryIds(User $user): Builder
     {
-        if ($this->hasActiveWarehouseAssignment($user)) {
-            return $this->warehouseAssignedInventoryIds($user);
+        $query = ProductInventory::query()->select('product_inventories.id');
+        if ($this->isEmployeeView($user)
+            && (! $this->authorization->allows($user, InventoryPermission::View)
+                || ! $this->authorization->allows($user, InventoryPermission::ViewLocationBalances))) {
+            return $query->whereRaw('1 = 0');
         }
 
-        return ProductInventory::query()->select('product_inventories.id')->where(function (Builder $query) use ($user): void {
-            $query->whereIn('product_inventories.id', $this->visibleInventoryIds($user))
-                ->orWhereIn('product_inventories.id', $this->warehouseAssignedInventoryIds($user));
+        return $query->where(function (Builder $visible) use ($user): void {
+            $visible->whereIn('product_inventories.id', $this->visibleInventoryIds($user))
+                ->orWhereIn('product_inventories.id', $this->warehouseAssignedInventoryIds($user))
+                ->orWhereIn('product_inventories.id', $this->responsibilities->inventoryIds($user));
         });
     }
 
@@ -169,8 +173,8 @@ class EmployeeOwnedInventoryReadService
     }
 
     /**
-     * Stock by Location query. Employees see their normal ledger projection, except
-     * active assigned warehouses where physical quantity and ledger totals are shown.
+     * My Inventory query. Employees see physical totals for authorized operational or
+     * warehouse rows; out-of-scope personal allocations remain an own-only projection.
      */
     public function locationInventories(User $user): Builder
     {
@@ -185,17 +189,7 @@ class EmployeeOwnedInventoryReadService
             return ProductInventory::query()->whereRaw('1 = 0');
         }
 
-        $visibleInventoryIds = ProductInventory::query()->select('product_inventories.id')
-            ->where(function (Builder $visible) use ($user): void {
-                if ($this->hasActiveWarehouseAssignment($user)) {
-                    $visible->whereIn('product_inventories.id', $this->warehouseAssignedInventoryIds($user));
-
-                    return;
-                }
-
-                $visible->whereIn('product_inventories.id', $this->visibleInventoryIds($user))
-                    ->orWhereIn('product_inventories.id', $this->warehouseAssignedInventoryIds($user));
-            });
+        $visibleInventoryIds = $this->locationVisibleInventoryIds($user);
 
         $ownedBalances = $this->balances($user)
             ->select(['product_inventory_id', 'allocated_quantity', 'reserved_quantity'])
@@ -203,6 +197,11 @@ class EmployeeOwnedInventoryReadService
         $warehouseIds = $this->warehouseAssignedInventoryIds($user)
             ->reorder()
             ->selectRaw('product_inventories.id as inventory_id')
+            ->getQuery();
+        $physicalIds = ProductInventory::query()->select('product_inventories.id as inventory_id')
+            ->where(fn (Builder $physical) => $physical
+                ->whereIn('product_inventories.id', $this->warehouseAssignedInventoryIds($user))
+                ->orWhereIn('product_inventories.id', $this->responsibilities->inventoryIds($user)))
             ->getQuery();
         $allocationTotals = DB::table('inventory_allocation_balances')
             ->select('product_inventory_id')
@@ -213,17 +212,21 @@ class EmployeeOwnedInventoryReadService
         $projection = DB::table('product_inventories')
             ->leftJoinSub($ownedBalances, 'owned_balance', 'owned_balance.product_inventory_id', '=', 'product_inventories.id')
             ->leftJoinSub($warehouseIds, 'warehouse_scope_inventory', 'warehouse_scope_inventory.inventory_id', '=', 'product_inventories.id')
+            ->leftJoinSub($physicalIds, 'physical_scope_inventory', 'physical_scope_inventory.inventory_id', '=', 'product_inventories.id')
             ->leftJoinSub($allocationTotals, 'allocation_totals', 'allocation_totals.product_inventory_id', '=', 'product_inventories.id')
             ->select([
                 'product_inventories.id', 'product_inventories.product_id', 'product_inventories.warehouse_id',
                 'product_inventories.created_at', 'product_inventories.updated_at',
             ])
-            ->selectRaw('CASE WHEN warehouse_scope_inventory.inventory_id IS NOT NULL THEN product_inventories.available_quantity ELSE COALESCE(owned_balance.allocated_quantity, 0) END AS available_quantity')
-            ->selectRaw('CASE WHEN warehouse_scope_inventory.inventory_id IS NOT NULL THEN product_inventories.reserved_quantity ELSE COALESCE(owned_balance.reserved_quantity, 0) END AS reserved_quantity')
-            ->selectRaw('CASE WHEN warehouse_scope_inventory.inventory_id IS NOT NULL THEN COALESCE(allocation_totals.allocated_quantity, 0) ELSE COALESCE(owned_balance.allocated_quantity, 0) END AS allocated_quantity')
-            ->selectRaw('CASE WHEN warehouse_scope_inventory.inventory_id IS NOT NULL THEN COALESCE(allocation_totals.reserved_quantity, 0) ELSE COALESCE(owned_balance.reserved_quantity, 0) END AS allocation_reserved_quantity')
+            ->selectRaw('CASE WHEN physical_scope_inventory.inventory_id IS NOT NULL THEN product_inventories.available_quantity ELSE COALESCE(owned_balance.allocated_quantity, 0) END AS available_quantity')
+            ->selectRaw('CASE WHEN physical_scope_inventory.inventory_id IS NOT NULL THEN product_inventories.reserved_quantity ELSE COALESCE(owned_balance.reserved_quantity, 0) END AS reserved_quantity')
+            ->selectRaw('CASE WHEN physical_scope_inventory.inventory_id IS NOT NULL THEN COALESCE(allocation_totals.allocated_quantity, 0) ELSE COALESCE(owned_balance.allocated_quantity, 0) END AS allocated_quantity')
+            ->selectRaw('CASE WHEN physical_scope_inventory.inventory_id IS NOT NULL THEN COALESCE(allocation_totals.reserved_quantity, 0) ELSE COALESCE(owned_balance.reserved_quantity, 0) END AS allocation_reserved_quantity')
+            ->selectRaw('COALESCE(owned_balance.allocated_quantity, 0) AS my_allocated_quantity')
+            ->selectRaw('COALESCE(owned_balance.reserved_quantity, 0) AS my_reserved_quantity')
             ->selectRaw('CASE WHEN warehouse_scope_inventory.inventory_id IS NOT NULL THEN 1 ELSE 0 END AS warehouse_responsibility_visible')
-            ->selectRaw('CASE WHEN warehouse_scope_inventory.inventory_id IS NULL AND owned_balance.product_inventory_id IS NULL THEN 1 ELSE 0 END AS responsibility_zero_stock');
+            ->selectRaw('CASE WHEN physical_scope_inventory.inventory_id IS NOT NULL THEN 1 ELSE 0 END AS authorized_stock_visible')
+            ->selectRaw('CASE WHEN physical_scope_inventory.inventory_id IS NULL AND owned_balance.product_inventory_id IS NULL THEN 1 ELSE 0 END AS responsibility_zero_stock');
 
         return ProductInventory::query()
             ->fromSub($projection, 'product_inventories')

@@ -24,6 +24,9 @@ use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Filament\Resources\StockRequests\Pages\CreateStockRequestGrid;
 use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryReservation;
+use App\Models\Product;
+use App\Models\ProductBrand;
+use App\Models\ProductCategory;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\Team;
@@ -31,13 +34,16 @@ use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
+use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryLocationOverviewService;
+use App\Services\Inventory\InventoryReadService;
 use App\Services\Inventory\StockRequestApprovalService;
 use App\Services\Inventory\StockRequestExecutionService;
 use App\Services\Inventory\StockRequestService;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Preferences\UserUiPreferenceService;
+use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
@@ -60,10 +66,75 @@ class EmployeeOwnedInventoryTest extends TestCase
         return [[EmployeeRole::Staff], [EmployeeRole::Manager]];
     }
 
-    #[DataProvider('scopedRoles')]
-    public function test_broad_shared_scope_never_displays_another_holder_stock_but_can_request_it(EmployeeRole $role): void
+    public static function physicalResponsibilityScopes(): array
     {
-        $f = $this->foundation($role);
+        return [['brand'], ['category'], ['product'], ['warehouse'], ['condition'], ['platform']];
+    }
+
+    #[DataProvider('physicalResponsibilityScopes')]
+    public function test_my_inventory_uses_the_same_physical_responsibility_boundaries_as_stock_management(string $scope): void
+    {
+        $f = $this->responsibilityFoundation(9);
+        $user = $f['employee']->user;
+        foreach ([InventoryPermission::View, InventoryPermission::ViewLocationBalances] as $permission) {
+            app(EmployeePermissionOverrideService::class)->change($f['employee'], $permission->value, EmployeePermissionEffect::Allow, 'Read-only inventory test', $f['owner']);
+        }
+
+        $outsideProduct = Product::factory()->create();
+        $outsideWarehouse = Warehouse::factory()->create();
+        $outside = ProductInventory::factory()->create([
+            'product_id' => $outsideProduct->id,
+            'warehouse_id' => $f['inventory']->warehouse_id,
+            'available_quantity' => 7,
+            'reserved_quantity' => 0,
+        ]);
+        $assignment = ['brandId' => null, 'categoryId' => null, 'productId' => null,
+            'warehouseId' => null, 'platformId' => null, 'condition' => null];
+
+        match ($scope) {
+            'brand' => $assignment['brandId'] = $f['brand']->id,
+            'category' => $assignment['categoryId'] = $f['product']->category_id,
+            'product' => $assignment['productId'] = $f['product']->id,
+            'warehouse' => $assignment['warehouseId'] = $f['inventory']->warehouse_id,
+            'condition' => $assignment['condition'] = ProductCondition::New,
+            'platform' => $assignment['platformId'] = $f['platform']->id,
+        };
+
+        if ($scope === 'brand') {
+            $outsideProduct->update(['brand_id' => ProductBrand::factory()->create()->id]);
+        } elseif ($scope === 'category') {
+            $outsideProduct->update(['category_id' => ProductCategory::factory()->create()->id]);
+        } elseif ($scope === 'condition') {
+            $outsideProduct->update(['condition' => ProductCondition::Renewed]);
+        } elseif ($scope === 'warehouse') {
+            $outside->update(['product_id' => $f['product']->id, 'warehouse_id' => $outsideWarehouse->id]);
+        } elseif ($scope === 'platform') {
+            $f['inventory']->update(['warehouse_id' => Warehouse::factory()->create([
+                'location_type' => InventoryLocationType::MarketplaceFulfilment,
+                'marketplace_platform_id' => $f['platform']->id,
+            ])->id]);
+        } elseif ($scope === 'product') {
+            $f['inventory']->update(['available_quantity' => 0]);
+        }
+
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: $assignment), $f['owner']);
+        $stockManagementIds = app(InventoryReadService::class)->inventories($user)->pluck('id')->all();
+        $this->assertContains($f['inventory']->id, $stockManagementIds);
+        $this->assertNotContains($outside->id, $stockManagementIds);
+        $this->actingAs($user);
+        $myInventoryIds = ProductInventoryResource::getEloquentQuery()->pluck('id')->all();
+        $this->assertSame($stockManagementIds, $myInventoryIds);
+        if ($scope === 'product') {
+            $this->assertSame(0, ProductInventoryResource::getEloquentQuery()->sole()->available_quantity);
+        }
+        $this->assertTrue($user->can('view', $f['inventory']));
+        $this->assertFalse($user->can('view', $outside));
+    }
+
+    #[DataProvider('scopedRoles')]
+    public function test_operational_scope_displays_authorized_stock_without_claiming_or_exposing_another_holder_allocation(EmployeeRole $role): void
+    {
+        $f = $this->foundation($role, operationalPhysicalScope: true);
         $user = $f['employee']->user;
         $before = InventoryAllocationBalance::query()->get()->toArray();
         $this->assertTrue(app(ResponsibilityReadService::class)->myInventory($user)->isEmpty());
@@ -71,8 +142,17 @@ class EmployeeOwnedInventoryTest extends TestCase
         $this->assertTrue(app(InventoryLocationOverviewService::class)->forUser($user)->isEmpty());
         Livewire::actingAs($user)->test(MyInventory::class)->assertSee('No stock is currently allocated to you.');
         Livewire::test(InventoryOverview::class)->assertDontSee($f['product']->sku)->assertSee('No stock is currently allocated to you.');
-        Livewire::test(ListProductInventories::class)->assertCountTableRecords(0);
-        $this->assertFalse($user->can('view', $f['inventory']));
+        $this->actingAs($user);
+        $this->assertTrue(app(ResponsibilityProductScopeService::class)->canAccessInventory($user, $f['inventory']->id));
+        $this->assertTrue(app(EmployeeOwnedInventoryReadService::class)->locationVisibleInventoryIds($user)->whereKey($f['inventory']->id)->exists());
+        $record = ProductInventoryResource::getEloquentQuery()->sole();
+        $this->assertSame(10, $record->available_quantity);
+        $this->assertSame(0, $record->my_allocated_quantity);
+        $this->assertSame(1, $record->authorized_stock_visible);
+        $this->assertSame([], app(InventoryAllocationBreakdownReadService::class)->stockHolderLines($user, $record)->all());
+        Livewire::test(ListProductInventories::class)->assertCountTableRecords(1)
+            ->assertCanSeeTableRecords([$f['inventory']])->assertDontSee($f['holder']->employee->name);
+        $this->assertTrue($user->can('view', $f['inventory']));
         $this->assertSame([$f['inventory']->id], app(StockRequestService::class)->searchInventories($user, $f['product']->sku)->modelKeys());
         Livewire::test(CreateStockRequestGrid::class)->assertSee($f['product']->name)->assertSee($f['holder']->employee->name)->assertSeeHtml('data-stock-request-sources');
         $request = app(StockRequestService::class)->create(new CreateStockRequestData(
@@ -84,26 +164,33 @@ class EmployeeOwnedInventoryTest extends TestCase
         app(StockRequestApprovalService::class)->decide($request->sourceLines->sole(), StockRequestSourceStatus::Approved, null, (string) Str::uuid(), $f['owner']);
         $this->assertSame($before, InventoryAllocationBalance::query()->get()->toArray());
         app(StockRequestExecutionService::class)->execute($request->refresh(), (string) Str::uuid(), $f['owner']);
-        $this->assertOwnedQuantity($user, $f['inventory'], 2);
+        $this->assertSame(2, app(ResponsibilityReadService::class)->myInventory($user)->sole()->my_allocated);
+        $this->actingAs($user);
+        $afterTransfer = ProductInventoryResource::getEloquentQuery()->sole();
+        $this->assertSame(10, $afterTransfer->available_quantity);
+        $this->assertSame(2, $afterTransfer->my_allocated_quantity);
         $this->assertSame(10, $f['inventory']->refresh()->available_quantity);
         $this->assertSame(8, $f['holderAccount']->balances()->sole()->allocated_quantity);
     }
 
     #[DataProvider('scopedRoles')]
-    public function test_each_owned_view_shows_only_own_balance_and_omits_unattributed_physical_states(EmployeeRole $role): void
+    public function test_allocated_and_location_overview_stay_own_only_while_my_inventory_labels_authorized_physical_stock(EmployeeRole $role): void
     {
         $f = $this->foundation($role, 8);
         $user = $f['employee']->user;
         app(InventoryAllocationService::class)->reconcile($f['inventory'], app(InventoryAllocationService::class)->employeeAccount($f['employee']->id), 2, $f['owner'], 'Explicit own stock');
-        $this->assertOwnedQuantity($user, $f['inventory'], 2);
+        $this->assertSame(2, app(ResponsibilityReadService::class)->myInventory($user)->sole()->my_allocated);
+        $this->assertSame(2, app(InventoryLocationOverviewService::class)->forUser($user)->sole()['available']);
+        $this->actingAs($user);
         $projection = ProductInventoryResource::getEloquentQuery()->firstOrFail();
-        $this->assertSame(2, $projection->available_quantity);
-        $this->assertSame(2, $projection->allocated_quantity);
+        $this->assertSame(10, $projection->available_quantity);
+        $this->assertSame(10, $projection->allocated_quantity);
+        $this->assertSame(2, $projection->my_allocated_quantity);
         Livewire::actingAs($user)->test(MyInventory::class)
             ->assertViewHas('summary', fn ($summary) => $summary['usable'] === 2)
             ->assertDontSee('Other Allocated')->assertDontSee('System / Unallocated');
         Livewire::test(InventoryOverview::class)->assertDontSee('Damaged')->assertDontSee('QC Pending')->assertDontSee('In Transit');
-        Livewire::test(ListProductInventories::class)->assertTableColumnStateSet('available_quantity', 2, $f['inventory'])
+        Livewire::test(ListProductInventories::class)->assertTableColumnStateSet('available_quantity', 10, $f['inventory'])
             ->assertTableColumnDoesNotExist('damaged_quantity')->assertTableColumnDoesNotExist('average_cost');
     }
 
@@ -195,9 +282,11 @@ class EmployeeOwnedInventoryTest extends TestCase
         $this->assertSame(1, $overview['sellable']);
         $this->actingAs($user);
         $record = ProductInventoryResource::getEloquentQuery()->sole();
-        $this->assertSame(2, $record->available_quantity);
+        $this->assertSame(10, $record->available_quantity);
         $this->assertSame(1, $record->reserved_quantity);
-        $this->assertSame(1, $record->sellableQuantity());
+        $this->assertSame(9, $record->sellableQuantity());
+        $this->assertSame(2, $record->my_allocated_quantity);
+        $this->assertSame(1, $record->my_reserved_quantity);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['assignedQuantity' => 1]), $f['owner']);
         Livewire::actingAs($user)->test(MyInventory::class)->assertViewHas('summary', fn ($summary) => $summary['usable'] === 1);
         $this->assertSame(10, $f['inventory']->refresh()->available_quantity);
@@ -263,7 +352,7 @@ class EmployeeOwnedInventoryTest extends TestCase
         $this->assertSame($quantity, ProductInventoryResource::getEloquentQuery()->firstOrFail()->available_quantity);
     }
 
-    private function foundation(EmployeeRole $role = EmployeeRole::Staff, int $held = 10): array
+    private function foundation(EmployeeRole $role = EmployeeRole::Staff, int $held = 10, bool $operationalPhysicalScope = false): array
     {
         $f = $this->responsibilityFoundation(10);
         $f['employee']->update(['role' => $role]);
@@ -272,7 +361,9 @@ class EmployeeOwnedInventoryTest extends TestCase
         }
         $f['product']->update(['condition' => ProductCondition::New, 'name' => 'Full detailed laptop title including memory, processor, display and specifications']);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f, overrides: [
-            'brandId' => null, 'categoryId' => $f['product']->category_id, 'platformId' => $f['platform']->id, 'condition' => ProductCondition::New,
+            'brandId' => null, 'categoryId' => $f['product']->category_id,
+            'platformId' => $operationalPhysicalScope ? null : $f['platform']->id,
+            'condition' => ProductCondition::New,
         ]), $f['owner']);
         $holder = $this->responsibilityUser(EmployeeRole::Staff);
         $allocation = app(InventoryAllocationService::class);

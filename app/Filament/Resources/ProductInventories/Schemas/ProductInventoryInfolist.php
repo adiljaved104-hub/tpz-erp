@@ -24,15 +24,16 @@ class ProductInventoryInfolist
         return $schema->components([
             Section::make('Inventory Quantities')
                 ->description($owned
-                    ? 'Warehouse-assigned rows show physical Total Stock and ledger Allocated. Other rows show only your own allocation. Reserved is included in Total Stock / My Held, and Sellable is the corresponding total minus Reserved.'
+                    ? 'Authorized warehouse or operational rows show physical stock and combined ledger totals without private holder details. Other rows show only your own allocation. My Allocated always shows your personal recorded quantity.'
                     : 'Total Stock includes Reserved. Allocated is the sum of recorded ledger balances. Reserved is a subset and is not added again. Sellable is Total Stock minus Reserved.')
                 ->schema([
                     TextEntry::make('product.name')->label('Product'),
                     TextEntry::make('product.sku')->label('SKU'),
                     TextEntry::make('warehouse.name')->label('Warehouse'),
-                    TextEntry::make('available_quantity')->label($owned ? 'Total Stock / My Held' : 'Total Stock'),
-                    TextEntry::make('allocated_quantity')->label($owned ? 'Allocated / My Held' : 'Allocated'),
-                    TextEntry::make('reserved_quantity')->label($owned ? 'Reserved / My Reserved' : 'Reserved'),
+                    TextEntry::make('available_quantity')->label($owned ? 'Visible Stock' : 'Total Stock'),
+                    TextEntry::make('allocated_quantity')->label($owned ? 'Recorded Allocated' : 'Allocated'),
+                    ...($owned ? [TextEntry::make('my_allocated_quantity')->label('My Allocated')] : []),
+                    TextEntry::make('reserved_quantity')->label('Reserved'),
                     TextEntry::make('sellable_quantity')->label('Sellable')->state(fn (ProductInventory $record): int => $record->sellableQuantity()),
                     ...($owned ? [] : [TextEntry::make('damaged_quantity')->label('Damaged')]),
                     ...($owned ? [] : [TextEntry::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand())]),

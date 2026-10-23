@@ -26,6 +26,7 @@ use App\Models\StockMovement;
 use App\Models\Warehouse;
 use App\Services\Authorization\EmployeePermissionOverrideService;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
+use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
@@ -98,7 +99,7 @@ class ZeroStockResponsibilityVisibilityTest extends TestCase
         $this->assertFalse($product->inventories()->exists());
     }
 
-    public function test_positive_stock_at_any_location_is_not_exposed_through_responsibility(): void
+    public function test_positive_stock_in_operational_scope_is_visible_without_exposing_another_holder(): void
     {
         $f = $this->foundation(EmployeeRole::Staff);
         $this->assign($f);
@@ -110,9 +111,14 @@ class ZeroStockResponsibilityVisibilityTest extends TestCase
         $user = $f['employee']->user;
         $this->assertTrue(app(ResponsibilityReadService::class)->myInventory($user)->isEmpty());
         $this->assertTrue(app(InventoryLocationOverviewService::class)->forUser($user)->isEmpty());
-        $this->assertFalse($user->can('view', $positive));
-        $this->assertFalse($user->can('view', $f['inventory']));
-        Livewire::actingAs($user)->test(ListProductInventories::class)->assertCountTableRecords(0);
+        $this->assertTrue($user->can('view', $positive));
+        $this->assertTrue($user->can('view', $f['inventory']));
+        $visible = app(EmployeeOwnedInventoryReadService::class)->locationInventories($user)->get()->keyBy('id');
+        $this->assertSame(3, $visible->get($positive->id)->available_quantity);
+        $this->assertSame(0, $visible->get($positive->id)->my_allocated_quantity);
+        $this->assertSame(0, $visible->get($f['inventory']->id)->available_quantity);
+        $this->assertSame([], app(InventoryAllocationBreakdownReadService::class)->stockHolderLines($user, $positive)->all());
+        Livewire::actingAs($user)->test(ListProductInventories::class)->assertCountTableRecords(2);
     }
 
     public function test_reserved_damaged_qc_and_system_or_foreign_stock_are_masked_to_zero(): void

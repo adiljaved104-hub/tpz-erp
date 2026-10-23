@@ -52,11 +52,17 @@ class ProductInventoriesTable
                 ->view('filament.tables.columns.stock-held-by')
                 ->width('22rem')
                 ->extraCellAttributes(['class' => 'align-top']),
-            ...($owned ? [TextColumn::make('visibility_reason')->label('Visible Because')->state(fn (ProductInventory $record): string => $record->responsibility_zero_stock ? 'Responsibility scope · Out of Stock' : 'Employee allocation ownership')->toggleable()] : []),
-            TextColumn::make('available_quantity')->label($owned ? 'Total Stock / My Held' : 'Total Stock')->tooltip($owned ? 'Warehouse-assigned rows show physical stock including Reserved. Other rows show only your allocation, including your Reserved quantity.' : 'Physical available stock, including Reserved.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($available.' '.$direction))->toggleable(),
-            TextColumn::make('allocated_quantity')->label($owned ? 'Allocated / My Held' : 'Allocated')->tooltip($owned ? 'Warehouse-assigned rows show all recorded ledger allocations; other rows show only your own allocation. Reserved is included.' : 'Sum of recorded Inventory Allocation Ledger balances; Reserved is included.')->sortable()->toggleable(),
-            TextColumn::make('reserved_quantity')->label($owned ? 'Reserved / My Reserved' : 'Reserved')->tooltip($owned ? 'Warehouse-assigned rows show physical Reserved. Other rows show your own Reserved, which is a subset of My Held.' : 'Reserved is a subset of Total Stock and Allocated; do not add it again.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($reserved.' '.$direction))->toggleable(),
-            TextColumn::make('sellable_quantity')->label('Sellable')->tooltip($owned ? 'Warehouse-assigned rows: Total Stock minus physical Reserved. Other rows: your own allocation minus your Reserved.' : 'Total Stock minus Reserved.')->state(fn (ProductInventory $record): int => $record->sellableQuantity())->weight('bold')->toggleable(),
+            ...($owned ? [TextColumn::make('visibility_reason')->label('Visible Because')->state(fn (ProductInventory $record): string => match (true) {
+                (bool) $record->warehouse_responsibility_visible => 'Authorized warehouse stock',
+                (bool) $record->authorized_stock_visible => 'Operational responsibility stock',
+                (bool) $record->responsibility_zero_stock => 'Responsibility scope · Out of Stock',
+                default => 'My allocation',
+            })->toggleable()] : []),
+            TextColumn::make('available_quantity')->label($owned ? 'Visible Stock' : 'Total Stock')->tooltip($owned ? 'Authorized warehouse or operational rows show physical stock. Other rows show only your own allocation. Reserved is included.' : 'Physical available stock, including Reserved.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($available.' '.$direction))->toggleable(),
+            TextColumn::make('allocated_quantity')->label($owned ? 'Recorded Allocated' : 'Allocated')->tooltip($owned ? 'Authorized physical rows show the combined ledger quantity without private holder details. Other rows show only your allocation. Reserved is included.' : 'Sum of recorded Inventory Allocation Ledger balances; Reserved is included.')->sortable()->toggleable(),
+            ...($owned ? [TextColumn::make('my_allocated_quantity')->label('My Allocated')->tooltip('Your own recorded allocation within this inventory row.')->sortable()->toggleable()] : []),
+            TextColumn::make('reserved_quantity')->label('Reserved')->tooltip($owned ? 'Authorized physical rows show physical Reserved. Other rows show only your own Reserved.' : 'Reserved is a subset of Total Stock and Allocated; do not add it again.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($reserved.' '.$direction))->toggleable(),
+            TextColumn::make('sellable_quantity')->label('Sellable')->tooltip($owned ? 'Visible Stock minus its corresponding Reserved quantity. This does not grant permission to consume other allocations.' : 'Total Stock minus Reserved.')->state(fn (ProductInventory $record): int => $record->sellableQuantity())->weight('bold')->toggleable(),
             ...($owned ? [] : [TextColumn::make('damaged_quantity')->label('Damaged')->sortable()->toggleable()]),
             ...($owned ? [] : [TextColumn::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand())->toggleable()]),
             ...(self::allowed(InventoryPermission::ViewFinancials) ? [
@@ -135,7 +141,7 @@ class ProductInventoriesTable
                 self::quantityAction('markDamaged', 'Mark Damaged', InventoryPermission::MarkDamaged, fn (ProductInventory $record, array $data) => app(MoveInventoryToDamaged::class)->handle(new MoveToDamagedData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
                 self::quantityAction('restoreDamaged', 'Restore Damaged', InventoryPermission::RestoreDamaged, fn (ProductInventory $record, array $data) => app(RestoreDamagedInventory::class)->handle(new RestoreDamagedData($record->id, (int) $data['quantity'], $data['reason'], (string) Str::uuid()), auth()->user())),
             ])->toolbarActions([])
-            ->emptyStateHeading($owned ? 'No stock is currently allocated to you.' : 'No Inventory balances found in your authorized scope.');
+            ->emptyStateHeading($owned ? 'No inventory found in your authorized scope.' : 'No Inventory balances found in your authorized scope.');
     }
 
     private static function scopedOptions(string $relation, string $label): array

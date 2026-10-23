@@ -9,6 +9,7 @@ use App\Services\Returns\ReturnFinancialReadService;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Components\ViewEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -65,6 +66,9 @@ class CustomerReturnInfolist
                 ])->table([
                     TableColumn::make('SKU'), TableColumn::make('Product'), TableColumn::make('Return Qty'), TableColumn::make('Reason'),
                 ]),
+            ]),
+            Section::make('Return QC Findings & Evidence')->schema([
+                ViewEntry::make('return_evidence')->view('returns.evidence-gallery')->hiddenLabel(),
             ]),
         ]);
     }

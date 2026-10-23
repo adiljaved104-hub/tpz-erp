@@ -11,6 +11,7 @@ use App\Models\WarrantyRepair;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Components\ViewEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -19,6 +20,9 @@ class InternalRepairInfolist
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
+            Section::make('Related Return Evidence')->schema([
+                ViewEntry::make('return_evidence')->view('returns.evidence-gallery')->hiddenLabel(),
+            ])->visible(fn (WarrantyRepair $record): bool => $record->damagedStockEvent?->customer_return_id !== null),
             Section::make('Internal Repair')->columns(3)->schema([
                 TextEntry::make('reference')->label('Repair Ref'),
                 TextEntry::make('status')->badge(),

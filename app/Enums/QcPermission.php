@@ -25,4 +25,6 @@ enum QcPermission: string
     case AssignMarketplaceTransferDevice = 'qc.assign_marketplace_transfer_device';
     case ReleaseMarketplaceTransferDevice = 'qc.release_marketplace_transfer_device';
     case ViewMarketplaceTransferAssignments = 'qc.view_marketplace_transfer_assignments';
+    case ViewReturnEvidence = 'qc.view_return_evidence';
+    case RecordReturnEvidence = 'qc.record_return_evidence';
 }

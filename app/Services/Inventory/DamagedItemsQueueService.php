@@ -73,7 +73,7 @@ class DamagedItemsQueueService
             ->selectRaw('dse.remaining_damaged_quantity AS quantity')
             ->addSelect([
                 'warehouse.name as location', 'dse.source', 'platform.name as platform',
-                'customer_return.reference as return_reference', 'orders.reference as order_reference',
+                'customer_return.id as return_id', 'customer_return.reference as return_reference', 'orders.reference as order_reference',
                 'dse.reason', 'dse.notes', 'dse.occurred_at', 'reporter.name as reported_by',
             ])
             ->selectRaw("CASE WHEN dse.remaining_damaged_quantity > 0 THEN 'damaged' ELSE 'resolved' END AS status")
@@ -95,7 +95,7 @@ class DamagedItemsQueueService
             ->selectRaw('-inventory.id AS id, NULL AS reference, product.sku, product.name AS product_name')
             ->selectRaw('inventory.damaged_quantity - COALESCE(classified.classified_quantity, 0) - COALESCE(legacy_repair.active_legacy_repair_quantity, 0) AS quantity')
             ->addSelect(['warehouse.name as location'])
-            ->selectRaw("'legacy' AS source, NULL AS platform, NULL AS return_reference, NULL AS order_reference")
+            ->selectRaw("'legacy' AS source, NULL AS platform, NULL AS return_id, NULL AS return_reference, NULL AS order_reference")
             ->selectRaw("'Existing damaged balance without recorded history' AS reason, NULL AS notes, NULL AS occurred_at, NULL AS reported_by, 'damaged' AS status")
             ->addSelect(['inventory.product_id', 'inventory.warehouse_id'])
             ->selectRaw("NULL AS marketplace_platform_id, 'legacy' AS row_kind, inventory.damaged_quantity - COALESCE(classified.classified_quantity, 0) - COALESCE(legacy_repair.active_legacy_repair_quantity, 0) AS available_repair_quantity");

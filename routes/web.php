@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Mobile\V1\ReturnEvidenceController;
 use App\Http\Controllers\Auth\EmailOtpAuthenticationController;
 use App\Http\Controllers\Auth\LoginBrandingAssetController;
 use App\Http\Controllers\Auth\WebSessionActivityController;
@@ -17,6 +18,8 @@ Route::get('/verify/qc/{token}', [QcPassportController::class, 'show'])->middlew
 Route::get('/verify/qc/{token}/certificate', [QcPassportController::class, 'download'])->middleware('throttle:10,1,qc-public-pdf')->where('token', '[a-f0-9]{64}')->name('qc.certificate.public');
 Route::get('/verify/qc/{token}/evidence/{id}', [QcPassportController::class, 'evidence'])->middleware('throttle:120,1,qc-image')->where('token', '[a-f0-9]{64}')->whereUuid('id')->name('qc.evidence.public');
 Route::middleware(['auth', EnforceWebSecurityPolicy::class])->group(function (): void {
+    Route::get('/admin/customer-return-evidence/{evidence}/preview', [ReturnEvidenceController::class, 'preview'])->name('customer-return-evidence.preview');
+    Route::get('/admin/customer-return-evidence/{evidence}/original', [ReturnEvidenceController::class, 'original'])->name('customer-return-evidence.original');
     Route::get('/admin/qc-documents/labels', [QcDocumentController::class, 'labels'])->name('qc.labels');
     Route::get('/admin/qc-documents/{inspection}/certificate', [QcDocumentController::class, 'certificate'])->name('qc.certificate');
     Route::get('/admin/qc-evidence/{evidence}', [QcDocumentController::class, 'evidence'])->name('qc.evidence.internal');

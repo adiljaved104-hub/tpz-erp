@@ -68,6 +68,9 @@ class MarketplaceReturnService
         return DB::transaction(function () use ($item, $sellable, $nonSellable, $postingKey, $actor, $notes, $movementReferences) {
             $locked = CustomerReturnItem::query()->lockForUpdate()->findOrFail($item->id);
             $return = CustomerReturn::query()->with(['order', 'fulfillmentWarehouse.marketplacePlatform', 'items'])->lockForUpdate()->findOrFail($locked->customer_return_id);
+            if ($locked->hasIdentityDiscrepancy()) {
+                throw new CustomerReturnException('Evidence reports a wrong or unverified item. Resolve its disposition before posting inventory for the originally sold product.');
+            }
             $warehouse = $return->fulfillmentWarehouse;
             $platform = $warehouse->marketplacePlatform;
             if ($warehouse->location_type !== InventoryLocationType::MarketplaceFulfilment || ! $platform || $return->marketplace_platform_id !== $platform->id) {
@@ -319,6 +322,11 @@ class MarketplaceReturnService
             $removal = MarketplaceReturnRemoval::query()->lockForUpdate()->findOrFail($locked->marketplace_return_removal_id);
             if ($removal->status !== MarketplaceReturnRemovalStatus::Received || $locked->destination_product_inventory_id === null) {
                 throw new CustomerReturnException('Only a received Marketplace Removal item can be inspected.');
+            }
+            $linkedReturnItem = $locked->customer_return_item_id === null ? null
+                : CustomerReturnItem::query()->lockForUpdate()->findOrFail($locked->customer_return_item_id);
+            if ($linkedReturnItem?->hasIdentityDiscrepancy()) {
+                throw new CustomerReturnException('Evidence reports a wrong or unverified item. Resolve its disposition before posting inventory for the originally sold product.');
             }
             if (CustomerReturnInspection::query()->where('posting_key', $data->postingKey)->exists()) {
                 throw new CustomerReturnException('This inspection has already been posted.');

@@ -9,6 +9,7 @@ use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Orders\OrderReferenceSearchService;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Components\ViewEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -53,6 +54,9 @@ class SafetClaimInfolist
                 TextEntry::make('currency')->label('Currency')->placeholder('AED'),
             ]);
         }
+        $components[] = Section::make('Return Evidence')->schema([
+            ViewEntry::make('return_evidence')->view('returns.evidence-gallery')->hiddenLabel(),
+        ])->visible(fn ($record): bool => $record->customer_return_id !== null);
         $components[] =
             Section::make('Timeline')->schema([
                 RepeatableEntry::make('statusEvents')->hiddenLabel()->schema([

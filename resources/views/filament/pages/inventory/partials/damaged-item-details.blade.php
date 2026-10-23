@@ -22,3 +22,12 @@
         <dd class="mt-1 whitespace-pre-wrap break-words text-gray-950 dark:text-white">{{ $item['reason'] ?? 'Not recorded' }}</dd>
     </div>
 </dl>
+@if (!empty($item['return_id']))
+    @php
+        $linkedReturn = \App\Models\CustomerReturn::query()->find($item['return_id']);
+        $canViewEvidence = $linkedReturn && auth()->user() && app(\App\Services\Returns\CustomerReturnEvidenceAuthorization::class)->canView(auth()->user(), $linkedReturn);
+    @endphp
+    @if ($canViewEvidence)
+        <a class="mt-4 inline-block text-primary-600 underline" href="{{ \App\Filament\Resources\CustomerReturns\CustomerReturnResource::getUrl('view', ['record' => $linkedReturn]) }}">View return findings, photos and videos</a>
+    @endif
+@endif

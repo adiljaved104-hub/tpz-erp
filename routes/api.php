@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\Mobile\V1\QcStockTransferController;
 use App\Http\Controllers\Api\Mobile\V1\ReportController;
 use App\Http\Controllers\Api\Mobile\V1\ResponsibilityController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnController;
+use App\Http\Controllers\Api\Mobile\V1\ReturnEvidenceController;
 use App\Http\Controllers\Api\Mobile\V1\SearchController;
 use App\Http\Controllers\Api\Mobile\V1\StockRequestController;
 use App\Http\Controllers\Api\Mobile\V1\StockTransferController;
@@ -85,6 +86,10 @@ Route::prefix('mobile/v1')
             Route::post('/qc/inspections/{inspection}/begin', [QcInspectionController::class, 'begin'])->whereNumber('inspection')->middleware('throttle:60,1');
             Route::patch('/qc/inspections/{inspection}', [QcInspectionController::class, 'update'])->whereNumber('inspection')->middleware('throttle:60,1');
             Route::post('/qc/inspections/{inspection}/evidence', [QcInspectionController::class, 'evidence'])->whereNumber('inspection')->middleware('throttle:30,1');
+            Route::get('/qc/return-evidence', [ReturnEvidenceController::class, 'index']);
+            Route::get('/qc/return-evidence/files/{evidence}', [ReturnEvidenceController::class, 'original'])->whereNumber('evidence')->middleware('throttle:60,1');
+            Route::get('/qc/return-evidence/{return}', [ReturnEvidenceController::class, 'show'])->whereNumber('return');
+            Route::post('/qc/return-evidence/{return}/items/{item}', [ReturnEvidenceController::class, 'store'])->whereNumber(['return', 'item'])->middleware('throttle:10,1');
             Route::post('/qc/inspections/{inspection}/complete', [QcInspectionController::class, 'complete'])->whereNumber('inspection')->middleware('throttle:30,1');
             Route::get('/qc/pending', [QcDispatchController::class, 'index']);
             Route::get('/qc/open-order-demand', [QcDispatchController::class, 'openOrderDemand']);

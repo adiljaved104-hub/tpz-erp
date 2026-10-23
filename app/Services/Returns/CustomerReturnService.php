@@ -185,6 +185,9 @@ class CustomerReturnService
             if ($return->status !== CustomerReturnStatus::QcPending) {
                 throw new CustomerReturnException('Only QC Pending Returns can be inspected.');
             }
+            if ($locked->hasIdentityDiscrepancy()) {
+                throw new CustomerReturnException('Evidence reports a wrong or unverified item. Resolve its disposition before posting inventory for the originally sold product.');
+            }
             $inspected = (int) CustomerReturnInspection::query()->where('customer_return_item_id', $locked->id)
                 ->orWhereIn('marketplace_return_removal_item_id', $locked->removalItems()->select('id'))->sum('quantity');
             $companyReceived = (int) $locked->removalItems()->sum('received_quantity');

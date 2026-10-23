@@ -52,6 +52,11 @@ class CustomerReturnItem extends Model
         return $this->hasMany(CustomerReturnInspection::class);
     }
 
+    public function findings(): HasMany
+    {
+        return $this->hasMany(CustomerReturnFinding::class)->orderBy('id');
+    }
+
     public function marketplaceDispositions(): HasMany
     {
         return $this->hasMany(CustomerReturnMarketplaceDisposition::class);
@@ -75,5 +80,10 @@ class CustomerReturnItem extends Model
     public function inspectedQuantity(): int
     {
         return (int) $this->inspections()->sum('quantity');
+    }
+
+    public function hasIdentityDiscrepancy(): bool
+    {
+        return $this->findings()->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package'])->exists();
     }
 }

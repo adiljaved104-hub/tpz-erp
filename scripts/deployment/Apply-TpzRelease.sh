@@ -33,6 +33,35 @@ ensure_not_in_maintenance() {
     printf 'MAINTENANCE_PREFLIGHT=INACTIVE\n'
 }
 
+repair_cache_tree() {
+    local tree=$1 entry
+    [[ "$tree" == bootstrap/cache || "$tree" == storage/framework/views ]]
+    [[ -d "$tree" && ! -L "$tree" && -O "$tree" ]]
+    [[ -z "$(find "$tree" -type l -print -quit)" ]]
+    while IFS= read -r -d '' entry; do
+        [[ -O "$entry" ]]
+        if [[ "$(stat -c %G "$entry")" != www-data ]]; then
+            chgrp www-data "$entry"
+        fi
+        if [[ -d "$entry" ]]; then
+            chmod 2770 "$entry"
+        else
+            chmod 0640 "$entry"
+        fi
+    done < <(find "$tree" \( -type d -o \( -type f -name '*.php' \) \) -print0)
+}
+
+verify_cache_tree() {
+    local tree=$1 entry expected_mode
+    [[ "$tree" == bootstrap/cache || "$tree" == storage/framework/views ]]
+    while IFS= read -r -d '' entry; do
+        expected_mode=640
+        [[ -d "$entry" ]] && expected_mode=2770
+        [[ "$(stat -c %G "$entry")" == www-data ]]
+        [[ "$(stat -c %a "$entry")" == "$expected_mode" ]]
+    done < <(find "$tree" \( -type d -o \( -type f -name '*.php' \) \) -print0)
+}
+
 deployment_exit() {
     local original_code=$1 original_stage=$step recovery=NOT_NEEDED state=UNKNOWN recovery_log=/dev/null
     trap - EXIT
@@ -269,11 +298,24 @@ for action in config:clear route:clear view:clear event:clear filament:clear-cac
     php artisan "$action" --no-interaction >"$run/cache-${action//:/-}.log" 2>&1
 done
 umask 0077
+# Artisan may atomically replace cache files with mode 0600 despite the umask.
+# Restrict these generated files to the deploy owner and www-data group only.
+# Never include .env, storage/app, backup files, or application source here.
+repair_cache_tree bootstrap/cache
+repair_cache_tree storage/framework/views
+verify_cache_tree bootstrap/cache
+verify_cache_tree storage/framework/views
+[[ -f bootstrap/cache/config.php ]]
+[[ -n "$(find storage/framework/views -type f -name '*.php' -print -quit)" ]]
 [[ "$env_sha_before" == "$(sha256sum .env | cut -d ' ' -f 1)" ]]
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]]
-if sudo -n -u www-data test -r bootstrap/cache/config.php 2>/dev/null \
-    && sudo -n -u www-data test -r public/index.php 2>/dev/null \
-    && sudo -n -u www-data test -r resources/views/filament/pages/hr/leave.blade.php 2>/dev/null; then
+printf 'CACHE_PERMISSIONS=GROUP_AND_MODE_VERIFIED\n'
+if sudo -n -u www-data true 2>/dev/null; then
+    unreadable=$(sudo -n -u www-data find bootstrap/cache storage/framework/views \
+        \( -type d ! -executable -o -type f -name '*.php' ! -readable \) -print -quit)
+    [[ -z "$unreadable" ]]
+    sudo -n -u www-data test -r public/index.php
+    sudo -n -u www-data test -r resources/views/filament/pages/hr/leave.blade.php
     printf 'WWW_DATA_READABILITY=DIRECT_PASS\n'
 else
     # On hosts without noninteractive sudo, the PHP-FPM worker and the actual
@@ -281,7 +323,7 @@ else
     ps -eo user=,args= | grep -Eq '^www-data[[:space:]].*php-fpm: pool'
     printf 'WWW_DATA_READABILITY=AWAITING_HTTP_CHECK\n'
 fi
-printf 'PERMISSIONS_STATUS=PASS\nWORKTREE_STATUS=CLEAN\n'
+printf 'PERMISSIONS_STATUS=AWAITING_HTTP_CHECK\nWORKTREE_STATUS=CLEAN\n'
 
 step=website_health
 php artisan up --no-interaction >"$run/online.log" 2>&1

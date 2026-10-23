@@ -69,6 +69,13 @@ run_case() {
             calls="$calls chmod:$2"
         }
         case "$TPZ_SCENARIO" in
+            root_750)
+                modes[.]=750
+                application_root_private
+                printf "CACHE_REPAIR=PASS\n"; exit 0 ;;
+            root_world_access)
+                modes[.]=755
+                application_root_private; exit 99 ;;
             mixed_ownership)
                 owners[storage/framework/views/compiled.php]=33
                 groups[bootstrap/cache/config.php]=tpzadmin
@@ -169,6 +176,8 @@ run_case() {
     printf 'PASS %s\n' "$scenario"
 }
 
+run_case root_750 0 cache_permission_preflight NOT_NEEDED
+run_case root_world_access 1 cache_permission_preflight NOT_NEEDED
 run_case mixed_ownership 0 cache_permission_preflight NOT_NEEDED
 run_case already_secure 0 cache_permission_preflight NOT_NEEDED
 run_case foreign_owner_needs_chmod 1 cache_permission_preflight NOT_NEEDED

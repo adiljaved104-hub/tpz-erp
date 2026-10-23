@@ -41,6 +41,13 @@ cache_group_repair_capable() {
     id -nG | tr ' ' '\n' | grep -qx www-data
 }
 
+application_root_private() {
+    local mode_value
+    [[ "$(stat -c %G .)" == www-data ]] || return 1
+    mode_value=$((8#$(stat -c %a .)))
+    (( (mode_value & 0007) == 0 && (mode_value & 0050) == 0050 ))
+}
+
 cache_entry_runtime_safe() {
     local entry=$1 mode_value
     [[ "$(stat -c %U "$entry")" == www-data ]] || return 1
@@ -177,8 +184,7 @@ cd "$app"
 [[ "$(git rev-parse HEAD)" == "$baseline" ]]
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]]
 [[ -f .env && -d vendor && ! -L vendor ]]
-[[ "$(stat -c %G .)" == www-data ]]
-[[ "$(stat -c %a .)" == 2750 ]]
+application_root_private
 for path in bootstrap/cache storage/framework storage/framework/views storage/framework/cache storage/framework/sessions storage/logs; do
     [[ -d "$path" && ! -L "$path" && -O "$path" && "$(stat -c %G "$path")" == www-data ]]
 done

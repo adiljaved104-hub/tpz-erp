@@ -33,20 +33,36 @@ ensure_not_in_maintenance() {
     printf 'MAINTENANCE_PREFLIGHT=INACTIVE\n'
 }
 
-repair_cache_tree() {
-    local tree=$1 entry
+cache_entry_owned_by_deployer() {
+    [[ "$(stat -c %u "$1")" == "$(id -u)" ]]
+}
+
+cache_tree_preflight() {
+    local tree=$1 entry expected_mode actual_mode
     [[ "$tree" == bootstrap/cache || "$tree" == storage/framework/views ]]
-    [[ -d "$tree" && ! -L "$tree" && -O "$tree" ]]
+    [[ -d "$tree" && ! -L "$tree" && -O "$tree" && -w "$tree" ]]
     [[ -z "$(find "$tree" -type l -print -quit)" ]]
     while IFS= read -r -d '' entry; do
-        [[ -O "$entry" ]]
-        if [[ "$(stat -c %G "$entry")" != www-data ]]; then
-            chgrp www-data "$entry"
-        fi
+        [[ "$(stat -c %G "$entry")" == www-data ]] || return 1
+        expected_mode=640
         if [[ -d "$entry" ]]; then
-            chmod 2770 "$entry"
-        else
-            chmod 0640 "$entry"
+            expected_mode=2770
+            [[ -w "$entry" ]] || return 1
+        fi
+        actual_mode=$(stat -c %a "$entry")
+        [[ "$actual_mode" == "$expected_mode" ]] || cache_entry_owned_by_deployer "$entry" || return 1
+    done < <(find "$tree" \( -type d -o \( -type f -name '*.php' \) \) -print0)
+}
+
+repair_cache_tree() {
+    local tree=$1 entry expected_mode
+    cache_tree_preflight "$tree" || return 1
+    while IFS= read -r -d '' entry; do
+        expected_mode=640
+        [[ -d "$entry" ]] && expected_mode=2770
+        if [[ "$(stat -c %a "$entry")" != "$expected_mode" ]]; then
+            cache_entry_owned_by_deployer "$entry" || return 1
+            chmod "$expected_mode" "$entry"
         fi
     done < <(find "$tree" \( -type d -o \( -type f -name '*.php' \) \) -print0)
 }
@@ -240,6 +256,19 @@ if [[ "$uploaded_asset" != NONE ]]; then
     printf 'FRONTEND_ARCHIVE=VERIFIED\n'
 fi
 
+step=cache_permission_preflight
+# Existing files must already have the www-data group. Setgid cache
+# directories give newly generated files that group without chgrp or sudo.
+# A www-data-owned file that is already secure is left untouched. A file that
+# needs chmod must belong to the deploy user; reject it before maintenance.
+cache_tree_preflight bootstrap/cache
+cache_tree_preflight storage/framework/views
+repair_cache_tree bootstrap/cache
+repair_cache_tree storage/framework/views
+verify_cache_tree bootstrap/cache
+verify_cache_tree storage/framework/views
+printf 'CACHE_PERMISSION_PREFLIGHT=PASS\n'
+
 step=maintenance
 maintenance_attempted=true
 php artisan down --retry=60 --no-interaction >"$run/maintenance.log" 2>&1
@@ -299,7 +328,7 @@ for action in config:clear route:clear view:clear event:clear filament:clear-cac
 done
 umask 0077
 # Artisan may atomically replace cache files with mode 0600 despite the umask.
-# Restrict these generated files to the deploy owner and www-data group only.
+# Restrict generated files to the deploy owner and inherited www-data group.
 # Never include .env, storage/app, backup files, or application source here.
 repair_cache_tree bootstrap/cache
 repair_cache_tree storage/framework/views
@@ -331,6 +360,8 @@ php artisan up --no-interaction >"$run/online.log" 2>&1
 http_code=$(curl --silent --show-error --location --max-time 30 --output /dev/null --write-out '%{http_code}' "$url/admin/login")
 [[ "$http_code" == 200 ]]
 printf 'LOGIN_HTTP_STATUS=%s\nWWW_DATA_HTTP_READABILITY=PASS\n' "$http_code"
+verify_cache_tree bootstrap/cache
+verify_cache_tree storage/framework/views
 [[ "$env_sha_before" == "$(sha256sum .env | cut -d ' ' -f 1)" ]]
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]]
 printf 'DEPLOYMENT=SUCCESS\nDEPLOYED_COMMIT=%s\nBACKUP_LOCATION=%s\nMIGRATIONS_EXECUTED=%s\nPERMISSIONS_STATUS=PASS\nMAINTENANCE_STATUS=INACTIVE\nMAINTENANCE_RECOVERY=NOT_NEEDED\nWORKTREE_STATUS=CLEAN\nSTOPPED_STAGE=NONE\n' "$approved" "$backup_path" "${#pending[@]}"

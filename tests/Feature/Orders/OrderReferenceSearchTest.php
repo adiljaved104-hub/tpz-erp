@@ -173,7 +173,7 @@ class OrderReferenceSearchTest extends TestCase
         $other->forceFill(['order_date' => '2026-06-14'])->save();
 
         $this->actingAs($owner);
-        foreach (['SMART-SKU-481', 'Searchable MacBook', 'MODEL-SEARCH-481', 'Order Search Handler', 'AMZ-SMART-481'] as $term) {
+        foreach (['SMART-SKU-481', 'Searchable MacBook', 'MODEL-SEARCH-481', 'Order Search Handler', 'AMZ-SMART-481', '  smart-sku-481   model-search-481  '] as $term) {
             Livewire::test(ListOrders::class)->searchTable($term)->assertCanSeeTableRecords([$order])->assertCanNotSeeTableRecords([$other]);
         }
 

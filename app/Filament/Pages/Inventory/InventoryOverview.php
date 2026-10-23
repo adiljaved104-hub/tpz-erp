@@ -8,11 +8,11 @@ use App\Models\User;
 use App\Services\Authorization\InventoryLocationAuthorization;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
+use App\Services\Search\SearchQuery;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use Livewire\WithPagination;
 
 class InventoryOverview extends Page
@@ -89,10 +89,8 @@ class InventoryOverview extends Page
     /** @param Collection<int, array<string, mixed>> $products */
     private function filterProducts(Collection $products): Collection
     {
-        $search = Str::lower(trim($this->search));
-
-        return $products->filter(function (array $row) use ($search): bool {
-            if ($search !== '' && ! Str::contains(Str::lower("{$row['product']->sku} {$row['product']->name}"), $search)) {
+        return $products->filter(function (array $row): bool {
+            if (! SearchQuery::matchesText([$row['product']->sku, $row['product']->name, $row['product']->model ?? null], $this->search)) {
                 return false;
             }
             if ($this->warehouse !== '' && ! $row['locations']->contains(fn (array $location): bool => $location['code'] === $this->warehouse)) {

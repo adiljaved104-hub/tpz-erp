@@ -36,7 +36,7 @@ class InventoryLocationOverviewService
         $inventoryQuery = ProductInventory::query()
             ->select($columns)
             ->with([
-                'product:id,sku,name',
+                'product:id,sku,name,model',
                 'warehouse:id,name,code,location_type,marketplace_platform_id,fulfillment_tag,status',
                 'warehouse.marketplacePlatform:id,name',
             ])
@@ -147,7 +147,7 @@ class InventoryLocationOverviewService
         })->values();
 
         if ($employeeView) {
-            foreach ($this->ownership->noLocationProducts($user)->select(['products.id', 'products.sku', 'products.name'])->get() as $product) {
+            foreach ($this->ownership->noLocationProducts($user)->select(['products.id', 'products.sku', 'products.name', 'products.model'])->get() as $product) {
                 $results->push([
                     'product' => $product, 'available' => 0, 'reserved' => 0, 'sellable' => 0,
                     'damaged' => 0, 'marketplace_non_sellable' => 0, 'qc_pending' => 0,

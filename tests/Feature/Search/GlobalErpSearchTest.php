@@ -5,7 +5,10 @@ namespace Tests\Feature\Search;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\ProductPermission;
+use App\Filament\Resources\CustomerReturns\Pages\ListCustomerReturns;
+use App\Filament\Resources\Products\Pages\ListProducts;
 use App\Filament\Resources\Products\ProductResource;
+use App\Filament\Resources\Purchases\Pages\ListPurchases;
 use App\Livewire\GlobalErpSearch;
 use App\Models\Complaint;
 use App\Models\CustomerReturn;
@@ -56,6 +59,7 @@ class GlobalErpSearchTest extends TestCase
         $search = app(GlobalSearchService::class);
         $this->assertSame('TPZ-000123 · HP EliteBook 840 G8', $search->search($owner, 'TPZ-000123')->get('Products')->first()->label);
         $this->assertSame('TPZ-000123 · HP EliteBook 840 G8', $search->search($owner, 'EliteBook 840')->get('Products')->first()->label);
+        $this->assertSame('TPZ-000123 · HP EliteBook 840 G8', $search->search($owner, '  tpz-000123   g8  ')->get('Products')->first()->label);
         $this->assertStringContainsString('Asif Hameed', $search->search($owner, 'TPZ-0005')->get('Employees')->first()->label);
         $this->assertStringContainsString('TPZ-0005', $search->search($owner, 'Asif Hameed')->get('Employees')->first()->label);
         $this->assertStringContainsString($order->reference, $search->search($owner, $order->reference)->get('Orders')->first()->label);
@@ -70,6 +74,8 @@ class GlobalErpSearchTest extends TestCase
         $this->assertStringNotContainsString('12000', $payload);
         $this->assertStringNotContainsString($asif->user->email, json_encode($search->search($owner, 'TPZ-0005')->flatten()->all()));
         $this->assertSame(ProductResource::getUrl('view', ['record' => $product]), $search->search($owner, 'TPZ-000123')->get('Products')->first()->url);
+        Livewire::actingAs($owner)->test(ListProducts::class)->searchTable('  tpz-000123   g8  ')->assertCanSeeTableRecords([$product]);
+        Livewire::test(ListPurchases::class)->searchTable('  po-2026-000321   wholesale  ')->assertCanSeeTableRecords([$purchase]);
     }
 
     public function test_minimum_length_result_cap_and_employee_override_are_enforced_before_results(): void
@@ -151,6 +157,7 @@ class GlobalErpSearchTest extends TestCase
 
         $search = app(GlobalSearchService::class);
         $this->assertSame($return->reference, str($search->search($owner, $return->reference)->get('Returns')->first()->label)->before(' ·')->toString());
+        Livewire::actingAs($owner)->test(ListCustomerReturns::class)->searchTable('  tpz-svc-001   laptop  ')->assertCanSeeTableRecords([$return]);
         $this->assertSame($claim->reference, $search->search($owner, $claim->reference)->get('Claims / Safe-T')->first()->label);
         $this->assertStringContainsString($warranty->reference, $search->search($owner, $warranty->reference)->get('Warranty')->first()->label);
         $this->assertStringContainsString($complaint->reference, $search->search($owner, $complaint->reference)->get('Complaints')->first()->label);

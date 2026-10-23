@@ -4,6 +4,7 @@ namespace App\Services\Inventory;
 
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
+use App\Services\Search\SearchQuery;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -25,11 +26,9 @@ class StockByHolderReportService
             $query->whereHas('account', fn (Builder $account): Builder => $account->where('is_system', true));
         }
         if (filled($filters['search'] ?? null)) {
-            $search = trim((string) $filters['search']);
-            $query->whereHas('inventory.product', fn (Builder $product): Builder => $product
-                ->where('sku', 'like', "%{$search}%")
-                ->orWhere('name', 'like', "%{$search}%")
-                ->orWhere('model', 'like', "%{$search}%"));
+            $query->whereHas('inventory.product', fn (Builder $product): Builder => SearchQuery::matchModel(
+                $product, ['products.sku', 'products.name', 'products.model'], (string) $filters['search'],
+            ));
         }
         if (filled($filters['brand_id'] ?? null)) {
             $query->whereHas('inventory.product', fn (Builder $product): Builder => $product->where('brand_id', (int) $filters['brand_id']));
@@ -98,8 +97,7 @@ class StockByHolderReportService
         $query->when(filled($filters['holder_id'] ?? null), fn ($builder) => $builder->where('accounts.id', (int) $filters['holder_id']));
         $query->when(($filters['unassigned'] ?? false) === true, fn ($builder) => $builder->where('accounts.is_system', true));
         $query->when(filled($filters['search'] ?? null), function ($builder) use ($filters): void {
-            $search = '%'.trim((string) $filters['search']).'%';
-            $builder->where(fn ($nested) => $nested->where('products.sku', 'like', $search)->orWhere('products.name', 'like', $search)->orWhere('products.model', 'like', $search));
+            SearchQuery::match($builder, ['products.sku', 'products.name', 'products.model'], (string) $filters['search']);
         });
         $query->when(filled($filters['brand_id'] ?? null), fn ($builder) => $builder->where('products.brand_id', (int) $filters['brand_id']));
         $query->when(filled($filters['category_id'] ?? null), fn ($builder) => $builder->where('products.category_id', (int) $filters['category_id']));

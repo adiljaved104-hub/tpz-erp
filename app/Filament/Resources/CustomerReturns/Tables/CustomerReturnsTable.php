@@ -9,6 +9,7 @@ use App\Enums\MarketplaceReturnRemovalStatus;
 use App\Models\CustomerReturn;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Returns\ReturnFinancialReadService;
+use App\Services\Search\SearchQuery;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -20,7 +21,7 @@ class CustomerReturnsTable
     public static function configure(Table $table): Table
     {
         $columns = [
-            TextColumn::make('reference')->label('Return Ref')->searchable()->sortable(),
+            TextColumn::make('reference')->label('Return Ref')->searchable(query: fn (Builder $query, string $search): Builder => self::applySearch($query, $search))->sortable(),
             TextColumn::make('order.reference')->label('Order'),
             TextColumn::make('platform.name')->label('Platform')->placeholder('—'),
             TextColumn::make('displayItems.product_name_snapshot')->label('Product')->limit(48)->tooltip(fn (CustomerReturn $record): string => $record->displayItems->pluck('product_name_snapshot')->join(', '))->limitList(1),
@@ -74,5 +75,18 @@ class CustomerReturnsTable
     {
         return auth()->check() && app(CustomerReturnAuthorization::class)
             ->allows(auth()->user(), CustomerReturnPermission::ViewRefundAmount);
+    }
+
+    private static function applySearch(Builder $query, string $search): Builder
+    {
+        foreach (SearchQuery::tokens($search) as $token) {
+            $query->where(fn (Builder $match): Builder => $match
+                ->where(fn (Builder $return): Builder => SearchQuery::matchModel($return, ['customer_returns.reference'], $token))
+                ->orWhereHas('order', fn (Builder $order): Builder => SearchQuery::matchModel($order, ['orders.reference', 'orders.external_order_number'], $token))
+                ->orWhereHas('displayItems', fn (Builder $item): Builder => SearchQuery::matchModel($item, ['customer_return_items.sku_snapshot', 'customer_return_items.product_name_snapshot'], $token)
+                    ->orWhereHas('product', fn (Builder $product): Builder => SearchQuery::matchModel($product, ['products.model'], $token))));
+        }
+
+        return $query;
     }
 }

@@ -12,6 +12,7 @@ use App\Models\ProductInventory;
 use App\Models\ProductMarketplaceListing;
 use App\Models\ResponsibilityAssignment;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Inventory\StockRequestService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\Support\ResponsibilityTestFoundation;
@@ -53,6 +54,10 @@ class StockRequestGridTest extends TestCase
         $holderAccount = $allocation->employeeAccount($holder->id);
         $allocation->reconcile($f['inventory'], $holderAccount, 3, $f['owner'], 'Holder setup');
         $allocation->reconcile($second, $holderAccount, 2, $f['owner'], 'Holder setup');
+        $f['product']->update(['model' => 'Search Model 7420']);
+
+        $this->assertSame([$f['inventory']->id], app(StockRequestService::class)
+            ->searchInventories($staff, '  '.strtoupper($f['product']->sku).'   7420  ')->modelKeys());
 
         $this->actingAs($staff);
         $component = Livewire::test(CreateStockRequestGrid::class)
@@ -60,6 +65,9 @@ class StockRequestGridTest extends TestCase
             ->assertSee($secondProduct->sku)
             ->assertSee('Essa Stock Holder')
             ->assertDontSee($unrelated->product->sku);
+        $component->set('search', '  '.strtoupper($f['product']->sku).'   7420  ')
+            ->assertSee($f['product']->sku)->assertDontSee($secondProduct->sku)
+            ->set('search', '');
         $component->set("quantities.{$f['inventory']->id}", 2)
             ->set("quantities.{$second->id}", 1)
             ->set('reason', 'Needed for platform operations')

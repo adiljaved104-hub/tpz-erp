@@ -15,6 +15,7 @@ use App\Models\ProductBrand;
 use App\Models\ProductCategory;
 use App\Models\User;
 use App\Services\Authorization\ProductAuthorization;
+use App\Services\Search\SearchQuery;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
@@ -25,6 +26,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ProductsTable
 {
@@ -32,11 +34,13 @@ class ProductsTable
     {
         return $table
             ->columns([
-                TextColumn::make('sku')->label('SKU')->searchable()->sortable()->toggleable(),
-                TextColumn::make('name')->label('Product')->searchable([
-                    'name', 'accounting_title_override', 'website_title_override', 'model', 'processor',
-                    'processor_class', 'processor_model', 'processor_generation', 'ram', 'storage', 'graphics', 'color',
-                ])->sortable()->toggleable(),
+                TextColumn::make('sku')->label('SKU')->sortable()->toggleable(),
+                TextColumn::make('name')->label('Product')->searchable(query: fn (Builder $query, string $search): Builder => SearchQuery::matchModel($query, [
+                    'products.sku', 'products.name', 'products.brand', 'products.category',
+                    'products.accounting_title_override', 'products.website_title_override',
+                    'products.model', 'products.processor', 'products.processor_class', 'products.processor_model',
+                    'products.processor_generation', 'products.ram', 'products.storage', 'products.graphics', 'products.color',
+                ], $search))->sortable()->toggleable(),
                 TextColumn::make('brandRelation.name')->label('Brand')->badge()->searchable()->sortable()
                     ->formatStateUsing(fn ($state, Product $record): string => $state ?? $record->brand)->toggleable(),
                 TextColumn::make('categoryRelation.name')->label('Category')->badge()->searchable()->sortable()

@@ -568,6 +568,11 @@ class InventoryAdjustmentTest extends TestCase
         $this->assertTrue($scoped->instance()->rows()->getCollection()->contains('id', $inventory->id));
         $this->assertFalse($scoped->instance()->rows()->getCollection()->contains('id', $other->id));
         $scoped->assertSee($inventory->product->sku)->assertSee('Reserved');
+        $inventory->product->update(['model' => 'Search Model 7420']);
+        $scoped->set('search', '  '.strtoupper($inventory->product->sku).'   7420  ');
+        $this->assertSame([$inventory->id], $scoped->instance()->rows()->getCollection()->modelKeys());
+        $scoped->set('brand', (string) $otherBrand->id);
+        $this->assertSame([], $scoped->instance()->rows()->getCollection()->modelKeys());
 
         $admin = $this->user(EmployeeRole::Admin);
         $all = Livewire::actingAs($admin)->test(StockAdjustments::class);

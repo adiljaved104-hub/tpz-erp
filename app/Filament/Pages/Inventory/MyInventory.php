@@ -9,11 +9,11 @@ use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\MyInventoryColumnRegistry;
 use App\Services\Preferences\UserUiPreferenceService;
 use App\Services\Responsibilities\ResponsibilityReadService;
+use App\Services\Search\SearchQuery;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use Livewire\WithPagination;
 
 class MyInventory extends Page
@@ -143,10 +143,8 @@ class MyInventory extends Page
     /** @param Collection<int, object> $rows */
     private function filterRows(Collection $rows): Collection
     {
-        $search = Str::lower(trim($this->search));
-
-        return $rows->filter(function (object $row) use ($search): bool {
-            if ($search !== '' && ! Str::contains(Str::lower(implode(' ', [$row->sku, $row->name, $row->model ?? ''])), $search)) {
+        return $rows->filter(function (object $row): bool {
+            if (! SearchQuery::matchesText([$row->sku, $row->name, $row->model ?? null], $this->search)) {
                 return false;
             }
             if ($this->brand !== '' && $row->brand !== $this->brand) {

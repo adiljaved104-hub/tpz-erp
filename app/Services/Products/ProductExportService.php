@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\ProductAuthorization;
+use App\Services\Search\SearchQuery;
 use BackedEnum;
 use Illuminate\Database\Eloquent\Builder;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -95,23 +96,18 @@ class ProductExportService
         $filters = $data->filters();
 
         if (isset($filters['search'])) {
-            $search = $filters['search'];
-            $query->where(function (Builder $query) use ($search): void {
-                $query->where('sku', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%")
-                    ->orWhereHas('brandRelation', fn (Builder $brand): Builder => $brand->where('name', 'like', "%{$search}%"))
-                    ->orWhere(function (Builder $legacy) use ($search): void {
-                        $legacy->whereNull('brand_id')->where('brand', 'like', "%{$search}%");
-                    })
-                    ->orWhere('model', 'like', "%{$search}%")
-                    ->orWhere('processor_class', 'like', "%{$search}%")
-                    ->orWhere('processor_model', 'like', "%{$search}%")
-                    ->orWhere('processor_generation', 'like', "%{$search}%")
-                    ->orWhere('ram', 'like', "%{$search}%")
-                    ->orWhere('storage', 'like', "%{$search}%")
-                    ->orWhere('graphics', 'like', "%{$search}%")
-                    ->orWhere('color', 'like', "%{$search}%");
-            });
+            foreach (SearchQuery::tokens((string) $filters['search']) as $token) {
+                $query->where(function (Builder $match) use ($token): void {
+                    $match->where(fn (Builder $product): Builder => SearchQuery::matchModel($product, [
+                        'products.sku', 'products.name', 'products.model', 'products.processor_class',
+                        'products.processor_model', 'products.processor_generation', 'products.ram',
+                        'products.storage', 'products.graphics', 'products.color',
+                    ], $token))
+                        ->orWhereHas('brandRelation', fn (Builder $brand): Builder => SearchQuery::matchModel($brand, ['product_brands.name'], $token))
+                        ->orWhere(fn (Builder $legacy): Builder => $legacy->whereNull('brand_id')
+                            ->whereRaw("LOWER(products.brand) LIKE ? ESCAPE '!'", [SearchQuery::likePattern($token)]));
+                });
+            }
         }
 
         foreach (['brand_id', 'category_id', 'condition', 'status'] as $field) {

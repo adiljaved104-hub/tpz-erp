@@ -67,6 +67,19 @@ class ProductExportTest extends TestCase
         app(ExportProducts::class)->handle(new ProductExportData, $this->user(EmployeeRole::Staff));
     }
 
+    public function test_export_search_matches_multiple_product_fields_without_changing_filters_or_price_permissions(): void
+    {
+        Product::factory()->create(['sku' => 'TPZ-EXPORT-741', 'name' => 'Latitude Laptop', 'model' => 'Model 741']);
+        Product::factory()->create(['sku' => 'TPZ-EXPORT-742', 'name' => 'Other Laptop', 'model' => 'Model 742']);
+        $owner = $this->user(EmployeeRole::Owner);
+
+        $csv = $this->send(app(ExportProducts::class)->handle(new ProductExportData(search: '  tpz-export-741   MODEL 741  '), $owner));
+
+        $this->assertStringContainsString('TPZ-EXPORT-741', $csv);
+        $this->assertStringNotContainsString('TPZ-EXPORT-742', $csv);
+        $this->assertCount(2, array_filter(explode("\n", trim($csv))));
+    }
+
     public function test_future_employee_grant_uses_the_same_export_workflow(): void
     {
         Product::factory()->create(['cost_price' => '12.3456', 'selling_price' => '20.00']);

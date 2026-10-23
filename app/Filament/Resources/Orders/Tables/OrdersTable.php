@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\User;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Qc\RenewedQcDispatchService;
+use App\Services\Search\SearchQuery;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
@@ -22,7 +23,7 @@ class OrdersTable
     public static function configure(Table $table): Table
     {
         $columns = [
-            TextColumn::make('reference')->label('Order')->searchable()->sortable()
+            TextColumn::make('reference')->label('Order')->searchable(query: fn (Builder $query, string $search): Builder => self::applySearch($query, $search))->sortable()
                 ->url(fn (Order $record): string => OrderResource::getUrl('view', ['record' => $record])),
             TextColumn::make('platform.name')->label('Platform')->placeholder('Manual'),
             TextColumn::make('warehouse.name')->label('Fulfilled From')->toggleable(isToggledHiddenByDefault: true),
@@ -59,5 +60,17 @@ class OrdersTable
         $user = auth()->user();
 
         return $user instanceof User && app(OrderAuthorization::class)->allows($user, $permission);
+    }
+
+    private static function applySearch(Builder $query, string $search): Builder
+    {
+        foreach (SearchQuery::tokens($search) as $token) {
+            $query->where(fn (Builder $match): Builder => $match
+                ->where(fn (Builder $order): Builder => SearchQuery::matchModel($order, ['orders.reference', 'orders.external_order_number'], $token))
+                ->orWhereHas('items.product', fn (Builder $product): Builder => SearchQuery::matchModel($product, ['products.sku', 'products.name', 'products.model'], $token))
+                ->orWhereHas('handledBy', fn (Builder $employee): Builder => SearchQuery::matchModel($employee, ['employees.name', 'employees.employee_id'], $token)));
+        }
+
+        return $query;
     }
 }

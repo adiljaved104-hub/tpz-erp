@@ -20,6 +20,7 @@ use App\Services\Notifications\StockRequestNotificationDispatcher;
 use App\Services\Orders\OrderReadService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
+use App\Services\Search\SearchQuery;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -230,18 +231,16 @@ class StockRequestService
     public function searchInventories(User $actor, string $search): Collection
     {
         $this->inventoryAuthorization->authorize($actor, InventoryPermission::CreateStockRequests);
-        $search = trim($search);
+        $search = SearchQuery::normalize($search);
         if (mb_strlen($search) < 2) {
             return collect();
         }
 
-        $query = ProductInventory::query()->with(['product.brandRelation', 'warehouse'])->whereHas('product', function (Builder $product) use ($search): void {
-            $product->where('sku', 'like', "%{$search}%")
-                ->orWhere('name', 'like', "%{$search}%")
-                ->orWhere('model', 'like', "%{$search}%")
-                ->orWhere('brand', 'like', "%{$search}%")
-                ->orWhereHas('brandRelation', fn (Builder $brand): Builder => $brand->where('name', 'like', "%{$search}%"));
-        });
+        $query = ProductInventory::query()->with(['product.brandRelation', 'warehouse']);
+        foreach (SearchQuery::tokens($search) as $token) {
+            $query->whereHas('product', fn (Builder $product): Builder => SearchQuery::matchModel($product, ['products.sku', 'products.name', 'products.model', 'products.brand'], $token)
+                ->orWhereHas('brandRelation', fn (Builder $brand): Builder => SearchQuery::matchModel($brand, ['product_brands.name'], $token)));
+        }
         if ($this->responsibilities->requiresScope($actor)) {
             $query->whereIn('id', $this->responsibilities->stockRequestInventoryIds($actor));
         }

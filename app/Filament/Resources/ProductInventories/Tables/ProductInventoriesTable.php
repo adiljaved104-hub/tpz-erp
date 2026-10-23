@@ -17,6 +17,7 @@ use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
 use App\Services\Mobile\StockStatus;
+use App\Services\Search\SearchQuery;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Textarea;
@@ -40,8 +41,10 @@ class ProductInventoriesTable
         $reserved = app(EmployeeOwnedInventoryReadService::class)->quantityColumn(auth()->user(), 'reserved_quantity', locationView: true);
 
         return $table->columns([
-            TextColumn::make('product.sku')->label('SKU')->searchable()->toggleable(isToggledHiddenByDefault: true),
-            TextColumn::make('product.name')->label('Product')->searchable()->sortable()->limit(52)->tooltip(fn (ProductInventory $record): string => $record->product->name),
+            TextColumn::make('product.sku')->label('SKU')->toggleable(isToggledHiddenByDefault: true),
+            TextColumn::make('product.name')->label('Product')
+                ->searchable(query: fn (Builder $query, string $search): Builder => $query->whereHas('product', fn (Builder $product): Builder => SearchQuery::matchModel($product, ['products.sku', 'products.name', 'products.model'], $search)))
+                ->sortable()->limit(52)->tooltip(fn (ProductInventory $record): string => $record->product->name),
             TextColumn::make('warehouse.name')->label('Warehouse')->sortable()->toggleable(),
             ViewColumn::make('stock_held_by')
                 ->label('Stock Held By')

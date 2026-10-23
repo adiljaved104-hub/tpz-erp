@@ -152,6 +152,8 @@ class EmployeeOwnedInventoryTest extends TestCase
         $this->assertSame([], app(InventoryAllocationBreakdownReadService::class)->stockHolderLines($user, $record)->all());
         Livewire::test(ListProductInventories::class)->assertCountTableRecords(1)
             ->assertCanSeeTableRecords([$f['inventory']])->assertDontSee($f['holder']->employee->name);
+        Livewire::test(ListProductInventories::class)->searchTable('  '.strtolower($f['product']->sku).'   laptop  ')
+            ->assertCanSeeTableRecords([$f['inventory']]);
         $this->assertTrue($user->can('view', $f['inventory']));
         $this->assertSame([$f['inventory']->id], app(StockRequestService::class)->searchInventories($user, $f['product']->sku)->modelKeys());
         Livewire::test(CreateStockRequestGrid::class)->assertSee($f['product']->name)->assertSee($f['holder']->employee->name)->assertSeeHtml('data-stock-request-sources');

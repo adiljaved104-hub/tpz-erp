@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\StockRequestService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
+use App\Services\Search\SearchQuery;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -105,14 +106,12 @@ class CreateStockRequestGrid extends Page
         if (app(ResponsibilityProductScopeService::class)->requiresScope($actor)) {
             $query->whereIn('id', app(ResponsibilityProductScopeService::class)->stockRequestInventoryIds($actor));
         }
-        $search = trim($this->search);
-        if ($search !== '') {
-            $query->where(function (Builder $scope) use ($search): void {
-                $scope->whereHas('product', fn (Builder $product) => $product->where('sku', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%")
-                    ->orWhereHas('brandRelation', fn (Builder $brand) => $brand->where('name', 'like', "%{$search}%")))
-                    ->orWhereHas('warehouse', fn (Builder $warehouse) => $warehouse->where('name', 'like', "%{$search}%"))
-                    ->orWhereHas('allocationBalances.account', fn (Builder $account) => $account->where('name', 'like', "%{$search}%"));
+        foreach (SearchQuery::tokens($this->search) as $token) {
+            $query->where(function (Builder $scope) use ($token): void {
+                $scope->whereHas('product', fn (Builder $product): Builder => SearchQuery::matchModel($product, ['products.sku', 'products.name', 'products.model', 'products.brand'], $token)
+                    ->orWhereHas('brandRelation', fn (Builder $brand): Builder => SearchQuery::matchModel($brand, ['product_brands.name'], $token)))
+                    ->orWhereHas('warehouse', fn (Builder $warehouse): Builder => SearchQuery::matchModel($warehouse, ['warehouses.name', 'warehouses.code'], $token))
+                    ->orWhereHas('allocationBalances.account', fn (Builder $account): Builder => SearchQuery::matchModel($account, ['inventory_allocation_accounts.name'], $token));
             });
         }
         if ($this->brand !== '') {

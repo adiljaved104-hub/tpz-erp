@@ -25,12 +25,35 @@ Set-StrictMode -Version Latest
 $repository = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $ssh = Join-Path $env:WINDIR 'System32\OpenSSH\ssh.exe'
 $scp = Join-Path $env:WINDIR 'System32\OpenSSH\scp.exe'
+$sshAdd = Join-Path $env:WINDIR 'System32\OpenSSH\ssh-add.exe'
+$sshKeygen = Join-Path $env:WINDIR 'System32\OpenSSH\ssh-keygen.exe'
 $key = Join-Path $env:USERPROFILE '.ssh\tpz_erp_vps_2026'
+$publicKey = "$key.pub"
 $remoteScript = Join-Path $PSScriptRoot 'Apply-TpzRelease.sh'
-foreach ($path in @($ssh, $scp, $key, $remoteScript)) {
+foreach ($path in @($ssh, $scp, $sshAdd, $sshKeygen, $key, $publicKey, $remoteScript)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw 'A required existing deployment tool, key, or script is unavailable.'
     }
+}
+
+# Use the existing Windows OpenSSH agent. Fail before an asset upload or any
+# server mutation if this specific authorized key is not already unlocked.
+try {
+    $agentService = Get-Service -Name ssh-agent -ErrorAction Stop
+    if ($agentService.Status -ne 'Running') {
+        Start-Service -Name ssh-agent -ErrorAction Stop
+    }
+} catch {
+    throw 'The existing Windows OpenSSH agent is unavailable. Start it and unlock the authorized key once; no deployment was started.'
+}
+$publicKeyDescription = (& $sshKeygen -lf $publicKey 2>$null) -join ' '
+if ($LASTEXITCODE -ne 0 -or $publicKeyDescription -notmatch 'SHA256:[A-Za-z0-9+/]+') {
+    throw 'The existing deployment public key cannot be verified.'
+}
+$expectedFingerprint = $Matches[0]
+$loadedKeys = (& $sshAdd -l 2>$null) -join "`n"
+if ($LASTEXITCODE -ne 0 -or -not $loadedKeys.Contains($expectedFingerprint)) {
+    throw 'The existing deployment key is not loaded in Windows ssh-agent. Unlock it once outside this helper; do not put its passphrase in a script.'
 }
 
 $head = (& git -C $repository rev-parse HEAD).Trim()
@@ -80,7 +103,7 @@ try {
             throw 'Could not package the verified local frontend build.'
         }
         $assetHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-        & $scp -i $key -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o IdentitiesOnly=yes `
+        & $scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o IdentitiesOnly=yes `
             $archive ('tpzadmin@187.53.133.85:/home/tpzadmin/.tpz-deployments/' + $assetName)
         if ($LASTEXITCODE -ne 0) { throw 'The secure frontend upload failed; deployment was not started.' }
     }
@@ -93,7 +116,7 @@ try {
     # strict whitelist. The script is sent in one SSH session and never edited
     # into the application's source tree on the VPS.
     $command = "echo $payload | base64 -d | bash -s -- '$Environment' '$Commit' '$ExpectedBaseline' '$database' '$migrations' '$dataFlag' '$assetName' '$assetHash'"
-    & $ssh -i $key -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o IdentitiesOnly=yes `
+    & $ssh -i $key -o BatchMode=yes -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o IdentitiesOnly=yes `
         -o ConnectTimeout=20 -T tpzadmin@187.53.133.85 $command
     if ($LASTEXITCODE -ne 0) {
         throw 'The deployment stopped. Do not rerun automatically; inspect its STOPPED_STAGE and retained release evidence.'

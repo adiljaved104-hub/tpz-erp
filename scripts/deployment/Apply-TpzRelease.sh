@@ -37,20 +37,37 @@ cache_entry_owned_by_deployer() {
     [[ "$(stat -c %u "$1")" == "$(id -u)" ]]
 }
 
+cache_group_repair_capable() {
+    id -nG | tr ' ' '\n' | grep -qx www-data
+}
+
+cache_entry_runtime_safe() {
+    local entry=$1 mode_value
+    [[ "$(stat -c %U "$entry")" == www-data ]] || return 1
+    mode_value=$((8#$(stat -c %a "$entry")))
+    # PHP-FPM can create 0755 runtime files. They remain inside the protected
+    # application root, which is not traversable by unrelated OS users.
+    (( (mode_value & 0002) == 0 )) || return 1
+    if [[ -d "$entry" ]]; then
+        (( (mode_value & 0070) == 0070 ))
+    else
+        (( (mode_value & 0040) == 0040 ))
+    fi
+}
+
 cache_tree_preflight() {
-    local tree=$1 entry expected_mode actual_mode
+    local tree=$1 entry
     [[ "$tree" == bootstrap/cache || "$tree" == storage/framework/views ]]
     [[ -d "$tree" && ! -L "$tree" && -O "$tree" && -w "$tree" ]]
     [[ -z "$(find "$tree" -type l -print -quit)" ]]
     while IFS= read -r -d '' entry; do
-        [[ "$(stat -c %G "$entry")" == www-data ]] || return 1
-        expected_mode=640
+        if ! cache_entry_owned_by_deployer "$entry"; then
+            [[ "$(stat -c %G "$entry")" == www-data ]] || return 1
+            cache_entry_runtime_safe "$entry" || return 1
+        fi
         if [[ -d "$entry" ]]; then
-            expected_mode=2770
             [[ -w "$entry" ]] || return 1
         fi
-        actual_mode=$(stat -c %a "$entry")
-        [[ "$actual_mode" == "$expected_mode" ]] || cache_entry_owned_by_deployer "$entry" || return 1
     done < <(find "$tree" \( -type d -o \( -type f -name '*.php' \) \) -print0)
 }
 
@@ -60,8 +77,11 @@ repair_cache_tree() {
     while IFS= read -r -d '' entry; do
         expected_mode=640
         [[ -d "$entry" ]] && expected_mode=2770
-        if [[ "$(stat -c %a "$entry")" != "$expected_mode" ]]; then
+        if [[ "$(stat -c %G "$entry")" != www-data ]]; then
             cache_entry_owned_by_deployer "$entry" || return 1
+            chgrp www-data "$entry"
+        fi
+        if cache_entry_owned_by_deployer "$entry" && [[ "$(stat -c %a "$entry")" != "$expected_mode" ]]; then
             chmod "$expected_mode" "$entry"
         fi
     done < <(find "$tree" \( -type d -o \( -type f -name '*.php' \) \) -print0)
@@ -74,7 +94,11 @@ verify_cache_tree() {
         expected_mode=640
         [[ -d "$entry" ]] && expected_mode=2770
         [[ "$(stat -c %G "$entry")" == www-data ]]
-        [[ "$(stat -c %a "$entry")" == "$expected_mode" ]]
+        if cache_entry_owned_by_deployer "$entry"; then
+            [[ "$(stat -c %a "$entry")" == "$expected_mode" ]]
+        else
+            cache_entry_runtime_safe "$entry"
+        fi
     done < <(find "$tree" \( -type d -o \( -type f -name '*.php' \) \) -print0)
 }
 
@@ -154,6 +178,7 @@ cd "$app"
 [[ -z "$(git status --porcelain --untracked-files=normal)" ]]
 [[ -f .env && -d vendor && ! -L vendor ]]
 [[ "$(stat -c %G .)" == www-data ]]
+[[ "$(stat -c %a .)" == 2750 ]]
 for path in bootstrap/cache storage/framework storage/framework/views storage/framework/cache storage/framework/sessions storage/logs; do
     [[ -d "$path" && ! -L "$path" && -O "$path" && "$(stat -c %G "$path")" == www-data ]]
 done
@@ -257,10 +282,11 @@ if [[ "$uploaded_asset" != NONE ]]; then
 fi
 
 step=cache_permission_preflight
-# Existing files must already have the www-data group. Setgid cache
-# directories give newly generated files that group without chgrp or sudo.
-# A www-data-owned file that is already secure is left untouched. A file that
-# needs chmod must belong to the deploy user; reject it before maintenance.
+# Laravel may atomically move generated files into cache directories with the
+# deploy user's primary group, even when those directories are setgid. Require
+# membership in www-data before maintenance so owner-only chgrp can repair
+# newly generated files without sudo or public read permissions.
+cache_group_repair_capable
 cache_tree_preflight bootstrap/cache
 cache_tree_preflight storage/framework/views
 repair_cache_tree bootstrap/cache

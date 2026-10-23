@@ -311,8 +311,10 @@ class LeaveManagement extends Page
             'balancePolicy' => $balancePolicy,
             'balanceError' => $balanceError,
             'balancePeriod' => $balancePeriod,
-            'annualWorkflowActive' => app(HistoricalLeaveActivationService::class)->isActive()
-                && app(HistoricalLeaveActivationService::class)->isReviewed($user->employee),
+            'annualWorkflowActive' => $user->employee !== null
+                && app(HistoricalLeaveActivationService::class)->isActiveFor($user->employee),
+            'annualWorkflowStatus' => $user->employee === null ? 'Not Verified'
+                : app(HistoricalLeaveActivationService::class)->employeeStatus($user->employee),
             'employees' => $employees,
             'leaveTypes' => LeaveType::query()->where('status', true)->whereIn('code', ['annual', 'unpaid'])->orderBy('name')->get(),
             'canRequest' => app(HrAuthorization::class)->allows($user, HrPermission::LeaveRequest),

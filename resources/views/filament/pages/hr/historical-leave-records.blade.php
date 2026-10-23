@@ -1,25 +1,19 @@
 <x-filament-panels::page class="hr-page-form hr-leave-ui">
     <x-filament::section heading="Annual Leave Setup" description="HR needs to check each employee's joining date and previous leave records before annual leave can be enabled." icon="heroicon-o-clipboard-document-check">
         <div class="hr-leave-summary">
-            @foreach ([['Total Employees', $this->activationStatus['total']], ['Joining Dates Checked', $this->joiningDatesChecked], ['Balances Reviewed', $this->activationStatus['reviewed']], ['Remaining Employees', $this->activationStatus['pending']]] as [$label, $value])
+            @foreach ([['Total Employees', $this->activationStatus['total']], ['Joining Dates Checked', $this->joiningDatesChecked], ['Balances Reviewed', $this->activationStatus['reviewed']], ['Annual Leave Active', $this->activationStatus['activated']]] as [$label, $value])
                 <div class="hr-leave-summary-card"><p>{{ $label }}</p><strong>{{ $value }}</strong></div>
             @endforeach
         </div>
         <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
             <p class="font-medium">Employees Checked: {{ $this->activationStatus['reviewed'] }} / {{ $this->activationStatus['total'] }}</p>
-            <x-filament::badge :color="$this->activationStatus['active'] ? 'success' : 'warning'">{{ $this->activationStatus['active'] ? 'Annual Leave Enabled' : 'Waiting for HR Review' }}</x-filament::badge>
+            <x-filament::badge color="info">Activate each employee separately after HR review</x-filament::badge>
         </div>
         <div class="hr-leave-steps mt-5">
             <div><span class="hr-leave-step-number">1</span><h3>Check Joining Dates</h3><p>Check each employee's actual joining date. Previous values stay in the audit history.</p>@if (\App\Filament\Pages\Hr\VerifyEmployeeJoiningDate::canAccess())<a href="#joining-date-checks" x-on:click="$dispatch('expand-section', { id: 'joining-date-checks' })" class="hr-leave-link">Choose an employee to check <span aria-hidden="true">→</span></a>@endif</div>
             <div><span class="hr-leave-step-number">2</span><h3>Add Previous Leave</h3><p>Add leave already taken, or use the Excel template for several employees.</p>@if ($this->canRecord())<a href="#previous-leave-entry" class="hr-leave-link">Add Previous Leave <span aria-hidden="true">→</span></a>@elseif ($this->canImport())<a href="#previous-leave-import" class="hr-leave-link">Import Previous Leave <span aria-hidden="true">→</span></a>@endif</div>
             <div><span class="hr-leave-step-number">3</span><h3>Check Leave Balances</h3><p>Review each balance, including employees who have not taken any previous leave.</p>@if ($this->canViewHistory())<a href="#employee-balances" class="hr-leave-link">Review employee balances <span aria-hidden="true">→</span></a>@endif</div>
-            <div><span class="hr-leave-step-number">4</span><h3>Enable Annual Leave</h3><p>Owner/Admin can enable annual leave after every employee's review is complete.</p>
-                @if ($this->canActivate() && ! $this->activationStatus['active'])
-                    <x-filament::button class="mt-3" size="sm" type="button" wire:click="activateAnnualLeaveWorkflow" wire:confirm="Confirm that every employee's joining date and historical leave balance has been reviewed? This activates employee Annual Leave requests." :disabled="$this->activationStatus['pending'] > 0">Enable Annual Leave</x-filament::button>
-                @elseif ($this->activationStatus['active'])
-                    <p class="mt-3 font-medium text-success-600 dark:text-success-400">Annual leave is enabled.</p>
-                @endif
-            </div>
+            <div><span class="hr-leave-step-number">4</span><h3>Enable Annual Leave</h3><p>Owner/Admin can enable each reviewed employee below. Other employees stay inactive.</p></div>
         </div>
         @error('activation') <p role="alert" class="mt-3 text-sm text-danger-600">{{ $message }}</p> @enderror
     </x-filament::section>
@@ -197,7 +191,10 @@
 
     @if ($this->canViewHistory())
     <x-filament::section id="employee-balances" heading="Employee Leave Balances" description="Check joining dates, previous leave and the days left. Confirm each employee's review when the figures are correct." icon="heroicon-o-users">
-        @if (! $this->activationStatus['active']) <p class="mb-3 text-sm font-semibold text-warning-700">Waiting for HR Review</p> @endif
+        @if ($this->activationStatus['activated'] < $this->activationStatus['total']) <p class="mb-3 text-sm font-semibold text-warning-700">Some employees are waiting for HR review or activation.</p> @endif
+        @if ($this->canActivate())
+            <div class="mb-4 flex flex-wrap items-center gap-3"><x-filament::button type="button" size="sm" wire:click="activateSelectedEmployeeAnnualLeave" wire:confirm="Enable Annual Leave for the selected eligible employees only? Other employees will remain inactive.">Enable Selected Employees</x-filament::button><span class="text-xs text-gray-500">Select only employees whose balances HR has reviewed.</span></div>
+        @endif
         @if ($this->joiningDatesChecked === 0)
             <div role="status" class="hr-leave-notice mb-4">No joining dates have been checked yet. Choose <strong>Check Joining Date</strong> beside an employee to begin. Balances become available after HR verifies the date.</div>
         @endif
@@ -207,6 +204,12 @@
                 @php($employee = $row['employee'])
                 @if($row['current'])
                     <tr><td><p class="font-medium">{{ $employee->name }}</p><span class="text-xs text-gray-500">{{ $employee->employee_id }}</span></td><td>{{ $employee->joining_date->format('d M Y') }}@if(\App\Filament\Pages\Hr\VerifyEmployeeJoiningDate::canAccess())<a href="{{ \App\Filament\Pages\Hr\VerifyEmployeeJoiningDate::getUrl(['employee' => $employee->id]) }}" class="hr-leave-link block text-xs">Check Joining Date</a>@endif</td><td>{{ $row['current_cycle']->start->format('d M Y') }}<span class="block text-xs text-gray-500">to {{ $row['current_cycle']->end->format('d M Y') }}</span>@if($row['previous'])<details class="mt-2"><summary class="cursor-pointer text-xs text-primary-600">Previous years</summary><div class="mt-2 space-y-2">@foreach($row['previous'] as $period)<p class="text-xs">{{ $period['start'] }} – {{ $period['end'] }}<br>Allowed {{ number_format((float) $period['entitlement'], 2) }} · Previous leave {{ number_format((float) $period['historical_used'], 2) }} · ERP leave {{ number_format((float) $period['current_used'], 2) }} · Pending {{ number_format((float) $period['pending'], 2) }} · Left {{ number_format((float) $period['remaining'], 2) }}</p>@endforeach</div></details>@endif</td><td>{{ number_format((float) $row['current']->entitlement, 2) }}</td><td>{{ number_format((float) $row['current']->used, 2) }}<details class="mt-2"><summary class="cursor-pointer text-xs text-primary-600">Breakdown</summary><p class="mt-1 text-xs">Previous leave: {{ number_format((float) $row['current']->historicalUsed, 2) }}<br>ERP leave: {{ number_format((float) $row['current']->currentUsed, 2) }}<br>Balance adjustments: {{ number_format((float) $row['current']->adjustments, 2) }}</p></details></td><td>{{ number_format((float) $row['current']->pending, 2) }}</td><td class="font-semibold">{{ number_format((float) $row['current']->availableAfterPending, 2) }}</td><td><x-filament::badge :color="$row['reviewed'] ? 'success' : 'warning'">{{ $row['reviewed'] ? 'HR reviewed' : 'Pending HR review' }}</x-filament::badge>@if($this->canRecord() && $this->canViewHistory() && ! $row['reviewed'])<button type="button" wire:click="confirmEmployeeReconciliation({{ $employee->id }})" wire:confirm="Confirm you have checked this employee's joining date, previous leave (including no previous leave), and calculated balance?" class="hr-leave-link mt-2 text-xs">Confirm Review</button>@endif</td></tr>
+                    <tr><td colspan="8" class="text-xs"><strong>Annual Leave:</strong> {{ $row['activation_status'] }}
+                        @if($this->canActivate() && $row['activation_status'] === 'Ready for Activation')
+                            <label class="ml-3 inline-flex items-center gap-1"><input type="checkbox" wire:model="selectedActivationEmployeeIds" value="{{ $employee->id }}"> Select for activation</label>
+                            <button type="button" class="hr-leave-link ml-3" wire:click="activateEmployeeAnnualLeave({{ $employee->id }})" wire:confirm="Enable Annual Leave for this employee only?">Enable this employee</button>
+                        @endif
+                    </td></tr>
                 @else
                     <tr><td><p class="font-medium">{{ $employee->name }}</p><span class="text-xs text-gray-500">{{ $employee->employee_id }}</span></td><td>{{ $employee->joining_date?->format('d M Y') ?: 'Not entered' }}@if(\App\Filament\Pages\Hr\VerifyEmployeeJoiningDate::canAccess())<a href="{{ \App\Filament\Pages\Hr\VerifyEmployeeJoiningDate::getUrl(['employee' => $employee->id]) }}" class="hr-leave-link block text-xs">Check Joining Date</a>@endif</td><td colspan="5" class="text-gray-500">{{ $row['error'] }}</td><td><x-filament::badge color="warning">Check Joining Date</x-filament::badge></td></tr>
                 @endif

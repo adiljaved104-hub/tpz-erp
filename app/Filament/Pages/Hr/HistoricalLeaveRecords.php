@@ -56,6 +56,9 @@ class HistoricalLeaveRecords extends Page
 
     public string $joiningDateSearch = '';
 
+    /** @var array<int, int> */
+    public array $selectedActivationEmployeeIds = [];
+
     public ?int $employeeId = null;
 
     public ?int $leaveTypeId = null;
@@ -495,11 +498,24 @@ class HistoricalLeaveRecords extends Page
         }
     }
 
-    public function activateAnnualLeaveWorkflow(): void
+    public function activateEmployeeAnnualLeave(int $employeeId): void
     {
         try {
-            app(HistoricalLeaveActivationService::class)->activate($this->user());
-            Notification::make()->success()->title('Annual Leave workflow activated')->send();
+            app(HistoricalLeaveActivationService::class)->activateEmployees([$employeeId], $this->user());
+            Notification::make()->success()->title('Annual Leave enabled for this employee')->send();
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            $this->addError('activation', (string) collect($exception->errors())->flatten()->first());
+        }
+    }
+
+    public function activateSelectedEmployeeAnnualLeave(): void
+    {
+        try {
+            app(HistoricalLeaveActivationService::class)->activateEmployees($this->selectedActivationEmployeeIds, $this->user());
+            $this->selectedActivationEmployeeIds = [];
+            Notification::make()->success()->title('Annual Leave enabled for the selected employees')->send();
         } catch (AuthorizationException) {
             abort(403);
         } catch (ValidationException $exception) {
@@ -648,9 +664,11 @@ class HistoricalLeaveRecords extends Page
                 'employee' => $employee, 'current' => $current, 'current_cycle' => $currentCycle,
                 'previous' => $previous, 'error' => null,
                 'reviewed' => app(HistoricalLeaveActivationService::class)->isReviewed($employee),
+                'activation_status' => app(HistoricalLeaveActivationService::class)->employeeStatus($employee),
             ];
         } catch (ValidationException $exception) {
             return ['employee' => $employee, 'current' => null, 'current_cycle' => null, 'previous' => [], 'reviewed' => false,
+                'activation_status' => app(HistoricalLeaveActivationService::class)->employeeStatus($employee),
                 'error' => (string) collect($exception->errors())->flatten()->first()];
         }
     }

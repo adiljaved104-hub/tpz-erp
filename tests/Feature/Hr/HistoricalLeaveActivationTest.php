@@ -29,6 +29,117 @@ class HistoricalLeaveActivationTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_individual_activation_leaves_other_employees_and_shared_policy_unchanged(): void
+    {
+        [$owner, $staff] = $this->people();
+        $this->configureSchedule($staff->employee, $owner);
+        $service = app(HistoricalLeaveActivationService::class);
+        $policyBefore = LeavePolicy::query()->orderBy('id')->get()->toArray();
+
+        $service->review($staff->employee, $owner);
+        $this->assertSame('Ready for Activation', $service->employeeStatus($staff->employee));
+        $this->assertSame('Pending HR Review', $service->employeeStatus($owner->employee));
+        $service->activateEmployees([$staff->employee->id], $owner);
+
+        $this->assertSame('Active', $service->employeeStatus($staff->employee));
+        $this->assertFalse($service->isActiveFor($owner->employee));
+        $this->assertFalse($service->isActive());
+        $this->assertSame($policyBefore, LeavePolicy::query()->orderBy('id')->get()->toArray());
+        $this->assertDatabaseCount('historical_leave_workflow_activations', 0);
+        $this->assertDatabaseHas('employee_annual_leave_activations', [
+            'employee_id' => $staff->employee->id, 'approved_by_user_id' => $owner->id,
+        ]);
+        try {
+            $service->activate($owner);
+            $this->fail('Company-wide activation was allowed after individual activation began.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('Company-wide activation is unavailable', $exception->errors()['activation'][0]);
+        }
+
+        $request = app(LeaveService::class)->submit([
+            'leave_type_id' => LeaveType::query()->where('code', 'annual')->value('id'),
+            'from_date' => CarbonImmutable::today()->next(1)->toDateString(),
+            'to_date' => CarbonImmutable::today()->next(1)->toDateString(),
+            'reason' => 'Approved individual annual leave',
+        ], $staff);
+        $this->assertSame('pending', $request->status);
+        $this->assertSame('approved', app(LeaveService::class)->approve($request, $owner)->status);
+        try {
+            $service->assertAnnualRequestsActive($owner->employee);
+            $this->fail('Activating staff unlocked the Owner employee too.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('leave_type_id', $exception->errors());
+        }
+    }
+
+    public function test_selected_employee_activation_is_atomic_and_requires_current_hr_review(): void
+    {
+        [$owner, $staff] = $this->people();
+        $other = User::factory()->create();
+        Employee::factory()->for($other)->role(EmployeeRole::Staff)->create([
+            'email' => $other->email, 'joining_date' => '2025-02-01',
+            'joining_date_verified_at' => now(), 'joining_date_verified_by_user_id' => $owner->id,
+        ]);
+        $service = app(HistoricalLeaveActivationService::class);
+        $service->review($staff->employee, $owner);
+        try {
+            $service->activateEmployees([$staff->employee->id, $other->employee->id], $owner);
+            $this->fail('Selected activation accepted an employee without HR review.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('activation', $exception->errors());
+        }
+        $this->assertDatabaseCount('employee_annual_leave_activations', 0);
+        $service->review($other->employee, $owner);
+        try {
+            $service->activateEmployees([$staff->employee->id], $staff);
+            $this->fail('A Staff user activated Annual Leave.');
+        } catch (AuthorizationException) {
+            $this->assertDatabaseCount('employee_annual_leave_activations', 0);
+        }
+        $service->activateEmployees([$staff->employee->id, $other->employee->id], $owner);
+        $this->assertDatabaseCount('employee_annual_leave_activations', 2);
+        $this->assertFalse($service->isActiveFor($owner->employee));
+    }
+
+    public function test_new_ordinary_leave_request_invalidates_review_before_individual_activation(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(HistoricalLeaveActivationService::class);
+        $service->review($staff->employee, $owner);
+        LeaveRequest::query()->create([
+            'reference' => 'LVR-INDIVIDUAL-REVIEW-1', 'employee_id' => $staff->employee->id,
+            'leave_type_id' => LeaveType::query()->where('code', 'annual')->value('id'),
+            'leave_policy_id' => LeavePolicy::query()->where('status', true)->value('id'),
+            'from_date' => '2026-10-26', 'to_date' => '2026-10-26',
+            'requested_working_days' => '1.00', 'status' => 'pending',
+            'reason' => 'Existing ERP request', 'submitted_at' => now(), 'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $this->assertFalse($service->isReviewed($staff->employee));
+        $this->expectException(ValidationException::class);
+        $service->activateEmployees([$staff->employee->id], $owner);
+    }
+
+    public function test_joining_date_correction_requires_new_owner_activation_after_hr_rereview(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(HistoricalLeaveActivationService::class);
+        $service->review($staff->employee, $owner);
+        $service->activateEmployees([$staff->employee->id], $owner);
+        $this->assertTrue($service->isActiveFor($staff->employee));
+
+        app(JoiningDateCorrectionService::class)->verifyOrCorrect($staff->employee, [
+            'joining_date' => '2025-02-01', 'reason' => 'Corrected against the employment agreement',
+            'confirmed' => true,
+        ], $owner);
+        $this->assertFalse($service->isActiveFor($staff->employee->fresh()));
+        $service->review($staff->employee->fresh(), $owner);
+        $this->assertSame('Ready for Activation', $service->employeeStatus($staff->employee->fresh()));
+
+        $service->activateEmployees([$staff->employee->id], $owner);
+        $this->assertSame('Active', $service->employeeStatus($staff->employee->fresh()));
+        $this->assertDatabaseCount('employee_annual_leave_activations', 2);
+    }
+
     public function test_owner_activation_requires_current_review_for_every_employee_including_zero_leave(): void
     {
         [$owner, $staff] = $this->people();

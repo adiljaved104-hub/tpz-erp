@@ -21,13 +21,16 @@
     </x-filament::section>
 
     @if ($employee)
-        <x-filament::section :heading="$employee->name.' · '.$employee->employee_id" description="Employee leave information is read-only here. HR corrections remain in the existing Past Leave and joining-date pages." icon="heroicon-o-identification">
+        <x-filament::section :heading="$employee->name.' · '.$employee->employee_id" description="Review leave and audit history here. HR corrections remain in Past Leave and joining-date pages; Owner/Admin can enable this employee after review." icon="heroicon-o-identification">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="flex flex-wrap gap-2">
                     <x-filament::badge :color="$employee->status ? 'success' : 'gray'">{{ $employee->status ? 'Active Employee' : 'Inactive Employee' }}</x-filament::badge>
-                    <x-filament::badge :color="$activated ? 'success' : 'warning'">{{ $activated ? 'Annual Leave Enabled' : ($reviewed ? 'Reviewed — Waiting for Activation' : 'Waiting for HR Review') }}</x-filament::badge>
+                    <x-filament::badge :color="$activated ? 'success' : 'warning'">{{ $activationStatus }}</x-filament::badge>
                 </div>
                 <x-filament::button type="button" color="gray" icon="heroicon-o-arrow-down-tray" wire:click="downloadEmployeeExcel({{ $employee->id }})">Download Employee Excel</x-filament::button>
+                @if ($this->canActivateAnnualLeave() && $activationStatus === 'Ready for Activation')
+                    <x-filament::button type="button" wire:click="activateSelectedEmployee" wire:confirm="Enable Annual Leave for this employee only? Other employees remain inactive.">Enable Annual Leave</x-filament::button>
+                @endif
             </div>
             <p class="mt-3 text-sm">Verified joining date: <strong>{{ $employee->joining_date_verified_at ? $employee->joining_date?->format('d M Y') : 'Not yet verified' }}</strong></p>
             @if ($latestReview)

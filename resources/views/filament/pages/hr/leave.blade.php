@@ -8,7 +8,7 @@
     <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
             <h2 class="text-xl font-semibold text-gray-950 dark:text-white">Your Leave Balance</h2>
-            @if (! $annualWorkflowActive)<p role="status" class="mt-2 max-w-prose text-sm text-warning-700 dark:text-warning-300">Your annual leave is not ready yet. HR must check your joining date and previous leave records.</p><p class="mt-1 text-xs font-medium text-gray-500">Waiting for HR Review</p>@endif
+            @if (! $annualWorkflowActive)<p role="status" class="mt-2 max-w-prose text-sm text-warning-700 dark:text-warning-300">Your annual leave is not ready yet. HR must check your joining date and previous leave records before Owner/Admin enables it for you.</p><p class="mt-1 text-xs font-medium text-gray-500">{{ $annualWorkflowStatus }}</p>@endif
             @if ($balancePeriod)
                 <p class="mt-1 text-sm text-gray-500">Your current leave year: {{ $balancePeriod }}.</p>
             @else

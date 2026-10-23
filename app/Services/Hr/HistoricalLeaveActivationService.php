@@ -29,14 +29,38 @@ class HistoricalLeaveActivationService
         return DB::table('historical_leave_workflow_activations')->where('workflow', 'annual_leave')->exists();
     }
 
-    public function assertAnnualRequestsActive(Employee $employee): void
+    public function isActiveFor(Employee $employee, ?bool $reviewed = null): bool
     {
-        if (! $this->isActive()) {
-            throw ValidationException::withMessages([
-                'leave_type_id' => 'Annual Leave is pending HR historical reconciliation and Owner/Admin activation.',
-            ]);
+        $reviewed ??= $this->isReviewed($employee);
+        if (! $reviewed) {
+            return false;
+        }
+        // Keep approvals made under the earlier company-wide workflow valid.
+        if ($this->isActive()) {
+            return true;
+        }
+        $approval = DB::table('employee_annual_leave_activations')->where('employee_id', $employee->id)
+            ->orderByDesc('id')->first(['review_fingerprint']);
+
+        return $approval !== null
+            && hash_equals($approval->review_fingerprint, $this->onboardingFingerprint($employee));
+    }
+
+    public function employeeStatus(Employee $employee): string
+    {
+        if ($employee->joining_date === null || $employee->joining_date_verified_at === null) {
+            return 'Not Verified';
+        }
+        $reviewed = $this->isReviewed($employee);
+        if (! $reviewed) {
+            return 'Pending HR Review';
         }
 
+        return $this->isActiveFor($employee, $reviewed) ? 'Active' : 'Ready for Activation';
+    }
+
+    public function assertAnnualRequestsActive(Employee $employee): void
+    {
         if ($employee->joining_date === null || $employee->joining_date_verified_at === null) {
             throw ValidationException::withMessages([
                 'joining_date' => 'The employee joining date must be verified by HR before Annual Leave is available.',
@@ -48,21 +72,31 @@ class HistoricalLeaveActivationService
                 'leave_type_id' => 'HR must verify this employee’s joining date and historical leave balance before Annual Leave is available.',
             ]);
         }
+
+        if (! $this->isActiveFor($employee)) {
+            throw ValidationException::withMessages([
+                'leave_type_id' => 'Annual Leave is waiting for Owner/Admin activation for this employee.',
+            ]);
+        }
     }
 
-    /** @return array{total:int,reviewed:int,pending:int,active:bool} */
+    /** @return array{total:int,reviewed:int,pending:int,activated:int,active:bool} */
     public function status(): array
     {
         $total = 0;
         $reviewed = 0;
-        Employee::query()->orderBy('id')->chunkById(100, function ($employees) use (&$total, &$reviewed): void {
+        $activated = 0;
+        Employee::query()->orderBy('id')->chunkById(100, function ($employees) use (&$total, &$reviewed, &$activated): void {
             foreach ($employees as $employee) {
                 $total++;
-                $reviewed += $this->isReviewed($employee) ? 1 : 0;
+                $isReviewed = $this->isReviewed($employee);
+                $reviewed += $isReviewed ? 1 : 0;
+                $activated += $this->isActiveFor($employee, $isReviewed) ? 1 : 0;
             }
         });
 
-        return ['total' => $total, 'reviewed' => $reviewed, 'pending' => $total - $reviewed, 'active' => $this->isActive()];
+        return ['total' => $total, 'reviewed' => $reviewed, 'pending' => $total - $reviewed,
+            'activated' => $activated, 'active' => $activated > 0];
     }
 
     public function isReviewed(Employee $employee): bool
@@ -79,9 +113,56 @@ class HistoricalLeaveActivationService
 
         // Ordinary requests and policy changes must invalidate a pre-activation
         // review, but must not force a new HR review after every normal leave event.
-        return $this->isActive()
+        return ($this->isActive() || DB::table('employee_annual_leave_activations')->where('employee_id', $employee->id)->exists())
             ? hash_equals($latest->onboarding_fingerprint, $this->onboardingFingerprint($employee))
             : hash_equals($latest->data_fingerprint, $this->activationFingerprint($employee));
+    }
+
+    /** @param array<int, int> $employeeIds */
+    public function activateEmployees(array $employeeIds, User $actor): void
+    {
+        if (! in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+            || ! $this->authorization->allows($actor, HrPermission::LeaveManagePolicy)) {
+            throw new AuthorizationException;
+        }
+        $ids = array_values(array_unique(array_map('intval', $employeeIds)));
+        if ($ids === [] || count($ids) > 100 || count($ids) !== count($employeeIds) || min($ids) < 1) {
+            throw ValidationException::withMessages(['activation' => 'Select up to 100 different employees for activation.']);
+        }
+
+        DB::transaction(function () use ($ids, $actor): void {
+            $employees = Employee::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get();
+            if ($employees->count() !== count($ids)) {
+                throw ValidationException::withMessages(['activation' => 'An employee could not be found.']);
+            }
+            foreach ($employees as $employee) {
+                if ($this->isActiveFor($employee)) {
+                    throw ValidationException::withMessages(['activation' => 'Annual Leave is already active for '.$employee->employee_id.'.']);
+                }
+                if (! $this->isReviewed($employee)) {
+                    throw ValidationException::withMessages(['activation' => 'HR must review the current leave balance for '.$employee->employee_id.'.']);
+                }
+                $review = DB::table('historical_leave_reconciliation_reviews')->where('employee_id', $employee->id)
+                    ->orderByDesc('id')->first();
+                $balance = get_object_vars($this->balances->forDate($employee, now()->toDateString()));
+                $policy = LeavePolicy::query()->findOrFail($balance['policyId']);
+                if (json_decode($review->balance_snapshot, true, 512, JSON_THROW_ON_ERROR) != $balance
+                    || bccomp((string) $balance['entitlement'], '12.00', 2) !== 0
+                    || $policy->monthly_accrual_enabled || $policy->carry_forward_enabled
+                    || bccomp((string) $balance['carryForward'], '0.00', 2) !== 0) {
+                    throw ValidationException::withMessages(['activation' => 'Review the 12-day balance for '.$employee->employee_id.' again before activation.']);
+                }
+                DB::table('employee_annual_leave_activations')->insert([
+                    'employee_id' => $employee->id, 'review_id' => $review->id,
+                    'approved_by_user_id' => $actor->id, 'review_fingerprint' => $review->onboarding_fingerprint,
+                    'activated_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+                ]);
+                $this->activity->log('hr.employee_annual_leave_activated', $actor, $employee, [
+                    'employee_id' => $employee->id, 'review_id' => $review->id,
+                    'period_start' => $balance['periodStart'], 'period_end' => $balance['periodEnd'],
+                ]);
+            }
+        }, 3);
     }
 
     public function review(Employee $employee, User $actor): void
@@ -121,6 +202,9 @@ class HistoricalLeaveActivationService
         }
 
         DB::transaction(function () use ($actor): void {
+            if (DB::table('employee_annual_leave_activations')->exists()) {
+                throw ValidationException::withMessages(['activation' => 'Individual employee activation has begun. Company-wide activation is unavailable.']);
+            }
             if ($this->isActive()) {
                 throw ValidationException::withMessages(['activation' => 'Annual Leave is already active.']);
             }

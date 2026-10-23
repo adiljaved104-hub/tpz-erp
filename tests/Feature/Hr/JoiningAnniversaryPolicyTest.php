@@ -11,6 +11,7 @@ use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\LeavePolicy;
 use App\Models\User;
+use App\Services\Hr\HistoricalLeaveActivationService;
 use App\Services\Hr\JoiningDateLeaveBalanceService;
 use App\Services\Hr\LeavePolicyVersioningService;
 use Carbon\CarbonImmutable;
@@ -67,6 +68,32 @@ class JoiningAnniversaryPolicyTest extends TestCase
             $this->assertArrayHasKey('policy', $exception->errors());
         }
         $this->assertSame('calendar_year', LeavePolicy::query()->where('status', true)->whereNull('effective_to')->firstOrFail()->leave_year_basis);
+    }
+
+    public function test_individual_activation_does_not_change_shared_policy_but_preserves_separate_future_policy_management(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $employee = $this->verifiedEmployee($owner, '2025-01-01');
+        $other = $this->verifiedEmployee($owner, '2025-02-01');
+        $activation = app(HistoricalLeaveActivationService::class);
+        $current = LeavePolicy::query()->where('status', true)->whereNull('effective_to')->firstOrFail();
+
+        $activation->review($employee, $owner);
+        $activation->activateEmployees([$employee->id], $owner);
+        $this->assertSame('calendar_year', $current->fresh()->leave_year_basis);
+        $this->assertNull($current->fresh()->effective_to);
+        $this->assertFalse($activation->isActiveFor($other));
+
+        $future = app(LeavePolicyVersioningService::class)->createVersion([
+            'annual_entitlement_days' => '12', 'carry_forward_enabled' => false,
+            'effective_date' => now()->addMonth()->toDateString(),
+            'description' => 'Explicit prospective policy version', 'reason' => 'Owner-approved future policy',
+            'cycle_transition_decision' => 'next_anniversary',
+            'status' => 'active', 'activation_confirmed' => true,
+        ], $owner);
+        $this->assertSame('joining_anniversary', $future->leave_year_basis);
+        $this->assertFalse($activation->isActiveFor($other));
+        $this->assertDatabaseCount('historical_leave_workflow_activations', 0);
     }
 
     public function test_admin_can_create_a_future_15_day_version_with_explicit_carry_forward_settings(): void

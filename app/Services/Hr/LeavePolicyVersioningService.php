@@ -73,7 +73,7 @@ class LeavePolicyVersioningService
         if ($validated['status'] === 'active' && ! $validated['activation_confirmed']) {
             throw ValidationException::withMessages(['activation_confirmed' => 'Confirm activation before replacing the applicable policy.']);
         }
-        if ($validated['status'] === 'active' && ! $this->historicalActivation->isActive()) {
+        if ($validated['status'] === 'active' && ! $this->historicalActivation->hasAnyActivation()) {
             throw ValidationException::withMessages(['status' => 'Complete Owner/Admin historical leave activation before applying an anniversary policy.']);
         }
         $effective = CarbonImmutable::parse($validated['effective_date'])->startOfDay();
@@ -147,7 +147,7 @@ class LeavePolicyVersioningService
         if (! $confirmed) {
             throw ValidationException::withMessages(['activation_confirmed' => 'Confirm activation before replacing the applicable policy.']);
         }
-        if (! $this->historicalActivation->isActive()) {
+        if (! $this->historicalActivation->hasAnyActivation()) {
             throw ValidationException::withMessages(['policy' => 'Complete Owner/Admin historical leave activation before applying this Draft.']);
         }
 

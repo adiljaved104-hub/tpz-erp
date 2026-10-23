@@ -29,6 +29,11 @@ class HistoricalLeaveActivationService
         return DB::table('historical_leave_workflow_activations')->where('workflow', 'annual_leave')->exists();
     }
 
+    public function hasAnyActivation(): bool
+    {
+        return $this->isActive() || DB::table('employee_annual_leave_activations')->exists();
+    }
+
     public function isActiveFor(Employee $employee, ?bool $reviewed = null): bool
     {
         $reviewed ??= $this->isReviewed($employee);

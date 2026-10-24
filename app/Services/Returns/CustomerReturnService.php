@@ -53,7 +53,7 @@ class CustomerReturnService
         private readonly SafetClaimService $claims,
     ) {}
 
-    public function create(CreateCustomerReturnData $data, User $actor): CustomerReturn
+    public function create(CreateCustomerReturnData $data, User $actor, ?string $reservedReference = null): CustomerReturn
     {
         $this->authorization->authorize($actor, CustomerReturnPermission::Create);
         $validated = Validator::make((array) $data, [
@@ -67,7 +67,7 @@ class CustomerReturnService
 
             return $existing;
         }
-        $reference = $this->references->nextCustomerReturnReference();
+        $reference = $reservedReference ?? $this->references->nextCustomerReturnReference();
 
         return DB::transaction(function () use ($data, $validated, $actor, $reference): CustomerReturn {
             $order = Order::query()->with('fulfillment')->lockForUpdate()->findOrFail($data->orderId);
@@ -111,7 +111,8 @@ class CustomerReturnService
         }, 5);
     }
 
-    public function receive(CustomerReturn $return, User $actor): CustomerReturn
+    /** @param array<int, string>|null $reservedMovementRefs References keyed by fulfilment item ID. */
+    public function receive(CustomerReturn $return, User $actor, ?array $reservedMovementRefs = null): CustomerReturn
     {
         $this->authorization->authorize($actor, CustomerReturnPermission::Receive, $return);
         $return->loadMissing(['items', 'fulfillmentWarehouse.marketplacePlatform']);
@@ -124,7 +125,13 @@ class CustomerReturnService
         }
         $movementRefs = [];
         foreach ($return->items->sortBy('id') as $item) {
-            $movementRefs[$item->id] = $this->references->nextStockMovementReference();
+            if ($item->quarantine()->exists()) {
+                continue;
+            }
+            $movementRefs[$item->id] = $reservedMovementRefs === null
+                ? $this->references->nextStockMovementReference()
+                : ($reservedMovementRefs[$item->order_fulfillment_item_id]
+                    ?? throw new CustomerReturnException('A receipt reference was not reserved for this return item.'));
         }
 
         return DB::transaction(function () use ($return, $actor, $movementRefs): CustomerReturn {
@@ -160,7 +167,8 @@ class CustomerReturnService
         }, 5);
     }
 
-    public function inspect(CustomerReturnItem $item, InspectCustomerReturnItemData $data, User $actor): CustomerReturn
+    /** @param array<string, string>|null $reservedReferences */
+    public function inspect(CustomerReturnItem $item, InspectCustomerReturnItemData $data, User $actor, ?array $reservedReferences = null): CustomerReturn
     {
         $return = $item->customerReturn()->with('order')->firstOrFail();
         $this->authorization->authorize($actor, CustomerReturnPermission::Inspect, $return);
@@ -173,15 +181,23 @@ class CustomerReturnService
         }
         $movementRefs = [];
         if ($data->sellableQuantity > 0) {
-            $movementRefs['sellable'] = $this->references->nextStockMovementReference();
+            $movementRefs['sellable'] = $reservedReferences === null
+                ? $this->references->nextStockMovementReference()
+                : ($reservedReferences['sellable'] ?? throw new CustomerReturnException('A sellable QC reference was not reserved.'));
         } if ($data->damagedQuantity > 0) {
-            $movementRefs['damaged'] = $this->references->nextStockMovementReference();
+            $movementRefs['damaged'] = $reservedReferences === null
+                ? $this->references->nextStockMovementReference()
+                : ($reservedReferences['damaged'] ?? throw new CustomerReturnException('A damaged QC reference was not reserved.'));
         }
         $damageReference = $data->damagedQuantity > 0
-            ? $this->references->nextDamagedStockReference()
+            ? ($reservedReferences === null
+                ? $this->references->nextDamagedStockReference()
+                : ($reservedReferences['damage'] ?? throw new CustomerReturnException('A damaged stock reference was not reserved.')))
             : null;
         $claimReference = $data->damagedQuantity > 0 && $this->claims->eligible($item)
-            ? $this->references->nextSafetClaimReference()
+            ? ($reservedReferences === null
+                ? $this->references->nextSafetClaimReference()
+                : ($reservedReferences['claim'] ?? throw new CustomerReturnException('An eligible claim reference was not reserved.')))
             : null;
 
         return DB::transaction(function () use ($item, $data, $actor, $total, $movementRefs, $damageReference, $claimReference): CustomerReturn {

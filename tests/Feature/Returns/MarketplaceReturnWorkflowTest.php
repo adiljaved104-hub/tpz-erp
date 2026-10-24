@@ -73,10 +73,25 @@ class MarketplaceReturnWorkflowTest extends TestCase
         $removal = $service->requestRemoval($item, 1, $company->id, (string) Str::uuid(), $owner);
         $service->dispatch($removal, (string) Str::uuid(), $owner);
         $service->receive($removal->refresh(), (string) Str::uuid(), $owner);
-        app(CustomerReturnEvidenceService::class)->record($item->refresh(), $owner, [
+        $technician = User::factory()->create();
+        Employee::factory()->for($technician)->role(EmployeeRole::Technician)->create(['email' => $technician->email]);
+        $photo = app(CustomerReturnEvidenceService::class)->record($item->refresh(), $technician, [
             'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
             'problem_type' => 'wrong_item', 'actual_product_name' => 'Unrelated laptop',
         ], UploadedFile::fake()->image('wrong-item.jpg'));
+        $movieHeader = pack('N', 24).'ftypisom'.pack('N', 0).'isommp42';
+        $mvhd = pack('N', 28).'mvhd'.pack('N', 0).pack('N', 0).pack('N', 0).pack('N', 1000).pack('N', 7000);
+        $movie = $movieHeader.pack('N', strlen($mvhd) + 8).'moov'.$mvhd;
+        $video = UploadedFile::fake()->createWithContent('wrong-item.mp4', $movie);
+        $video->mimeTypeToReport = 'video/mp4';
+        $recording = app(CustomerReturnEvidenceService::class)->record($item->refresh(), $technician, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'Unrelated laptop',
+            'duration_seconds' => 7,
+        ], $video);
+        $this->assertSame('photo', $photo->media_type);
+        $this->assertSame('video', $recording->media_type);
+        $this->assertSame($movie, Storage::disk('local')->get($recording->original_path));
         $movements = StockMovement::query()->count();
         $this->expectException(CustomerReturnException::class);
         try {

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CustomerReturns\Schemas;
 
+use App\Enums\CustomerReturnPermission;
 use App\Enums\CustomerReturnReason;
 use App\Enums\InventoryLocationType;
 use App\Enums\OrderStatus;
@@ -9,11 +10,13 @@ use App\Models\Order;
 use App\Models\OrderFulfillmentItem;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Orders\OrderReferenceSearchService;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
@@ -26,8 +29,8 @@ class CustomerReturnForm
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Return')->columns(2)->schema([
-                Select::make('order_id')->label('Fulfilled Order')
+            Section::make('Find the Order and confirm receipt')->columns(2)->schema([
+                Select::make('order_id')->label('Order ID / Marketplace Order ID')
                     ->default(fn (): ?int => request()->integer('order_id') ?: null)
                     ->getSearchResultsUsing(fn (string $search): array => self::fulfilledOrderSearch($search))
                     ->getOptionLabelUsing(fn ($value): ?string => self::fulfilledOrderLabel($value))
@@ -46,9 +49,14 @@ class CustomerReturnForm
                 Text::make(fn (Get $get): string => 'Marketplace Return Location: '.(self::fulfillmentLocationName($get('order_id')) ?? 'Select a fulfilled Order'))
                     ->visible(fn (Get $get): bool => self::isMarketplaceOrder($get('order_id'))),
                 Select::make('receiving_warehouse_id')->label('Returned To')->options(fn () => Warehouse::query()->active()->whereNotIn('location_type', [InventoryLocationType::Transit, InventoryLocationType::MarketplaceFulfilment])->orderByDesc('is_default')->orderBy('name')->pluck('name', 'id')->all())->default(fn () => Warehouse::query()->where('is_default', true)->value('id'))->required(fn (Get $get): bool => ! self::isMarketplaceOrder($get('order_id')))->visible(fn (Get $get): bool => ! self::isMarketplaceOrder($get('order_id')))->searchable(),
+                Toggle::make('physical_received')->label('Package physically received at this warehouse')
+                    ->helperText('Leave off to save the return as a draft. Turn on only after the package arrives.')
+                    ->default(false)->live()->columnSpanFull()
+                    ->visible(fn (): bool => auth()->check() && app(CustomerReturnAuthorization::class)
+                        ->allows(auth()->user(), CustomerReturnPermission::Receive)),
                 Textarea::make('notes')->maxLength(5000)->columnSpanFull(),
             ]),
-            Section::make('Returned Items')->schema([
+            Section::make('Returned products and QC')->description('Select each product and quantity. Use Save Pending if any inspection is unfinished.')->schema([
                 Repeater::make('items')->minItems(1)->defaultItems(1)->schema([
                     Select::make('order_fulfillment_item_id')->label('Product')->options(function ($get): array {
                         $orderId = $get('../../order_id');
@@ -65,6 +73,35 @@ class CustomerReturnForm
                     TextInput::make('quantity')->label('Return Qty')->integer()->minValue(1)->default(1)->required(),
                     Select::make('return_reason')->options(collect(CustomerReturnReason::cases())->mapWithKeys(fn ($r) => [$r->value => $r->label()])->all())->required(),
                     Textarea::make('reason_notes')->maxLength(2000),
+                    Select::make('qc_outcome')->label('QC result')->options([
+                        'pending' => 'Pending inspection', 'pass' => 'PASS — return to sellable',
+                        'fail' => 'FAIL — move to damaged stock',
+                        'mixed' => 'Mixed — split PASS and FAIL quantities',
+                        'quarantine' => 'Wrong/different item, serial mismatch or empty package — quarantine',
+                    ])->default('pending')->required()->live()
+                        ->visible(fn (Get $get): bool => (bool) $get('../../physical_received')),
+                    Select::make('problem_type')->label('Actual problem')->options(fn (Get $get): array => match ($get('qc_outcome')) {
+                        'fail', 'mixed' => ['damaged' => 'Damaged', 'defective' => 'Defective', 'missing_accessories' => 'Missing accessories', 'other' => 'Other problem'],
+                        'quarantine' => ['wrong_item' => 'Different product', 'serial_mismatch' => 'Serial number does not match', 'empty_package' => 'Empty package'],
+                        default => [],
+                    })->required(fn (Get $get): bool => in_array($get('qc_outcome'), ['fail', 'mixed', 'quarantine'], true))
+                        ->visible(fn (Get $get): bool => in_array($get('qc_outcome'), ['fail', 'mixed', 'quarantine'], true)),
+                    TextInput::make('sellable_quantity')->label('PASS quantity')->integer()->minValue(1)
+                        ->required(fn (Get $get): bool => $get('qc_outcome') === 'mixed')
+                        ->visible(fn (Get $get): bool => $get('qc_outcome') === 'mixed'),
+                    TextInput::make('damaged_quantity')->label('FAIL quantity')->integer()->minValue(1)
+                        ->required(fn (Get $get): bool => $get('qc_outcome') === 'mixed')
+                        ->visible(fn (Get $get): bool => $get('qc_outcome') === 'mixed'),
+                    TextInput::make('actual_custody_quantity')->label('Actual items in quarantine')
+                        ->integer()->minValue(0)->helperText('Use 0 for an empty package. These items are not added to the original product inventory.')
+                        ->required(fn (Get $get): bool => $get('qc_outcome') === 'quarantine')
+                        ->visible(fn (Get $get): bool => $get('qc_outcome') === 'quarantine'),
+                    TextInput::make('actual_product_name')->label('Actual item description')->maxLength(255)
+                        ->visible(fn (Get $get): bool => $get('qc_outcome') === 'quarantine'),
+                    TextInput::make('actual_serial_number')->label('Actual serial number, if present')->maxLength(255)
+                        ->visible(fn (Get $get): bool => $get('qc_outcome') === 'quarantine'),
+                    Textarea::make('qc_remarks')->label('QC remarks')->maxLength(5000)
+                        ->visible(fn (Get $get): bool => in_array($get('qc_outcome'), ['fail', 'mixed', 'quarantine'], true)),
                 ])->columns(2),
             ]),
         ]);

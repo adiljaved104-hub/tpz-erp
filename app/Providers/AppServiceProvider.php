@@ -60,6 +60,7 @@ use App\Models\CustomerReturn;
 use App\Models\CustomerReturnInspection;
 use App\Models\CustomerReturnItem;
 use App\Models\CustomerReturnMarketplaceDisposition;
+use App\Models\CustomerReturnQuarantine;
 use App\Models\CustomerReturnRefund;
 use App\Models\CustomerReturnStatusEvent;
 use App\Models\DamagedStockEvent;
@@ -571,6 +572,7 @@ class AppServiceProvider extends ServiceProvider
             'stock_transfer_status_event' => StockTransferStatusEvent::class,
             'customer_return' => CustomerReturn::class,
             'customer_return_item' => CustomerReturnItem::class,
+            'customer_return_quarantine' => CustomerReturnQuarantine::class,
             'customer_return_inspection' => CustomerReturnInspection::class,
             'customer_return_status_event' => CustomerReturnStatusEvent::class,
             'customer_return_marketplace_disposition' => CustomerReturnMarketplaceDisposition::class,

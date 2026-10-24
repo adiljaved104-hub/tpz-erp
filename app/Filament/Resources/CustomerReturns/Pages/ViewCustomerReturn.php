@@ -7,6 +7,7 @@ use App\Actions\Returns\InspectCustomerReturnItem;
 use App\Actions\Returns\ReceiveCustomerReturn;
 use App\DTOs\Returns\InspectCustomerReturnItemData;
 use App\Enums\CustomerReturnStatus;
+use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationType;
 use App\Enums\TaskLinkedType;
 use App\Exceptions\CustomerReturnException;
@@ -16,6 +17,7 @@ use App\Filament\Actions\OpenChatDiscussionAction;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Models\CustomerReturnItem;
 use App\Models\Warehouse;
+use App\Services\Returns\CustomerReturnQuarantineService;
 use App\Services\Returns\MarketplaceReturnService;
 use App\Services\Returns\ReturnRefundService;
 use Filament\Actions\Action;
@@ -38,6 +40,28 @@ class ViewCustomerReturn extends ViewRecord
         return [
             OpenChatDiscussionAction::make($this->record),
             CreateTaskFromSourceAction::make(TaskLinkedType::CustomerReturn, $this->record),
+            Action::make('reviewIdentityException')->label('Review Wrong / Different Item')->color('warning')
+                ->visible(fn (): bool => in_array(auth()->user()?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+                    && auth()->user()->can('return.inspect', $this->record)
+                    && $this->record->status === CustomerReturnStatus::QcPending
+                    && $this->record->fulfillmentWarehouse?->location_type !== InventoryLocationType::MarketplaceFulfilment
+                    && $this->record->items()->whereHas('findings', fn ($query) => $query->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))->exists())
+                ->schema([
+                    Select::make('item_id')->label('Return item')->options(fn (): array => $this->record->items()
+                        ->whereHas('findings', fn ($query) => $query->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))
+                        ->whereDoesntHave('quarantine', fn ($query) => $query->where('status', 'resolved'))
+                        ->get()->mapWithKeys(fn ($item): array => [$item->id => "{$item->sku_snapshot} — {$item->product_name_snapshot}"])->all())->required(),
+                    Select::make('disposition')->label('Owner/Admin decision')->options([
+                        'retain_in_quarantine' => 'Retain actual item in quarantine',
+                        'returned_to_sender' => 'Actual item returned to sender',
+                        'empty_package_confirmed' => 'Confirm empty package',
+                    ])->required(),
+                    TextInput::make('actual_custody_quantity')->label('Actual items received')->integer()->minValue(0)->required(),
+                    Textarea::make('review_notes')->label('Review reason and custody details')->required()->maxLength(5000),
+                ])->action(fn (array $data) => $this->run('Cannot review identity exception', fn () => app(CustomerReturnQuarantineService::class)->review(
+                    CustomerReturnItem::findOrFail($data['item_id']),
+                    [...$data, 'review_key' => (string) str()->uuid()], auth()->user(),
+                ))),
             Action::make('recordRefund')->label('Record Customer Refund')->color('warning')
                 ->visible(fn (): bool => $this->record->refund === null && auth()->user()->can('return.record_refund', $this->record))
                 ->schema([

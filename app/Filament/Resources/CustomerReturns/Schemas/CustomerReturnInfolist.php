@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\CustomerReturns\Schemas;
 
 use App\Enums\CustomerReturnPermission;
+use App\Enums\InventoryLocationType;
 use App\Models\CustomerReturn;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Returns\ReturnFinancialReadService;
@@ -69,7 +70,23 @@ class CustomerReturnInfolist
             ]),
             Section::make('Return QC Findings & Evidence')->schema([
                 ViewEntry::make('return_evidence')->view('returns.evidence-gallery')->hiddenLabel(),
+                TextEntry::make('marketplace_identity_hold')->label('Marketplace identity hold')
+                    ->state('The expected item was not verified. Inventory and financial resolution is on hold until Owner/Admin approves a marketplace ledger rule.')
+                    ->visible(fn (CustomerReturn $record): bool => $record->fulfillmentWarehouse?->location_type === InventoryLocationType::MarketplaceFulfilment
+                        && $record->items()->whereHas('findings', fn ($query) => $query->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))->exists()),
             ]),
+            Section::make('Identity exceptions and physical custody')->schema([
+                RepeatableEntry::make('quarantines')->hiddenLabel()->schema([
+                    TextEntry::make('item.sku_snapshot')->label('Expected SKU'),
+                    TextEntry::make('problem_type')->label('Problem'),
+                    TextEntry::make('warehouse.name')->label('Custody warehouse'),
+                    TextEntry::make('actual_custody_quantity')->label('Actual items received'),
+                    TextEntry::make('current_custody_quantity')->label('Still held here')
+                        ->state(fn ($record): ?int => $record->currentCustodyQuantity())->placeholder('Awaiting physical count'),
+                    TextEntry::make('status')->badge(),
+                    TextEntry::make('disposition')->label('Owner/Admin decision')->placeholder('Awaiting review'),
+                ])->columns(3),
+            ])->visible(fn (CustomerReturn $record): bool => $record->quarantines()->exists()),
         ]);
     }
 }

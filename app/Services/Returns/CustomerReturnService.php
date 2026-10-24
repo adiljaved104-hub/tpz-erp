@@ -138,6 +138,11 @@ class CustomerReturnService
             }
             $group = (string) Str::uuid();
             foreach ($locked->items as $item) {
+                // A declared identity discrepancy is physical custody, not a receipt
+                // of the originally sold SKU. It is tracked outside product inventory.
+                if ($item->quarantine()->exists()) {
+                    continue;
+                }
                 $inventory = $this->balances->lockOrCreate($item->product_id, $locked->receiving_warehouse_id);
                 $before = $this->snapshot($inventory);
                 $value = bcmul((string) $item->inventory_unit_cost, (string) $item->return_quantity, 4);
@@ -239,7 +244,9 @@ class CustomerReturnService
                 $inspected = (int) CustomerReturnInspection::query()->where('customer_return_item_id', $ri->id)
                     ->orWhereIn('marketplace_return_removal_item_id', $ri->removalItems()->select('id'))->sum('quantity');
 
-                return $sellableAtMarketplace + $inspected === $ri->return_quantity;
+                $resolvedException = $ri->quarantine()->where('status', 'resolved')->sum('expected_quantity');
+
+                return $sellableAtMarketplace + $inspected + $resolvedException === $ri->return_quantity;
             });
             if ($complete) {
                 $return->forceFill(['status' => CustomerReturnStatus::Completed, 'completed_at' => now()])->save();

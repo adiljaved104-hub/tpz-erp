@@ -57,6 +57,11 @@ class CustomerReturnItem extends Model
         return $this->hasMany(CustomerReturnFinding::class)->orderBy('id');
     }
 
+    public function quarantine(): HasOne
+    {
+        return $this->hasOne(CustomerReturnQuarantine::class);
+    }
+
     public function marketplaceDispositions(): HasMany
     {
         return $this->hasMany(CustomerReturnMarketplaceDisposition::class);

@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\CustomerReturns\Pages;
 
-use App\Actions\Returns\CreateCustomerReturn as CreateAction;
-use App\DTOs\Returns\CreateCustomerReturnData;
+use App\Enums\CustomerReturnPermission;
 use App\Exceptions\CustomerReturnException;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Models\CustomerReturn;
+use App\Services\Authorization\CustomerReturnAuthorization;
+use App\Services\Returns\CustomerReturnUnifiedWorkflowService;
+use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Support\Exceptions\Halt;
@@ -15,14 +17,57 @@ class CreateCustomerReturn extends CreateRecord
 {
     protected static string $resource = CustomerReturnResource::class;
 
+    protected static bool $canCreateAnother = false;
+
+    public bool $savePending = false;
+
+    public string $submissionKey;
+
+    public function mount(): void
+    {
+        $this->submissionKey = (string) str()->uuid();
+        parent::mount();
+    }
+
+    protected function getCreateFormAction(): Action
+    {
+        return parent::getCreateFormAction()->label('Create + Receive + Complete QC')
+            ->visible(fn (): bool => app(CustomerReturnAuthorization::class)->allows(auth()->user(), CustomerReturnPermission::Receive)
+                && app(CustomerReturnAuthorization::class)->allows(auth()->user(), CustomerReturnPermission::Inspect));
+    }
+
+    protected function getFormActions(): array
+    {
+        return [
+            $this->getCreateFormAction(),
+            Action::make('savePending')->label('Save Pending')->color('gray')->action('savePending'),
+            $this->getCancelFormAction(),
+        ];
+    }
+
+    public function savePending(): void
+    {
+        $this->savePending = true;
+        $this->create();
+    }
+
     protected function handleRecordCreation(array $data): CustomerReturn
     {
         try {
-            return app(CreateAction::class)->handle(new CreateCustomerReturnData((int) $data['order_id'], isset($data['receiving_warehouse_id']) ? (int) $data['receiving_warehouse_id'] : null, array_map(fn ($i) => ['order_fulfillment_item_id' => (int) $i['order_fulfillment_item_id'], 'quantity' => (int) $i['quantity'], 'return_reason' => $i['return_reason'], 'reason_notes' => $i['reason_notes'] ?? null], $data['items']), (string) str()->uuid(), $data['notes'] ?? null), auth()->user());
+            return app(CustomerReturnUnifiedWorkflowService::class)->submit(
+                $data, auth()->user(), ! $this->savePending, $this->submissionKey,
+            );
         } catch (CustomerReturnException $exception) {
-            Notification::make()->danger()->title('Cannot create return')->body($exception->getMessage())->send();
+            Notification::make()->danger()->title('Cannot process return')->body($exception->getMessage())->send();
             throw new Halt;
         }
+    }
+
+    protected function getCreatedNotificationTitle(): ?string
+    {
+        return $this->savePending
+            ? 'Return saved. Complete the receipt and QC when ready.'
+            : 'Return received and QC recorded. Any quarantined item awaits Owner/Admin review.';
     }
 
     protected function getRedirectUrl(): string

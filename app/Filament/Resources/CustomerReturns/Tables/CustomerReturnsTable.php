@@ -34,6 +34,10 @@ class CustomerReturnsTable
             TextColumn::make('claims.status')->label('Claim Status')->badge()->placeholder('—')->toggleable(),
             TextColumn::make('receivingWarehouse.name')->label('Returned To')->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
             TextColumn::make('status')->label('Physical Status')->badge(),
+            TextColumn::make('identity_review_needed')->label('Identity Review')
+                ->state(fn (CustomerReturn $record): string => $record->identity_review_needed ? 'Owner/Admin review pending' : '—')
+                ->badge(fn (CustomerReturn $record): bool => (bool) $record->identity_review_needed)
+                ->color(fn (CustomerReturn $record): string => $record->identity_review_needed ? 'warning' : 'gray'),
             TextColumn::make('reported_at')->dateTime('d M Y, h:i A')->toggleable(isToggledHiddenByDefault: true),
         ];
 
@@ -53,6 +57,7 @@ class CustomerReturnsTable
                 'awaiting_removal' => 'Awaiting Removal',
                 'in_transit' => 'In Transit',
                 'awaiting_qc' => 'Awaiting QC',
+                'identity_review' => 'Identity Review Pending',
                 'completed' => 'Completed',
             ])->query(function (Builder $query, array $data): Builder {
                 return match ($data['value'] ?? null) {
@@ -62,6 +67,9 @@ class CustomerReturnsTable
                     'awaiting_removal' => $query->whereHas('items', fn (Builder $items) => $items->whereRaw("(SELECT COALESCE(SUM(disposition.quantity), 0) FROM customer_return_marketplace_dispositions AS disposition WHERE disposition.customer_return_item_id = customer_return_items.id AND disposition.result = 'non_sellable') > (SELECT COALESCE(SUM(removal_item.quantity), 0) FROM marketplace_return_removal_items AS removal_item INNER JOIN marketplace_return_removals AS removal ON removal.id = removal_item.marketplace_return_removal_id WHERE removal_item.customer_return_item_id = customer_return_items.id AND removal.status <> 'cancelled')")),
                     'in_transit' => $query->whereHas('items.removalItems.removal', fn (Builder $removal) => $removal->where('status', MarketplaceReturnRemovalStatus::Dispatched->value)),
                     'awaiting_qc' => $query->where('status', CustomerReturnStatus::QcPending->value),
+                    'identity_review' => $query->whereHas('items', fn (Builder $items) => $items
+                        ->whereHas('findings', fn (Builder $findings) => $findings->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))
+                        ->whereDoesntHave('quarantine', fn (Builder $quarantine) => $quarantine->where('status', 'resolved'))),
                     'completed' => $query->where('status', CustomerReturnStatus::Completed->value),
                     default => $query,
                 };

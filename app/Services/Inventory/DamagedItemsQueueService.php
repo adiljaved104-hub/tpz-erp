@@ -2,10 +2,16 @@
 
 namespace App\Services\Inventory;
 
+use App\Enums\CustomerReturnPermission;
+use App\Enums\DamagedStockPermission;
 use App\Enums\DamagedStockSource;
 use App\Enums\DamagedStockStatus;
+use App\Models\CustomerReturnQuarantine;
 use App\Models\User;
+use App\Services\Authorization\CustomerReturnAuthorization;
+use App\Services\Authorization\DamagedStockAuthorization;
 use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Returns\CustomerReturnReadService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder;
@@ -14,6 +20,26 @@ use Illuminate\Support\Facades\DB;
 class DamagedItemsQueueService
 {
     public function __construct(private readonly DamagedStockAvailabilityService $availability) {}
+
+    /**
+     * Physical custody exceptions are deliberately separate from valued damaged
+     * inventory. The caller needs Return View as well as Damaged Stock View.
+     */
+    public function quarantinedReturns(User $user): LengthAwarePaginator
+    {
+        $query = CustomerReturnQuarantine::query()
+            ->with(['item.customerReturn', 'warehouse:id,name', 'recordedBy:id,name'])
+            ->whereHas('item', fn ($items) => $items->whereIn('customer_return_id',
+                app(CustomerReturnReadService::class)->query($user)->select('customer_returns.id')))
+            ->orderByDesc('id');
+
+        if (! app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View)
+            || ! app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View)) {
+            $query->whereRaw('1 = 0');
+        }
+
+        return $query->paginate(10, ['*'], 'quarantinePage');
+    }
 
     /** @param array{search?:?string,warehouse_id?:?int,source?:?string,platform_id?:?int,status?:?string} $filters */
     public function paginate(User $user, array $filters, int $perPage = 25): LengthAwarePaginator

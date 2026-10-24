@@ -154,7 +154,7 @@ class CustomerReturnUnifiedWorkflowService
                     'actual_product_name' => $line['actual_product_name'] ?? null,
                     'actual_serial_number' => $line['actual_serial_number'] ?? null,
                     'remarks' => $line['qc_remarks'] ?? null,
-                ], $actor);
+                ], $actor, $reserved['quarantine_claim'][(int) $line['order_fulfillment_item_id']] ?? null);
             }
             $this->returns->receive($return, $actor, $reserved['receipt']);
             foreach ($data['items'] as $line) {
@@ -167,6 +167,7 @@ class CustomerReturnUnifiedWorkflowService
                     $line['qc_outcome'] === 'fail' ? (int) $line['quantity'] : ($line['qc_outcome'] === 'mixed' ? (int) $line['damaged_quantity'] : 0),
                     (string) Str::uuid(),
                     collect([$line['problem_type'] ?? null, $line['qc_remarks'] ?? null])->filter()->implode(' — ') ?: null,
+                    $line['problem_type'] ?? null,
                 ), $actor, $reserved['inspection'][(int) $line['order_fulfillment_item_id']]);
             }
 
@@ -175,7 +176,7 @@ class CustomerReturnUnifiedWorkflowService
     }
 
     /** @param array<string, mixed> $data
-     * @return array{return:string,receipt:array<int,string>,inspection:array<int,array<string,string>>}
+     * @return array{return:string,receipt:array<int,string>,inspection:array<int,array<string,string>>,quarantine_claim:array<int,string>}
      */
     private function reserveReferences(array $data, Order $order): array
     {
@@ -183,6 +184,7 @@ class CustomerReturnUnifiedWorkflowService
             'return' => $this->references->nextCustomerReturnReference(),
             'receipt' => [],
             'inspection' => [],
+            'quarantine_claim' => [],
         ];
         if (! $data['physical_received']) {
             return $reserved;
@@ -192,6 +194,11 @@ class CustomerReturnUnifiedWorkflowService
             $itemId = (int) $line['order_fulfillment_item_id'];
             $outcome = $line['qc_outcome'] ?? 'pending';
             if ($outcome === 'quarantine') {
+                if ($order->marketplace_platform_id !== null
+                    && $order->platform?->customer_return_claims_enabled === true) {
+                    $reserved['quarantine_claim'][$itemId] = $this->references->nextReturnExceptionCaseReference();
+                }
+
                 continue;
             }
             $reserved['receipt'][$itemId] = $this->references->nextStockMovementReference();
@@ -205,7 +212,8 @@ class CustomerReturnUnifiedWorkflowService
             if (in_array($outcome, ['fail', 'mixed'], true)) {
                 $inspection['damaged'] = $this->references->nextStockMovementReference();
                 $inspection['damage'] = $this->references->nextDamagedStockReference();
-                if ($line['return_reason'] === CustomerReturnReason::DamagedByCustomer->value
+                if (($line['return_reason'] === CustomerReturnReason::DamagedByCustomer->value
+                    || in_array($line['problem_type'] ?? null, ['damaged', 'defective', 'missing_accessories'], true))
                     && $order->marketplace_platform_id !== null
                     && $order->platform?->customer_return_claims_enabled === true) {
                     $inspection['claim'] = $this->references->nextSafetClaimReference();

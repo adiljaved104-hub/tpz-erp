@@ -79,11 +79,15 @@ class CustomerReturnInfolist
                 RepeatableEntry::make('quarantines')->hiddenLabel()->schema([
                     TextEntry::make('item.sku_snapshot')->label('Expected SKU'),
                     TextEntry::make('problem_type')->label('Problem'),
+                    TextEntry::make('actual_product_name')->label('Actually received')->placeholder('Unidentified / empty package'),
                     TextEntry::make('warehouse.name')->label('Custody warehouse'),
                     TextEntry::make('actual_custody_quantity')->label('Actual items received'),
                     TextEntry::make('current_custody_quantity')->label('Still held here')
                         ->state(fn ($record): ?int => $record->currentCustodyQuantity())->placeholder('Awaiting physical count'),
                     TextEntry::make('status')->badge(),
+                    TextEntry::make('claim_case_reference')->label('Marketplace case')->placeholder('Not eligible / not opened'),
+                    TextEntry::make('recordedBy.name')->label('Recorded by'),
+                    TextEntry::make('evidence_readiness')->label('Evidence')->state(fn ($record): string => $record->evidenceReadiness()),
                     TextEntry::make('disposition')->label('Owner/Admin decision')->placeholder('Awaiting review'),
                 ])->columns(3),
             ])->visible(fn (CustomerReturn $record): bool => $record->quarantines()->exists()),

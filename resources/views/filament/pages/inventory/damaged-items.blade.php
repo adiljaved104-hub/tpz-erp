@@ -46,5 +46,34 @@
         </table>
     </div>
     {{ $rows->links() }}
+    <x-filament::section heading="Quarantined Returns" description="Physical custody only. These items are not part of valued or sellable inventory.">
+        <div class="max-w-full overflow-x-auto">
+            <table class="w-full min-w-[900px] text-sm">
+                <thead class="bg-gray-50 text-left dark:bg-white/5"><tr>
+                    @foreach (['Return', 'Original ordered product', 'Actually received', 'Warehouse', 'Physical items', 'Reason', 'Case / Evidence', 'Recorded by', 'Review'] as $heading)
+                        <th class="px-3 py-2 font-medium">{{ $heading }}</th>
+                    @endforeach
+                </tr></thead>
+                <tbody class="divide-y divide-gray-200 dark:divide-white/10">
+                    @forelse ($quarantinedReturns as $exception)
+                        <tr>
+                            <td class="px-3 py-2"><a class="text-primary-600 underline" href="{{ \App\Filament\Resources\CustomerReturns\CustomerReturnResource::getUrl('view', ['record' => $exception->item->customer_return_id]) }}">{{ $exception->item->customerReturn->reference }}</a></td>
+                            <td class="px-3 py-2">{{ $exception->item->sku_snapshot }} — {{ $exception->item->product_name_snapshot }}</td>
+                            <td class="px-3 py-2">{{ $exception->actual_product_name ?: ($exception->problem_type === 'empty_package' ? 'Empty package' : 'Unidentified item') }}</td>
+                            <td class="px-3 py-2">{{ $exception->warehouse->name }}</td>
+                            <td class="px-3 py-2">{{ $exception->currentCustodyQuantity() ?? 'Pending count' }}</td>
+                            <td class="px-3 py-2">{{ str($exception->problem_type)->replace('_', ' ')->headline() }}</td>
+                            <td class="px-3 py-2">{{ $exception->claim_case_reference ?: 'Not eligible for an automatic marketplace case' }}<br><span class="text-gray-500">{{ $exception->evidenceReadiness() }}</span></td>
+                            <td class="px-3 py-2">{{ $exception->recordedBy?->name ?? '—' }}</td>
+                            <td class="px-3 py-2">{{ $exception->status === 'awaiting_review' ? 'Owner/Admin review pending' : str($exception->disposition)->replace('_', ' ')->headline() }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="9" class="px-3 py-6 text-center text-gray-500">No quarantined returns are visible in your scope.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+        {{ $quarantinedReturns->links() }}
+    </x-filament::section>
     <x-filament-actions::modals />
 </x-filament-panels::page>

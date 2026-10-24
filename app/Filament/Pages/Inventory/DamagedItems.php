@@ -201,6 +201,7 @@ class DamagedItems extends Page
 
         return [
             'rows' => $service->paginate($user, $filters),
+            'quarantinedReturns' => $service->quarantinedReturns($user),
             'summary' => $service->summary($user, $filters),
             'warehouses' => $options['warehouses'],
             'platforms' => $options['platforms'],

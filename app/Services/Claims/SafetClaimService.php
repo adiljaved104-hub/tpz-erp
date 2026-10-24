@@ -27,18 +27,19 @@ class SafetClaimService
         private readonly SafetClaimAssigneeService $assignees,
     ) {}
 
-    public function eligible(CustomerReturnItem $item): bool
+    public function eligible(CustomerReturnItem $item, ?string $problemType = null): bool
     {
         $item->loadMissing('customerReturn.platform');
 
-        return $item->return_reason === CustomerReturnReason::DamagedByCustomer
+        return ($item->return_reason === CustomerReturnReason::DamagedByCustomer
+            || in_array($problemType, ['damaged', 'defective', 'missing_accessories'], true))
             && $item->customerReturn->marketplace_platform_id !== null
             && $item->customerReturn->platform?->customer_return_claims_enabled === true;
     }
 
-    public function createFromQcDamage(DamagedStockEvent $damage, CustomerReturnItem $item, User $actor, ?string $reference): ?SafetClaim
+    public function createFromQcDamage(DamagedStockEvent $damage, CustomerReturnItem $item, User $actor, ?string $reference, ?string $problemType = null): ?SafetClaim
     {
-        if (! $this->eligible($item)) {
+        if (! $this->eligible($item, $problemType)) {
             return null;
         }
         if ($existing = SafetClaim::query()->where('damaged_stock_event_id', $damage->id)->first()) {
@@ -57,7 +58,8 @@ class SafetClaimService
             'order_item_id' => $item->order_item_id, 'order_fulfillment_item_id' => $item->order_fulfillment_item_id,
             'product_id' => $item->product_id, 'quantity' => $damage->quantity,
             'source' => SafetClaimSource::QcDamagedCustomerReturn, 'status' => SafetClaimStatus::NeedsFiling,
-            'claim_reason' => $item->return_reason->label(), 'claim_program_name' => $return->platform->claim_program_name,
+            'claim_reason' => $problemType !== null ? str($problemType)->replace('_', ' ')->headline()->toString() : $item->return_reason->label(),
+            'claim_program_name' => $return->platform->claim_program_name,
             'idempotency_key' => $damage->idempotency_key, 'created_by_user_id' => $actor->id,
         ]);
         $this->event($claim, null, SafetClaimStatus::NeedsFiling, null, $actor);

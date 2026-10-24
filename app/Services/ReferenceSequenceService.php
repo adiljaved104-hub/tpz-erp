@@ -127,6 +127,13 @@ class ReferenceSequenceService
         return "CLM-{$year}-".str_pad((string) $this->next("safet_claim:{$year}"), 6, '0', STR_PAD_LEFT);
     }
 
+    public function nextReturnExceptionCaseReference(?int $year = null): string
+    {
+        $year ??= (int) now()->format('Y');
+
+        return "RCE-{$year}-".str_pad((string) $this->next("return_exception_case:{$year}"), 6, '0', STR_PAD_LEFT);
+    }
+
     public function nextWarrantyRepairReference(?int $year = null): string
     {
         $year ??= (int) now()->format('Y');

@@ -194,7 +194,7 @@ class CustomerReturnService
                 ? $this->references->nextDamagedStockReference()
                 : ($reservedReferences['damage'] ?? throw new CustomerReturnException('A damaged stock reference was not reserved.')))
             : null;
-        $claimReference = $data->damagedQuantity > 0 && $this->claims->eligible($item)
+        $claimReference = $data->damagedQuantity > 0 && $this->claims->eligible($item, $data->problemType)
             ? ($reservedReferences === null
                 ? $this->references->nextSafetClaimReference()
                 : ($reservedReferences['claim'] ?? throw new CustomerReturnException('An eligible claim reference was not reserved.')))
@@ -251,7 +251,7 @@ class CustomerReturnService
                 $qBefore -= $quantity;
                 $vBefore = bcsub($vBefore, $portion, 4);
                 if ($enum === CustomerReturnInspectionResult::Damaged) {
-                    $this->damagedStock->recordReturnQcDamage($inspection, $inventory, $actor, $damageReference, $claimReference);
+                    $this->damagedStock->recordReturnQcDamage($inspection, $inventory, $actor, $damageReference, $claimReference, $data->problemType);
                 }
             }
             $complete = $return->items->every(function (CustomerReturnItem $ri): bool {

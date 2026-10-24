@@ -6,7 +6,8 @@
             ? $source->customerReturn
             : ($source instanceof \App\Models\WarrantyRepair ? $source->damagedStockEvent?->customerReturn : null));
     $allowed = $return && auth()->user() && app(\App\Services\Returns\CustomerReturnEvidenceAuthorization::class)->canView(auth()->user(), $return);
-    $items = $allowed ? $return->items()->with('findings.evidence')->get() : collect();
+    $items = $allowed ? $return->items()->when($source instanceof \App\Models\SafetClaim,
+        fn ($query) => $query->whereKey($source->customer_return_item_id))->with('findings.evidence')->get() : collect();
 @endphp
 
 @if ($allowed)

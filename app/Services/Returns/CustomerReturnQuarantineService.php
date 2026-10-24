@@ -40,7 +40,7 @@ class CustomerReturnQuarantineService
     ) {}
 
     /** Record a discrepancy before company receipt, without posting the expected SKU. */
-    public function flagBeforeReceipt(CustomerReturnItem $item, array $input, User $actor): CustomerReturnQuarantine
+    public function flagBeforeReceipt(CustomerReturnItem $item, array $input, User $actor, ?string $claimCaseReference = null): CustomerReturnQuarantine
     {
         $validated = Validator::make($input, [
             'problem_type' => ['required', 'in:'.implode(',', self::PROBLEMS)],
@@ -50,7 +50,14 @@ class CustomerReturnQuarantineService
             'remarks' => ['nullable', 'string', 'max:5000'],
         ])->validate();
 
-        return DB::transaction(function () use ($item, $validated, $actor): CustomerReturnQuarantine {
+        $item->loadMissing('customerReturn.platform');
+        $claimEligible = $item->customerReturn->marketplace_platform_id !== null
+            && $item->customerReturn->platform?->customer_return_claims_enabled === true;
+        if ($claimEligible && $claimCaseReference === null) {
+            throw new CustomerReturnException('Reserve the eligible exception case reference before starting the Return transaction.');
+        }
+
+        return DB::transaction(function () use ($item, $validated, $actor, $claimEligible, $claimCaseReference): CustomerReturnQuarantine {
             $locked = CustomerReturnItem::query()->lockForUpdate()->findOrFail($item->id);
             $return = CustomerReturn::query()->with('fulfillmentWarehouse')->lockForUpdate()->findOrFail($locked->customer_return_id);
             $this->authorization->authorize($actor, CustomerReturnPermission::Receive, $return);
@@ -83,10 +90,12 @@ class CustomerReturnQuarantineService
                 'actual_product_name' => $validated['actual_product_name'] ?? null,
                 'actual_serial_number' => $validated['actual_serial_number'] ?? null,
                 'remarks' => $validated['remarks'] ?? null, 'recorded_by_user_id' => $actor->id,
+                'claim_case_reference' => $claimEligible ? $claimCaseReference : null,
             ]);
             $this->activity->log('customer_return.quarantined', $actor, $return, [
                 'return_item_id' => $locked->id, 'expected_quantity' => $locked->return_quantity,
                 'actual_custody_quantity' => $quarantine->actual_custody_quantity,
+                'claim_case_reference' => $quarantine->claim_case_reference,
             ]);
 
             return $quarantine;
@@ -98,7 +107,7 @@ class CustomerReturnQuarantineService
     {
         $validated = Validator::make($input, [
             'disposition' => ['required', 'in:'.implode(',', self::DISPOSITIONS)],
-            'actual_custody_quantity' => ['required', 'integer', 'min:0', 'max:10000'],
+            'actual_custody_quantity' => ['sometimes', 'integer', 'min:0', 'max:10000'],
             'review_notes' => ['required', 'string', 'max:5000'],
             'review_key' => ['required', 'uuid'],
         ])->validate();
@@ -113,7 +122,7 @@ class CustomerReturnQuarantineService
         $previous = $item->quarantine()->where('review_key', $validated['review_key'])->first();
         if ($previous?->status === 'resolved') {
             if ($previous->disposition !== $validated['disposition']
-                || $previous->actual_custody_quantity !== $validated['actual_custody_quantity']
+                || (isset($validated['actual_custody_quantity']) && $previous->actual_custody_quantity !== $validated['actual_custody_quantity'])
                 || $previous->review_notes !== $validated['review_notes']) {
                 throw new CustomerReturnException('This review ID was already used for a different decision.');
             }
@@ -150,12 +159,6 @@ class CustomerReturnQuarantineService
             if (($finding->problem_type === 'empty_package') !== ($validated['disposition'] === 'empty_package_confirmed')) {
                 throw new CustomerReturnException('The disposition must match the recorded empty-package finding.');
             }
-            if ($finding->problem_type === 'empty_package' && $validated['actual_custody_quantity'] !== 0) {
-                throw new CustomerReturnException('An empty package cannot contain a received item.');
-            }
-            if ($finding->problem_type !== 'empty_package' && $validated['actual_custody_quantity'] < 1) {
-                throw new CustomerReturnException('Enter the actual quantity held or returned to sender.');
-            }
             if ($quarantine === null) {
                 $quarantine = CustomerReturnQuarantine::query()->create([
                     'customer_return_item_id' => $locked->id, 'finding_id' => $finding->id,
@@ -165,7 +168,24 @@ class CustomerReturnQuarantineService
                     'actual_product_name' => $finding->actual_product_name,
                     'actual_serial_number' => $finding->actual_serial_number,
                     'remarks' => $finding->remarks, 'recorded_by_user_id' => $finding->recorded_by_user_id,
+                    'actual_custody_quantity' => $validated['actual_custody_quantity'] ?? null,
                 ]);
+            }
+            // The receiving employee already recorded the physical count. Owner/Admin
+            // approves its disposition here, rather than performing QC a second time.
+            if ($quarantine->actual_custody_quantity === null) {
+                throw new CustomerReturnException('Record the actual items received before resolving this exception.');
+            }
+            if (isset($validated['actual_custody_quantity'])
+                && $validated['actual_custody_quantity'] !== $quarantine->actual_custody_quantity) {
+                throw new CustomerReturnException('The recorded physical count cannot be changed during disposition review.');
+            }
+            $validated['actual_custody_quantity'] = $quarantine->actual_custody_quantity;
+            if ($finding->problem_type === 'empty_package' && $validated['actual_custody_quantity'] !== 0) {
+                throw new CustomerReturnException('An empty package cannot contain a received item.');
+            }
+            if ($finding->problem_type !== 'empty_package' && $validated['actual_custody_quantity'] < 1) {
+                throw new CustomerReturnException('Enter the actual quantity held or returned to sender.');
             }
             $previousCustodyQuantity = $quarantine->actual_custody_quantity;
             $receipt = StockMovement::query()->where('source_type', $locked->getMorphClass())

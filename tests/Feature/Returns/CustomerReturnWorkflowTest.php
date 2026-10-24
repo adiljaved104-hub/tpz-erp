@@ -17,26 +17,33 @@ use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationType;
 use App\Enums\StockMovementType;
 use App\Exceptions\CustomerReturnException;
+use App\Filament\Pages\Inventory\DamagedItems;
 use App\Filament\Resources\CustomerReturns\Pages\CreateCustomerReturn as CreateCustomerReturnPage;
 use App\Filament\Resources\CustomerReturns\Pages\ListCustomerReturns;
 use App\Filament\Resources\CustomerReturns\Pages\ViewCustomerReturn as ViewCustomerReturnPage;
 use App\Models\CustomerReturn;
 use App\Models\CustomerReturnFinding;
 use App\Models\Employee;
+use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductInventory;
+use App\Models\SafetClaim;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\CustomerReturnAuthorization;
+use App\Services\Inventory\DamagedItemsQueueService;
 use App\Services\Inventory\InventoryBalanceService;
 use App\Services\ReferenceSequenceService;
+use App\Services\Returns\CustomerReturnEvidenceService;
 use App\Services\Returns\CustomerReturnQuarantineService;
 use App\Services\Returns\CustomerReturnUnifiedWorkflowService;
 use App\Services\Returns\QcPendingQueueService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -248,6 +255,8 @@ class CustomerReturnWorkflowTest extends TestCase
         $this->assertDatabaseCount('customer_return_inspections', 1);
         $this->assertDatabaseCount('customer_returns', 1);
         $this->assertDatabaseCount('customer_return_quarantines', 0);
+        Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
+            ->assertDontSee('Continue QC');
     }
 
     public function test_one_page_fail_posts_damaged_only_and_requires_actual_problem(): void
@@ -262,6 +271,81 @@ class CustomerReturnWorkflowTest extends TestCase
         $this->assertSame(1, $inventory->damaged_quantity);
         $this->assertSame(0, $inventory->qc_pending_quantity);
         $this->assertSame('defective — Screen failure', $return->items->sole()->inspections()->sole()->notes);
+    }
+
+    public function test_eligible_defective_return_creates_one_unfiled_claim_and_evidence_readiness_updates_on_upload(): void
+    {
+        Storage::fake('local');
+        $platform = MarketplacePlatform::factory()->create(['customer_return_claims_enabled' => true]);
+        [$owner, , $warehouse, $inventory, $order] = $this->fulfilledOrder(4, 1, '100.0000', $platform);
+        $input = $this->onePageInput($order, $warehouse, 'fail');
+        $input['items'][0]['problem_type'] = 'defective';
+        $key = (string) Str::uuid();
+        $return = app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, $key);
+        $claim = SafetClaim::query()->sole();
+
+        $this->assertSame('Defective', $claim->claim_reason);
+        $this->assertSame('Evidence Pending', $claim->evidenceReadiness());
+        $this->assertNull($claim->external_claim_reference);
+        $this->assertSame($return->id, app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, $key)->id);
+        $this->assertDatabaseCount('safet_claims', 1);
+        $this->assertSame(1, $inventory->refresh()->damaged_quantity);
+        $this->withToken($owner->createToken('Completed return evidence')->plainTextToken)
+            ->getJson('/api/mobile/v1/workspace/qc/return-evidence?q='.$order->reference)
+            ->assertOk()->assertJsonFragment(['return_reference' => $return->reference]);
+
+        app(CustomerReturnEvidenceService::class)->record($return->items->sole(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'defective',
+        ], UploadedFile::fake()->image('defect.jpg'));
+        $this->assertSame('Evidence Ready', $claim->evidenceReadiness());
+    }
+
+    public function test_marketplace_identity_exception_opens_a_separate_case_without_original_sku_inventory(): void
+    {
+        Storage::fake('local');
+        $platform = MarketplacePlatform::factory()->create(['customer_return_claims_enabled' => true]);
+        [$owner, , $warehouse, $inventory, $order] = $this->fulfilledOrder(4, 1, '100.0000', $platform);
+        $input = $this->onePageInput($order, $warehouse, 'quarantine');
+        $input['items'][0]['problem_type'] = 'wrong_item';
+        $input['items'][0]['actual_custody_quantity'] = 1;
+        $input['items'][0]['actual_product_name'] = 'Unrelated laptop';
+        $key = (string) Str::uuid();
+        $return = app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, $key);
+        $case = $return->quarantines()->sole();
+
+        $this->assertMatchesRegularExpression('/^RCE-\d{4}-\d{6}$/', $case->claim_case_reference);
+        $this->assertSame('Evidence Pending', $case->evidenceReadiness());
+        $this->assertSame(1, app(DamagedItemsQueueService::class)->quarantinedReturns($owner)->total());
+        $staff = User::factory()->create();
+        Employee::factory()->for($staff)->role(EmployeeRole::Staff)->create(['email' => $staff->email]);
+        $this->assertSame(0, app(DamagedItemsQueueService::class)->quarantinedReturns($staff)->total());
+        $this->assertSame(0, app(DamagedItemsQueueService::class)->summary($owner, [])['units']);
+        $this->assertDatabaseCount('safet_claims', 0);
+        $this->assertSame(0, $inventory->refresh()->qc_pending_quantity);
+        $this->assertSame(0, $inventory->damaged_quantity);
+        $this->assertSame($return->id, app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, $key)->id);
+
+        Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
+            ->assertSee($case->claim_case_reference)->assertSee('Resolve Return Exception')
+            ->assertDontSee('Continue QC');
+        Livewire::actingAs($owner)->test(DamagedItems::class)
+            ->assertSee('Quarantined Returns')->assertSee('Unrelated laptop')
+            ->assertSee($case->claim_case_reference);
+        $this->withToken($owner->createToken('Quarantined return evidence')->plainTextToken)
+            ->getJson('/api/mobile/v1/workspace/qc/return-evidence?q='.$order->reference)
+            ->assertOk()->assertJsonFragment(['return_reference' => $return->reference]);
+        app(CustomerReturnEvidenceService::class)->record($return->items->sole(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'Unrelated laptop',
+        ], UploadedFile::fake()->image('wrong-item.jpg'));
+        $this->assertSame('Evidence Ready', $case->evidenceReadiness());
+        app(CustomerReturnQuarantineService::class)->review($return->items->sole(), [
+            'disposition' => 'retain_in_quarantine', 'review_notes' => 'Keep the actual item for review.',
+            'review_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->assertSame(1, $case->refresh()->currentCustodyQuantity());
+        $this->assertSame(0, $inventory->refresh()->qc_pending_quantity);
     }
 
     public function test_one_page_splits_partial_pass_and_fail_quantities_of_one_product(): void
@@ -298,7 +382,7 @@ class CustomerReturnWorkflowTest extends TestCase
             $this->assertDatabaseCount('customer_return_refunds', 0);
             Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
                 ->assertSee('Identity exceptions and physical custody')
-                ->assertSee('Review Wrong / Different Item');
+                ->assertSee('Resolve Return Exception');
             $this->assertSame($problem === 'empty_package' ? 0 : 1, $return->quarantines()->sole()->actual_custody_quantity);
             $this->assertDatabaseMissing('stock_movements', [
                 'source_type' => $return->items->sole()->getMorphClass(),
@@ -329,6 +413,8 @@ class CustomerReturnWorkflowTest extends TestCase
         $input['physical_received'] = true;
         $pending = app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, false, (string) Str::uuid());
         $this->assertSame(CustomerReturnStatus::QcPending, $pending->status);
+        Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $pending->id])
+            ->assertSee('Continue QC');
         $this->assertSame(1, $inventory->refresh()->qc_pending_quantity);
         $this->assertDatabaseCount('customer_return_inspections', 0);
     }
@@ -568,14 +654,14 @@ class CustomerReturnWorkflowTest extends TestCase
         ];
     }
 
-    private function fulfilledOrder(int $available, int $quantity, string $cost): array
+    private function fulfilledOrder(int $available, int $quantity, string $cost, ?MarketplacePlatform $platform = null): array
     {
         $owner = User::factory()->create();
         Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
         $product = Product::factory()->create();
         $warehouse = Warehouse::factory()->create(['status' => true, 'is_default' => true]);
         $inventory = ProductInventory::factory()->create(['product_id' => $product->id, 'warehouse_id' => $warehouse->id, 'available_quantity' => $available, 'average_cost' => $cost]);
-        $data = new SaveAndReserveOrderData($warehouse->id, null, null, now()->toDateString(), $owner->employee->id, null, [new OrderItemData($product->id, $quantity, '500.00')], (string) Str::uuid());
+        $data = new SaveAndReserveOrderData($warehouse->id, $platform?->id, null, now()->toDateString(), $owner->employee->id, null, [new OrderItemData($product->id, $quantity, '500.00')], (string) Str::uuid());
         $order = app(SaveAsShippedOrder::class)->handle($data, $owner)->load('fulfillment.items');
 
         return [$owner->refresh(), $product, $warehouse, $inventory, $order];

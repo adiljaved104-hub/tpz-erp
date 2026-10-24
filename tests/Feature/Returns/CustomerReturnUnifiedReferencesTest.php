@@ -9,6 +9,7 @@ use App\Enums\CustomerReturnStatus;
 use App\Enums\EmployeeRole;
 use App\Models\CustomerReturn;
 use App\Models\CustomerReturnInspection;
+use App\Models\CustomerReturnQuarantine;
 use App\Models\Employee;
 use App\Models\MarketplacePlatform;
 use App\Models\Product;
@@ -139,6 +140,57 @@ class CustomerReturnUnifiedReferencesTest extends TestCase
         $this->assertSame(1, collect($probe->levels)->where('type', 'movement')->count());
     }
 
+    public function test_production_guard_reserves_eligible_exception_case_before_atomic_return_and_does_not_reuse_it(): void
+    {
+        [$owner, $warehouse, $inventory, $order] = $this->fulfilledOrder(1, true);
+        $probe = $this->productionGuardProbe();
+        $input = $this->input($order, $warehouse, 'quarantine', 1, [
+            'problem_type' => 'empty_package', 'actual_custody_quantity' => 0,
+        ]);
+        $key = (string) Str::uuid();
+        $first = app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, $key);
+        $reference = $first->quarantines()->sole()->claim_case_reference;
+
+        $this->assertMatchesRegularExpression('/^RCE-\d{4}-\d{6}$/', $reference);
+        $this->assertSame([0], array_values(array_unique(array_column($probe->levels, 'transaction_level'))));
+        $this->assertContains('exception_case', array_column($probe->levels, 'type'));
+        $before = count($probe->levels);
+        $this->assertSame($first->id, app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, $key)->id);
+        $this->assertCount($before, $probe->levels);
+        $this->assertSame(0, $inventory->refresh()->qc_pending_quantity);
+        $this->assertSame(0, $inventory->damaged_quantity);
+    }
+
+    public function test_failed_exception_receipt_rolls_back_case_but_never_reuses_its_reference(): void
+    {
+        [$owner, $warehouse, $inventory, $order] = $this->fulfilledOrder(1, true);
+        $probe = $this->productionGuardProbe();
+        $input = $this->input($order, $warehouse, 'quarantine', 1, [
+            'problem_type' => 'serial_mismatch', 'actual_custody_quantity' => 1,
+        ]);
+        $fail = true;
+        CustomerReturnQuarantine::creating(function () use (&$fail): void {
+            if ($fail) {
+                throw new RuntimeException('Simulated custody write failure');
+            }
+        });
+
+        try {
+            app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, (string) Str::uuid());
+            $this->fail('The failed custody write must roll back the Return.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Simulated custody write failure', $exception->getMessage());
+        }
+        $this->assertDatabaseCount('customer_returns', 0);
+        $this->assertDatabaseCount('customer_return_quarantines', 0);
+        $this->assertSame(0, $inventory->refresh()->qc_pending_quantity);
+        $this->assertSame(2, ReferenceSequence::query()->whereKey('return_exception_case:'.now()->year)->value('next_value'));
+        $fail = false;
+        $return = app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, (string) Str::uuid());
+        $this->assertStringEndsWith('000002', $return->quarantines()->sole()->claim_case_reference);
+        $this->assertSame([0], array_values(array_unique(array_column($probe->levels, 'transaction_level'))));
+    }
+
     public function test_failed_inspection_rolls_back_business_rows_but_cannot_reuse_reserved_references(): void
     {
         [$owner, $warehouse, $inventory, $order] = $this->fulfilledOrder(1);
@@ -219,6 +271,13 @@ class CustomerReturnUnifiedReferencesTest extends TestCase
                 $this->record('claim');
 
                 return parent::nextSafetClaimReference($year);
+            }
+
+            public function nextReturnExceptionCaseReference(?int $year = null): string
+            {
+                $this->record('exception_case');
+
+                return parent::nextReturnExceptionCaseReference($year);
             }
 
             private function record(string $type): void

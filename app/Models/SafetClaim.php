@@ -86,4 +86,11 @@ class SafetClaim extends Model
     {
         return $this->hasMany(SafetClaimStatusEvent::class)->orderBy('changed_at')->orderBy('id');
     }
+
+    public function evidenceReadiness(): string
+    {
+        return $this->returnItem->findings()->whereHas('evidence')->exists()
+            ? 'Evidence Ready'
+            : 'Evidence Pending';
+    }
 }

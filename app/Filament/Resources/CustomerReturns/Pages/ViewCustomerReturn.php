@@ -27,6 +27,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
@@ -40,14 +41,14 @@ class ViewCustomerReturn extends ViewRecord
         return [
             OpenChatDiscussionAction::make($this->record),
             CreateTaskFromSourceAction::make(TaskLinkedType::CustomerReturn, $this->record),
-            Action::make('reviewIdentityException')->label('Review Wrong / Different Item')->color('warning')
+            Action::make('reviewIdentityException')->label('Resolve Return Exception')->color('warning')
                 ->visible(fn (): bool => in_array(auth()->user()?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
                     && auth()->user()->can('return.inspect', $this->record)
                     && $this->record->status === CustomerReturnStatus::QcPending
                     && $this->record->fulfillmentWarehouse?->location_type !== InventoryLocationType::MarketplaceFulfilment
                     && $this->record->items()->whereHas('findings', fn ($query) => $query->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))->exists())
                 ->schema([
-                    Select::make('item_id')->label('Return item')->options(fn (): array => $this->record->items()
+                    Select::make('item_id')->label('Return item')->live()->options(fn (): array => $this->record->items()
                         ->whereHas('findings', fn ($query) => $query->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))
                         ->whereDoesntHave('quarantine', fn ($query) => $query->where('status', 'resolved'))
                         ->get()->mapWithKeys(fn ($item): array => [$item->id => "{$item->sku_snapshot} — {$item->product_name_snapshot}"])->all())->required(),
@@ -56,8 +57,13 @@ class ViewCustomerReturn extends ViewRecord
                         'returned_to_sender' => 'Actual item returned to sender',
                         'empty_package_confirmed' => 'Confirm empty package',
                     ])->required(),
-                    TextInput::make('actual_custody_quantity')->label('Actual items received')->integer()->minValue(0)->required(),
-                    Textarea::make('review_notes')->label('Review reason and custody details')->required()->maxLength(5000),
+                    TextInput::make('actual_custody_quantity')->label('Actual items received')
+                        ->integer()->minValue(0)
+                        ->visible(fn (Get $get): bool => $get('item_id') !== null
+                            && ! CustomerReturnItem::query()->find((int) $get('item_id'))?->quarantine()->exists())
+                        ->required(fn (Get $get): bool => $get('item_id') !== null
+                            && ! CustomerReturnItem::query()->find((int) $get('item_id'))?->quarantine()->exists()),
+                    Textarea::make('review_notes')->label('Reason for final custody decision')->required()->maxLength(5000),
                 ])->action(fn (array $data) => $this->run('Cannot review identity exception', fn () => app(CustomerReturnQuarantineService::class)->review(
                     CustomerReturnItem::findOrFail($data['item_id']),
                     [...$data, 'review_key' => (string) str()->uuid()], auth()->user(),
@@ -104,14 +110,40 @@ class ViewCustomerReturn extends ViewRecord
                 TextInput::make('external_reference')->label('External Removal Reference')->maxLength(255), Textarea::make('notes')->maxLength(2000),
             ])->visible(fn () => auth()->user()->can('marketplace_return.request_removal'))->action(fn (array $data) => $this->run('Cannot request marketplace removal', fn () => app(MarketplaceReturnService::class)->requestRemoval(CustomerReturnItem::findOrFail($data['item_id']), (int) $data['quantity'], (int) $data['destination_id'], (string) str()->uuid(), auth()->user(), $data['external_reference'] ?? null, $data['notes'] ?? null))),
             Action::make('receive')->label('Receive Return')->color('warning')->requiresConfirmation()->visible(fn () => $this->record->status === CustomerReturnStatus::Draft && auth()->user()->can('return.receive', $this->record))->action(fn () => $this->run('Cannot receive return', fn () => app(ReceiveCustomerReturn::class)->handle($this->record, auth()->user()))),
-            Action::make('inspect')->label('QC Return')->color('success')->schema([
-                Select::make('item_id')->label('Return Item')->options(fn () => $this->record->items->mapWithKeys(fn ($i) => [$i->id => "{$i->sku_snapshot} — {$i->product_name_snapshot} ({$i->return_quantity})"]))->required(),
+            Action::make('inspect')->label('Continue QC')->color('success')->schema([
+                Select::make('item_id')->label('Return Item')->options(fn (): array => $this->qcRemainingItems())->required(),
                 TextInput::make('sellable_quantity')->label('Sellable Qty')->integer()->minValue(0)->default(0)->required(),
                 TextInput::make('damaged_quantity')->label('Damaged Qty')->integer()->minValue(0)->default(0)->required(),
                 Textarea::make('notes')->maxLength(2000),
-            ])->visible(fn () => $this->record->status === CustomerReturnStatus::QcPending && auth()->user()->can('return.inspect', $this->record))->action(fn (array $data) => $this->run('Cannot inspect return', fn () => app(InspectCustomerReturnItem::class)->handle(CustomerReturnItem::findOrFail($data['item_id']), new InspectCustomerReturnItemData((int) $data['sellable_quantity'], (int) $data['damaged_quantity'], (string) str()->uuid(), $data['notes'] ?? null), auth()->user()))),
+            ])->visible(fn (): bool => $this->record->status === CustomerReturnStatus::QcPending
+                && auth()->user()->can('return.inspect', $this->record)
+                && $this->qcRemainingItems() !== [])->action(fn (array $data) => $this->run('Cannot inspect return', function () use ($data): void {
+                    if (! array_key_exists((int) $data['item_id'], $this->qcRemainingItems())) {
+                        throw new CustomerReturnException('This item has no ordinary QC quantity remaining.');
+                    }
+                    app(InspectCustomerReturnItem::class)->handle(CustomerReturnItem::findOrFail($data['item_id']), new InspectCustomerReturnItemData((int) $data['sellable_quantity'], (int) $data['damaged_quantity'], (string) str()->uuid(), $data['notes'] ?? null), auth()->user());
+                })),
             Action::make('cancel')->label('Cancel Draft')->color('danger')->requiresConfirmation()->schema([Textarea::make('reason')->required()->maxLength(2000)])->visible(fn () => $this->record->status === CustomerReturnStatus::Draft && auth()->user()->can('return.cancel', $this->record))->action(fn (array $data) => $this->run('Cannot cancel return', fn () => app(CancelCustomerReturn::class)->handle($this->record, $data['reason'], auth()->user()))),
         ];
+    }
+
+    /** @return array<int, string> */
+    private function qcRemainingItems(): array
+    {
+        return $this->record->items()->with('quarantine:id,customer_return_item_id')
+            ->get()->filter(function (CustomerReturnItem $item): bool {
+                if ($item->quarantine !== null || $item->hasIdentityDiscrepancy()) {
+                    return false;
+                }
+                $marketplaceDispositioned = (int) $item->marketplaceDispositions()->sum('quantity');
+                $ceiling = $marketplaceDispositioned > 0
+                    ? (int) $item->removalItems()->sum('received_quantity')
+                    : $item->return_quantity;
+
+                return $ceiling > $item->inspectedQuantity();
+            })->mapWithKeys(fn (CustomerReturnItem $item): array => [
+                $item->id => "{$item->sku_snapshot} — {$item->product_name_snapshot}",
+            ])->all();
     }
 
     private function run(string $title, callable $operation): void

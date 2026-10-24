@@ -39,6 +39,11 @@ class CustomerReturnQuarantine extends Model
         return $this->belongsTo(Warehouse::class, 'custody_warehouse_id');
     }
 
+    public function recordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by_user_id');
+    }
+
     public function currentCustodyQuantity(): ?int
     {
         if ($this->actual_custody_quantity === null) {
@@ -46,5 +51,12 @@ class CustomerReturnQuarantine extends Model
         }
 
         return $this->disposition === 'returned_to_sender' ? 0 : $this->actual_custody_quantity;
+    }
+
+    public function evidenceReadiness(): string
+    {
+        return $this->item->findings()->whereHas('evidence')->exists()
+            ? 'Evidence Ready'
+            : 'Evidence Pending';
     }
 }

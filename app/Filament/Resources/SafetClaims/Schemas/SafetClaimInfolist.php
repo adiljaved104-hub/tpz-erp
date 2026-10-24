@@ -39,6 +39,7 @@ class SafetClaimInfolist
                 TextEntry::make('customerReturn.refund.warrantyRepair.reference')->label('Warranty Ref')->placeholder('—'),
                 TextEntry::make('product.sku')->label('SKU'), TextEntry::make('product.name')->label('Product'),
                 TextEntry::make('quantity')->label('Qty'), TextEntry::make('claim_reason')->label('Damage Reason'),
+                TextEntry::make('evidence_readiness')->label('Evidence')->state(fn ($record): string => $record->evidenceReadiness()),
                 TextEntry::make('damagedStockEvent.occurred_at')->label('QC Date')->dateTime('d M Y, h:i A'),
                 TextEntry::make('damagedStockEvent.reference')->label('Damaged Item')->url('/admin/damaged-items'),
                 TextEntry::make('external_claim_reference')->label('External Claim Ref')->placeholder('Not filed'),

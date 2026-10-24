@@ -84,7 +84,10 @@ class CustomerReturnItem extends Model
 
     public function inspectedQuantity(): int
     {
-        return (int) $this->inspections()->sum('quantity');
+        return (int) CustomerReturnInspection::query()
+            ->where('customer_return_item_id', $this->id)
+            ->orWhereIn('marketplace_return_removal_item_id', $this->removalItems()->select('id'))
+            ->sum('quantity');
     }
 
     public function hasIdentityDiscrepancy(): bool

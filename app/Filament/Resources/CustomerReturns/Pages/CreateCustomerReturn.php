@@ -67,7 +67,7 @@ class CreateCustomerReturn extends CreateRecord
     {
         return $this->savePending
             ? 'Return saved. Complete the receipt and QC when ready.'
-            : 'Return received and QC recorded. Any quarantined item awaits Owner/Admin review.';
+            : 'Return received and QC recorded. Any wrong or different item is waiting for Owner/Admin review.';
     }
 
     protected function getRedirectUrl(): string

@@ -41,7 +41,7 @@ class ViewCustomerReturn extends ViewRecord
         return [
             OpenChatDiscussionAction::make($this->record),
             CreateTaskFromSourceAction::make(TaskLinkedType::CustomerReturn, $this->record),
-            Action::make('reviewIdentityException')->label('Resolve Return Exception')->color('warning')
+            Action::make('reviewIdentityException')->label('Review Wrong / Different Item')->color('warning')
                 ->visible(fn (): bool => in_array(auth()->user()?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
                     && auth()->user()->can('return.inspect', $this->record)
                     && $this->record->status === CustomerReturnStatus::QcPending
@@ -53,7 +53,7 @@ class ViewCustomerReturn extends ViewRecord
                         ->whereDoesntHave('quarantine', fn ($query) => $query->where('status', 'resolved'))
                         ->get()->mapWithKeys(fn ($item): array => [$item->id => "{$item->sku_snapshot} — {$item->product_name_snapshot}"])->all())->required(),
                     Select::make('disposition')->label('Owner/Admin decision')->options([
-                        'retain_in_quarantine' => 'Retain actual item in quarantine',
+                        'retain_in_quarantine' => 'Keep Item for Review',
                         'returned_to_sender' => 'Actual item returned to sender',
                         'empty_package_confirmed' => 'Confirm empty package',
                     ])->required(),
@@ -63,8 +63,8 @@ class ViewCustomerReturn extends ViewRecord
                             && ! CustomerReturnItem::query()->find((int) $get('item_id'))?->quarantine()->exists())
                         ->required(fn (Get $get): bool => $get('item_id') !== null
                             && ! CustomerReturnItem::query()->find((int) $get('item_id'))?->quarantine()->exists()),
-                    Textarea::make('review_notes')->label('Reason for final custody decision')->required()->maxLength(5000),
-                ])->action(fn (array $data) => $this->run('Cannot review identity exception', fn () => app(CustomerReturnQuarantineService::class)->review(
+                    Textarea::make('review_notes')->label('Reason for final decision')->required()->maxLength(5000),
+                ])->action(fn (array $data) => $this->run('Cannot review wrong / different item', fn () => app(CustomerReturnQuarantineService::class)->review(
                     CustomerReturnItem::findOrFail($data['item_id']),
                     [...$data, 'review_key' => (string) str()->uuid()], auth()->user(),
                 ))),
@@ -113,15 +113,19 @@ class ViewCustomerReturn extends ViewRecord
             Action::make('inspect')->label('Continue QC')->color('success')->schema([
                 Select::make('item_id')->label('Return Item')->options(fn (): array => $this->qcRemainingItems())->required(),
                 TextInput::make('sellable_quantity')->label('Sellable Qty')->integer()->minValue(0)->default(0)->required(),
-                TextInput::make('damaged_quantity')->label('Damaged Qty')->integer()->minValue(0)->default(0)->required(),
-                Textarea::make('notes')->maxLength(2000),
+                TextInput::make('damaged_quantity')->label('Damaged Qty')->integer()->minValue(0)->default(0)->live()->required(),
+                Select::make('problem_type')->label('Recorded problem')->options([
+                    'damaged' => 'Damaged', 'defective' => 'Defective',
+                    'missing_accessories' => 'Missing Accessories', 'other' => 'Other',
+                ])->visible(fn (Get $get): bool => (int) $get('damaged_quantity') > 0),
+                Textarea::make('notes')->label('QC remarks')->maxLength(2000),
             ])->visible(fn (): bool => $this->record->status === CustomerReturnStatus::QcPending
                 && auth()->user()->can('return.inspect', $this->record)
                 && $this->qcRemainingItems() !== [])->action(fn (array $data) => $this->run('Cannot inspect return', function () use ($data): void {
                     if (! array_key_exists((int) $data['item_id'], $this->qcRemainingItems())) {
                         throw new CustomerReturnException('This item has no ordinary QC quantity remaining.');
                     }
-                    app(InspectCustomerReturnItem::class)->handle(CustomerReturnItem::findOrFail($data['item_id']), new InspectCustomerReturnItemData((int) $data['sellable_quantity'], (int) $data['damaged_quantity'], (string) str()->uuid(), $data['notes'] ?? null), auth()->user());
+                    app(InspectCustomerReturnItem::class)->handle(CustomerReturnItem::findOrFail($data['item_id']), new InspectCustomerReturnItemData((int) $data['sellable_quantity'], (int) $data['damaged_quantity'], (string) str()->uuid(), $data['notes'] ?? null, $data['problem_type'] ?? null), auth()->user());
                 })),
             Action::make('cancel')->label('Cancel Draft')->color('danger')->requiresConfirmation()->schema([Textarea::make('reason')->required()->maxLength(2000)])->visible(fn () => $this->record->status === CustomerReturnStatus::Draft && auth()->user()->can('return.cancel', $this->record))->action(fn (array $data) => $this->run('Cannot cancel return', fn () => app(CancelCustomerReturn::class)->handle($this->record, $data['reason'], auth()->user()))),
         ];

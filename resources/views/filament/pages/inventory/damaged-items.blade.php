@@ -46,11 +46,11 @@
         </table>
     </div>
     {{ $rows->links() }}
-    <x-filament::section heading="Quarantined Returns" description="Physical custody only. These items are not part of valued or sellable inventory.">
+    <x-filament::section heading="Returns Needing Review" description="Items held for verification are separate from valued or sellable inventory.">
         <div class="max-w-full overflow-x-auto">
             <table class="w-full min-w-[900px] text-sm">
                 <thead class="bg-gray-50 text-left dark:bg-white/5"><tr>
-                    @foreach (['Return', 'Original ordered product', 'Actually received', 'Warehouse', 'Physical items', 'Reason', 'Case / Evidence', 'Recorded by', 'Review'] as $heading)
+                    @foreach (['Return', 'Original ordered product', 'Actually received', 'Receiving Warehouse', 'Items Currently Held', 'Reason', 'Case / Evidence', 'Recorded by', 'Review'] as $heading)
                         <th class="px-3 py-2 font-medium">{{ $heading }}</th>
                     @endforeach
                 </tr></thead>
@@ -65,10 +65,10 @@
                             <td class="px-3 py-2">{{ str($exception->problem_type)->replace('_', ' ')->headline() }}</td>
                             <td class="px-3 py-2">{{ $exception->claim_case_reference ?: 'Not eligible for an automatic marketplace case' }}<br><span class="text-gray-500">{{ $exception->evidenceReadiness() }}</span></td>
                             <td class="px-3 py-2">{{ $exception->recordedBy?->name ?? '—' }}</td>
-                            <td class="px-3 py-2">{{ $exception->status === 'awaiting_review' ? 'Owner/Admin review pending' : str($exception->disposition)->replace('_', ' ')->headline() }}</td>
+                            <td class="px-3 py-2">{{ $exception->status === 'awaiting_review' ? 'Owner/Admin review pending' : ($exception->disposition === 'retain_in_quarantine' ? 'Keep Item for Review' : str($exception->disposition)->replace('_', ' ')->headline()) }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="9" class="px-3 py-6 text-center text-gray-500">No quarantined returns are visible in your scope.</td></tr>
+                        <tr><td colspan="9" class="px-3 py-6 text-center text-gray-500">No returns needing review are visible in your scope.</td></tr>
                     @endforelse
                 </tbody>
             </table>

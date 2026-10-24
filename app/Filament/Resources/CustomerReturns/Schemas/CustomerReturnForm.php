@@ -77,7 +77,7 @@ class CustomerReturnForm
                         'pending' => 'Pending inspection', 'pass' => 'PASS — return to sellable',
                         'fail' => 'FAIL — move to damaged stock',
                         'mixed' => 'Mixed — split PASS and FAIL quantities',
-                        'quarantine' => 'Wrong/different item, serial mismatch or empty package — quarantine',
+                        'quarantine' => 'Wrong / Different Item, serial mismatch or empty package — hold for review',
                     ])->default('pending')->required()->live()
                         ->visible(fn (Get $get): bool => (bool) $get('../../physical_received')),
                     Select::make('problem_type')->label('Actual problem')->options(fn (Get $get): array => match ($get('qc_outcome')) {
@@ -92,7 +92,7 @@ class CustomerReturnForm
                     TextInput::make('damaged_quantity')->label('FAIL quantity')->integer()->minValue(1)
                         ->required(fn (Get $get): bool => $get('qc_outcome') === 'mixed')
                         ->visible(fn (Get $get): bool => $get('qc_outcome') === 'mixed'),
-                    TextInput::make('actual_custody_quantity')->label('Actual items in quarantine')
+                    TextInput::make('actual_custody_quantity')->label('Actual Items Received')
                         ->integer()->minValue(0)->helperText('Use 0 for an empty package. These items are not added to the original product inventory.')
                         ->required(fn (Get $get): bool => $get('qc_outcome') === 'quarantine')
                         ->visible(fn (Get $get): bool => $get('qc_outcome') === 'quarantine'),

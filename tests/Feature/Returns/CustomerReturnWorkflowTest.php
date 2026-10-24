@@ -84,6 +84,9 @@ class CustomerReturnWorkflowTest extends TestCase
         $this->assertSame(CustomerReturnStatus::Completed, $return->status);
         $this->assertDatabaseCount('customer_return_inspections', 2);
         $this->assertDatabaseHas('activity_logs', ['event' => 'customer_return.completed', 'subject_id' => $return->id]);
+        Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
+            ->assertSee('QC Results & Evidence')->assertSee('Mixed')
+            ->assertSee('Not separately recorded')->assertSee('Evidence Pending');
     }
 
     public function test_weighted_average_uses_original_fulfilment_cost_and_does_not_change_cogs(): void
@@ -256,7 +259,8 @@ class CustomerReturnWorkflowTest extends TestCase
         $this->assertDatabaseCount('customer_returns', 1);
         $this->assertDatabaseCount('customer_return_quarantines', 0);
         Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
-            ->assertDontSee('Continue QC');
+            ->assertDontSee('Continue QC')->assertSee('QC Results & Evidence')
+            ->assertSee('PASS')->assertSee('Available Inventory');
     }
 
     public function test_one_page_fail_posts_damaged_only_and_requires_actual_problem(): void
@@ -270,7 +274,40 @@ class CustomerReturnWorkflowTest extends TestCase
         $this->assertSame(3, $inventory->refresh()->available_quantity);
         $this->assertSame(1, $inventory->damaged_quantity);
         $this->assertSame(0, $inventory->qc_pending_quantity);
-        $this->assertSame('defective — Screen failure', $return->items->sole()->inspections()->sole()->notes);
+        $inspection = $return->items->sole()->inspections()->sole();
+        $damageReference = $inspection->damagedStockEvent->reference;
+        $this->assertSame('defective', $inspection->problem_type);
+        $this->assertSame('Screen failure', $inspection->notes);
+        $this->assertSame(1, app(DamagedItemsQueueService::class)->query($owner, [
+            'status' => 'damaged', 'search' => $return->items->sole()->sku_snapshot,
+        ])->where('reference', $damageReference)->count());
+        $this->assertDatabaseCount('safet_claims', 0);
+        Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
+            ->assertSee('QC Results & Evidence')->assertSee('FAIL')
+            ->assertSee('Defective')->assertSee('Screen failure')
+            ->assertSee('Damaged Inventory')->assertSee($damageReference)
+            ->assertSee('Not eligible: this order has no marketplace.');
+    }
+
+    public function test_completed_qc_shows_conflicting_evidence_for_review_without_changing_posted_inventory(): void
+    {
+        Storage::fake('local');
+        [$owner, , $warehouse, $inventory, $order] = $this->fulfilledOrder(4, 1, '100.0000');
+        $return = app(CustomerReturnUnifiedWorkflowService::class)->submit(
+            $this->onePageInput($order, $warehouse, 'pass'), $owner, true, (string) Str::uuid(),
+        );
+        $movements = StockMovement::query()->count();
+        app(CustomerReturnEvidenceService::class)->record($return->items->sole(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'remarks' => 'Received item does not match the shipped one',
+        ], UploadedFile::fake()->image('different-item.jpg'));
+
+        Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
+            ->assertSee('Owner/Admin review is needed; inventory has not been changed.');
+        $this->assertSame($movements, StockMovement::query()->count());
+        $this->assertSame(4, $inventory->refresh()->available_quantity);
+        $this->assertSame(0, $inventory->damaged_quantity);
+        $this->assertDatabaseCount('safet_claims', 0);
     }
 
     public function test_eligible_defective_return_creates_one_unfiled_claim_and_evidence_readiness_updates_on_upload(): void
@@ -290,15 +327,16 @@ class CustomerReturnWorkflowTest extends TestCase
         $this->assertSame($return->id, app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, $key)->id);
         $this->assertDatabaseCount('safet_claims', 1);
         $this->assertSame(1, $inventory->refresh()->damaged_quantity);
-        $this->withToken($owner->createToken('Completed return evidence')->plainTextToken)
-            ->getJson('/api/mobile/v1/workspace/qc/return-evidence?q='.$order->reference)
-            ->assertOk()->assertJsonFragment(['return_reference' => $return->reference]);
-
         app(CustomerReturnEvidenceService::class)->record($return->items->sole(), $owner, [
             'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
             'problem_type' => 'defective',
         ], UploadedFile::fake()->image('defect.jpg'));
         $this->assertSame('Evidence Ready', $claim->evidenceReadiness());
+        Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
+            ->assertSee($claim->reference)->assertSee('Evidence Ready');
+        $this->withToken($owner->createToken('Completed return evidence')->plainTextToken)
+            ->getJson('/api/mobile/v1/workspace/qc/return-evidence?q='.$order->reference)
+            ->assertOk()->assertJsonFragment(['return_reference' => $return->reference]);
     }
 
     public function test_marketplace_identity_exception_opens_a_separate_case_without_original_sku_inventory(): void
@@ -327,10 +365,10 @@ class CustomerReturnWorkflowTest extends TestCase
         $this->assertSame($return->id, app(CustomerReturnUnifiedWorkflowService::class)->submit($input, $owner, true, $key)->id);
 
         Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
-            ->assertSee($case->claim_case_reference)->assertSee('Resolve Return Exception')
+            ->assertSee($case->claim_case_reference)->assertSee('Review Wrong / Different Item')
             ->assertDontSee('Continue QC');
         Livewire::actingAs($owner)->test(DamagedItems::class)
-            ->assertSee('Quarantined Returns')->assertSee('Unrelated laptop')
+            ->assertSee('Returns Needing Review')->assertSee('Unrelated laptop')
             ->assertSee($case->claim_case_reference);
         $this->withToken($owner->createToken('Quarantined return evidence')->plainTextToken)
             ->getJson('/api/mobile/v1/workspace/qc/return-evidence?q='.$order->reference)
@@ -363,6 +401,8 @@ class CustomerReturnWorkflowTest extends TestCase
         $this->assertSame(1, $inventory->damaged_quantity);
         $this->assertSame(0, $inventory->qc_pending_quantity);
         $this->assertDatabaseCount('customer_return_inspections', 2);
+        Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
+            ->assertSee('Mixed')->assertSee('PASS 2')->assertSee('FAIL 1');
     }
 
     public function test_wrong_item_and_empty_package_never_create_original_product_inventory(): void
@@ -381,8 +421,8 @@ class CustomerReturnWorkflowTest extends TestCase
             $this->assertSame(0, app(QcPendingQueueService::class)->summary($owner, [])['units']);
             $this->assertDatabaseCount('customer_return_refunds', 0);
             Livewire::actingAs($owner)->test(ViewCustomerReturnPage::class, ['record' => $return->id])
-                ->assertSee('Identity exceptions and physical custody')
-                ->assertSee('Resolve Return Exception');
+                ->assertSee('Wrong / Different Items Held for Verification')
+                ->assertSee('Review Wrong / Different Item');
             $this->assertSame($problem === 'empty_package' ? 0 : 1, $return->quarantines()->sole()->actual_custody_quantity);
             $this->assertDatabaseMissing('stock_movements', [
                 'source_type' => $return->items->sole()->getMorphClass(),

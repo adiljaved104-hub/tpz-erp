@@ -176,6 +176,10 @@ class CustomerReturnService
         if ($total <= 0) {
             throw new CustomerReturnException('Enter a positive Sellable or Damaged quantity.');
         }
+        if ($data->problemType !== null && ($data->damagedQuantity === 0
+            || ! in_array($data->problemType, ['damaged', 'defective', 'missing_accessories', 'other'], true))) {
+            throw new CustomerReturnException('Choose a valid problem for damaged Return QC.');
+        }
         if (CustomerReturnInspection::query()->where('posting_key', $data->postingKey)->exists()) {
             throw new CustomerReturnException('This inspection has already been posted.');
         }
@@ -240,7 +244,7 @@ class CustomerReturnService
                 if ($quantity <= 0) {
                     continue;
                 }
-                $inspection = CustomerReturnInspection::query()->create(['customer_return_item_id' => $locked->id, 'quantity' => $quantity, 'result' => $enum, 'inspected_by_user_id' => $actor->id, 'inspected_at' => now(), 'notes' => $data->notes, 'posting_key' => $ordinal++ === 0 ? $data->postingKey : (string) Str::uuid()]);
+                $inspection = CustomerReturnInspection::query()->create(['customer_return_item_id' => $locked->id, 'quantity' => $quantity, 'result' => $enum, 'problem_type' => $enum === CustomerReturnInspectionResult::Damaged ? $data->problemType : null, 'inspected_by_user_id' => $actor->id, 'inspected_at' => now(), 'notes' => $data->notes, 'posting_key' => $ordinal++ === 0 ? $data->postingKey : (string) Str::uuid()]);
                 $type = $enum === CustomerReturnInspectionResult::Sellable ? StockMovementType::CustomerReturnQcSellable : StockMovementType::CustomerReturnQcDamaged;
                 $movement = $this->movement($inventory, $inspection, $actor, $movementRefs[$enum->value], $group, $type, $quantity, $enum === CustomerReturnInspectionResult::Sellable ? $quantity : 0, $enum === CustomerReturnInspectionResult::Damaged ? $quantity : 0, $before, (string) $locked->inventory_unit_cost, 'Customer Return QC classification');
                 if ($enum === CustomerReturnInspectionResult::Sellable) {

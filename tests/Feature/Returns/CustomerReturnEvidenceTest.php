@@ -10,17 +10,21 @@ use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\DTOs\Returns\CreateCustomerReturnData;
 use App\DTOs\Returns\InspectCustomerReturnItemData;
+use App\Enums\CustomerReturnStatus;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\QcPermission;
 use App\Exceptions\CustomerReturnException;
+use App\Models\ActivityLog;
 use App\Models\CustomerReturnEvidence;
+use App\Models\DamagedStockEvent;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\ResponsibilityAssignmentProduct;
+use App\Models\SafetClaim;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -173,6 +177,38 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->withHeader('Authorization', '')->get('/admin/customer-return-evidence/'.$evidence->id.'/original')->assertUnauthorized();
         $this->actingAs($owner)->get('/admin/customer-return-evidence/'.$evidence->id.'/preview')->assertOk();
+    }
+
+    public function test_completed_return_accepts_append_only_mobile_evidence_and_flags_conflicts_without_reposting_stock(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        $this->assertSame(CustomerReturnStatus::Completed, $return->refresh()->status);
+        $movements = StockMovement::query()->count();
+        $inspectionCount = $item->inspections()->count();
+
+        $this->withToken($owner->createToken('Completed return evidence')->plainTextToken);
+        foreach (['sellable', 'wrong_item'] as $problem) {
+            $this->post('/api/mobile/v1/workspace/qc/return-evidence/'.$return->id.'/items/'.$item->id, [
+                'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+                'problem_type' => $problem, 'remarks' => 'Additional evidence after QC',
+                'file' => UploadedFile::fake()->image($problem.'.jpg'),
+            ])->assertOk();
+        }
+
+        $this->assertDatabaseCount('customer_return_findings', 2);
+        $this->assertDatabaseCount('customer_return_evidence', 2);
+        $this->assertSame($inspectionCount, $item->inspections()->count());
+        $this->assertSame($movements, StockMovement::query()->count());
+        $this->assertSame(0, DamagedStockEvent::query()->count());
+        $this->assertSame(0, SafetClaim::query()->count());
+        $this->assertSame(1, $inventory->refresh()->available_quantity);
+        $this->assertSame(0, $inventory->damaged_quantity);
+        $this->assertNotNull($item->fresh()->qcEvidenceReviewReason());
+        $log = ActivityLog::query()->where('event', 'customer_return.evidence_uploaded')->latest('id')->firstOrFail();
+        $this->assertTrue($log->properties['qc_review_required']);
+
     }
 
     public function test_technician_can_use_only_the_return_evidence_qc_endpoint_without_order_or_financial_data(): void

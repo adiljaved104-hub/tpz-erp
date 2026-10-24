@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\CustomerReturnInspectionResult;
 use App\Enums\CustomerReturnReason;
 use App\Exceptions\ImmutableInventoryRecordException;
 use Illuminate\Database\Eloquent\Model;
@@ -93,5 +94,29 @@ class CustomerReturnItem extends Model
     public function hasIdentityDiscrepancy(): bool
     {
         return $this->findings()->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package'])->exists();
+    }
+
+    public function qcEvidenceReviewReason(): ?string
+    {
+        $this->loadMissing('inspections', 'findings');
+        if ($this->inspections->isEmpty() || $this->findings->isEmpty()) {
+            return null;
+        }
+
+        $problems = $this->findings->pluck('problem_type')->all();
+        if (array_intersect($problems, ['wrong_item', 'serial_mismatch', 'empty_package']) !== []) {
+            return 'New evidence questions the identity of a product already posted through QC. Owner/Admin review is needed; inventory has not been changed.';
+        }
+
+        $passed = $this->inspections->contains(fn (CustomerReturnInspection $inspection): bool => $inspection->result === CustomerReturnInspectionResult::Sellable);
+        $failed = $this->inspections->contains(fn (CustomerReturnInspection $inspection): bool => $inspection->result === CustomerReturnInspectionResult::Damaged);
+        if ($passed && ! $failed && array_intersect($problems, ['damaged', 'defective', 'missing_accessories']) !== []) {
+            return 'New evidence describes damage after QC PASS. Owner/Admin review is needed; inventory has not been changed.';
+        }
+        if ($failed && ! $passed && in_array('sellable', $problems, true)) {
+            return 'New evidence describes a sellable item after QC FAIL. Owner/Admin review is needed; inventory has not been changed.';
+        }
+
+        return null;
     }
 }

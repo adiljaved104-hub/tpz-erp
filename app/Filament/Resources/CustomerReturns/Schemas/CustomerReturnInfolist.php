@@ -68,27 +68,33 @@ class CustomerReturnInfolist
                     TableColumn::make('SKU'), TableColumn::make('Product'), TableColumn::make('Return Qty'), TableColumn::make('Reason'),
                 ]),
             ]),
-            Section::make('Return QC Findings & Evidence')->schema([
+            Section::make('QC Results & Evidence')->schema([
+                ViewEntry::make('qc_results')->view('returns.qc-results')->hiddenLabel(),
                 ViewEntry::make('return_evidence')->view('returns.evidence-gallery')->hiddenLabel(),
                 TextEntry::make('marketplace_identity_hold')->label('Marketplace identity hold')
                     ->state('The expected item was not verified. Inventory and financial resolution is on hold until Owner/Admin approves a marketplace ledger rule.')
                     ->visible(fn (CustomerReturn $record): bool => $record->fulfillmentWarehouse?->location_type === InventoryLocationType::MarketplaceFulfilment
                         && $record->items()->whereHas('findings', fn ($query) => $query->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))->exists()),
             ]),
-            Section::make('Identity exceptions and physical custody')->schema([
+            Section::make('Wrong / Different Items Held for Verification')->schema([
                 RepeatableEntry::make('quarantines')->hiddenLabel()->schema([
                     TextEntry::make('item.sku_snapshot')->label('Expected SKU'),
                     TextEntry::make('problem_type')->label('Problem'),
                     TextEntry::make('actual_product_name')->label('Actually received')->placeholder('Unidentified / empty package'),
-                    TextEntry::make('warehouse.name')->label('Custody warehouse'),
-                    TextEntry::make('actual_custody_quantity')->label('Actual items received'),
-                    TextEntry::make('current_custody_quantity')->label('Still held here')
+                    TextEntry::make('warehouse.name')->label('Receiving Warehouse'),
+                    TextEntry::make('actual_custody_quantity')->label('Actual Items Received'),
+                    TextEntry::make('current_custody_quantity')->label('Items Currently Held')
                         ->state(fn ($record): ?int => $record->currentCustodyQuantity())->placeholder('Awaiting physical count'),
                     TextEntry::make('status')->badge(),
                     TextEntry::make('claim_case_reference')->label('Marketplace case')->placeholder('Not eligible / not opened'),
                     TextEntry::make('recordedBy.name')->label('Recorded by'),
                     TextEntry::make('evidence_readiness')->label('Evidence')->state(fn ($record): string => $record->evidenceReadiness()),
-                    TextEntry::make('disposition')->label('Owner/Admin decision')->placeholder('Awaiting review'),
+                    TextEntry::make('disposition')->label('Owner/Admin decision')->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'retain_in_quarantine' => 'Keep Item for Review',
+                        'returned_to_sender' => 'Returned to Sender',
+                        'empty_package_confirmed' => 'Empty Package Confirmed',
+                        default => 'Waiting for review',
+                    }),
                 ])->columns(3),
             ])->visible(fn (CustomerReturn $record): bool => $record->quarantines()->exists()),
         ]);

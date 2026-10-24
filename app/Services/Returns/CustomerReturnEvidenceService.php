@@ -115,6 +115,7 @@ class CustomerReturnEvidenceService
                 ]);
                 app(ActivityLogger::class)->log('customer_return.evidence_uploaded', $actor, $locked->customerReturn, [
                     'return_item_id' => $locked->id, 'evidence_id' => $evidence->id, 'media_type' => $evidence->media_type,
+                    'qc_review_required' => $locked->qcEvidenceReviewReason() !== null,
                 ]);
 
                 return $evidence;

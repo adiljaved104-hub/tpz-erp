@@ -166,7 +166,7 @@ class CustomerReturnUnifiedWorkflowService
                     $line['qc_outcome'] === 'pass' ? (int) $line['quantity'] : ($line['qc_outcome'] === 'mixed' ? (int) $line['sellable_quantity'] : 0),
                     $line['qc_outcome'] === 'fail' ? (int) $line['quantity'] : ($line['qc_outcome'] === 'mixed' ? (int) $line['damaged_quantity'] : 0),
                     (string) Str::uuid(),
-                    collect([$line['problem_type'] ?? null, $line['qc_remarks'] ?? null])->filter()->implode(' — ') ?: null,
+                    $line['qc_remarks'] ?? null,
                     $line['problem_type'] ?? null,
                 ), $actor, $reserved['inspection'][(int) $line['order_fulfillment_item_id']]);
             }

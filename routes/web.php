@@ -20,6 +20,7 @@ Route::get('/verify/qc/{token}/evidence/{id}', [QcPassportController::class, 'ev
 Route::middleware(['auth', EnforceWebSecurityPolicy::class])->group(function (): void {
     Route::get('/admin/customer-return-evidence/{evidence}/preview', [ReturnEvidenceController::class, 'preview'])->name('customer-return-evidence.preview');
     Route::get('/admin/customer-return-evidence/{evidence}/original', [ReturnEvidenceController::class, 'original'])->name('customer-return-evidence.original');
+    Route::get('/admin/customer-return-evidence/{evidence}/labeled', [ReturnEvidenceController::class, 'labeled'])->name('customer-return-evidence.labeled');
     Route::get('/admin/qc-documents/labels', [QcDocumentController::class, 'labels'])->name('qc.labels');
     Route::get('/admin/qc-documents/{inspection}/certificate', [QcDocumentController::class, 'certificate'])->name('qc.certificate');
     Route::get('/admin/qc-evidence/{evidence}', [QcDocumentController::class, 'evidence'])->name('qc.evidence.internal');

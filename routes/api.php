@@ -87,6 +87,7 @@ Route::prefix('mobile/v1')
             Route::patch('/qc/inspections/{inspection}', [QcInspectionController::class, 'update'])->whereNumber('inspection')->middleware('throttle:60,1');
             Route::post('/qc/inspections/{inspection}/evidence', [QcInspectionController::class, 'evidence'])->whereNumber('inspection')->middleware('throttle:30,1');
             Route::get('/qc/return-evidence', [ReturnEvidenceController::class, 'index']);
+            Route::get('/qc/return-evidence/dashboard', [ReturnEvidenceController::class, 'dashboard']);
             Route::get('/qc/return-evidence/files/{evidence}', [ReturnEvidenceController::class, 'original'])->whereNumber('evidence')->middleware('throttle:60,1');
             Route::get('/qc/return-evidence/{return}', [ReturnEvidenceController::class, 'show'])->whereNumber('return');
             Route::post('/qc/return-evidence/{return}/items/{item}', [ReturnEvidenceController::class, 'store'])->whereNumber(['return', 'item'])->middleware('throttle:10,1');

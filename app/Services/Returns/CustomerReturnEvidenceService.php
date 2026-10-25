@@ -2,13 +2,16 @@
 
 namespace App\Services\Returns;
 
+use App\Jobs\LabelCustomerReturnVideo;
 use App\Models\CustomerReturnEvidence;
 use App\Models\CustomerReturnFinding;
 use App\Models\CustomerReturnItem;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -34,6 +37,9 @@ class CustomerReturnEvidenceService
             'physical_condition' => ['nullable', 'string', 'max:100'],
             'remarks' => ['nullable', 'string', 'max:5000'],
             'duration_seconds' => ['nullable', 'integer', 'min:1', 'max:'.config('customer_return_evidence.max_video_seconds')],
+            'captured_at_device' => ['nullable', 'required_with:capture_timezone', 'date',
+                'regex:/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/'],
+            'capture_timezone' => ['nullable', 'required_with:captured_at_device', 'timezone'],
             'file' => ['required', 'file', 'mimetypes:image/jpeg,image/png,image/webp,video/mp4,video/quicktime',
                 'max:'.max(config('customer_return_evidence.max_photo_kib'), config('customer_return_evidence.max_video_kib'))],
         ])->validate();
@@ -58,9 +64,13 @@ class CustomerReturnEvidenceService
             }
         }
         $checksum = hash_file('sha256', $file->getRealPath());
+        $capturedAt = isset($validated['captured_at_device']) ? Carbon::parse($validated['captured_at_device']) : null;
+        if ($capturedAt?->isAfter(now()->addMinutes(5))) {
+            throw ValidationException::withMessages(['captured_at_device' => 'The device capture time is in the future. Check the phone clock.']);
+        }
         $storedPath = null;
         try {
-            return DB::transaction(function () use ($item, $actor, $validated, $file, $mime, $video, $checksum, &$storedPath): CustomerReturnEvidence {
+            $evidence = DB::transaction(function () use ($item, $actor, $validated, $file, $mime, $video, $checksum, $capturedAt, &$storedPath): CustomerReturnEvidence {
                 $locked = CustomerReturnItem::query()->lockForUpdate()->findOrFail($item->id);
                 app(CustomerReturnEvidenceAuthorization::class)->authorizeRecord($actor, $locked->customerReturn);
                 $existing = CustomerReturnEvidence::query()->where('upload_id', $validated['upload_id'])->first();
@@ -111,6 +121,8 @@ class CustomerReturnEvidenceService
                     'original_name' => basename($file->getClientOriginalName()),
                     'byte_size' => $file->getSize(), 'sha256' => $checksum,
                     'duration_seconds' => $video ? (int) $validated['duration_seconds'] : null,
+                    'captured_at_device' => $capturedAt,
+                    'capture_timezone' => $validated['capture_timezone'] ?? null,
                     'uploaded_at' => now(),
                 ]);
                 app(ActivityLogger::class)->log('customer_return.evidence_uploaded', $actor, $locked->customerReturn, [
@@ -126,5 +138,31 @@ class CustomerReturnEvidenceService
             }
             throw $e;
         }
+        // The original has committed. Derivative failure must never delete it.
+        if ($evidence->media_type === 'photo') {
+            try {
+                app(CustomerReturnEvidenceLabelService::class)->createIfSupported($evidence);
+            } catch (Throwable $exception) {
+                Log::warning('Return photo label is pending.', [
+                    'evidence_id' => $evidence->id, 'exception' => $exception::class,
+                ]);
+            }
+        } elseif ($evidence->captured_at_device !== null
+            && config('customer_return_evidence.ffmpeg_binary')
+            && config('queue.default') !== 'sync') {
+            try {
+                if (! $evidence->label()->exists()) {
+                    LabelCustomerReturnVideo::dispatch($evidence->id);
+                }
+            } catch (Throwable $exception) {
+                // The original evidence committed successfully. Queue failure
+                // must not turn an acknowledged upload into a deceptive 500.
+                Log::warning('Return video label is pending.', [
+                    'evidence_id' => $evidence->id, 'exception' => $exception::class,
+                ]);
+            }
+        }
+
+        return $evidence;
     }
 }

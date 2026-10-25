@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Exceptions\ImmutableInventoryRecordException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class CustomerReturnEvidence extends Model
 {
@@ -16,7 +17,8 @@ class CustomerReturnEvidence extends Model
 
     protected function casts(): array
     {
-        return ['byte_size' => 'integer', 'duration_seconds' => 'integer', 'uploaded_at' => 'immutable_datetime'];
+        return ['byte_size' => 'integer', 'duration_seconds' => 'integer', 'uploaded_at' => 'immutable_datetime',
+            'captured_at_device' => 'immutable_datetime'];
     }
 
     protected static function booted(): void
@@ -33,5 +35,10 @@ class CustomerReturnEvidence extends Model
     public function uploadedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploaded_by_user_id');
+    }
+
+    public function label(): HasOne
+    {
+        return $this->hasOne(CustomerReturnEvidenceLabel::class, 'customer_return_evidence_id');
     }
 }

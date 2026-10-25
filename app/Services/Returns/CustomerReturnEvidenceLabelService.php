@@ -124,12 +124,13 @@ class CustomerReturnEvidenceLabelService
         $return = $evidence->finding->item->customerReturn;
         $reference = preg_replace('/[^A-Za-z0-9-]/', '', $return->reference);
         $orderReference = preg_replace('/[^A-Za-z0-9-]/', '', $return->order?->reference ?? (string) $return->order_id);
-        $static = 'TECH POINT ZONE - RETURN EVIDENCE '.$reference.' ORDER '.$orderReference;
+        $static = 'TECH POINT ZONE - RETURN EVIDENCE - RETURN '.$reference.' - ORDER '.$orderReference;
         $epoch = $evidence->captured_at_device->getTimestamp();
+        $zone = preg_replace('/[^A-Za-z0-9_\/-]/', '', (string) $evidence->capture_timezone);
         // PTS starts at zero; the supplied offset is the reported capture epoch.
         // No shell is involved, and the UTC value advances on every video frame.
         $filter = 'setpts=PTS-STARTPTS,drawtext=text='.$static.':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=20,'
-            .'drawtext=text=DEVICE CAPTURE %{pts\\:gmtime\\:'.$epoch.'} UTC:fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=55';
+            .'drawtext=text=DEVICE-REPORTED CAPTURE %{pts\\:gmtime\\:'.$epoch.'} UTC ('.$zone.'):fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=55';
         $output = tempnam(sys_get_temp_dir(), 'tpz-evidence-');
         if ($output === false) {
             throw new \RuntimeException('No temporary media path available.');
@@ -139,7 +140,7 @@ class CustomerReturnEvidenceLabelService
             '-map', '0:v:0', '-map', '0:a?',
             '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4', $output]);
-        $process->setTimeout(300);
+        $process->setTimeout(1500);
         $process->run();
         clearstatcache(true, $output);
         if (! $process->isSuccessful() || filesize($output) === 0) {

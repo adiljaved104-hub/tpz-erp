@@ -85,6 +85,10 @@ class ReturnEvidenceController extends Controller
         abort_unless($return->received_at !== null, 404);
         $return->load(['order:id,reference,external_order_number', 'platform:id,name',
             'items.product:id,condition', 'items.findings.evidence.label', 'items.inspections', 'items.removalItems.inspections']);
+        $videoParts = $return->items->flatMap(fn (CustomerReturnItem $item) => $item->findings
+            ->flatMap(fn ($finding) => $finding->evidence))
+            ->where('media_type', 'video')->sortBy('id')->values()
+            ->mapWithKeys(fn ($evidence, $index) => [$evidence->id => $index + 1]);
 
         return response()->json(['data' => [
             'id' => $return->id, 'return_reference' => $return->reference,
@@ -108,7 +112,7 @@ class ReturnEvidenceController extends Controller
                     'actual_serial_number' => $finding->actual_serial_number,
                     'physical_condition' => $finding->physical_condition, 'remarks' => $finding->remarks,
                     'recorded_at' => $finding->recorded_at?->toIso8601String(),
-                    'evidence' => $finding->evidence->map(fn ($evidence) => $this->present($evidence)),
+                    'evidence' => $finding->evidence->map(fn ($evidence) => $this->present($evidence, $videoParts[$evidence->id] ?? null)),
                 ]),
             ]),
         ]]);
@@ -159,12 +163,20 @@ class ReturnEvidenceController extends Controller
             ['Content-Type' => $label->mime_type, 'X-Content-Type-Options' => 'nosniff']);
     }
 
-    private function present(CustomerReturnEvidence $evidence): array
+    private function present(CustomerReturnEvidence $evidence, ?int $videoPart = null): array
     {
+        if ($evidence->media_type === 'video' && $videoPart === null) {
+            $videoPart = CustomerReturnEvidence::query()->where('media_type', 'video')
+                ->where('id', '<', $evidence->id)
+                ->whereHas('finding.item', fn ($query) => $query->where('customer_return_id', $evidence->finding->item->customer_return_id))
+                ->count() + 1;
+        }
+
         return [
             'id' => $evidence->id, 'media_type' => $evidence->media_type,
             'mime_type' => $evidence->mime_type, 'original_name' => $evidence->original_name,
             'byte_size' => $evidence->byte_size, 'duration_seconds' => $evidence->duration_seconds,
+            'video_part' => $videoPart,
             'uploaded_at' => $evidence->uploaded_at?->toIso8601String(),
             'captured_at_device' => $evidence->captured_at_device?->toIso8601String(),
             'capture_timezone' => $evidence->capture_timezone,

@@ -6,8 +6,12 @@
             ? $source->customerReturn
             : ($source instanceof \App\Models\WarrantyRepair ? $source->damagedStockEvent?->customerReturn : null));
     $allowed = $return && auth()->user() && app(\App\Services\Returns\CustomerReturnEvidenceAuthorization::class)->canView(auth()->user(), $return);
-    $items = $allowed ? $return->items()->when($source instanceof \App\Models\SafetClaim,
-        fn ($query) => $query->whereKey($source->customer_return_item_id))->with(['findings.evidence.label', 'findings.evidence.uploadedBy'])->get() : collect();
+    $allItems = $allowed ? $return->items()->with(['findings.evidence.label', 'findings.evidence.uploadedBy'])->get() : collect();
+    $items = $source instanceof \App\Models\SafetClaim
+        ? $allItems->where('id', $source->customer_return_item_id) : $allItems;
+    $videoParts = $allowed ? $allItems->flatMap(fn ($item) => $item->findings->flatMap(fn ($finding) => $finding->evidence))
+        ->where('media_type', 'video')->sortBy('id')->values()
+        ->mapWithKeys(fn ($proof, $index) => [$proof->id => $index + 1]) : collect();
 @endphp
 
 @if ($allowed)
@@ -29,6 +33,7 @@
                     <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         @foreach ($finding->evidence as $proof)
                             <div class="rounded-lg border border-gray-200 p-2 dark:border-gray-700">
+                                @if ($proof->media_type === 'video')<p class="mb-1 text-sm font-semibold">Video — Part {{ $videoParts[$proof->id] }}</p>@endif
                                 @if ($proof->media_type === 'photo')
                                     <a href="{{ route('customer-return-evidence.preview', $proof) }}" target="_blank" rel="noopener noreferrer"><img src="{{ route('customer-return-evidence.preview', $proof) }}" alt="Return evidence photo" class="max-h-48 w-full object-contain"></a>
                                 @else

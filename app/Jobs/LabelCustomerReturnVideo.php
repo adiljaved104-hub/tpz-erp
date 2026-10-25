@@ -14,7 +14,9 @@ class LabelCustomerReturnVideo implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 330;
+    // The dedicated queue must have retry_after > this timeout. Five-minute
+    // source clips can take substantially longer than real time to encode.
+    public int $timeout = 1800;
 
     public int $uniqueFor = 3600;
 

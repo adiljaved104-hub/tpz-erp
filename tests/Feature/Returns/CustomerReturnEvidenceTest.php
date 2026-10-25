@@ -209,6 +209,22 @@ class CustomerReturnEvidenceTest extends TestCase
         app(CustomerReturnEvidenceService::class)->record($item, $owner, $input + ['duration_seconds' => 999], $video);
     }
 
+    public function test_video_size_limit_rejects_oversize_before_creating_evidence(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        config(['customer_return_evidence.max_video_kib' => 1]);
+        try {
+            app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+                'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+                'problem_type' => 'damaged', 'duration_seconds' => 1,
+            ], UploadedFile::fake()->create('oversize.mp4', 2, 'video/mp4'));
+            $this->fail('An oversized video must be rejected.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('file', $exception->errors());
+        }
+        $this->assertDatabaseCount('customer_return_evidence', 0);
+    }
+
     public function test_video_header_duration_is_verified_and_the_original_is_retained(): void
     {
         [$owner, $return] = $this->receivedReturn();
@@ -226,6 +242,42 @@ class CustomerReturnEvidenceTest extends TestCase
         ], $video);
         $this->assertSame('video', $evidence->media_type);
         $this->assertSame($movie, Storage::disk('local')->get($evidence->original_path));
+    }
+
+    public function test_five_minute_video_boundary_and_multiple_ordered_parts_preserve_originals(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        $this->assertSame(204800, config('customer_return_evidence.max_video_kib'));
+        $this->assertSame(300, config('customer_return_evidence.max_video_seconds'));
+        $header = pack('N', 24).'ftypisom'.pack('N', 0).'isommp42';
+        $mvhd = pack('N', 28).'mvhd'.pack('N', 0).pack('N', 0).pack('N', 0).pack('N', 1000).pack('N', 300000);
+        $movie = $header.pack('N', strlen($mvhd) + 8).'moov'.$mvhd;
+        Queue::fake();
+        config(['customer_return_evidence.ffmpeg_binary' => 'ffmpeg', 'queue.default' => 'database']);
+        $saved = [];
+        foreach ([1, 2] as $part) {
+            $video = UploadedFile::fake()->createWithContent("part-$part.mp4", $movie);
+            $video->mimeTypeToReport = 'video/mp4';
+            $saved[] = app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+                'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+                'problem_type' => 'damaged', 'duration_seconds' => 300,
+                'captured_at_device' => '2026-10-24T12:34:56+05:00', 'capture_timezone' => 'Asia/Karachi',
+            ], $video);
+        }
+        Queue::assertPushed(LabelCustomerReturnVideo::class, 2);
+        Queue::assertPushed(LabelCustomerReturnVideo::class,
+            fn (LabelCustomerReturnVideo $job) => $job->connection === 'return_evidence_labels'
+                && config('queue.connections.return_evidence_labels.retry_after') > $job->timeout);
+        foreach ($saved as $evidence) {
+            $this->assertSame($movie, Storage::disk('local')->get($evidence->original_path));
+            $this->assertSame(300, $evidence->duration_seconds);
+        }
+        $this->withToken($owner->createToken('Video parts')->plainTextToken)
+            ->getJson('/api/mobile/v1/workspace/qc/return-evidence/'.$return->id)
+            ->assertOk()
+            ->assertJsonPath('data.items.0.findings.0.evidence.0.video_part', 1)
+            ->assertJsonPath('data.items.0.findings.1.evidence.0.video_part', 2);
     }
 
     public function test_video_label_is_queued_without_blocking_upload_or_changing_the_original(): void

@@ -44,6 +44,18 @@ return [
             'after_commit' => env('DB_QUEUE_AFTER_COMMIT', true),
         ],
 
+        // A separate worker must process long-running video labels. Its lease
+        // exceeds the job timeout so a second worker cannot reclaim the same
+        // encoding job while the first still runs.
+        'return_evidence_labels' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'return-evidence-labels',
+            'retry_after' => 2100,
+            'after_commit' => true,
+        ],
+
         'beanstalkd' => [
             'driver' => 'beanstalkd',
             'host' => env('BEANSTALKD_QUEUE_HOST', 'localhost'),

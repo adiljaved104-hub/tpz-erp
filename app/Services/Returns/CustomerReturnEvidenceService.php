@@ -152,7 +152,7 @@ class CustomerReturnEvidenceService
             && config('queue.default') !== 'sync') {
             try {
                 if (! $evidence->label()->exists()) {
-                    LabelCustomerReturnVideo::dispatch($evidence->id);
+                    LabelCustomerReturnVideo::dispatch($evidence->id)->onConnection('return_evidence_labels');
                 }
             } catch (Throwable $exception) {
                 // The original evidence committed successfully. Queue failure

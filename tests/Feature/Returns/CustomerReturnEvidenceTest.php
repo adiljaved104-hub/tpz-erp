@@ -18,6 +18,7 @@ use App\Exceptions\CustomerReturnException;
 use App\Jobs\LabelCustomerReturnVideo;
 use App\Models\ActivityLog;
 use App\Models\CustomerReturnEvidence;
+use App\Models\CustomerReturnVideoUploadSession;
 use App\Models\DamagedStockEvent;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
@@ -33,8 +34,11 @@ use App\Services\Returns\CustomerReturnEvidenceAuthorization;
 use App\Services\Returns\CustomerReturnEvidenceService;
 use App\Services\Returns\CustomerReturnService;
 use App\Services\Returns\CustomerReturnVideoDuration;
+use App\Services\Returns\CustomerReturnVideoUploadService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -403,6 +407,126 @@ class CustomerReturnEvidenceTest extends TestCase
         ]);
         $this->assertTrue($authorization->canRecord($staffUser, $return));
         $this->assertTrue($authorization->canView($staffUser, $return));
+    }
+
+    public function test_resumable_sixteen_megabyte_video_checks_chunks_and_finalizes_once_without_inventory_posting(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        $header = pack('N', 24).'ftypisom'.pack('N', 0).'isommp42';
+        $mvhd = pack('N', 28).'mvhd'.pack('N', 0).pack('N', 0).pack('N', 0).pack('N', 1000).pack('N', 300000);
+        $movie = $header.pack('N', strlen($mvhd) + 8).'moov'.$mvhd;
+        $movie .= str_repeat('x', 17301504 - strlen($movie)); // 16.5 MiB, four transport parts.
+        $root = '/api/mobile/v1/workspace/qc/return-evidence';
+        $this->withToken($owner->createToken('Resumable return video')->plainTextToken);
+        $input = ['upload_id' => (string) Str::uuid(), 'request_id' => (string) Str::uuid(),
+            'original_name' => 'part-one.mp4', 'mime_type' => 'video/mp4', 'byte_size' => strlen($movie),
+            'source_md5' => md5($movie), 'duration_seconds' => 300, 'problem_type' => 'damaged',
+            'captured_at_device' => '2026-10-24T12:34:56+05:00', 'capture_timezone' => 'Asia/Karachi'];
+        $create = $root.'/'.$return->id.'/items/'.$item->id.'/video-uploads';
+        $start = $this->postJson($create, $input)->assertOk()->assertJsonPath('data.total_chunks', 4);
+        $sessionId = $start->json('data.session_id');
+        $this->postJson($create, $input)->assertOk()->assertJsonPath('data.session_id', $sessionId);
+        $this->assertDatabaseCount('customer_return_evidence', 0);
+        $part = $root.'/video-uploads/'.$sessionId.'/chunks/';
+        $first = substr($movie, 0, CustomerReturnVideoUploadService::CHUNK_BYTES);
+        $this->post($part.'0', ['checksum' => str_repeat('0', 32), 'chunk' => UploadedFile::fake()->createWithContent('part', $first)])->assertUnprocessable();
+        foreach (range(0, 3) as $index) {
+            $bytes = substr($movie, $index * CustomerReturnVideoUploadService::CHUNK_BYTES, CustomerReturnVideoUploadService::CHUNK_BYTES);
+            $payload = ['checksum' => md5($bytes), 'chunk' => UploadedFile::fake()->createWithContent('part', $bytes)];
+            $this->post($part.$index, $payload)->assertOk()->assertJsonPath('data.received_chunks.'.$index, $index);
+            if ($index === 0) {
+                $this->post($part.$index, ['checksum' => md5($bytes), 'chunk' => UploadedFile::fake()->createWithContent('part', $bytes)])->assertOk();
+                Storage::disk('local')->delete('customer-return-evidence/upload-sessions/'.$sessionId.'/0.part');
+                $this->post($part.$index, ['checksum' => md5($bytes), 'chunk' => UploadedFile::fake()->createWithContent('part', $bytes)])->assertOk();
+            }
+        }
+        $this->getJson($root.'/video-uploads/'.$sessionId)->assertOk()->assertJsonPath('data.received_chunks.3', 3);
+        $lock = Cache::lock('return-video-upload:'.$sessionId, 180);
+        $this->assertTrue($lock->get());
+        try {
+            app(CustomerReturnVideoUploadService::class)->finalize(CustomerReturnVideoUploadSession::query()->findOrFail($sessionId), $owner);
+            $this->fail('A second finalizer must wait for the session lock.');
+        } catch (LockTimeoutException) {
+            $this->assertDatabaseCount('customer_return_evidence', 0);
+        } finally {
+            $lock->release();
+        }
+        $firstFinal = $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize')->assertOk();
+        $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize')->assertOk()
+            ->assertJsonPath('data.id', $firstFinal->json('data.id'));
+        $evidence = CustomerReturnEvidence::query()->sole();
+        $this->assertSame(hash('sha256', $movie), $evidence->sha256);
+        $this->assertSame($movie, Storage::disk('local')->get($evidence->original_path));
+        $this->assertDatabaseCount('customer_return_findings', 1);
+        $this->assertSame(1, $inventory->refresh()->qc_pending_quantity);
+    }
+
+    public function test_video_session_rejects_other_employees_expiry_and_invalid_boundaries(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        $base = '/api/mobile/v1/workspace/qc/return-evidence/'.$return->id.'/items/'.$item->id.'/video-uploads';
+        $input = ['upload_id' => (string) Str::uuid(), 'request_id' => (string) Str::uuid(),
+            'original_name' => 'test.mp4', 'mime_type' => 'video/mp4', 'byte_size' => 200 * 1024 * 1024,
+            'source_md5' => str_repeat('a', 32), 'duration_seconds' => 300, 'problem_type' => 'wrong_item',
+            'captured_at_device' => '2026-10-24T12:34:56+05:00', 'capture_timezone' => 'Asia/Karachi'];
+        $this->withToken($owner->createToken('Video boundary')->plainTextToken);
+        $session = $this->postJson($base, $input)->assertOk()->assertJsonPath('data.total_chunks', 40)->json('data.session_id');
+        $this->postJson($base, [...$input, 'upload_id' => (string) Str::uuid(), 'byte_size' => 100 * 1024 * 1024])
+            ->assertOk()->assertJsonPath('data.total_chunks', 20);
+        $this->postJson($base, [...$input, 'upload_id' => (string) Str::uuid(), 'byte_size' => 200 * 1024 * 1024 + 1])->assertUnprocessable();
+        $this->postJson($base, [...$input, 'upload_id' => (string) Str::uuid(), 'duration_seconds' => 301])->assertUnprocessable();
+        $this->postJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session.'/finalize')->assertUnprocessable();
+        $other = User::factory()->create(['email' => 'other-return-owner@techpointzone.com']);
+        Employee::factory()->for($other)->role(EmployeeRole::Owner)->create(['email' => $other->email]);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($other->createToken('Other return employee')->plainTextToken)
+            ->getJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session)->assertNotFound();
+        $this->postJson($base, $input)->assertNotFound();
+        CustomerReturnVideoUploadSession::query()->findOrFail($session)->update(['expires_at' => now()->subMinute()]);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($owner->createToken('Expired video')->plainTextToken)
+            ->getJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session)->assertStatus(410);
+        $this->assertSame(1, app(CustomerReturnVideoUploadService::class)->pruneExpired());
+        $this->assertDatabaseMissing('customer_return_video_upload_sessions', ['id' => $session]);
+        $this->assertDatabaseCount('customer_return_evidence', 0);
+    }
+
+    public function test_multiple_resumable_exception_videos_remain_separate_and_bad_finalization_keeps_chunks(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        $movements = StockMovement::query()->count();
+        $this->withToken($owner->createToken('Multiple return videos')->plainTextToken);
+        $root = '/api/mobile/v1/workspace/qc/return-evidence';
+        $mvhd = pack('N', 28).'mvhd'.pack('N', 0).pack('N', 0).pack('N', 0).pack('N', 1000).pack('N', 7000);
+        $movie = pack('N', 24).'ftypisom'.pack('N', 0).'isommp42'.pack('N', strlen($mvhd) + 8).'moov'.$mvhd;
+        foreach (['wrong_item', 'empty_package', 'damaged'] as $number => $problem) {
+            $input = ['upload_id' => (string) Str::uuid(), 'request_id' => (string) Str::uuid(),
+                'original_name' => 'exception-'.$number.'.mp4', 'mime_type' => 'video/mp4', 'byte_size' => strlen($movie),
+                'source_md5' => $number === 0 ? str_repeat('0', 32) : md5($movie),
+                'duration_seconds' => 7, 'problem_type' => $problem,
+                'captured_at_device' => '2026-10-24T12:34:56+05:00', 'capture_timezone' => 'Asia/Karachi'];
+            $session = $this->postJson($root.'/'.$return->id.'/items/'.$item->id.'/video-uploads', $input)
+                ->assertOk()->json('data.session_id');
+            $this->post($root.'/video-uploads/'.$session.'/chunks/0', [
+                'checksum' => md5($movie), 'chunk' => UploadedFile::fake()->createWithContent('part', $movie),
+            ])->assertOk();
+            if ($number === 0) {
+                $this->postJson($root.'/video-uploads/'.$session.'/finalize')->assertUnprocessable();
+                $this->assertDatabaseCount('customer_return_evidence', 0);
+                $this->assertTrue(Storage::disk('local')->exists('customer-return-evidence/upload-sessions/'.$session.'/0.part'));
+            } else {
+                $this->postJson($root.'/video-uploads/'.$session.'/finalize')->assertOk();
+            }
+        }
+        $this->assertDatabaseCount('customer_return_evidence', 2);
+        $this->getJson($root.'/'.$return->id)->assertOk()
+            ->assertJsonPath('data.items.0.findings.0.evidence.0.video_part', 1)
+            ->assertJsonPath('data.items.0.findings.1.evidence.0.video_part', 2);
+        $this->assertSame(1, $inventory->refresh()->qc_pending_quantity);
+        $this->assertSame($movements, StockMovement::query()->count());
     }
 
     private function receivedReturn(string $reason = 'other'): array

@@ -91,6 +91,10 @@ Route::prefix('mobile/v1')
             Route::get('/qc/return-evidence/files/{evidence}', [ReturnEvidenceController::class, 'original'])->whereNumber('evidence')->middleware('throttle:60,1');
             Route::get('/qc/return-evidence/{return}', [ReturnEvidenceController::class, 'show'])->whereNumber('return');
             Route::post('/qc/return-evidence/{return}/items/{item}', [ReturnEvidenceController::class, 'store'])->whereNumber(['return', 'item'])->middleware('throttle:10,1');
+            Route::post('/qc/return-evidence/{return}/items/{item}/video-uploads', [ReturnEvidenceController::class, 'startVideo'])->whereNumber(['return', 'item'])->middleware('throttle:30,1,return-video-start');
+            Route::get('/qc/return-evidence/video-uploads/{session}', [ReturnEvidenceController::class, 'videoStatus'])->whereUuid('session')->middleware('throttle:60,1,return-video-status');
+            Route::post('/qc/return-evidence/video-uploads/{session}/chunks/{index}', [ReturnEvidenceController::class, 'uploadVideoChunk'])->whereUuid('session')->whereNumber('index')->middleware('throttle:120,1,return-video-chunks');
+            Route::post('/qc/return-evidence/video-uploads/{session}/finalize', [ReturnEvidenceController::class, 'finalizeVideo'])->whereUuid('session')->middleware('throttle:10,1,return-video-finalize');
             Route::post('/qc/inspections/{inspection}/complete', [QcInspectionController::class, 'complete'])->whereNumber('inspection')->middleware('throttle:30,1');
             Route::get('/qc/pending', [QcDispatchController::class, 'index']);
             Route::get('/qc/open-order-demand', [QcDispatchController::class, 'openOrderDemand']);

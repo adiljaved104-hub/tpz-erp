@@ -2,6 +2,7 @@
 
 use App\Services\Backups\BackupSettingsService;
 use App\Services\Marketplace\MarketplaceMonitoringSettingsService;
+use App\Services\Returns\CustomerReturnVideoUploadService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -9,6 +10,13 @@ use Illuminate\Support\Facades\Schedule;
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Artisan::command('returns:prune-video-uploads', function (CustomerReturnVideoUploadService $uploads) {
+    $this->info('Expired temporary return video uploads removed: '.$uploads->pruneExpired());
+})->purpose('Remove expired private return-video chunks; permanent evidence is never deleted.');
+
+Schedule::command('returns:prune-video-uploads')->hourly()
+    ->name('return-video-upload-cleanup')->withoutOverlapping(10);
 
 Schedule::command('erp:scheduler-heartbeat')
     ->everyMinute()

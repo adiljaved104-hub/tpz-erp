@@ -7,9 +7,11 @@ use App\Http\Controllers\Controller;
 use App\Models\CustomerReturn;
 use App\Models\CustomerReturnEvidence;
 use App\Models\CustomerReturnItem;
+use App\Models\CustomerReturnVideoUploadSession;
 use App\Models\QcOrderAssignment;
 use App\Services\Returns\CustomerReturnEvidenceAuthorization;
 use App\Services\Returns\CustomerReturnEvidenceService;
+use App\Services\Returns\CustomerReturnVideoUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -126,6 +128,37 @@ class ReturnEvidenceController extends Controller
         $evidence = app(CustomerReturnEvidenceService::class)->record($item, $request->user(), $request->except('file'), $request->file('file'));
 
         return response()->json(['data' => $this->present($evidence), 'message' => 'Evidence saved on the server.']);
+    }
+
+    public function startVideo(Request $request, CustomerReturn $return, CustomerReturnItem $item): JsonResponse
+    {
+        $session = app(CustomerReturnVideoUploadService::class)->start($return, $item, $request->user(), $request->all());
+
+        return response()->json(['data' => app(CustomerReturnVideoUploadService::class)->status($session, $request->user())]);
+    }
+
+    public function videoStatus(Request $request, CustomerReturnVideoUploadSession $session): JsonResponse
+    {
+        return response()->json(['data' => app(CustomerReturnVideoUploadService::class)->status($session, $request->user())]);
+    }
+
+    public function uploadVideoChunk(Request $request, CustomerReturnVideoUploadSession $session, int $index): JsonResponse
+    {
+        $data = $request->validate([
+            'checksum' => ['required', 'regex:/^[a-f0-9]{32}$/'],
+            'chunk' => ['required', 'file', 'max:5120'],
+        ]);
+        $status = app(CustomerReturnVideoUploadService::class)->chunk($session, $request->user(), $index,
+            $data['checksum'], $request->file('chunk'));
+
+        return response()->json(['data' => $status]);
+    }
+
+    public function finalizeVideo(Request $request, CustomerReturnVideoUploadSession $session): JsonResponse
+    {
+        $evidence = app(CustomerReturnVideoUploadService::class)->finalize($session, $request->user());
+
+        return response()->json(['data' => $this->present($evidence), 'message' => 'Video evidence saved on the server.']);
     }
 
     public function original(Request $request, CustomerReturnEvidence $evidence): BinaryFileResponse

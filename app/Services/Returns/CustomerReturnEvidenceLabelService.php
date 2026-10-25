@@ -131,7 +131,14 @@ class CustomerReturnEvidenceLabelService
         // No shell is involved, and the UTC value advances on every video frame.
         $filter = 'setpts=PTS-STARTPTS,drawtext=text='.$static.':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=20,'
             .'drawtext=text=DEVICE-REPORTED CAPTURE %{pts\\:gmtime\\:'.$epoch.'} UTC ('.$zone.'):fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=55';
-        $output = tempnam(sys_get_temp_dir(), 'tpz-evidence-');
+        // A five-minute derivative can be large. Keep it on the private
+        // evidence disk rather than an unknown or size-limited system /tmp.
+        $disk = Storage::disk('local');
+        $temporaryDirectory = 'customer-return-evidence/labels/tmp';
+        if (! $disk->directoryExists($temporaryDirectory) && ! $disk->makeDirectory($temporaryDirectory)) {
+            throw new \RuntimeException('No private temporary media directory available.');
+        }
+        $output = tempnam($disk->path($temporaryDirectory), 'tpz-evidence-');
         if ($output === false) {
             throw new \RuntimeException('No temporary media path available.');
         }

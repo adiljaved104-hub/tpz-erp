@@ -2,6 +2,7 @@
 
 namespace App\Services\Returns;
 
+use App\Jobs\FinalizeCustomerReturnVideo;
 use App\Models\CustomerReturn;
 use App\Models\CustomerReturnEvidence;
 use App\Models\CustomerReturnItem;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /** Private, expiring transport for videos; only record() creates permanent evidence. */
 class CustomerReturnVideoUploadService
@@ -145,16 +147,47 @@ class CustomerReturnVideoUploadService
         });
     }
 
-    public function finalize(CustomerReturnVideoUploadSession $session, User $actor): CustomerReturnEvidence
+    public function requestFinalization(CustomerReturnVideoUploadSession $session, User $actor): array
     {
         $this->authorized($session, $actor);
 
-        return Cache::lock($this->lockName($session), 180)->block(10, function () use ($session, $actor): CustomerReturnEvidence {
+        return Cache::lock($this->lockName($session), 120)->block(10, function () use ($session, $actor): array {
+            $current = $this->authorized($session->fresh() ?? abort(404), $actor);
+            if ($current->status === 'completed' || $current->status === 'processing') {
+                return $this->status($current, $actor);
+            }
+            abort_unless($current->status === 'open', 409, 'This video upload cannot be finalized.');
+            if (count($current->chunks ?? []) !== $this->totalChunks($current)) {
+                throw ValidationException::withMessages(['chunks' => 'Some upload parts are still missing.']);
+            }
+            $current->status = 'processing';
+            $current->save();
+            try {
+                FinalizeCustomerReturnVideo::dispatch($current->id)->onConnection('return_evidence_uploads');
+            } catch (Throwable $exception) {
+                $current->status = 'open';
+                $current->save();
+                throw $exception;
+            }
+
+            return $this->status($current, $actor);
+        });
+    }
+
+    /** Worker-only: never run 200 MiB assembly inside an HTTP request. */
+    public function finalize(CustomerReturnVideoUploadSession $session, User $actor): ?CustomerReturnEvidence
+    {
+        $this->authorized($session, $actor);
+
+        return Cache::lock($this->lockName($session), 660)->block(30, function () use ($session, $actor): ?CustomerReturnEvidence {
             $current = $session->fresh();
             abort_unless($current, 404);
             $current = $this->authorized($current, $actor);
             if ($current->evidence_id) {
                 return CustomerReturnEvidence::query()->findOrFail($current->evidence_id);
+            }
+            if ($current->status !== 'processing') {
+                return null;
             }
             if (count($current->chunks ?? []) !== $this->totalChunks($current)) {
                 throw ValidationException::withMessages(['chunks' => 'Some upload parts are still missing.']);
@@ -247,6 +280,22 @@ class CustomerReturnVideoUploadService
             }, 'id');
 
         return $count;
+    }
+
+    public function failFinalization(CustomerReturnVideoUploadSession $session): void
+    {
+        DB::transaction(function () use ($session): void {
+            $current = CustomerReturnVideoUploadSession::query()->lockForUpdate()->find($session->id);
+            if (! $current || $current->status !== 'processing') {
+                return;
+            }
+            // A worker may have saved immutable evidence before losing its DB
+            // acknowledgement. Recover that success rather than invite a retry.
+            $existing = CustomerReturnEvidence::query()->where('upload_id', $current->upload_id)->first();
+            $current->evidence_id = $existing?->id;
+            $current->status = $existing ? 'completed' : 'failed';
+            $current->save();
+        });
     }
 
     private function authorized(CustomerReturnVideoUploadSession $session, User $actor): CustomerReturnVideoUploadSession

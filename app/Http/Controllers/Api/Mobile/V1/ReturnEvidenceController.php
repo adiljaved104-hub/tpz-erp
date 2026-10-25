@@ -156,9 +156,10 @@ class ReturnEvidenceController extends Controller
 
     public function finalizeVideo(Request $request, CustomerReturnVideoUploadSession $session): JsonResponse
     {
-        $evidence = app(CustomerReturnVideoUploadService::class)->finalize($session, $request->user());
+        $uploads = app(CustomerReturnVideoUploadService::class);
+        $status = $uploads->requestFinalization($session, $request->user());
 
-        return response()->json(['data' => $this->present($evidence), 'message' => 'Video evidence saved on the server.']);
+        return response()->json(['data' => $status], $status['status'] === 'completed' ? 200 : 202);
     }
 
     public function original(Request $request, CustomerReturnEvidence $evidence): BinaryFileResponse

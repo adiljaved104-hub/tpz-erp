@@ -147,9 +147,10 @@ class CustomerReturnVideoUploadService
         });
     }
 
-    public function requestFinalization(CustomerReturnVideoUploadSession $session, User $actor): array
+    public function requestFinalization(CustomerReturnVideoUploadSession $session, User $actor, bool $supportsAsync): array
     {
         $this->authorized($session, $actor);
+        abort_unless($supportsAsync, 426, 'Update the mobile app to finish video uploads safely. Your recording is still pending.');
 
         return Cache::lock($this->lockName($session), 120)->block(10, function () use ($session, $actor): array {
             $current = $this->authorized($session->fresh() ?? abort(404), $actor);

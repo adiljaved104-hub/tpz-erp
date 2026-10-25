@@ -447,24 +447,26 @@ class CustomerReturnEvidenceTest extends TestCase
         $lock = Cache::lock('return-video-upload:'.$sessionId, 180);
         $this->assertTrue($lock->get());
         try {
-            app(CustomerReturnVideoUploadService::class)->requestFinalization(CustomerReturnVideoUploadSession::query()->findOrFail($sessionId), $owner);
+            app(CustomerReturnVideoUploadService::class)->requestFinalization(CustomerReturnVideoUploadSession::query()->findOrFail($sessionId), $owner, true);
             $this->fail('A second finalizer must wait for the session lock.');
         } catch (LockTimeoutException) {
             $this->assertDatabaseCount('customer_return_evidence', 0);
         } finally {
             $lock->release();
         }
-        $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize')->assertStatus(202)
+        $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize')->assertStatus(426);
+        Queue::assertNothingPushed();
+        $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize', ['async' => true])->assertStatus(202)
             ->assertJsonPath('data.status', 'processing');
-        $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize')->assertStatus(202);
+        $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize', ['async' => true])->assertStatus(202);
         Queue::assertPushed(FinalizeCustomerReturnVideo::class, 1);
         Queue::assertPushed(FinalizeCustomerReturnVideo::class,
             fn (FinalizeCustomerReturnVideo $job) => $job->connection === 'return_evidence_uploads'
                 && config('queue.connections.return_evidence_uploads.retry_after') > $job->timeout);
         $this->assertDatabaseCount('customer_return_evidence', 0);
         app(FinalizeCustomerReturnVideo::class, ['sessionId' => $sessionId])->handle(app(CustomerReturnVideoUploadService::class));
-        $firstFinal = $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize')->assertOk();
-        $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize')->assertOk()
+        $firstFinal = $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize', ['async' => true])->assertOk();
+        $this->postJson($root.'/video-uploads/'.$sessionId.'/finalize', ['async' => true])->assertOk()
             ->assertJsonPath('data.evidence_id', $firstFinal->json('data.evidence_id'));
         $evidence = CustomerReturnEvidence::query()->sole();
         $this->assertSame(hash('sha256', $movie), $evidence->sha256);
@@ -488,13 +490,13 @@ class CustomerReturnEvidenceTest extends TestCase
             ->assertOk()->assertJsonPath('data.total_chunks', 20);
         $this->postJson($base, [...$input, 'upload_id' => (string) Str::uuid(), 'byte_size' => 200 * 1024 * 1024 + 1])->assertUnprocessable();
         $this->postJson($base, [...$input, 'upload_id' => (string) Str::uuid(), 'duration_seconds' => 301])->assertUnprocessable();
-        $this->postJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session.'/finalize')->assertUnprocessable();
+        $this->postJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session.'/finalize', ['async' => true])->assertUnprocessable();
         $other = User::factory()->create(['email' => 'other-return-owner@techpointzone.com']);
         Employee::factory()->for($other)->role(EmployeeRole::Owner)->create(['email' => $other->email]);
         $this->app['auth']->forgetGuards();
         $this->withToken($other->createToken('Other return employee')->plainTextToken)
             ->getJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session)->assertNotFound();
-        $this->postJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session.'/finalize')->assertNotFound();
+        $this->postJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session.'/finalize', ['async' => true])->assertNotFound();
         $this->postJson($base, $input)->assertNotFound();
         CustomerReturnVideoUploadSession::query()->findOrFail($session)->update(['expires_at' => now()->subMinute()]);
         $this->app['auth']->forgetGuards();
@@ -526,14 +528,14 @@ class CustomerReturnEvidenceTest extends TestCase
                 'checksum' => md5($movie), 'chunk' => UploadedFile::fake()->createWithContent('part', $movie),
             ])->assertOk();
             Queue::fake();
-            $this->postJson($root.'/video-uploads/'.$session.'/finalize')->assertStatus(202);
+            $this->postJson($root.'/video-uploads/'.$session.'/finalize', ['async' => true])->assertStatus(202);
             app(FinalizeCustomerReturnVideo::class, ['sessionId' => $session])->handle(app(CustomerReturnVideoUploadService::class));
             if ($number === 0) {
                 $this->getJson($root.'/video-uploads/'.$session)->assertOk()->assertJsonPath('data.status', 'failed');
                 $this->assertDatabaseCount('customer_return_evidence', 0);
                 $this->assertTrue(Storage::disk('local')->exists('customer-return-evidence/upload-sessions/'.$session.'/0.part'));
             } else {
-                $this->postJson($root.'/video-uploads/'.$session.'/finalize')->assertOk();
+                $this->postJson($root.'/video-uploads/'.$session.'/finalize', ['async' => true])->assertOk();
             }
         }
         $this->assertDatabaseCount('customer_return_evidence', 2);

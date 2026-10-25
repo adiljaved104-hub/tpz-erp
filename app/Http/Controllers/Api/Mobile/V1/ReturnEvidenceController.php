@@ -157,7 +157,7 @@ class ReturnEvidenceController extends Controller
     public function finalizeVideo(Request $request, CustomerReturnVideoUploadSession $session): JsonResponse
     {
         $uploads = app(CustomerReturnVideoUploadService::class);
-        $status = $uploads->requestFinalization($session, $request->user());
+        $status = $uploads->requestFinalization($session, $request->user(), $request->boolean('async'));
 
         return response()->json(['data' => $status], $status['status'] === 'completed' ? 200 : 202);
     }

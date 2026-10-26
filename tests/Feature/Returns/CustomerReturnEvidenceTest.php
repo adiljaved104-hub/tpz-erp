@@ -175,14 +175,26 @@ class CustomerReturnEvidenceTest extends TestCase
         $file = UploadedFile::fake()->image('damage.jpg', 800, 600);
         $evidence = app(CustomerReturnEvidenceService::class)->record($item, $owner, $input, $file);
         $label = $evidence->label()->firstOrFail();
+        $this->assertSame('2026-10-24 12:34:56', $evidence->getRawOriginal('captured_at_device'));
+        $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
+            ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence->fresh(), 800, 600);
+        $this->assertSame('24-10-2026 Sat 12:34:56 PKT', $layout['stamp']);
         $this->assertSame(hash_file('sha256', Storage::disk('local')->path($evidence->original_path)), $evidence->sha256);
         $this->assertNotSame($evidence->sha256, $label->sha256);
         $this->assertTrue(Storage::disk('local')->exists($label->path));
-        $this->assertSame([800, 720], array_slice(getimagesize(Storage::disk('local')->path($label->path)), 0, 2));
+        $this->assertSame([800, 600], array_slice(getimagesize(Storage::disk('local')->path($label->path)), 0, 2));
         $this->assertSame('Asia/Karachi', $evidence->capture_timezone);
         $this->assertSame($evidence->id, app(CustomerReturnEvidenceService::class)->record($item, $owner, $input, $file)->id);
         $this->assertDatabaseCount('customer_return_evidence_labels', 1);
         $this->actingAs($owner)->get('/admin/customer-return-evidence/'.$evidence->id.'/labeled')->assertOk();
+        $gallery = view('returns.evidence-gallery', ['getRecord' => fn () => $return])->render();
+        $this->assertStringContainsString('tpz-return-gallery-grid', $gallery);
+        $this->assertStringContainsString('Open larger preview', $gallery);
+        $this->assertStringContainsString('Download original', $gallery);
+        $this->assertStringContainsString('Download labeled copy', $gallery);
+        $this->assertStringContainsString('Original SHA-256', $gallery);
+        $this->assertStringContainsString($evidence->sha256, $gallery);
+        $this->assertStringContainsString('24 Oct 2026, 12:34:56', $gallery);
     }
 
     public function test_original_wrong_item_reason_and_damaged_evidence_finding_remain_distinct_without_inventory_posting(): void
@@ -204,6 +216,52 @@ class CustomerReturnEvidenceTest extends TestCase
             ->assertJsonPath('data.items.0.findings.0.physical_condition', 'Cracked screen');
         $this->assertSame($movements, StockMovement::query()->count());
         $this->assertSame(1, $inventory->refresh()->qc_pending_quantity);
+    }
+
+    public function test_shared_gallery_displays_photo_and_ordered_video_parts_with_expandable_metadata(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        Queue::fake();
+        config(['customer_return_evidence.ffmpeg_binary' => 'ffmpeg', 'queue.default' => 'database']);
+        $metadata = ['problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T12:01:21+05:00',
+            'capture_timezone' => 'Asia/Karachi'];
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, $metadata + [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+        ], $this->syntheticLaptopPhoto(960, 540));
+        $header = pack('N', 24).'ftypisom'.pack('N', 0).'isommp42';
+        $mvhd = pack('N', 28).'mvhd'.pack('N', 0).pack('N', 0).pack('N', 0).pack('N', 1000).pack('N', 7000);
+        $movie = $header.pack('N', strlen($mvhd) + 8).'moov'.$mvhd;
+        foreach ([1, 2] as $part) {
+            $video = UploadedFile::fake()->createWithContent("part-$part.mp4", $movie);
+            $video->mimeTypeToReport = 'video/mp4';
+            app(CustomerReturnEvidenceService::class)->record($item, $owner, $metadata + [
+                'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+                'duration_seconds' => 7,
+            ], $video);
+        }
+
+        $this->actingAs($owner);
+        $gallery = view('returns.evidence-gallery', ['getRecord' => fn () => $return])->render();
+        $this->assertSame(3, substr_count($gallery, '<article class="tpz-return-gallery-card">'));
+        $this->assertSame(1, substr_count($gallery, '<div class="tpz-return-gallery-grid">'));
+        $this->assertStringContainsString('Video — Part 1', $gallery);
+        $this->assertStringContainsString('Video — Part 2', $gallery);
+        $this->assertStringContainsString('<details class="tpz-return-gallery-details">', $gallery);
+        $this->assertStringContainsString('Download original', $gallery);
+        $this->assertStringContainsString('Download labeled copy', $gallery);
+        $this->assertStringContainsString('12:01:21', $gallery);
+        $this->assertSame(1, substr_count($gallery, 'Labeled copy ready'));
+        $this->assertSame(2, substr_count($gallery, 'Labeled copy unavailable'));
+        $this->assertSame(1, substr_count($gallery, 'Download labeled copy'));
+        $this->assertMatchesRegularExpression('/Video — Part 1.*?Labeled copy unavailable/s', $gallery);
+
+        $claim = new SafetClaim;
+        $claim->customer_return_item_id = $item->id;
+        $claim->setRelation('customerReturn', $return);
+        $claimGallery = view('returns.evidence-gallery', ['getRecord' => fn () => $claim])->render();
+        $this->assertSame(3, substr_count($claimGallery, '<article class="tpz-return-gallery-card">'));
+        $this->assertStringContainsString('Video — Part 2', $claimGallery);
     }
 
     public function test_video_must_respect_duration_and_does_not_use_renewed_qc_evidence(): void
@@ -308,17 +366,73 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertSame($movie, Storage::disk('local')->get($evidence->original_path));
     }
 
-    public function test_video_label_filter_escapes_capture_time_for_both_ffmpeg_parsing_levels(): void
+    public function test_portrait_photo_label_keeps_original_dimensions_and_translucent_bands(): void
     {
-        $method = new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'videoFilter');
-        $filter = $method->invoke(app(CustomerReturnEvidenceLabelService::class),
-            'TECH POINT ZONE - RETURN EVIDENCE - RETURN RTN-2026-000029 - ORDER SO-2026-000035',
-            1793000000, 'Asia/Karachi');
+        [$owner, $return] = $this->receivedReturn();
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T12:01:21+05:00',
+            'capture_timezone' => 'Asia/Karachi',
+        ], $this->syntheticLaptopPhoto(600, 900));
+        $label = $evidence->label()->firstOrFail();
+        $this->assertSame([600, 900], array_slice(getimagesize(Storage::disk('local')->path($label->path)), 0, 2));
+        $this->assertSame($evidence->sha256, hash_file('sha256', Storage::disk('local')->path($evidence->original_path)));
+        $derivative = imagecreatefromjpeg(Storage::disk('local')->path($label->path));
+        $this->assertInstanceOf(\GdImage::class, $derivative);
+        try {
+            $top = imagecolorsforindex($derivative, imagecolorat($derivative, 590, 5));
+            $this->assertGreaterThan(120, $top['red']);
+            $this->assertLessThan(200, $top['red']);
+            $this->assertGreaterThan(210, imagecolorsforindex($derivative, imagecolorat($derivative, 590, 450))['red']);
+        } finally {
+            imagedestroy($derivative);
+        }
+    }
+
+    public function test_landscape_photo_uses_the_same_translucent_claim_copy_design(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T12:01:21+05:00',
+            'capture_timezone' => 'Asia/Karachi',
+        ], $this->syntheticLaptopPhoto(960, 540));
+        $label = $evidence->label()->firstOrFail();
+        $this->assertSame([960, 540], array_slice(getimagesize(Storage::disk('local')->path($label->path)), 0, 2));
+        $this->assertSame($evidence->sha256, hash_file('sha256', Storage::disk('local')->path($evidence->original_path)));
+        $source = imagecreatefromjpeg(Storage::disk('local')->path($evidence->original_path));
+        $derivative = imagecreatefromjpeg(Storage::disk('local')->path($label->path));
+        try {
+            $original = imagecolorsforindex($source, imagecolorat($source, 950, 5))['red'];
+            $overlaid = imagecolorsforindex($derivative, imagecolorat($derivative, 950, 5))['red'];
+            $this->assertEqualsWithDelta($original * .6, $overlaid, 12);
+        } finally {
+            imagedestroy($source);
+            imagedestroy($derivative);
+        }
+    }
+
+    public function test_video_filter_uses_compact_translucent_bands_and_device_reported_clock(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T12:01:21+05:00',
+            'capture_timezone' => 'Asia/Karachi',
+        ], UploadedFile::fake()->image('layout.jpg', 600, 900));
+        $service = app(CustomerReturnEvidenceLabelService::class);
+        $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, 600, 900);
+        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 600, 900, 'clock.txt');
 
         $this->assertStringContainsString('TECH POINT ZONE', $filter);
-        $this->assertStringContainsString('RTN-2026-000029 - ORDER SO-2026-000035', $filter);
-        $this->assertStringContainsString('%{pts\\\\:gmtime\\\\:1793000000}', $filter);
-        $this->assertStringContainsString('UTC (Asia/Karachi)', $filter);
+        $this->assertStringContainsString('CUSTOMER RETURN EVIDENCE', $filter);
+        $this->assertStringContainsString('Return ID ', $filter);
+        $this->assertStringContainsString('Order ID ', $filter);
+        $this->assertStringContainsString('black@0.40', $filter);
+        $this->assertStringContainsString('textfile=clock.txt', $filter);
+        $this->assertSame('26-10-2026 Mon 12:01:21 PKT', $layout['stamp']);
+        $this->assertSame('26-10-2026 Mon 12:01:21', gmdate('d-m-Y D H:i:s', $layout['wallEpoch']));
+        $this->assertLessThan(900 * .42, $layout['footerHeight']);
     }
 
     public function test_local_ffmpeg_renders_the_capture_timestamp_without_changing_the_original(): void
@@ -333,25 +447,37 @@ class CustomerReturnEvidenceTest extends TestCase
         $source = Storage::disk('local')->path($directory.'/original.mp4');
         $labeled = Storage::disk('local')->path($directory.'/labeled.mp4');
         (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
-            '-f', 'lavfi', '-i', 'color=c=black:s=640x360:r=25:d=2', '-t', '2',
+            '-f', 'lavfi', '-i', 'color=c=0xD6EAF8:s=640x360:r=25:d=2,drawbox=x=80:y=50:w=480:h=225:color=0x2F4257:t=fill,drawbox=x=95:y=65:w=450:h=195:color=0x3C82B4:t=fill,drawbox=x=55:y=275:w=530:h=32:color=0xAAB4BE:t=fill', '-t', '2',
             '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $source]))->mustRun();
         $originalHash = hash_file('sha256', $source);
 
-        $method = new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'videoFilter');
-        $filter = $method->invoke(app(CustomerReturnEvidenceLabelService::class),
-            'TECH POINT ZONE - RETURN EVIDENCE - RETURN RTN-2026-000029 - ORDER SO-2026-000035',
-            1793000000, 'Asia/Karachi');
+        [$owner, $return] = $this->receivedReturn();
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T12:01:21+05:00',
+            'capture_timezone' => 'Asia/Karachi',
+        ], UploadedFile::fake()->image('synthetic-layout.jpg', 640, 360));
+        $service = app(CustomerReturnEvidenceLabelService::class);
+        $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, 640, 360);
+        file_put_contents(Storage::disk('local')->path($directory.'/clock.txt'),
+            '%{pts:gmtime:'.$layout['wallEpoch'].':%d-%m-%Y %a %H\\:%M\\:%S} '.$layout['abbreviation']);
+        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 640, 360, 'clock.txt');
         (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
             '-i', $source, '-vf', $filter, '-map', '0:v:0', '-map', '0:a?',
             '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4', $labeled]))->mustRun();
+            '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4', $labeled],
+            Storage::disk('local')->path($directory)))->mustRun();
 
         $this->assertGreaterThan(0, filesize($labeled));
         $this->assertSame($originalHash, hash_file('sha256', $source));
+        $frame = Storage::disk('local')->path($directory.'/frame.png');
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-i', $labeled, '-ss', '0.2', '-frames:v', '1', $frame]))->mustRun();
+        $this->assertSame([640, 360], array_slice(getimagesize($frame), 0, 2));
         $timestampFrame = static function (string $seconds) use ($binary, $labeled): string {
             $process = new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
                 '-i', $labeled, '-ss', $seconds, '-frames:v', '1',
-                '-vf', 'crop=640:40:0:45', '-f', 'md5', '-']);
+                '-vf', 'crop=640:40:0:0', '-f', 'md5', '-']);
             $process->mustRun();
 
             return trim($process->getOutput());
@@ -361,6 +487,79 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertMatchesRegularExpression('/^MD5=[a-f0-9]{32}$/', $firstSecond);
         $this->assertMatchesRegularExpression('/^MD5=[a-f0-9]{32}$/', $nextSecond);
         $this->assertNotSame($firstSecond, $nextSecond);
+    }
+
+    public function test_portrait_video_label_renders_without_cropping(): void
+    {
+        $binary = getenv('TPZ_TEST_FFMPEG_BINARY');
+        if (! is_string($binary) || ! is_file($binary)) {
+            $this->markTestSkipped('Set TPZ_TEST_FFMPEG_BINARY to run the local portrait-video check.');
+        }
+
+        [$owner, $return] = $this->receivedReturn();
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T12:01:21+05:00',
+            'capture_timezone' => 'Asia/Karachi',
+        ], UploadedFile::fake()->image('portrait-layout.jpg', 360, 640));
+        $service = app(CustomerReturnEvidenceLabelService::class);
+        $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, 360, 640);
+        $directory = 'synthetic-portrait-label';
+        Storage::disk('local')->makeDirectory($directory);
+        $source = Storage::disk('local')->path($directory.'/original.mp4');
+        $labeled = Storage::disk('local')->path($directory.'/labeled.mp4');
+        file_put_contents(Storage::disk('local')->path($directory.'/clock.txt'),
+            '%{pts:gmtime:'.$layout['wallEpoch'].':%d-%m-%Y %a %H\\:%M\\:%S} '.$layout['abbreviation']);
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-f', 'lavfi', '-i', 'color=c=0xD6EAF8:s=360x640:r=25:d=2,drawbox=x=45:y=95:w=270:h=410:color=0x2F4257:t=fill,drawbox=x=58:y=110:w=244:h=375:color=0x3C82B4:t=fill,drawbox=x=30:y=505:w=300:h=62:color=0xAAB4BE:t=fill', '-t', '2',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $source]))->mustRun();
+        $originalHash = hash_file('sha256', $source);
+        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 360, 640, 'clock.txt');
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-i', $source, '-vf', $filter, '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+            '-f', 'mp4', $labeled], Storage::disk('local')->path($directory)))->mustRun();
+        $this->assertGreaterThan(0, filesize($labeled));
+        $this->assertSame($originalHash, hash_file('sha256', $source));
+        $frame = Storage::disk('local')->path($directory.'/frame.png');
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-i', $labeled, '-frames:v', '1', $frame]))->mustRun();
+        $this->assertSame([360, 640], array_slice(getimagesize($frame), 0, 2));
+        $sourceFrame = Storage::disk('local')->path($directory.'/source-frame.png');
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-i', $source, '-frames:v', '1', $sourceFrame]))->mustRun();
+        $originalImage = imagecreatefrompng($sourceFrame);
+        $labelImage = imagecreatefrompng($frame);
+        try {
+            $originalRed = imagecolorsforindex($originalImage, imagecolorat($originalImage, 350, 5))['red'];
+            $labelRed = imagecolorsforindex($labelImage, imagecolorat($labelImage, 350, 5))['red'];
+            $this->assertEqualsWithDelta($originalRed * .6, $labelRed, 20);
+        } finally {
+            imagedestroy($originalImage);
+            imagedestroy($labelImage);
+        }
+        $this->assertLessThan(640 * .42, $layout['footerHeight']);
+    }
+
+    public function test_long_references_wrap_within_portrait_and_landscape_frames(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $return->update(['reference' => 'RTN-2026-'.str_repeat('1234567890', 5)]);
+        $return->order->update(['reference' => 'SO-2026-'.str_repeat('9876543210', 5)]);
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T12:01:21+05:00',
+            'capture_timezone' => 'Asia/Karachi',
+        ], UploadedFile::fake()->image('long-reference.jpg', 600, 900));
+        $service = app(CustomerReturnEvidenceLabelService::class);
+        foreach ([[600, 900], [900, 600]] as [$width, $height]) {
+            $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, $width, $height);
+            $this->assertLessThan($height * .42, $layout['footerHeight']);
+            foreach ($layout['lines'] as $line) {
+                $box = imagettfbbox($layout['fontSize'], 0, $layout['font'], $line);
+                $this->assertLessThanOrEqual($width - 2 * $layout['margin'],
+                    max($box[2], $box[4]) - min($box[0], $box[6]));
+            }
+        }
     }
 
     public function test_same_upload_id_cannot_represent_different_evidence(): void
@@ -696,5 +895,27 @@ class CustomerReturnEvidenceTest extends TestCase
         app(ReceiveCustomerReturn::class)->handle($return, $owner);
 
         return [$owner, $return->refresh(), $inventory];
+    }
+
+    private function syntheticLaptopPhoto(int $width, int $height): UploadedFile
+    {
+        $image = imagecreatetruecolor($width, $height);
+        $background = imagecolorallocate($image, 230, 240, 250);
+        $body = imagecolorallocate($image, 47, 66, 87);
+        $display = imagecolorallocate($image, 60, 130, 180);
+        $keyboard = imagecolorallocate($image, 170, 180, 190);
+        imagefill($image, 0, 0, $background);
+        imagefilledrectangle($image, (int) ($width * .13), (int) ($height * .15),
+            (int) ($width * .87), (int) ($height * .74), $body);
+        imagefilledrectangle($image, (int) ($width * .17), (int) ($height * .19),
+            (int) ($width * .83), (int) ($height * .68), $display);
+        imagefilledrectangle($image, (int) ($width * .08), (int) ($height * .74),
+            (int) ($width * .92), (int) ($height * .81), $keyboard);
+        ob_start();
+        imagejpeg($image, null, 95);
+        $bytes = (string) ob_get_clean();
+        imagedestroy($image);
+
+        return UploadedFile::fake()->createWithContent("synthetic-laptop-$width.jpg", $bytes);
     }
 }

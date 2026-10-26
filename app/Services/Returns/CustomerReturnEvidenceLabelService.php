@@ -4,6 +4,7 @@ namespace App\Services\Returns;
 
 use App\Models\CustomerReturnEvidence;
 use App\Models\CustomerReturnEvidenceLabel;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -81,13 +82,12 @@ class CustomerReturnEvidenceLabelService
         if (! $size || $size[0] * $size[1] > 16000000) {
             throw new \RuntimeException('Evidence photo exceeds the safe labeling dimensions.');
         }
-        $width = min(2400, $size[0]);
-        $height = max(1, (int) round($size[1] * $width / $size[0]));
+        [$width, $height] = $size;
         $memory = trim((string) ini_get('memory_limit'));
         $budget = (float) $memory * match (strtolower(substr($memory, -1))) {
             'g' => 1073741824, 'm' => 1048576, 'k' => 1024, default => 1,
         };
-        if ($budget > 0 && memory_get_usage(true) + ($size[0] * $size[1] + max(700, $width) * ($height + 120)) * 4
+        if ($budget > 0 && memory_get_usage(true) + $width * $height * 8
             + strlen($original) * 2 + 20971520 > $budget) {
             throw new \RuntimeException('Evidence photo exceeds the safe labeling memory budget.');
         }
@@ -95,41 +95,34 @@ class CustomerReturnEvidenceLabelService
         if (! $source) {
             throw new \RuntimeException('Evidence photo could not be decoded.');
         }
-        $canvas = imagecreatetruecolor(max(700, $width), $height + 120);
-        $dark = imagecolorallocate($canvas, 15, 30, 48);
-        imagefill($canvas, 0, 0, $dark);
-        imagecopyresampled($canvas, $source, 0, 0, 0, 0, $width, $height, imagesx($source), imagesy($source));
-        $white = imagecolorallocate($canvas, 255, 255, 255);
-        $return = $evidence->finding->item->customerReturn;
-        $lines = [
-            'TECH POINT ZONE - CUSTOMER RETURN EVIDENCE',
-            'Return '.$return->reference.' | Order '.($return->order?->reference ?? $return->order_id),
-            'Device-reported capture '.$evidence->captured_at_device->utc()->format('Y-m-d H:i:s').' UTC',
-            'Reported time zone '.$evidence->capture_timezone.' | Server received '.$evidence->uploaded_at->utc()->format('Y-m-d H:i:s').' UTC',
-        ];
-        foreach ($lines as $index => $line) {
-            imagestring($canvas, 4, 12, $height + 8 + $index * 27, $line, $white);
-        }
-        ob_start();
-        imagejpeg($canvas, null, 93);
-        $bytes = (string) ob_get_clean();
-        imagedestroy($source);
-        imagedestroy($canvas);
+        try {
+            $layout = $this->layout($evidence, $width, $height);
+            imagealphablending($source, true);
+            $band = imagecolorallocatealpha($source, 0, 0, 0, 76); // ~40% opaque; footage remains visible.
+            imagefilledrectangle($source, 0, 0, $width - 1, $layout['topHeight'] - 1, $band);
+            imagefilledrectangle($source, 0, $height - $layout['footerHeight'], $width - 1, $height - 1, $band);
+            $this->photoText($source, $layout['stamp'], $layout['fontSize'], $layout['margin'] + $layout['fontSize'], $layout);
+            $this->photoText($source, $layout['note'], $layout['noteSize'],
+                $layout['margin'] + $layout['fontSize'] + $layout['noteSize'] + 3, $layout);
+            $footerTop = $height - $layout['footerHeight'];
+            foreach ($layout['lines'] as $index => $line) {
+                $this->photoText($source, $line, $layout['fontSize'],
+                    $footerTop + $layout['margin'] + $layout['fontSize'] + $index * $layout['lineHeight'], $layout);
+            }
+            ob_start();
+            if (! imagejpeg($source, null, 93)) {
+                ob_end_clean();
+                throw new \RuntimeException('Evidence photo label encoding failed.');
+            }
 
-        return $bytes;
+            return (string) ob_get_clean();
+        } finally {
+            imagedestroy($source);
+        }
     }
 
     private function video(CustomerReturnEvidence $evidence, string $binary): string
     {
-        $return = $evidence->finding->item->customerReturn;
-        $reference = preg_replace('/[^A-Za-z0-9-]/', '', $return->reference);
-        $orderReference = preg_replace('/[^A-Za-z0-9-]/', '', $return->order?->reference ?? (string) $return->order_id);
-        $static = 'TECH POINT ZONE - RETURN EVIDENCE - RETURN '.$reference.' - ORDER '.$orderReference;
-        $epoch = $evidence->captured_at_device->getTimestamp();
-        $zone = preg_replace('/[^A-Za-z0-9_\/-]/', '', (string) $evidence->capture_timezone);
-        // PTS starts at zero; the supplied offset is the reported capture epoch.
-        // No shell is involved, and the UTC value advances on every video frame.
-        $filter = $this->videoFilter($static, $epoch, $zone);
         // A five-minute derivative can be large. Keep it on the private
         // evidence disk rather than an unknown or size-limited system /tmp.
         $disk = Storage::disk('local');
@@ -141,29 +134,175 @@ class CustomerReturnEvidenceLabelService
         if ($output === false) {
             throw new \RuntimeException('No temporary media path available.');
         }
-        $process = new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
-            '-i', Storage::disk('local')->path($evidence->original_path), '-vf', $filter,
-            '-map', '0:v:0', '-map', '0:a?',
-            '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4', $output]);
-        $process->setTimeout(1500);
-        $process->run();
-        clearstatcache(true, $output);
-        if (! $process->isSuccessful() || filesize($output) === 0) {
-            unlink($output);
-            throw new \RuntimeException('Video label generation failed.');
-        }
+        $clockFile = 'clock-'.Str::uuid().'.txt';
+        try {
+            $original = $disk->path($evidence->original_path);
+            [$width, $height] = $this->videoDimensions($binary, $original);
+            $layout = $this->layout($evidence, $width, $height);
+            // Using textfile avoids another filtergraph escaping level for the
+            // strftime colons. The epoch is device-reported, never server time.
+            $clock = '%{pts:gmtime:'.$layout['wallEpoch'].':%d-%m-%Y %a %H\\:%M\\:%S} '.$layout['abbreviation'];
+            if (file_put_contents($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$clockFile, $clock) === false) {
+                throw new \RuntimeException('Could not prepare the private evidence clock.');
+            }
+            $filter = $this->videoFilter($layout, $width, $height, $clockFile);
+            $process = new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+                '-i', $original, '-vf', $filter, '-map', '0:v:0', '-map', '0:a?',
+                '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4', $output],
+                $disk->path($temporaryDirectory));
+            $process->setTimeout(1500);
+            $process->run();
+            clearstatcache(true, $output);
+            if (! $process->isSuccessful() || filesize($output) === 0) {
+                throw new \RuntimeException('Video label generation failed.');
+            }
 
-        return $output;
+            return $output;
+        } catch (Throwable $exception) {
+            unlink($output);
+            throw $exception;
+        } finally {
+            @unlink($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$clockFile);
+        }
     }
 
-    private function videoFilter(string $static, int $epoch, string $zone): string
+    private function videoDimensions(string $binary, string $original): array
     {
-        // A drawtext option embedded in a filtergraph needs two escaping
-        // levels for the colons inside %{pts:gmtime:offset}.
-        $ptsSeparator = '\\\\:';
+        $probe = dirname($binary).DIRECTORY_SEPARATOR.(str_ends_with(strtolower($binary), '.exe') ? 'ffprobe.exe' : 'ffprobe');
+        if (! is_file($probe)) {
+            throw new \RuntimeException('The video dimension probe is unavailable.');
+        }
+        $process = new Process([$probe, '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x', $original]);
+        $process->setTimeout(30);
+        $process->run();
+        if (! $process->isSuccessful() || ! preg_match('/^(\d{2,5})x(\d{2,5})$/', trim($process->getOutput()), $match)) {
+            throw new \RuntimeException('Video dimensions could not be verified.');
+        }
 
-        return 'setpts=PTS-STARTPTS,drawtext=text='.$static.':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=20,'
-            .'drawtext=text=DEVICE-REPORTED CAPTURE %{pts'.$ptsSeparator.'gmtime'.$ptsSeparator.$epoch.'} UTC ('.$zone.'):fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=55';
+        return [(int) $match[1], (int) $match[2]];
+    }
+
+    private function boldFont(): string
+    {
+        foreach (['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 'C:/Windows/Fonts/arialbd.ttf'] as $path) {
+            if (is_file($path) && is_readable($path)) {
+                return $path;
+            }
+        }
+
+        throw new \RuntimeException('A readable bold evidence font is unavailable.');
+    }
+
+    private function layout(CustomerReturnEvidence $evidence, int $width, int $height): array
+    {
+        $font = $this->boldFont();
+        $margin = max(10, (int) floor(min($width, $height) * .025));
+        $fontSize = max(10, min(42, (int) floor(min($width / 24, $height / 22))));
+        $return = $evidence->finding->item->customerReturn;
+        $reference = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $return->reference);
+        $order = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($return->order?->reference ?? $return->order_id));
+        do {
+            $lines = ['TECH POINT ZONE', 'CUSTOMER RETURN EVIDENCE',
+                ...$this->wrappedReference('Return ID ', $reference, $width - 2 * $margin, $fontSize, $font),
+                ...$this->wrappedReference('Order ID ', $order, $width - 2 * $margin, $fontSize, $font)];
+            $lineHeight = (int) ceil($fontSize * 1.24);
+            $footerHeight = count($lines) * $lineHeight + 2 * $margin;
+            if ($footerHeight <= $height * .42 || $fontSize === 10) {
+                break;
+            }
+            $fontSize--;
+        } while (true);
+        if ($footerHeight > $height * .42) {
+            throw new \RuntimeException('Evidence references cannot fit without covering the image.');
+        }
+        $zone = (string) ($evidence->capture_timezone ?: 'UTC');
+        // The existing evidence column stores the device's wall time without
+        // its offset; capture_timezone is the accompanying IANA time zone.
+        // Recasting the column as UTC and converting it shifts the overlay.
+        $captured = CarbonImmutable::parse((string) $evidence->getRawOriginal('captured_at_device'), $zone);
+        $note = 'DEVICE-REPORTED TIME | '.$zone;
+        $available = $width - 2 * $margin;
+        $noteSize = max(8, (int) floor($fontSize * .65));
+        while ($noteSize > 8 && $this->textWidth($note, $noteSize, $font) > $available) {
+            $noteSize--;
+        }
+        if ($this->textWidth($note, $noteSize, $font) > $available
+            || $this->textWidth($captured->format('d-m-Y D H:i:s T'), $fontSize, $font) > $available) {
+            throw new \RuntimeException('The evidence clock cannot fit inside the media margins.');
+        }
+        foreach ($lines as $line) {
+            if ($this->textWidth($line, $fontSize, $font) > $available) {
+                throw new \RuntimeException('The evidence references cannot fit inside the media margins.');
+            }
+        }
+        $topHeight = $fontSize + $noteSize + 3 * $margin;
+        if ($topHeight + $footerHeight >= $height) {
+            throw new \RuntimeException('Evidence overlays cannot fit the media safely.');
+        }
+
+        return compact('font', 'margin', 'fontSize', 'lineHeight', 'footerHeight', 'topHeight', 'lines', 'note', 'noteSize') + [
+            'stamp' => $captured->format('d-m-Y D H:i:s T'),
+            'abbreviation' => $captured->format('T'),
+            'wallEpoch' => $captured->getTimestamp() + $captured->getOffset(),
+        ];
+    }
+
+    private function wrappedReference(string $prefix, string $value, int $available, int $fontSize, string $font): array
+    {
+        $lines = [];
+        $line = $prefix;
+        foreach (str_split($value) as $character) {
+            $candidate = $line.$character;
+            if ($this->textWidth($candidate, $fontSize, $font) > $available && $line !== $prefix) {
+                $lines[] = rtrim($line);
+                $line = '  '.$character;
+            } else {
+                $line = $candidate;
+            }
+        }
+        $lines[] = rtrim($line);
+
+        return $lines;
+    }
+
+    private function textWidth(string $text, int $size, string $font): int
+    {
+        $box = imagettfbbox($size, 0, $font, $text);
+        if ($box === false) {
+            throw new \RuntimeException('Evidence text could not be measured.');
+        }
+
+        return max($box[2], $box[4]) - min($box[0], $box[6]);
+    }
+
+    private function photoText(\GdImage $image, string $text, int $size, int $baseline, array $layout): void
+    {
+        $shadow = imagecolorallocatealpha($image, 0, 0, 0, 20);
+        $white = imagecolorallocate($image, 255, 255, 255);
+        imagettftext($image, $size, 0, $layout['margin'] + 1, $baseline + 2, $shadow, $layout['font'], $text);
+        imagettftext($image, $size, 0, $layout['margin'], $baseline, $white, $layout['font'], $text);
+    }
+
+    private function videoFilter(array $layout, int $width, int $height, string $clockFile): string
+    {
+        // Font paths and visible text are controlled server-side. FFmpeg is
+        // invoked as an argument vector, not through a shell.
+        $font = str_replace(':', '\\\\:', str_replace('\\', '/', $layout['font']));
+        $common = 'fontfile='.$font.':fontcolor=white:borderw=1:bordercolor=black@0.7:shadowx=1:shadowy=2:shadowcolor=black@0.7';
+        $margin = $layout['margin'];
+        $filter = 'setpts=PTS-STARTPTS'
+            .',drawbox=x=0:y=0:w=iw:h='.$layout['topHeight'].':color=black@0.40:t=fill'
+            .',drawbox=x=0:y=ih-'.$layout['footerHeight'].':w=iw:h='.$layout['footerHeight'].':color=black@0.40:t=fill'
+            .',drawtext='.$common.':textfile='.$clockFile.':fontsize='.$layout['fontSize'].':x='.$margin.':y='.$margin
+            .',drawtext='.$common.':text='.$layout['note'].':fontsize='.$layout['noteSize'].':x='.$margin.':y='.($margin + $layout['fontSize'] + 3);
+        $footerTop = $height - $layout['footerHeight'];
+        foreach ($layout['lines'] as $index => $line) {
+            $filter .= ',drawtext='.$common.':text='.$line.':fontsize='.$layout['fontSize']
+                .':x='.$margin.':y='.($footerTop + $margin + $index * $layout['lineHeight']);
+        }
+
+        return $filter;
     }
 }

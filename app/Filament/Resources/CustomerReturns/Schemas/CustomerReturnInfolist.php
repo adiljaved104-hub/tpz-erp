@@ -68,13 +68,15 @@ class CustomerReturnInfolist
                     TableColumn::make('SKU'), TableColumn::make('Product'), TableColumn::make('Return Qty'), TableColumn::make('Reason'),
                 ]),
             ]),
-            Section::make('QC Results & Evidence')->schema([
+            Section::make('QC Results & Evidence')->columnSpanFull()->schema([
                 ViewEntry::make('qc_results')->view('returns.qc-results')->hiddenLabel(),
-                ViewEntry::make('return_evidence')->view('returns.evidence-gallery')->hiddenLabel(),
                 TextEntry::make('marketplace_identity_hold')->label('Marketplace identity hold')
                     ->state('The expected item was not verified. Inventory and financial resolution is on hold until Owner/Admin approves a marketplace ledger rule.')
                     ->visible(fn (CustomerReturn $record): bool => $record->fulfillmentWarehouse?->location_type === InventoryLocationType::MarketplaceFulfilment
                         && $record->items()->whereHas('findings', fn ($query) => $query->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))->exists()),
+            ]),
+            Section::make('Evidence Gallery')->columnSpanFull()->schema([
+                ViewEntry::make('return_evidence')->view('returns.evidence-gallery')->hiddenLabel(),
             ]),
             Section::make('Wrong / Different Items Held for Verification')->schema([
                 RepeatableEntry::make('quarantines')->hiddenLabel()->schema([

@@ -32,6 +32,7 @@ use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Returns\CustomerReturnEvidenceAuthorization;
+use App\Services\Returns\CustomerReturnEvidenceLabelService;
 use App\Services\Returns\CustomerReturnEvidenceService;
 use App\Services\Returns\CustomerReturnService;
 use App\Services\Returns\CustomerReturnVideoDuration;
@@ -44,6 +45,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 class CustomerReturnEvidenceTest extends TestCase
@@ -304,6 +306,61 @@ class CustomerReturnEvidenceTest extends TestCase
         Queue::assertPushed(LabelCustomerReturnVideo::class, fn (LabelCustomerReturnVideo $job) => $job->evidenceId === $evidence->id);
         $this->assertNull($evidence->label);
         $this->assertSame($movie, Storage::disk('local')->get($evidence->original_path));
+    }
+
+    public function test_video_label_filter_escapes_capture_time_for_both_ffmpeg_parsing_levels(): void
+    {
+        $method = new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'videoFilter');
+        $filter = $method->invoke(app(CustomerReturnEvidenceLabelService::class),
+            'TECH POINT ZONE - RETURN EVIDENCE - RETURN RTN-2026-000029 - ORDER SO-2026-000035',
+            1793000000, 'Asia/Karachi');
+
+        $this->assertStringContainsString('TECH POINT ZONE', $filter);
+        $this->assertStringContainsString('RTN-2026-000029 - ORDER SO-2026-000035', $filter);
+        $this->assertStringContainsString('%{pts\\\\:gmtime\\\\:1793000000}', $filter);
+        $this->assertStringContainsString('UTC (Asia/Karachi)', $filter);
+    }
+
+    public function test_local_ffmpeg_renders_the_capture_timestamp_without_changing_the_original(): void
+    {
+        $binary = getenv('TPZ_TEST_FFMPEG_BINARY');
+        if (! is_string($binary) || ! is_file($binary)) {
+            $this->markTestSkipped('Set TPZ_TEST_FFMPEG_BINARY to run the local synthetic-video filter check.');
+        }
+
+        $directory = 'synthetic-return-label';
+        Storage::disk('local')->makeDirectory($directory);
+        $source = Storage::disk('local')->path($directory.'/original.mp4');
+        $labeled = Storage::disk('local')->path($directory.'/labeled.mp4');
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-f', 'lavfi', '-i', 'color=c=black:s=640x360:r=25:d=2', '-t', '2',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $source]))->mustRun();
+        $originalHash = hash_file('sha256', $source);
+
+        $method = new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'videoFilter');
+        $filter = $method->invoke(app(CustomerReturnEvidenceLabelService::class),
+            'TECH POINT ZONE - RETURN EVIDENCE - RETURN RTN-2026-000029 - ORDER SO-2026-000035',
+            1793000000, 'Asia/Karachi');
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-i', $source, '-vf', $filter, '-map', '0:v:0', '-map', '0:a?',
+            '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4', $labeled]))->mustRun();
+
+        $this->assertGreaterThan(0, filesize($labeled));
+        $this->assertSame($originalHash, hash_file('sha256', $source));
+        $timestampFrame = static function (string $seconds) use ($binary, $labeled): string {
+            $process = new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+                '-i', $labeled, '-ss', $seconds, '-frames:v', '1',
+                '-vf', 'crop=640:40:0:45', '-f', 'md5', '-']);
+            $process->mustRun();
+
+            return trim($process->getOutput());
+        };
+        $firstSecond = $timestampFrame('0.2');
+        $nextSecond = $timestampFrame('1.2');
+        $this->assertMatchesRegularExpression('/^MD5=[a-f0-9]{32}$/', $firstSecond);
+        $this->assertMatchesRegularExpression('/^MD5=[a-f0-9]{32}$/', $nextSecond);
+        $this->assertNotSame($firstSecond, $nextSecond);
     }
 
     public function test_same_upload_id_cannot_represent_different_evidence(): void

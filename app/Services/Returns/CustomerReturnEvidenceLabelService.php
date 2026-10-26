@@ -129,8 +129,7 @@ class CustomerReturnEvidenceLabelService
         $zone = preg_replace('/[^A-Za-z0-9_\/-]/', '', (string) $evidence->capture_timezone);
         // PTS starts at zero; the supplied offset is the reported capture epoch.
         // No shell is involved, and the UTC value advances on every video frame.
-        $filter = 'setpts=PTS-STARTPTS,drawtext=text='.$static.':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=20,'
-            .'drawtext=text=DEVICE-REPORTED CAPTURE %{pts\\:gmtime\\:'.$epoch.'} UTC ('.$zone.'):fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=55';
+        $filter = $this->videoFilter($static, $epoch, $zone);
         // A five-minute derivative can be large. Keep it on the private
         // evidence disk rather than an unknown or size-limited system /tmp.
         $disk = Storage::disk('local');
@@ -156,5 +155,15 @@ class CustomerReturnEvidenceLabelService
         }
 
         return $output;
+    }
+
+    private function videoFilter(string $static, int $epoch, string $zone): string
+    {
+        // A drawtext option embedded in a filtergraph needs two escaping
+        // levels for the colons inside %{pts:gmtime:offset}.
+        $ptsSeparator = '\\\\:';
+
+        return 'setpts=PTS-STARTPTS,drawtext=text='.$static.':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=20,'
+            .'drawtext=text=DEVICE-REPORTED CAPTURE %{pts'.$ptsSeparator.'gmtime'.$ptsSeparator.$epoch.'} UTC ('.$zone.'):fontcolor=white:fontsize=24:box=1:boxcolor=black@0.7:x=20:y=55';
     }
 }

@@ -74,6 +74,43 @@ class CustomerReturnVideoUploadService
                 || $session->finding != $finding || $session->capture != $capture) {
                 throw ValidationException::withMessages(['upload_id' => 'This upload ID belongs to a different recording.']);
             }
+            if ($session->status === 'failed') {
+                $session = Cache::lock($this->lockName($session), 120)->block(10, function () use ($session, $actor): CustomerReturnVideoUploadSession {
+                    $current = $this->authorized($session->fresh() ?? abort(404), $actor);
+                    if ($current->status !== 'failed') {
+                        return $current;
+                    }
+                    // A failed worker may have committed immutable evidence before
+                    // losing acknowledgement. Never create it a second time.
+                    $existing = CustomerReturnEvidence::query()->where('upload_id', $current->upload_id)->first();
+                    if ($existing) {
+                        $current->evidence_id = $existing->id;
+                        $current->status = 'completed';
+                    } else {
+                        // Keep verified parts, but let the same mobile upload ID
+                        // resend any part lost while the worker was failing.
+                        $disk = Storage::disk('local');
+                        $chunks = $current->chunks ?? [];
+                        foreach ($chunks as $index => $meta) {
+                            $path = $this->directory($current).'/'.$index.'.part';
+                            if (! $disk->exists($path) || $disk->size($path) !== ($meta['bytes'] ?? null)) {
+                                unset($chunks[$index]);
+
+                                continue;
+                            }
+                            $digest = hash_file('sha256', $disk->path($path));
+                            if (! is_string($digest) || ! hash_equals((string) ($meta['sha256'] ?? ''), $digest)) {
+                                unset($chunks[$index]);
+                            }
+                        }
+                        $current->chunks = $chunks;
+                        $current->status = 'open';
+                    }
+                    $current->save();
+
+                    return $current;
+                });
+            }
         }
 
         return $this->authorized($session, $actor);

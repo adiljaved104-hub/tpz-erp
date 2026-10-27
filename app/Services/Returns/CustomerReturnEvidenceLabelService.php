@@ -217,7 +217,7 @@ class CustomerReturnEvidenceLabelService
         return [$width, $height];
     }
 
-    private function boldFont(): string
+    protected function boldFont(): string
     {
         foreach (['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 'C:/Windows/Fonts/arialbd.ttf'] as $path) {
             if (is_file($path) && is_readable($path)) {
@@ -241,13 +241,22 @@ class CustomerReturnEvidenceLabelService
         $orderPrefix = $external !== ''
             ? ($marketplace !== '' ? $marketplace.' Order ID: ' : 'Marketplace Order ID: ')
             : 'ERP Order ID: ';
+        // Leave room for the two-pixel FFmpeg outline and the GD shadow.
+        $available = $width - 2 * $margin - 4;
         do {
             $lines = ['TECH POINT ZONE', 'DISPATCH & RETURN EVIDENCE',
-                ...$this->wrappedReference('Return ID: ', $reference, $width - 2 * $margin, $fontSize, $font),
-                ...$this->wrappedReference($orderPrefix, $order, $width - 2 * $margin, $fontSize, $font)];
+                ...$this->wrappedReference('Return ID: ', $reference, $available, $fontSize, $font),
+                ...$this->wrappedReference($orderPrefix, $order, $available, $fontSize, $font)];
             $lineHeight = (int) ceil($fontSize * 1.24);
             $footerHeight = count($lines) * $lineHeight + 2 * $margin;
-            if ($footerHeight <= $height * .32 || $fontSize === 10) {
+            $linesFit = true;
+            foreach ($lines as $line) {
+                if ($this->textWidth($line, $fontSize, $font) > $available) {
+                    $linesFit = false;
+                    break;
+                }
+            }
+            if (($footerHeight <= $height * .32 && $linesFit) || $fontSize === 10) {
                 break;
             }
             $fontSize--;
@@ -258,7 +267,6 @@ class CustomerReturnEvidenceLabelService
         $zone = (string) ($evidence->capture_timezone ?: 'UTC');
         $captured = $evidence->deviceCaptureTime();
         $note = 'DEVICE-REPORTED TIME | '.$zone;
-        $available = $width - 2 * $margin;
         $stampSize = max(12, (int) floor($fontSize * 1.15));
         while ($stampSize > 12 && $this->textWidth($captured->format('d-m-Y D H:i:s T'), $stampSize, $font) > $available) {
             $stampSize--;
@@ -278,8 +286,8 @@ class CustomerReturnEvidenceLabelService
         }
         $topHeight = $stampSize + $noteSize + 3 * $margin + 4;
         $topWidth = max($this->textWidth($captured->format('d-m-Y D H:i:s T'), $stampSize, $font),
-            $this->textWidth($note, $noteSize, $font)) + 2 * $margin;
-        $footerWidth = max(array_map(fn (string $line): int => $this->textWidth($line, $fontSize, $font), $lines)) + 2 * $margin;
+            $this->textWidth($note, $noteSize, $font)) + 2 * $margin + 4;
+        $footerWidth = max(array_map(fn (string $line): int => $this->textWidth($line, $fontSize, $font), $lines)) + 2 * $margin + 4;
         if ($topHeight + $footerHeight >= $height) {
             throw new \RuntimeException('Evidence overlays cannot fit the media safely.');
         }

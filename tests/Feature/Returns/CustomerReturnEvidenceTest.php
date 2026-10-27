@@ -772,6 +772,50 @@ class CustomerReturnEvidenceTest extends TestCase
         }
     }
 
+    public function test_claim_label_auto_sizes_complete_titles_and_order_references_in_video_and_photo_orientations(): void
+    {
+        foreach ([
+            ['Amazon', '123-1234567-1234567', 'Amazon Order ID: 123-1234567-1234567'],
+            ['Amazon', '123-'.str_repeat('9876543210', 6), 'Amazon Order ID: 123-'.str_repeat('9876543210', 6)],
+            ['Noon', 'N/AE:2026-'.str_repeat('00142', 10), 'Noon Order ID: N/AE:2026-'.str_repeat('00142', 10)],
+            [null, null, 'ERP Order ID: '],
+        ] as [$platformName, $external, $expectedOrder]) {
+            [$owner, $return] = $this->receivedReturn();
+            if ($platformName !== null) {
+                $platform = MarketplacePlatform::query()->where('normalized_name', mb_strtolower($platformName))->first()
+                    ?? MarketplacePlatform::factory()->create([
+                        'name' => $platformName, 'normalized_name' => mb_strtolower($platformName),
+                    ]);
+                $return->update(['marketplace_platform_id' => $platform->id]);
+            }
+            $return->order->update(['external_order_number' => $external]);
+            $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+                'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+                'problem_type' => 'damaged', 'captured_at_device' => '2026-10-27T04:29:39Z',
+                'capture_timezone' => 'Asia/Karachi',
+            ], UploadedFile::fake()->image('layout.jpg', 600, 900));
+            $service = app(CustomerReturnEvidenceLabelService::class);
+
+            foreach ([[1080, 1920], [1920, 1080], [3060, 4080], [4080, 3060]] as [$width, $height]) {
+                $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, $width, $height);
+                $this->assertSame('TECH POINT ZONE', $layout['lines'][0]);
+                $this->assertSame('DISPATCH & RETURN EVIDENCE', $layout['lines'][1]);
+                $this->assertStringContainsString($expectedOrder, str_replace('  ', '', implode('', $layout['lines'])));
+                $this->assertSame('27-10-2026 Tue 09:29:39 PKT', $layout['stamp']);
+                $this->assertGreaterThanOrEqual(30, $layout['fontSize']);
+                $this->assertLessThanOrEqual($width, $layout['topWidth']);
+                $this->assertLessThanOrEqual($width, $layout['footerWidth']);
+                $this->assertLessThanOrEqual($height * .32, $layout['footerHeight']);
+                $this->assertLessThan($height, $layout['topHeight'] + $layout['footerHeight']);
+                foreach ($layout['lines'] as $line) {
+                    $box = imagettfbbox($layout['fontSize'], 0, $layout['font'], $line);
+                    $measured = max($box[2], $box[4]) - min($box[0], $box[6]);
+                    $this->assertLessThanOrEqual($width - 2 * $layout['margin'] - 4, $measured);
+                }
+            }
+        }
+    }
+
     public function test_same_upload_id_cannot_represent_different_evidence(): void
     {
         [$owner, $return] = $this->receivedReturn();

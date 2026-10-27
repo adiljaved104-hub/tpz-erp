@@ -97,12 +97,12 @@ class CustomerReturnEvidenceLabelService
         try {
             $layout = $this->layout($evidence, $width, $height);
             imagealphablending($source, true);
-            $band = imagecolorallocatealpha($source, 0, 0, 0, 76); // ~40% opaque; footage remains visible.
-            imagefilledrectangle($source, 0, 0, $width - 1, $layout['topHeight'] - 1, $band);
-            imagefilledrectangle($source, 0, $height - $layout['footerHeight'], $width - 1, $height - 1, $band);
-            $this->photoText($source, $layout['stamp'], $layout['fontSize'], $layout['margin'] + $layout['fontSize'], $layout);
+            $band = imagecolorallocatealpha($source, 0, 0, 0, 97); // ~24% opaque, behind text only.
+            imagefilledrectangle($source, 0, 0, $layout['topWidth'] - 1, $layout['topHeight'] - 1, $band);
+            imagefilledrectangle($source, 0, $height - $layout['footerHeight'], $layout['footerWidth'] - 1, $height - 1, $band);
+            $this->photoText($source, $layout['stamp'], $layout['stampSize'], $layout['margin'] + $layout['stampSize'], $layout);
             $this->photoText($source, $layout['note'], $layout['noteSize'],
-                $layout['margin'] + $layout['fontSize'] + $layout['noteSize'] + 3, $layout);
+                $layout['margin'] + $layout['stampSize'] + $layout['noteSize'] + 4, $layout);
             $footerTop = $height - $layout['footerHeight'];
             foreach ($layout['lines'] as $index => $line) {
                 $this->photoText($source, $line, $layout['fontSize'],
@@ -134,6 +134,7 @@ class CustomerReturnEvidenceLabelService
             throw new \RuntimeException('No temporary media path available.');
         }
         $clockFile = 'clock-'.Str::uuid().'.txt';
+        $lineFiles = [];
         try {
             $original = $disk->path($evidence->original_path);
             [$width, $height] = $this->videoDimensions($binary, $original);
@@ -144,7 +145,14 @@ class CustomerReturnEvidenceLabelService
             if (file_put_contents($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$clockFile, $clock) === false) {
                 throw new \RuntimeException('Could not prepare the private evidence clock.');
             }
-            $filter = $this->videoFilter($layout, $width, $height, $clockFile);
+            foreach ($layout['lines'] as $line) {
+                $name = 'line-'.Str::uuid().'.txt';
+                $lineFiles[] = $name;
+                if (file_put_contents($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$name, $line) === false) {
+                    throw new \RuntimeException('Could not prepare the private evidence reference.');
+                }
+            }
+            $filter = $this->videoFilter($layout, $width, $height, $clockFile, $lineFiles);
             $process = new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
                 '-i', $original, '-vf', $filter, '-map', '0:v:0', '-map', '0:a?',
                 '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
@@ -163,6 +171,9 @@ class CustomerReturnEvidenceLabelService
             throw $exception;
         } finally {
             @unlink($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$clockFile);
+            foreach ($lineFiles as $name) {
+                @unlink($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$name);
+            }
         }
     }
 
@@ -221,34 +232,43 @@ class CustomerReturnEvidenceLabelService
     {
         $font = $this->boldFont();
         $margin = max(10, (int) floor(min($width, $height) * .025));
-        $fontSize = max(10, min(42, (int) floor(min($width / 24, $height / 22))));
-        $return = $evidence->finding->item->customerReturn;
-        $reference = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $return->reference);
-        $order = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($return->order?->reference ?? $return->order_id));
+        $fontSize = max(10, min(88, (int) floor(min($width / 22, $height / 24))));
+        $return = $evidence->finding->item->customerReturn->loadMissing('order.platform', 'platform');
+        $reference = $this->safeReference((string) $return->reference);
+        $external = $this->safeReference((string) ($return->order?->external_order_number ?? ''));
+        $marketplace = $this->safeReference((string) ($return->platform?->name ?? $return->order?->platform?->name ?? ''));
+        $order = $external !== '' ? $external : $this->safeReference((string) ($return->order?->reference ?? $return->order_id));
+        $orderPrefix = $external !== ''
+            ? ($marketplace !== '' ? $marketplace.' Order ID: ' : 'Marketplace Order ID: ')
+            : 'ERP Order ID: ';
         do {
-            $lines = ['TECH POINT ZONE', 'CUSTOMER RETURN EVIDENCE',
-                ...$this->wrappedReference('Return ID ', $reference, $width - 2 * $margin, $fontSize, $font),
-                ...$this->wrappedReference('Order ID ', $order, $width - 2 * $margin, $fontSize, $font)];
+            $lines = ['TECH POINT ZONE', 'DISPATCH & RETURN EVIDENCE',
+                ...$this->wrappedReference('Return ID: ', $reference, $width - 2 * $margin, $fontSize, $font),
+                ...$this->wrappedReference($orderPrefix, $order, $width - 2 * $margin, $fontSize, $font)];
             $lineHeight = (int) ceil($fontSize * 1.24);
             $footerHeight = count($lines) * $lineHeight + 2 * $margin;
-            if ($footerHeight <= $height * .42 || $fontSize === 10) {
+            if ($footerHeight <= $height * .32 || $fontSize === 10) {
                 break;
             }
             $fontSize--;
         } while (true);
-        if ($footerHeight > $height * .42) {
+        if ($footerHeight > $height * .32) {
             throw new \RuntimeException('Evidence references cannot fit without covering the image.');
         }
         $zone = (string) ($evidence->capture_timezone ?: 'UTC');
         $captured = $evidence->deviceCaptureTime();
         $note = 'DEVICE-REPORTED TIME | '.$zone;
         $available = $width - 2 * $margin;
-        $noteSize = max(8, (int) floor($fontSize * .65));
+        $stampSize = max(12, (int) floor($fontSize * 1.15));
+        while ($stampSize > 12 && $this->textWidth($captured->format('d-m-Y D H:i:s T'), $stampSize, $font) > $available) {
+            $stampSize--;
+        }
+        $noteSize = max(8, (int) floor($fontSize * .48));
         while ($noteSize > 8 && $this->textWidth($note, $noteSize, $font) > $available) {
             $noteSize--;
         }
         if ($this->textWidth($note, $noteSize, $font) > $available
-            || $this->textWidth($captured->format('d-m-Y D H:i:s T'), $fontSize, $font) > $available) {
+            || $this->textWidth($captured->format('d-m-Y D H:i:s T'), $stampSize, $font) > $available) {
             throw new \RuntimeException('The evidence clock cannot fit inside the media margins.');
         }
         foreach ($lines as $line) {
@@ -256,23 +276,32 @@ class CustomerReturnEvidenceLabelService
                 throw new \RuntimeException('The evidence references cannot fit inside the media margins.');
             }
         }
-        $topHeight = $fontSize + $noteSize + 3 * $margin;
+        $topHeight = $stampSize + $noteSize + 3 * $margin + 4;
+        $topWidth = max($this->textWidth($captured->format('d-m-Y D H:i:s T'), $stampSize, $font),
+            $this->textWidth($note, $noteSize, $font)) + 2 * $margin;
+        $footerWidth = max(array_map(fn (string $line): int => $this->textWidth($line, $fontSize, $font), $lines)) + 2 * $margin;
         if ($topHeight + $footerHeight >= $height) {
             throw new \RuntimeException('Evidence overlays cannot fit the media safely.');
         }
 
-        return compact('font', 'margin', 'fontSize', 'lineHeight', 'footerHeight', 'topHeight', 'lines', 'note', 'noteSize') + [
+        return compact('font', 'margin', 'fontSize', 'stampSize', 'lineHeight', 'footerHeight', 'footerWidth', 'topHeight', 'topWidth', 'lines', 'note', 'noteSize') + [
             'stamp' => $captured->format('d-m-Y D H:i:s T'),
             'abbreviation' => $captured->format('T'),
             'wallEpoch' => $captured->getTimestamp() + $captured->getOffset(),
         ];
     }
 
+    private function safeReference(string $reference): string
+    {
+        // Retain marketplace punctuation while removing invisible controls.
+        return trim((string) preg_replace('/[\x00-\x1F\x7F]/', ' ', $reference));
+    }
+
     private function wrappedReference(string $prefix, string $value, int $available, int $fontSize, string $font): array
     {
         $lines = [];
         $line = $prefix;
-        foreach (str_split($value) as $character) {
+        foreach (mb_str_split($value) as $character) {
             $candidate = $line.$character;
             if ($this->textWidth($candidate, $fontSize, $font) > $available && $line !== $prefix) {
                 $lines[] = rtrim($line);
@@ -298,27 +327,35 @@ class CustomerReturnEvidenceLabelService
 
     private function photoText(\GdImage $image, string $text, int $size, int $baseline, array $layout): void
     {
-        $shadow = imagecolorallocatealpha($image, 0, 0, 0, 20);
+        $shadow = imagecolorallocatealpha($image, 0, 0, 0, 10);
         $white = imagecolorallocate($image, 255, 255, 255);
-        imagettftext($image, $size, 0, $layout['margin'] + 1, $baseline + 2, $shadow, $layout['font'], $text);
+        foreach ([[-1, 0], [1, 0], [0, -1], [0, 2]] as [$dx, $dy]) {
+            imagettftext($image, $size, 0, $layout['margin'] + $dx, $baseline + $dy, $shadow, $layout['font'], $text);
+        }
         imagettftext($image, $size, 0, $layout['margin'], $baseline, $white, $layout['font'], $text);
     }
 
-    private function videoFilter(array $layout, int $width, int $height, string $clockFile): string
+    private function videoFilter(array $layout, int $width, int $height, string $clockFile, array $lineFiles): string
     {
         // Font paths and visible text are controlled server-side. FFmpeg is
         // invoked as an argument vector, not through a shell.
         $font = str_replace(':', '\\\\:', str_replace('\\', '/', $layout['font']));
-        $common = 'fontfile='.$font.':fontcolor=white:borderw=1:bordercolor=black@0.7:shadowx=1:shadowy=2:shadowcolor=black@0.7';
+        $common = 'fontfile='.$font.':fontcolor=white:borderw=2:bordercolor=black@0.8:shadowx=1:shadowy=2:shadowcolor=black@0.8';
         $margin = $layout['margin'];
         $filter = 'setpts=PTS-STARTPTS'
-            .',drawbox=x=0:y=0:w=iw:h='.$layout['topHeight'].':color=black@0.40:t=fill'
-            .',drawbox=x=0:y=ih-'.$layout['footerHeight'].':w=iw:h='.$layout['footerHeight'].':color=black@0.40:t=fill'
-            .',drawtext='.$common.':textfile='.$clockFile.':fontsize='.$layout['fontSize'].':x='.$margin.':y='.$margin
-            .',drawtext='.$common.':text='.$layout['note'].':fontsize='.$layout['noteSize'].':x='.$margin.':y='.($margin + $layout['fontSize'] + 3);
+            .',drawbox=x=0:y=0:w='.$layout['topWidth'].':h='.$layout['topHeight'].':color=black@0.24:t=fill'
+            .',drawbox=x=0:y=ih-'.$layout['footerHeight'].':w='.$layout['footerWidth'].':h='.$layout['footerHeight'].':color=black@0.24:t=fill'
+            .',drawtext='.$common.':textfile='.$clockFile.':fontsize='.$layout['stampSize'].':x='.$margin.':y='.$margin
+            .',drawtext='.$common.':text='.$layout['note'].':fontsize='.$layout['noteSize'].':x='.$margin.':y='.($margin + $layout['stampSize'] + 4);
         $footerTop = $height - $layout['footerHeight'];
-        foreach ($layout['lines'] as $index => $line) {
-            $filter .= ',drawtext='.$common.':text='.$line.':fontsize='.$layout['fontSize']
+        if (count($lineFiles) !== count($layout['lines'])) {
+            throw new \RuntimeException('The video evidence references are incomplete.');
+        }
+        foreach ($lineFiles as $index => $name) {
+            if (! preg_match('/^[a-zA-Z0-9._-]+$/', $name)) {
+                throw new \RuntimeException('The video evidence reference filename is invalid.');
+            }
+            $filter .= ',drawtext='.$common.':textfile='.$name.':fontsize='.$layout['fontSize']
                 .':x='.$margin.':y='.($footerTop + $margin + $index * $layout['lineHeight']);
         }
 

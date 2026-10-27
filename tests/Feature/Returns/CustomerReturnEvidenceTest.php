@@ -24,6 +24,7 @@ use App\Models\CustomerReturnVideoUploadSession;
 use App\Models\DamagedStockEvent;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
+use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
@@ -216,6 +217,40 @@ class CustomerReturnEvidenceTest extends TestCase
                 ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence->fresh(), 800, 600);
             $this->assertSame($expected, $layout['stamp']);
             $this->assertSame($expected, $evidence->deviceCaptureTime()?->format('d-m-Y D H:i:s T'));
+        }
+    }
+
+    public function test_claim_labels_prefer_the_authoritative_marketplace_order_id_and_preserve_punctuation(): void
+    {
+        foreach ([
+            ['Amazon', '123-1234567-1234567', 'Amazon Order ID: 123-1234567-1234567'],
+            ['Noon', 'N/AE:2026-001.42', 'Noon Order ID: N/AE:2026-001.42'],
+            ['Amazon', '123-'.str_repeat('9876543210', 6), 'Amazon Order ID: 123-'.str_repeat('9876543210', 6)],
+            [null, null, 'ERP Order ID: '],
+        ] as [$platformName, $external, $expected]) {
+            [$owner, $return] = $this->receivedReturn();
+            if ($platformName !== null) {
+                $platform = MarketplacePlatform::query()->where('normalized_name', mb_strtolower($platformName))->first()
+                    ?? MarketplacePlatform::factory()->create([
+                        'name' => $platformName, 'normalized_name' => mb_strtolower($platformName),
+                    ]);
+                $return->update(['marketplace_platform_id' => $platform->id]);
+            }
+            $return->order->update(['external_order_number' => $external]);
+            $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+                'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+                'problem_type' => 'damaged', 'captured_at_device' => '2026-10-27T04:29:39Z',
+                'capture_timezone' => 'Asia/Karachi',
+            ], $this->syntheticLaptopPhoto(1280, 720));
+            $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
+                ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence, 1280, 720);
+            $lines = str_replace('  ', '', implode('', $layout['lines']));
+            $this->assertStringContainsString($expected, $lines);
+            $this->assertStringContainsString($return->reference, $lines);
+            $this->assertSame('27-10-2026 Tue 09:29:39 PKT', $layout['stamp']);
+            if ($external !== null) {
+                $this->assertStringNotContainsString('ERP Order ID:', $lines);
+            }
         }
     }
 
@@ -546,9 +581,11 @@ class CustomerReturnEvidenceTest extends TestCase
         $derivative = imagecreatefromjpeg(Storage::disk('local')->path($label->path));
         $this->assertInstanceOf(\GdImage::class, $derivative);
         try {
-            $top = imagecolorsforindex($derivative, imagecolorat($derivative, 590, 5));
-            $this->assertGreaterThan(120, $top['red']);
-            $this->assertLessThan(200, $top['red']);
+            $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
+                ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence, 600, 900);
+            $top = imagecolorsforindex($derivative, imagecolorat($derivative, $layout['topWidth'] - 3, 5));
+            $this->assertGreaterThan(150, $top['red']);
+            $this->assertLessThan(220, $top['red']);
             $this->assertGreaterThan(210, imagecolorsforindex($derivative, imagecolorat($derivative, 590, 450))['red']);
         } finally {
             imagedestroy($derivative);
@@ -569,9 +606,12 @@ class CustomerReturnEvidenceTest extends TestCase
         $source = imagecreatefromjpeg(Storage::disk('local')->path($evidence->original_path));
         $derivative = imagecreatefromjpeg(Storage::disk('local')->path($label->path));
         try {
-            $original = imagecolorsforindex($source, imagecolorat($source, 950, 5))['red'];
-            $overlaid = imagecolorsforindex($derivative, imagecolorat($derivative, 950, 5))['red'];
-            $this->assertEqualsWithDelta($original * .6, $overlaid, 12);
+            $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
+                ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence, 960, 540);
+            $x = $layout['topWidth'] - 3;
+            $original = imagecolorsforindex($source, imagecolorat($source, $x, 5))['red'];
+            $overlaid = imagecolorsforindex($derivative, imagecolorat($derivative, $x, 5))['red'];
+            $this->assertEqualsWithDelta($original * .76, $overlaid, 14);
         } finally {
             imagedestroy($source);
             imagedestroy($derivative);
@@ -588,17 +628,19 @@ class CustomerReturnEvidenceTest extends TestCase
         ], UploadedFile::fake()->image('layout.jpg', 600, 900));
         $service = app(CustomerReturnEvidenceLabelService::class);
         $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, 600, 900);
-        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 600, 900, 'clock.txt');
+        $lineFiles = array_map(fn (int $index): string => 'line-'.$index.'.txt', array_keys($layout['lines']));
+        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 600, 900, 'clock.txt', $lineFiles);
 
-        $this->assertStringContainsString('TECH POINT ZONE', $filter);
-        $this->assertStringContainsString('CUSTOMER RETURN EVIDENCE', $filter);
-        $this->assertStringContainsString('Return ID ', $filter);
-        $this->assertStringContainsString('Order ID ', $filter);
-        $this->assertStringContainsString('black@0.40', $filter);
+        $this->assertSame('TECH POINT ZONE', $layout['lines'][0]);
+        $this->assertSame('DISPATCH & RETURN EVIDENCE', $layout['lines'][1]);
+        $this->assertStringStartsWith('Return ID: ', $layout['lines'][2]);
+        $this->assertTrue(collect($layout['lines'])->contains(fn (string $line): bool => str_starts_with($line, 'ERP Order ID: ')));
+        $this->assertStringContainsString('black@0.24', $filter);
         $this->assertStringContainsString('textfile=clock.txt', $filter);
+        $this->assertStringContainsString('textfile=line-0.txt', $filter);
         $this->assertSame('26-10-2026 Mon 12:01:21 PKT', $layout['stamp']);
         $this->assertSame('26-10-2026 Mon 12:01:21', gmdate('d-m-Y D H:i:s', $layout['wallEpoch']));
-        $this->assertLessThan(900 * .42, $layout['footerHeight']);
+        $this->assertLessThan(900 * .32, $layout['footerHeight']);
     }
 
     public function test_local_ffmpeg_renders_the_capture_timestamp_without_changing_the_original(): void
@@ -627,7 +669,8 @@ class CustomerReturnEvidenceTest extends TestCase
         $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, 640, 360);
         file_put_contents(Storage::disk('local')->path($directory.'/clock.txt'),
             '%{pts:gmtime:'.$layout['wallEpoch'].':%d-%m-%Y %a %H\\:%M\\:%S} '.$layout['abbreviation']);
-        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 640, 360, 'clock.txt');
+        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 640, 360,
+            'clock.txt', $this->writeVideoLineFiles($layout, $directory));
         (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
             '-i', $source, '-vf', $filter, '-map', '0:v:0', '-map', '0:a?',
             '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
@@ -680,7 +723,8 @@ class CustomerReturnEvidenceTest extends TestCase
             '-f', 'lavfi', '-i', 'color=c=0xD6EAF8:s=360x640:r=25:d=2,drawbox=x=45:y=95:w=270:h=410:color=0x2F4257:t=fill,drawbox=x=58:y=110:w=244:h=375:color=0x3C82B4:t=fill,drawbox=x=30:y=505:w=300:h=62:color=0xAAB4BE:t=fill', '-t', '2',
             '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $source]))->mustRun();
         $originalHash = hash_file('sha256', $source);
-        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 360, 640, 'clock.txt');
+        $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 360, 640,
+            'clock.txt', $this->writeVideoLineFiles($layout, $directory));
         (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
             '-i', $source, '-vf', $filter, '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
             '-f', 'mp4', $labeled], Storage::disk('local')->path($directory)))->mustRun();
@@ -696,14 +740,14 @@ class CustomerReturnEvidenceTest extends TestCase
         $originalImage = imagecreatefrompng($sourceFrame);
         $labelImage = imagecreatefrompng($frame);
         try {
-            $originalRed = imagecolorsforindex($originalImage, imagecolorat($originalImage, 350, 5))['red'];
-            $labelRed = imagecolorsforindex($labelImage, imagecolorat($labelImage, 350, 5))['red'];
-            $this->assertEqualsWithDelta($originalRed * .6, $labelRed, 20);
+            $originalRed = imagecolorsforindex($originalImage, imagecolorat($originalImage, 350, 300))['red'];
+            $labelRed = imagecolorsforindex($labelImage, imagecolorat($labelImage, 350, 300))['red'];
+            $this->assertEqualsWithDelta($originalRed, $labelRed, 20);
         } finally {
             imagedestroy($originalImage);
             imagedestroy($labelImage);
         }
-        $this->assertLessThan(640 * .42, $layout['footerHeight']);
+        $this->assertLessThan(640 * .32, $layout['footerHeight']);
     }
 
     public function test_long_references_wrap_within_portrait_and_landscape_frames(): void
@@ -719,7 +763,7 @@ class CustomerReturnEvidenceTest extends TestCase
         $service = app(CustomerReturnEvidenceLabelService::class);
         foreach ([[600, 900], [900, 600]] as [$width, $height]) {
             $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, $width, $height);
-            $this->assertLessThan($height * .42, $layout['footerHeight']);
+            $this->assertLessThanOrEqual($height * .32, $layout['footerHeight']);
             foreach ($layout['lines'] as $line) {
                 $box = imagettfbbox($layout['fontSize'], 0, $layout['font'], $line);
                 $this->assertLessThanOrEqual($width - 2 * $layout['margin'],
@@ -1047,7 +1091,7 @@ class CustomerReturnEvidenceTest extends TestCase
 
     private function receivedReturn(string $reason = 'other'): array
     {
-        $owner = User::factory()->create(['email' => 'return-evidence-owner@techpointzone.com']);
+        $owner = User::factory()->create(['email' => 'return-evidence-owner-'.Str::uuid().'@techpointzone.com']);
         Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
         $product = Product::factory()->create();
         $warehouse = Warehouse::factory()->create(['status' => true, 'is_default' => true]);
@@ -1083,5 +1127,17 @@ class CustomerReturnEvidenceTest extends TestCase
         imagedestroy($image);
 
         return UploadedFile::fake()->createWithContent("synthetic-laptop-$width.jpg", $bytes);
+    }
+
+    private function writeVideoLineFiles(array $layout, string $directory): array
+    {
+        $files = [];
+        foreach ($layout['lines'] as $index => $line) {
+            $name = 'line-'.$index.'.txt';
+            file_put_contents(Storage::disk('local')->path($directory.'/'.$name), $line);
+            $files[] = $name;
+        }
+
+        return $files;
     }
 }

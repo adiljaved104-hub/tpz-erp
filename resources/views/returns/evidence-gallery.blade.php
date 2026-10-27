@@ -39,12 +39,10 @@
                             @php
                                 $finding = $entry['finding'];
                                 $proof = $entry['proof'];
-                                $label = $proof->label;
+                                $label = $proof->readableLabel();
                                 $previewUrl = route('customer-return-evidence.preview', $proof);
                                 $kind = $proof->media_type === 'video' ? 'Video — Part '.($videoParts[$proof->id] ?? '?') : 'Photo';
-                                $deviceTime = $proof->captured_at_device
-                                    ? \Carbon\CarbonImmutable::parse((string) $proof->getRawOriginal('captured_at_device'), $proof->capture_timezone ?: 'UTC')
-                                    : null;
+                                $deviceTime = $proof->deviceCaptureTime();
                                 $size = $proof->byte_size >= 1048576
                                     ? number_format($proof->byte_size / 1048576, 1).' MiB'
                                     : number_format($proof->byte_size / 1024, 1).' KiB';
@@ -53,7 +51,7 @@
                                 <div class="tpz-return-gallery-card-heading">
                                     <strong>{{ $kind }}</strong>
                                     <span class="tpz-return-gallery-status {{ $label !== null ? 'is-ready' : 'is-pending' }}">
-                                        {{ $label !== null ? 'Labeled copy ready' : 'Labeled copy unavailable' }}
+                                        {{ $label !== null ? 'Labeled copy ready' : 'Labeled copy not ready' }}
                                     </span>
                                 </div>
                                 <div class="tpz-return-gallery-media">
@@ -68,9 +66,12 @@
                                     @endif
                                 </div>
                                 <div class="tpz-return-gallery-summary">
-                                    <span>{{ $deviceTime?->format('d M Y, H:i:s') ?? 'Capture time not supplied' }}</span>
+                                    <span>Device-reported: {{ $deviceTime?->format('d M Y, H:i:s T') ?? 'Capture time not supplied' }}</span>
                                     <span>{{ $proof->capture_timezone ?: 'Time zone not supplied' }} · Uploaded by {{ $proof->uploadedBy?->name ?? 'Unknown' }}</span>
                                     <span>Finding: {{ str($finding->problem_type)->replace('_', ' ')->headline() }}</span>
+                                    @if ($label === null)
+                                        <span>Original available. Ask an administrator if the labeled copy stays unavailable.</span>
+                                    @endif
                                 </div>
                                 <div class="tpz-return-gallery-actions">
                                     <a href="{{ $previewUrl }}" target="_blank" rel="noopener noreferrer">Open larger preview</a>

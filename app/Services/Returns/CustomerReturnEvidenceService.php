@@ -2,6 +2,7 @@
 
 namespace App\Services\Returns;
 
+use App\Jobs\LabelCustomerReturnPhoto;
 use App\Jobs\LabelCustomerReturnVideo;
 use App\Models\CustomerReturnEvidence;
 use App\Models\CustomerReturnFinding;
@@ -64,7 +65,7 @@ class CustomerReturnEvidenceService
             }
         }
         $checksum = hash_file('sha256', $file->getRealPath());
-        $capturedAt = isset($validated['captured_at_device']) ? Carbon::parse($validated['captured_at_device']) : null;
+        $capturedAt = isset($validated['captured_at_device']) ? Carbon::parse($validated['captured_at_device'])->utc() : null;
         if ($capturedAt?->isAfter(now()->addMinutes(5))) {
             throw ValidationException::withMessages(['captured_at_device' => 'The device capture time is in the future. Check the phone clock.']);
         }
@@ -141,7 +142,12 @@ class CustomerReturnEvidenceService
         // The original has committed. Derivative failure must never delete it.
         if ($evidence->media_type === 'photo') {
             try {
-                app(CustomerReturnEvidenceLabelService::class)->createIfSupported($evidence);
+                if ($evidence->captured_at_device !== null && config('queue.default') !== 'sync') {
+                    LabelCustomerReturnPhoto::dispatch($evidence->id)
+                        ->onConnection('return_evidence_labels')->afterCommit();
+                } else {
+                    app(CustomerReturnEvidenceLabelService::class)->createIfSupported($evidence);
+                }
             } catch (Throwable $exception) {
                 Log::warning('Return photo label is pending.', [
                     'evidence_id' => $evidence->id, 'exception' => $exception::class,
@@ -152,7 +158,8 @@ class CustomerReturnEvidenceService
             && config('queue.default') !== 'sync') {
             try {
                 if (! $evidence->label()->exists()) {
-                    LabelCustomerReturnVideo::dispatch($evidence->id)->onConnection('return_evidence_labels');
+                    LabelCustomerReturnVideo::dispatch($evidence->id)
+                        ->onConnection('return_evidence_labels')->afterCommit();
                 }
             } catch (Throwable $exception) {
                 // The original evidence committed successfully. Queue failure

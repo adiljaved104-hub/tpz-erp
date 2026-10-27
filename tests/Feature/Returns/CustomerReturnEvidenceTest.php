@@ -16,6 +16,7 @@ use App\Enums\EmployeeRole;
 use App\Enums\QcPermission;
 use App\Exceptions\CustomerReturnException;
 use App\Jobs\FinalizeCustomerReturnVideo;
+use App\Jobs\LabelCustomerReturnPhoto;
 use App\Jobs\LabelCustomerReturnVideo;
 use App\Models\ActivityLog;
 use App\Models\CustomerReturnEvidence;
@@ -175,7 +176,7 @@ class CustomerReturnEvidenceTest extends TestCase
         $file = UploadedFile::fake()->image('damage.jpg', 800, 600);
         $evidence = app(CustomerReturnEvidenceService::class)->record($item, $owner, $input, $file);
         $label = $evidence->label()->firstOrFail();
-        $this->assertSame('2026-10-24 12:34:56', $evidence->getRawOriginal('captured_at_device'));
+        $this->assertSame('2026-10-24 07:34:56', $evidence->getRawOriginal('captured_at_device'));
         $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
             ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence->fresh(), 800, 600);
         $this->assertSame('24-10-2026 Sat 12:34:56 PKT', $layout['stamp']);
@@ -195,6 +196,170 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertStringContainsString('Original SHA-256', $gallery);
         $this->assertStringContainsString($evidence->sha256, $gallery);
         $this->assertStringContainsString('24 Oct 2026, 12:34:56', $gallery);
+    }
+
+    public function test_utc_capture_instant_displays_in_pakistan_and_uae_across_midnight(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        foreach ([
+            ['2026-10-26T19:30:00Z', 'Asia/Karachi', '27-10-2026 Tue 00:30:00 PKT'],
+            ['2026-10-26T21:30:00Z', 'Asia/Dubai', '27-10-2026 Tue 01:30:00 +04'],
+        ] as [$inputTime, $zone, $expected]) {
+            $evidence = app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+                'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+                'problem_type' => 'damaged', 'captured_at_device' => $inputTime,
+                'capture_timezone' => $zone,
+            ], $this->syntheticLaptopPhoto(800, 600));
+            $this->assertSame(substr($inputTime, 0, 10).' '.substr($inputTime, 11, 8), $evidence->getRawOriginal('captured_at_device'));
+            $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
+                ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence->fresh(), 800, 600);
+            $this->assertSame($expected, $layout['stamp']);
+            $this->assertSame($expected, $evidence->deviceCaptureTime()?->format('d-m-Y D H:i:s T'));
+        }
+    }
+
+    public function test_video_probe_accepts_android_rotation_metadata_without_trailing_csv_separator_failure(): void
+    {
+        $parse = new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'parseVideoDimensions');
+        $labels = app(CustomerReturnEvidenceLabelService::class);
+        $portrait = '{"streams":[{"width":1920,"height":1080,"side_data_list":[{"side_data_type":"Display Matrix","rotation":-90}]}]}';
+        $landscape = '{"streams":[{"width":1920,"height":1080}]}';
+
+        $this->assertSame([1080, 1920], $parse->invoke($labels, $portrait));
+        $this->assertSame([1920, 1080], $parse->invoke($labels, $landscape));
+
+        foreach (['1920x1080x', '{"streams":[{"width":0,"height":1080}]}', '{"streams":[]}'] as $invalid) {
+            try {
+                $parse->invoke($labels, $invalid);
+                $this->fail('Unverified probe output must not be accepted.');
+            } catch (\RuntimeException $exception) {
+                $this->assertSame('Video dimensions could not be verified.', $exception->getMessage());
+            }
+        }
+    }
+
+    public function test_local_video_probe_accounts_for_rotated_mp4_display_matrix(): void
+    {
+        $binary = getenv('TPZ_TEST_FFMPEG_BINARY');
+        if (! is_string($binary) || ! is_file($binary)) {
+            $this->markTestSkipped('Set TPZ_TEST_FFMPEG_BINARY to check rotated MP4 dimensions with local FFmpeg.');
+        }
+        $probe = dirname($binary).DIRECTORY_SEPARATOR.'ffprobe.exe';
+        if (! is_file($probe)) {
+            $this->markTestSkipped('The local FFmpeg distribution does not include ffprobe.');
+        }
+
+        $directory = 'synthetic-rotated-return-video';
+        Storage::disk('local')->makeDirectory($directory);
+        $coded = Storage::disk('local')->path($directory.'/coded.mp4');
+        $rotated = Storage::disk('local')->path($directory.'/rotated.mp4');
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-f', 'lavfi', '-i', 'color=c=blue:s=640x360:r=25:d=1',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $coded]))->mustRun();
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-i', $coded, '-c', 'copy', '-metadata:s:v:0', 'rotate=90', $rotated]))->mustRun();
+        $originalHash = hash_file('sha256', $rotated);
+
+        $dimensions = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'videoDimensions'))
+            ->invoke(app(CustomerReturnEvidenceLabelService::class), $binary, $rotated);
+
+        $this->assertSame([360, 640], $dimensions);
+        $this->assertSame($originalHash, hash_file('sha256', $rotated));
+    }
+
+    public function test_photo_label_runs_on_dedicated_queue_without_losing_original_or_creating_duplicates(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        Queue::fake();
+        config(['queue.default' => 'database']);
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T19:30:00Z',
+            'capture_timezone' => 'Asia/Karachi',
+        ], $this->syntheticLaptopPhoto(800, 600));
+        Queue::assertPushed(LabelCustomerReturnPhoto::class, fn (LabelCustomerReturnPhoto $job) => $job->evidenceId === $evidence->id && $job->connection === 'return_evidence_labels');
+        $this->assertNull($evidence->label);
+        $original = Storage::disk('local')->get($evidence->original_path);
+        $job = new LabelCustomerReturnPhoto($evidence->id);
+        $job->handle(app(CustomerReturnEvidenceLabelService::class));
+        $job->handle(app(CustomerReturnEvidenceLabelService::class));
+        $this->assertDatabaseCount('customer_return_evidence_labels', 1);
+        $this->assertSame($original, Storage::disk('local')->get($evidence->original_path));
+        $this->assertNotNull($evidence->refresh()->readableLabel());
+    }
+
+    public function test_dedicated_worker_labels_a_3060_by_4080_photo_and_preserves_its_original(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        Queue::fake();
+        config(['queue.default' => 'database']);
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-27T04:29:39Z',
+            'capture_timezone' => 'Asia/Karachi',
+        ], UploadedFile::fake()->image('high-resolution.jpg', 3060, 4080));
+        Queue::assertPushed(LabelCustomerReturnPhoto::class, 1);
+        $originalPath = Storage::disk('local')->path($evidence->original_path);
+        $originalHash = hash_file('sha256', $originalPath);
+
+        (new LabelCustomerReturnPhoto($evidence->id))->handle(app(CustomerReturnEvidenceLabelService::class));
+
+        $label = $evidence->refresh()->readableLabel();
+        $this->assertNotNull($label);
+        $this->assertGreaterThan(0, filesize(Storage::disk('local')->path($label->path)));
+        $this->assertSame($originalHash, hash_file('sha256', $originalPath));
+        $this->assertSame($evidence->sha256, $originalHash);
+        $this->assertDatabaseCount('customer_return_evidence_labels', 1);
+    }
+
+    public function test_missing_label_file_is_not_reported_ready_or_recreated_over_its_immutable_record(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T19:30:00Z',
+            'capture_timezone' => 'Asia/Karachi',
+        ], $this->syntheticLaptopPhoto(800, 600));
+        $label = $evidence->label()->firstOrFail();
+        Storage::disk('local')->delete($label->path);
+
+        $this->actingAs($owner);
+        $gallery = view('returns.evidence-gallery', ['getRecord' => fn () => $return])->render();
+        $this->assertStringContainsString('Labeled copy not ready', $gallery);
+        $this->assertStringNotContainsString('Download labeled copy', $gallery);
+        $this->get('/admin/customer-return-evidence/'.$evidence->id.'/preview')->assertOk();
+        $this->get('/admin/customer-return-evidence/'.$evidence->id.'/labeled')->assertNotFound();
+        $this->assertNull($evidence->readableLabel());
+        app(CustomerReturnEvidenceLabelService::class)->createIfSupported($evidence);
+        $this->assertDatabaseCount('customer_return_evidence_labels', 1);
+        $this->assertSame($label->path, $evidence->label()->firstOrFail()->path);
+        $this->assertSame($evidence->sha256, hash_file('sha256', Storage::disk('local')->path($evidence->original_path)));
+    }
+
+    public function test_guarded_photo_recovery_is_dry_run_by_default_and_rejects_changed_originals(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        Queue::fake();
+        config(['queue.default' => 'database']);
+        $photo = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T19:30:00Z',
+            'capture_timezone' => 'Asia/Karachi',
+        ], $this->syntheticLaptopPhoto(800, 600));
+        Queue::fake();
+        $options = ['returnId' => $return->id, '--evidence' => (string) $photo->id];
+        $this->artisan('returns:queue-photo-labels', $options)->assertExitCode(0);
+        Queue::assertNothingPushed();
+
+        $original = Storage::disk('local')->get($photo->original_path);
+        Storage::disk('local')->put($photo->original_path, 'changed bytes');
+        $this->artisan('returns:queue-photo-labels', $options + ['--execute' => true])->assertExitCode(1);
+        Queue::assertNothingPushed();
+        Storage::disk('local')->put($photo->original_path, $original);
+        $this->artisan('returns:queue-photo-labels', $options + ['--execute' => true])->assertExitCode(0);
+        Queue::assertPushed(LabelCustomerReturnPhoto::class, 1);
+        $this->assertDatabaseCount('customer_return_evidence_labels', 0);
     }
 
     public function test_original_wrong_item_reason_and_damaged_evidence_finding_remain_distinct_without_inventory_posting(): void
@@ -223,12 +388,13 @@ class CustomerReturnEvidenceTest extends TestCase
         [$owner, $return] = $this->receivedReturn();
         $item = $return->items()->firstOrFail();
         Queue::fake();
-        config(['customer_return_evidence.ffmpeg_binary' => 'ffmpeg', 'queue.default' => 'database']);
         $metadata = ['problem_type' => 'damaged', 'captured_at_device' => '2026-10-26T12:01:21+05:00',
             'capture_timezone' => 'Asia/Karachi'];
+        config(['queue.default' => 'sync']);
         app(CustomerReturnEvidenceService::class)->record($item, $owner, $metadata + [
             'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
         ], $this->syntheticLaptopPhoto(960, 540));
+        config(['customer_return_evidence.ffmpeg_binary' => 'ffmpeg', 'queue.default' => 'database']);
         $header = pack('N', 24).'ftypisom'.pack('N', 0).'isommp42';
         $mvhd = pack('N', 28).'mvhd'.pack('N', 0).pack('N', 0).pack('N', 0).pack('N', 1000).pack('N', 7000);
         $movie = $header.pack('N', strlen($mvhd) + 8).'moov'.$mvhd;
@@ -252,9 +418,9 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertStringContainsString('Download labeled copy', $gallery);
         $this->assertStringContainsString('12:01:21', $gallery);
         $this->assertSame(1, substr_count($gallery, 'Labeled copy ready'));
-        $this->assertSame(2, substr_count($gallery, 'Labeled copy unavailable'));
+        $this->assertSame(2, substr_count($gallery, 'Labeled copy not ready'));
         $this->assertSame(1, substr_count($gallery, 'Download labeled copy'));
-        $this->assertMatchesRegularExpression('/Video — Part 1.*?Labeled copy unavailable/s', $gallery);
+        $this->assertMatchesRegularExpression('/Video — Part 1.*?Labeled copy not ready/s', $gallery);
 
         $claim = new SafetClaim;
         $claim->customer_return_item_id = $item->id;

@@ -176,7 +176,7 @@ class ReturnEvidenceController extends Controller
     {
         $return = $evidence->finding->item->customerReturn;
         app(CustomerReturnEvidenceAuthorization::class)->authorizeView($request->user(), $return);
-        $label = $evidence->label;
+        $label = $evidence->readableLabel();
         $path = $label?->path ?? $evidence->original_path;
         abort_unless(Storage::disk('local')->exists($path), 404);
 
@@ -189,8 +189,8 @@ class ReturnEvidenceController extends Controller
     public function labeled(Request $request, CustomerReturnEvidence $evidence): BinaryFileResponse
     {
         app(CustomerReturnEvidenceAuthorization::class)->authorizeView($request->user(), $evidence->finding->item->customerReturn);
-        $label = $evidence->label;
-        abort_unless($label && Storage::disk('local')->exists($label->path), 404);
+        $label = $evidence->readableLabel();
+        abort_unless($label, 404);
 
         return response()->download(Storage::disk('local')->path($label->path),
             'TPZ-'.$evidence->finding->item->customerReturn->reference.'-'.$evidence->id.'.'.($evidence->media_type === 'video' ? 'mp4' : 'jpg'),
@@ -212,9 +212,9 @@ class ReturnEvidenceController extends Controller
             'byte_size' => $evidence->byte_size, 'duration_seconds' => $evidence->duration_seconds,
             'video_part' => $videoPart,
             'uploaded_at' => $evidence->uploaded_at?->toIso8601String(),
-            'captured_at_device' => $evidence->captured_at_device?->toIso8601String(),
+            'captured_at_device' => $evidence->deviceCaptureTime()?->utc()->toIso8601String(),
             'capture_timezone' => $evidence->capture_timezone,
-            'label_status' => $evidence->label !== null ? 'ready' : 'pending',
+            'label_status' => $evidence->readableLabel() !== null ? 'ready' : 'pending',
             'original_url' => '/api/mobile/v1/workspace/qc/return-evidence/files/'.$evidence->id,
         ];
     }

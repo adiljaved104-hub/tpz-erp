@@ -4,7 +4,6 @@ namespace App\Services\Returns;
 
 use App\Models\CustomerReturnEvidence;
 use App\Models\CustomerReturnEvidenceLabel;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -174,14 +173,37 @@ class CustomerReturnEvidenceLabelService
             throw new \RuntimeException('The video dimension probe is unavailable.');
         }
         $process = new Process([$probe, '-v', 'error', '-select_streams', 'v:0',
-            '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x', $original]);
+            '-show_entries', 'stream=width,height:stream_side_data=rotation', '-of', 'json', $original]);
         $process->setTimeout(30);
         $process->run();
-        if (! $process->isSuccessful() || ! preg_match('/^(\d{2,5})x(\d{2,5})$/', trim($process->getOutput()), $match)) {
+        if (! $process->isSuccessful()) {
             throw new \RuntimeException('Video dimensions could not be verified.');
         }
 
-        return [(int) $match[1], (int) $match[2]];
+        return $this->parseVideoDimensions($process->getOutput());
+    }
+
+    private function parseVideoDimensions(string $output): array
+    {
+        $data = json_decode($output, true);
+        $stream = $data['streams'][0] ?? null;
+        $width = $stream['width'] ?? null;
+        $height = $stream['height'] ?? null;
+        if (! is_int($width) || ! is_int($height) || $width < 16 || $height < 16
+            || $width > 16000 || $height > 16000) {
+            throw new \RuntimeException('Video dimensions could not be verified.');
+        }
+
+        // Android MP4s may store landscape-coded frames with a 90-degree
+        // display matrix. FFmpeg autorotates before applying the label filter.
+        foreach ($stream['side_data_list'] ?? [] as $sideData) {
+            $rotation = $sideData['rotation'] ?? null;
+            if (is_numeric($rotation) && abs((int) $rotation) % 180 === 90) {
+                return [$height, $width];
+            }
+        }
+
+        return [$width, $height];
     }
 
     private function boldFont(): string
@@ -218,10 +240,7 @@ class CustomerReturnEvidenceLabelService
             throw new \RuntimeException('Evidence references cannot fit without covering the image.');
         }
         $zone = (string) ($evidence->capture_timezone ?: 'UTC');
-        // The existing evidence column stores the device's wall time without
-        // its offset; capture_timezone is the accompanying IANA time zone.
-        // Recasting the column as UTC and converting it shifts the overlay.
-        $captured = CarbonImmutable::parse((string) $evidence->getRawOriginal('captured_at_device'), $zone);
+        $captured = $evidence->deviceCaptureTime();
         $note = 'DEVICE-REPORTED TIME | '.$zone;
         $available = $width - 2 * $margin;
         $noteSize = max(8, (int) floor($fontSize * .65));

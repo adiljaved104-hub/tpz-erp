@@ -97,9 +97,7 @@ class CustomerReturnEvidenceLabelService
         try {
             $layout = $this->layout($evidence, $width, $height);
             imagealphablending($source, true);
-            $band = imagecolorallocatealpha($source, 0, 0, 0, 97); // ~24% opaque, behind text only.
-            imagefilledrectangle($source, 0, 0, $layout['topWidth'] - 1, $layout['topHeight'] - 1, $band);
-            imagefilledrectangle($source, 0, $height - $layout['footerHeight'], $layout['footerWidth'] - 1, $height - 1, $band);
+            // No opaque/translucent bands: retain only small outlined text.
             $this->photoText($source, $layout['stamp'], $layout['stampSize'], $layout['margin'] + $layout['stampSize'], $layout);
             $this->photoText($source, $layout['note'], $layout['noteSize'],
                 $layout['margin'] + $layout['stampSize'] + $layout['noteSize'] + 4, $layout);
@@ -141,7 +139,7 @@ class CustomerReturnEvidenceLabelService
             $layout = $this->layout($evidence, $width, $height);
             // Using textfile avoids another filtergraph escaping level for the
             // strftime colons. The epoch is device-reported, never server time.
-            $clock = '%{pts:gmtime:'.$layout['wallEpoch'].':%d-%m-%Y %a %H\\:%M\\:%S} '.$layout['abbreviation'];
+            $clock = '%{pts:gmtime:'.$layout['wallEpoch'].':%Y-%m-%d %H\\:%M\\:%S} '.$layout['abbreviation'];
             if (file_put_contents($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$clockFile, $clock) === false) {
                 throw new \RuntimeException('Could not prepare the private evidence clock.');
             }
@@ -219,7 +217,7 @@ class CustomerReturnEvidenceLabelService
 
     protected function boldFont(): string
     {
-        foreach (['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 'C:/Windows/Fonts/arialbd.ttf'] as $path) {
+        foreach (['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 'C:/Windows/Fonts/arial.ttf'] as $path) {
             if (is_file($path) && is_readable($path)) {
                 return $path;
             }
@@ -232,7 +230,7 @@ class CustomerReturnEvidenceLabelService
     {
         $font = $this->boldFont();
         $margin = max(10, (int) floor(min($width, $height) * .025));
-        $fontSize = max(10, min(88, (int) floor(min($width / 22, $height / 24))));
+        $fontSize = max(10, min(48, (int) floor(min($width, $height) / 32)));
         $return = $evidence->finding->item->customerReturn->loadMissing('order.platform', 'platform');
         $reference = $this->safeReference((string) $return->reference);
         $external = $this->safeReference((string) ($return->order?->external_order_number ?? ''));
@@ -247,7 +245,7 @@ class CustomerReturnEvidenceLabelService
             $lines = ['TECH POINT ZONE', 'DISPATCH & RETURN EVIDENCE',
                 ...$this->wrappedReference('Return ID: ', $reference, $available, $fontSize, $font),
                 ...$this->wrappedReference($orderPrefix, $order, $available, $fontSize, $font)];
-            $lineHeight = (int) ceil($fontSize * 1.24);
+            $lineHeight = (int) ceil($fontSize * 1.32);
             $footerHeight = count($lines) * $lineHeight + 2 * $margin;
             $linesFit = true;
             foreach ($lines as $line) {
@@ -267,16 +265,16 @@ class CustomerReturnEvidenceLabelService
         $zone = (string) ($evidence->capture_timezone ?: 'UTC');
         $captured = $evidence->deviceCaptureTime();
         $note = 'DEVICE-REPORTED TIME | '.$zone;
-        $stampSize = max(12, (int) floor($fontSize * 1.15));
-        while ($stampSize > 12 && $this->textWidth($captured->format('d-m-Y D H:i:s T'), $stampSize, $font) > $available) {
+        $stampSize = max(12, (int) floor($fontSize * .90));
+        while ($stampSize > 12 && $this->textWidth($captured->format('Y-m-d H:i:s T'), $stampSize, $font) > $available) {
             $stampSize--;
         }
-        $noteSize = max(8, (int) floor($fontSize * .48));
+        $noteSize = max(8, (int) floor($fontSize * .43));
         while ($noteSize > 8 && $this->textWidth($note, $noteSize, $font) > $available) {
             $noteSize--;
         }
         if ($this->textWidth($note, $noteSize, $font) > $available
-            || $this->textWidth($captured->format('d-m-Y D H:i:s T'), $stampSize, $font) > $available) {
+            || $this->textWidth($captured->format('Y-m-d H:i:s T'), $stampSize, $font) > $available) {
             throw new \RuntimeException('The evidence clock cannot fit inside the media margins.');
         }
         foreach ($lines as $line) {
@@ -285,7 +283,7 @@ class CustomerReturnEvidenceLabelService
             }
         }
         $topHeight = $stampSize + $noteSize + 3 * $margin + 4;
-        $topWidth = max($this->textWidth($captured->format('d-m-Y D H:i:s T'), $stampSize, $font),
+        $topWidth = max($this->textWidth($captured->format('Y-m-d H:i:s T'), $stampSize, $font),
             $this->textWidth($note, $noteSize, $font)) + 2 * $margin + 4;
         $footerWidth = max(array_map(fn (string $line): int => $this->textWidth($line, $fontSize, $font), $lines)) + 2 * $margin + 4;
         if ($topHeight + $footerHeight >= $height) {
@@ -293,7 +291,7 @@ class CustomerReturnEvidenceLabelService
         }
 
         return compact('font', 'margin', 'fontSize', 'stampSize', 'lineHeight', 'footerHeight', 'footerWidth', 'topHeight', 'topWidth', 'lines', 'note', 'noteSize') + [
-            'stamp' => $captured->format('d-m-Y D H:i:s T'),
+            'stamp' => $captured->format('Y-m-d H:i:s T'),
             'abbreviation' => $captured->format('T'),
             'wallEpoch' => $captured->getTimestamp() + $captured->getOffset(),
         ];
@@ -335,12 +333,14 @@ class CustomerReturnEvidenceLabelService
 
     private function photoText(\GdImage $image, string $text, int $size, int $baseline, array $layout): void
     {
-        $shadow = imagecolorallocatealpha($image, 0, 0, 0, 10);
-        $white = imagecolorallocate($image, 255, 255, 255);
-        foreach ([[-1, 0], [1, 0], [0, -1], [0, 2]] as [$dx, $dy]) {
-            imagettftext($image, $size, 0, $layout['margin'] + $dx, $baseline + $dy, $shadow, $layout['font'], $text);
+        // Dark solid lettering on light media; a narrow white halo also keeps
+        // glyphs legible on dark frames. No background rectangles are painted.
+        $halo = imagecolorallocatealpha($image, 255, 255, 255, 14);
+        $ink = imagecolorallocate($image, 104, 118, 132);
+        foreach ([[-1, 0], [1, 0], [0, -1], [0, 1]] as [$dx, $dy]) {
+            imagettftext($image, $size, 0, $layout['margin'] + $dx, $baseline + $dy, $halo, $layout['font'], $text);
         }
-        imagettftext($image, $size, 0, $layout['margin'], $baseline, $white, $layout['font'], $text);
+        imagettftext($image, $size, 0, $layout['margin'], $baseline, $ink, $layout['font'], $text);
     }
 
     private function videoFilter(array $layout, int $width, int $height, string $clockFile, array $lineFiles): string
@@ -348,11 +348,9 @@ class CustomerReturnEvidenceLabelService
         // Font paths and visible text are controlled server-side. FFmpeg is
         // invoked as an argument vector, not through a shell.
         $font = str_replace(':', '\\\\:', str_replace('\\', '/', $layout['font']));
-        $common = 'fontfile='.$font.':fontcolor=white:borderw=2:bordercolor=black@0.8:shadowx=1:shadowy=2:shadowcolor=black@0.8';
+        $common = 'fontfile='.$font.':fontcolor=0x687684:borderw=1:bordercolor=white@0.9';
         $margin = $layout['margin'];
         $filter = 'setpts=PTS-STARTPTS'
-            .',drawbox=x=0:y=0:w='.$layout['topWidth'].':h='.$layout['topHeight'].':color=black@0.24:t=fill'
-            .',drawbox=x=0:y=ih-'.$layout['footerHeight'].':w='.$layout['footerWidth'].':h='.$layout['footerHeight'].':color=black@0.24:t=fill'
             .',drawtext='.$common.':textfile='.$clockFile.':fontsize='.$layout['stampSize'].':x='.$margin.':y='.$margin
             .',drawtext='.$common.':text='.$layout['note'].':fontsize='.$layout['noteSize'].':x='.$margin.':y='.($margin + $layout['stampSize'] + 4);
         $footerTop = $height - $layout['footerHeight'];

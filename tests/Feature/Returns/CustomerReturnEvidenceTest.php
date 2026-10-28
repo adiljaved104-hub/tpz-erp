@@ -180,7 +180,7 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertSame('2026-10-24 07:34:56', $evidence->getRawOriginal('captured_at_device'));
         $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
             ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence->fresh(), 800, 600);
-        $this->assertSame('24-10-2026 Sat 12:34:56 PKT', $layout['stamp']);
+        $this->assertSame('2026-10-24 12:34:56 PKT', $layout['stamp']);
         $this->assertSame(hash_file('sha256', Storage::disk('local')->path($evidence->original_path)), $evidence->sha256);
         $this->assertNotSame($evidence->sha256, $label->sha256);
         $this->assertTrue(Storage::disk('local')->exists($label->path));
@@ -204,8 +204,8 @@ class CustomerReturnEvidenceTest extends TestCase
         [$owner, $return] = $this->receivedReturn();
         $item = $return->items()->firstOrFail();
         foreach ([
-            ['2026-10-26T19:30:00Z', 'Asia/Karachi', '27-10-2026 Tue 00:30:00 PKT'],
-            ['2026-10-26T21:30:00Z', 'Asia/Dubai', '27-10-2026 Tue 01:30:00 +04'],
+            ['2026-10-26T19:30:00Z', 'Asia/Karachi', '2026-10-27 00:30:00 PKT'],
+            ['2026-10-26T21:30:00Z', 'Asia/Dubai', '2026-10-27 01:30:00 +04'],
         ] as [$inputTime, $zone, $expected]) {
             $evidence = app(CustomerReturnEvidenceService::class)->record($item, $owner, [
                 'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
@@ -216,7 +216,7 @@ class CustomerReturnEvidenceTest extends TestCase
             $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
                 ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence->fresh(), 800, 600);
             $this->assertSame($expected, $layout['stamp']);
-            $this->assertSame($expected, $evidence->deviceCaptureTime()?->format('d-m-Y D H:i:s T'));
+            $this->assertSame($expected, $evidence->deviceCaptureTime()?->format('Y-m-d H:i:s T'));
         }
     }
 
@@ -247,7 +247,7 @@ class CustomerReturnEvidenceTest extends TestCase
             $lines = str_replace('  ', '', implode('', $layout['lines']));
             $this->assertStringContainsString($expected, $lines);
             $this->assertStringContainsString($return->reference, $lines);
-            $this->assertSame('27-10-2026 Tue 09:29:39 PKT', $layout['stamp']);
+            $this->assertSame('2026-10-27 09:29:39 PKT', $layout['stamp']);
             if ($external !== null) {
                 $this->assertStringNotContainsString('ERP Order ID:', $lines);
             }
@@ -293,7 +293,7 @@ class CustomerReturnEvidenceTest extends TestCase
             '-f', 'lavfi', '-i', 'color=c=blue:s=640x360:r=25:d=1',
             '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $coded]))->mustRun();
         (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
-            '-i', $coded, '-c', 'copy', '-metadata:s:v:0', 'rotate=90', $rotated]))->mustRun();
+            '-display_rotation:v:0', '90', '-i', $coded, '-c', 'copy', $rotated]))->mustRun();
         $originalHash = hash_file('sha256', $rotated);
 
         $dimensions = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'videoDimensions'))
@@ -567,7 +567,7 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertSame($movie, Storage::disk('local')->get($evidence->original_path));
     }
 
-    public function test_portrait_photo_label_keeps_original_dimensions_and_translucent_bands(): void
+    public function test_portrait_photo_label_preserves_background_pixels_without_bands(): void
     {
         [$owner, $return] = $this->receivedReturn();
         $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
@@ -583,16 +583,23 @@ class CustomerReturnEvidenceTest extends TestCase
         try {
             $layout = (new \ReflectionMethod(CustomerReturnEvidenceLabelService::class, 'layout'))
                 ->invoke(app(CustomerReturnEvidenceLabelService::class), $evidence, 600, 900);
-            $top = imagecolorsforindex($derivative, imagecolorat($derivative, $layout['topWidth'] - 3, 5));
-            $this->assertGreaterThan(150, $top['red']);
-            $this->assertLessThan(220, $top['red']);
+            $original = imagecreatefromstring(Storage::disk('local')->get($evidence->original_path));
+            $this->assertInstanceOf(\GdImage::class, $original);
+            try {
+                $x = $layout['topWidth'] - 3;
+                $sourceRed = imagecolorsforindex($original, imagecolorat($original, $x, 5))['red'];
+                $labeledRed = imagecolorsforindex($derivative, imagecolorat($derivative, $x, 5))['red'];
+                $this->assertEqualsWithDelta($sourceRed, $labeledRed, 14);
+            } finally {
+                imagedestroy($original);
+            }
             $this->assertGreaterThan(210, imagecolorsforindex($derivative, imagecolorat($derivative, 590, 450))['red']);
         } finally {
             imagedestroy($derivative);
         }
     }
 
-    public function test_landscape_photo_uses_the_same_translucent_claim_copy_design(): void
+    public function test_landscape_photo_keeps_background_unshaded(): void
     {
         [$owner, $return] = $this->receivedReturn();
         $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
@@ -611,14 +618,14 @@ class CustomerReturnEvidenceTest extends TestCase
             $x = $layout['topWidth'] - 3;
             $original = imagecolorsforindex($source, imagecolorat($source, $x, 5))['red'];
             $overlaid = imagecolorsforindex($derivative, imagecolorat($derivative, $x, 5))['red'];
-            $this->assertEqualsWithDelta($original * .76, $overlaid, 14);
+            $this->assertEqualsWithDelta($original, $overlaid, 14);
         } finally {
             imagedestroy($source);
             imagedestroy($derivative);
         }
     }
 
-    public function test_video_filter_uses_compact_translucent_bands_and_device_reported_clock(): void
+    public function test_video_filter_uses_unboxed_text_and_device_reported_clock(): void
     {
         [$owner, $return] = $this->receivedReturn();
         $evidence = app(CustomerReturnEvidenceService::class)->record($return->items()->firstOrFail(), $owner, [
@@ -635,11 +642,13 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertSame('DISPATCH & RETURN EVIDENCE', $layout['lines'][1]);
         $this->assertStringStartsWith('Return ID: ', $layout['lines'][2]);
         $this->assertTrue(collect($layout['lines'])->contains(fn (string $line): bool => str_starts_with($line, 'ERP Order ID: ')));
-        $this->assertStringContainsString('black@0.24', $filter);
+        $this->assertStringNotContainsString('drawbox=', $filter);
+        $this->assertStringContainsString('fontcolor=0x687684', $filter);
+        $this->assertStringContainsString('borderw=1:bordercolor=white@0.9', $filter);
         $this->assertStringContainsString('textfile=clock.txt', $filter);
         $this->assertStringContainsString('textfile=line-0.txt', $filter);
-        $this->assertSame('26-10-2026 Mon 12:01:21 PKT', $layout['stamp']);
-        $this->assertSame('26-10-2026 Mon 12:01:21', gmdate('d-m-Y D H:i:s', $layout['wallEpoch']));
+        $this->assertSame('2026-10-26 12:01:21 PKT', $layout['stamp']);
+        $this->assertSame('2026-10-26 12:01:21', gmdate('Y-m-d H:i:s', $layout['wallEpoch']));
         $this->assertLessThan(900 * .32, $layout['footerHeight']);
     }
 
@@ -668,7 +677,7 @@ class CustomerReturnEvidenceTest extends TestCase
         $service = app(CustomerReturnEvidenceLabelService::class);
         $layout = (new \ReflectionMethod($service, 'layout'))->invoke($service, $evidence, 640, 360);
         file_put_contents(Storage::disk('local')->path($directory.'/clock.txt'),
-            '%{pts:gmtime:'.$layout['wallEpoch'].':%d-%m-%Y %a %H\\:%M\\:%S} '.$layout['abbreviation']);
+            '%{pts:gmtime:'.$layout['wallEpoch'].':%Y-%m-%d %H\\:%M\\:%S} '.$layout['abbreviation']);
         $filter = (new \ReflectionMethod($service, 'videoFilter'))->invoke($service, $layout, 640, 360,
             'clock.txt', $this->writeVideoLineFiles($layout, $directory));
         (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
@@ -718,7 +727,7 @@ class CustomerReturnEvidenceTest extends TestCase
         $source = Storage::disk('local')->path($directory.'/original.mp4');
         $labeled = Storage::disk('local')->path($directory.'/labeled.mp4');
         file_put_contents(Storage::disk('local')->path($directory.'/clock.txt'),
-            '%{pts:gmtime:'.$layout['wallEpoch'].':%d-%m-%Y %a %H\\:%M\\:%S} '.$layout['abbreviation']);
+            '%{pts:gmtime:'.$layout['wallEpoch'].':%Y-%m-%d %H\\:%M\\:%S} '.$layout['abbreviation']);
         (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error',
             '-f', 'lavfi', '-i', 'color=c=0xD6EAF8:s=360x640:r=25:d=2,drawbox=x=45:y=95:w=270:h=410:color=0x2F4257:t=fill,drawbox=x=58:y=110:w=244:h=375:color=0x3C82B4:t=fill,drawbox=x=30:y=505:w=300:h=62:color=0xAAB4BE:t=fill', '-t', '2',
             '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $source]))->mustRun();
@@ -748,6 +757,40 @@ class CustomerReturnEvidenceTest extends TestCase
             imagedestroy($labelImage);
         }
         $this->assertLessThan(640 * .32, $layout['footerHeight']);
+    }
+
+    public function test_unboxed_photo_text_is_legible_on_both_white_and_dark_backgrounds(): void
+    {
+        $service = app(CustomerReturnEvidenceLabelService::class);
+        $font = (new \ReflectionMethod($service, 'boldFont'))->invoke($service);
+        $photoText = new \ReflectionMethod($service, 'photoText');
+
+        foreach ([
+            [250, false], // Bright product or white tabletop.
+            [18, true],   // Dark packaging or equipment.
+        ] as [$background, $dark]) {
+            $image = imagecreatetruecolor(700, 170);
+            try {
+                imagefill($image, 0, 0, imagecolorallocate($image, $background, $background, $background));
+                $photoText->invoke($service, $image, 'TECH POINT ZONE', 30, 78,
+                    ['font' => $font, 'margin' => 18]);
+                $contrastingPixels = 0;
+                for ($y = 38; $y < 92; $y++) {
+                    for ($x = 18; $x < 440; $x++) {
+                        $pixel = imagecolorsforindex($image, imagecolorat($image, $x, $y));
+                        if (($dark && $pixel['red'] > 190) || (! $dark && $pixel['red'] < 110)) {
+                            $contrastingPixels++;
+                        }
+                    }
+                }
+                $this->assertGreaterThan(100, $contrastingPixels,
+                    'Label lettering must contrast with white and dark footage.');
+                $untouched = imagecolorsforindex($image, imagecolorat($image, 650, 150));
+                $this->assertSame($background, $untouched['red'], 'No background band should be rendered.');
+            } finally {
+                imagedestroy($image);
+            }
+        }
     }
 
     public function test_long_references_wrap_within_portrait_and_landscape_frames(): void
@@ -801,7 +844,7 @@ class CustomerReturnEvidenceTest extends TestCase
                 $this->assertSame('TECH POINT ZONE', $layout['lines'][0]);
                 $this->assertSame('DISPATCH & RETURN EVIDENCE', $layout['lines'][1]);
                 $this->assertStringContainsString($expectedOrder, str_replace('  ', '', implode('', $layout['lines'])));
-                $this->assertSame('27-10-2026 Tue 09:29:39 PKT', $layout['stamp']);
+                $this->assertSame('2026-10-27 09:29:39 PKT', $layout['stamp']);
                 $this->assertGreaterThanOrEqual(30, $layout['fontSize']);
                 $this->assertLessThanOrEqual($width, $layout['topWidth']);
                 $this->assertLessThanOrEqual($width, $layout['footerWidth']);

@@ -20,7 +20,7 @@ class CustomerReturnEvidence extends Model
     protected function casts(): array
     {
         return ['byte_size' => 'integer', 'duration_seconds' => 'integer', 'uploaded_at' => 'immutable_datetime',
-            'captured_at_device' => 'immutable_datetime'];
+            'captured_at_device' => 'immutable_datetime', 'video_rotation_degrees' => 'integer'];
     }
 
     protected static function booted(): void

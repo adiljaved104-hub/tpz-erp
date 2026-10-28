@@ -135,7 +135,12 @@ class CustomerReturnEvidenceLabelService
         $lineFiles = [];
         try {
             $original = $disk->path($evidence->original_path);
+            // FFmpeg autorotates according to the original MP4 display matrix.
+            // A separately confirmed, append-only user correction is then
+            // applied to the decoded scene BEFORE placing the evidence clock.
             [$width, $height] = $this->videoDimensions($binary, $original);
+            $rotation = (int) ($evidence->video_rotation_degrees ?? 0);
+            [$width, $height] = $this->correctedVideoDimensions($width, $height, $rotation);
             $layout = $this->layout($evidence, $width, $height);
             // Using textfile avoids another filtergraph escaping level for the
             // strftime colons. The epoch is device-reported, never server time.
@@ -150,7 +155,7 @@ class CustomerReturnEvidenceLabelService
                     throw new \RuntimeException('Could not prepare the private evidence reference.');
                 }
             }
-            $filter = $this->videoFilter($layout, $width, $height, $clockFile, $lineFiles);
+            $filter = $this->videoRotationFilter($rotation).$this->videoFilter($layout, $width, $height, $clockFile, $lineFiles);
             $process = new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
                 '-i', $original, '-vf', $filter, '-map', '0:v:0', '-map', '0:a?',
                 '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p',
@@ -173,6 +178,28 @@ class CustomerReturnEvidenceLabelService
                 @unlink($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$name);
             }
         }
+    }
+
+    private function correctedVideoDimensions(int $width, int $height, int $degrees): array
+    {
+        if (! in_array($degrees, [0, 90, 180, 270], true)) {
+            throw new \RuntimeException('The confirmed video orientation is invalid.');
+        }
+
+        return in_array($degrees, [90, 270], true) ? [$height, $width] : [$width, $height];
+    }
+
+    private function videoRotationFilter(int $degrees): string
+    {
+        // Rotation is relative to FFmpeg's automatically oriented display.
+        // The original is never normalized or rewritten.
+        return match ($degrees) {
+            0 => '',
+            90 => 'transpose=clock,',
+            180 => 'hflip,vflip,',
+            270 => 'transpose=cclock,',
+            default => throw new \RuntimeException('The confirmed video orientation is invalid.'),
+        };
     }
 
     private function videoDimensions(string $binary, string $original): array

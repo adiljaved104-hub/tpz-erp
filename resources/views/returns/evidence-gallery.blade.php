@@ -92,6 +92,9 @@
                                         @if ($finding->remarks)<div><dt>Finding remarks</dt><dd>{{ $finding->remarks }}</dd></div>@endif
                                         <div><dt>Device-reported capture</dt><dd>{{ $deviceTime?->format('d M Y H:i:s T') ?? 'Not supplied' }}</dd></div>
                                         <div><dt>Reported time zone</dt><dd>{{ $proof->capture_timezone ?? 'Not supplied' }}</dd></div>
+                                        @if ($proof->media_type === 'video' && $proof->video_rotation_degrees !== null)
+                                            <div><dt>Employee-confirmed video correction</dt><dd>{{ $proof->video_rotation_degrees }}° clockwise after original display metadata (labeled copy only)</dd></div>
+                                        @endif
                                         <div><dt>Server received</dt><dd>{{ $proof->uploaded_at?->utc()->format('d M Y H:i:s').' UTC' }}</dd></div>
                                         <div><dt>File size</dt><dd>{{ $size }}</dd></div>
                                         <div><dt>Original SHA-256</dt><dd><code class="tpz-return-gallery-hash">{{ $proof->sha256 }}</code></dd></div>

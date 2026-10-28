@@ -274,6 +274,67 @@ class CustomerReturnEvidenceTest extends TestCase
         }
     }
 
+    public function test_employee_confirmed_video_rotation_is_applied_after_autorotation_before_evidence_labels(): void
+    {
+        $labels = app(CustomerReturnEvidenceLabelService::class);
+        $dimensions = new \ReflectionMethod($labels, 'correctedVideoDimensions');
+        $filter = new \ReflectionMethod($labels, 'videoRotationFilter');
+
+        $this->assertSame([1080, 1920], $dimensions->invoke($labels, 1080, 1920, 0));
+        $this->assertSame([1920, 1080], $dimensions->invoke($labels, 1080, 1920, 90));
+        $this->assertSame([1080, 1920], $dimensions->invoke($labels, 1080, 1920, 180));
+        $this->assertSame([1920, 1080], $dimensions->invoke($labels, 1080, 1920, 270));
+        $this->assertSame('', $filter->invoke($labels, 0));
+        $this->assertSame('transpose=clock,', $filter->invoke($labels, 90));
+        $this->assertSame('hflip,vflip,', $filter->invoke($labels, 180));
+        $this->assertSame('transpose=cclock,', $filter->invoke($labels, 270));
+        foreach ([45, -90, 360] as $invalid) {
+            try {
+                $filter->invoke($labels, $invalid);
+                $this->fail('Invalid rotations must not be accepted.');
+            } catch (\RuntimeException $exception) {
+                $this->assertSame('The confirmed video orientation is invalid.', $exception->getMessage());
+            }
+        }
+    }
+
+    public function test_local_ffmpeg_corrects_confirmed_landscape_after_android_display_matrix(): void
+    {
+        $binary = getenv('TPZ_TEST_FFMPEG_BINARY');
+        if (! is_string($binary) || ! is_file($binary)) {
+            $this->markTestSkipped('Set TPZ_TEST_FFMPEG_BINARY for real orientation rendering.');
+        }
+        $directory = 'synthetic-orientation-return-video';
+        Storage::disk('local')->makeDirectory($directory);
+        $coded = Storage::disk('local')->path($directory.'/coded.mp4');
+        $rotated = Storage::disk('local')->path($directory.'/metadata.mp4');
+        $corrected = Storage::disk('local')->path($directory.'/corrected.mp4');
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+            '-f', 'lavfi', '-i', 'color=c=blue:s=640x360:r=25:d=1',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $coded]))->mustRun();
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+            '-display_rotation:v:0', '90', '-i', $coded, '-c', 'copy', $rotated]))->mustRun();
+        $originalHash = hash_file('sha256', $rotated);
+        $labels = app(CustomerReturnEvidenceLabelService::class);
+        [$width, $height] = (new \ReflectionMethod($labels, 'videoDimensions'))->invoke($labels, $binary, $rotated);
+        $this->assertSame([360, 640], [$width, $height]);
+        [$outWidth, $outHeight] = (new \ReflectionMethod($labels, 'correctedVideoDimensions'))
+            ->invoke($labels, $width, $height, 90);
+        $this->assertSame([640, 360], [$outWidth, $outHeight]);
+        (new Process([$binary, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+            '-i', $rotated, '-vf', 'transpose=clock,setpts=PTS-STARTPTS',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-f', 'mp4', $corrected]))->mustRun();
+        $probe = dirname($binary).DIRECTORY_SEPARATOR.(str_ends_with(strtolower($binary), '.exe') ? 'ffprobe.exe' : 'ffprobe');
+        $process = new Process([$probe, '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height:stream_side_data=rotation', '-of', 'json', $corrected]);
+        $process->mustRun();
+        $meta = json_decode($process->getOutput(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(640, $meta['streams'][0]['width']);
+        $this->assertSame(360, $meta['streams'][0]['height']);
+        $this->assertSame([640, 360], (new \ReflectionMethod($labels, 'parseVideoDimensions'))->invoke($labels, $process->getOutput()));
+        $this->assertSame($originalHash, hash_file('sha256', $rotated));
+    }
+
     public function test_local_video_probe_accounts_for_rotated_mp4_display_matrix(): void
     {
         $binary = getenv('TPZ_TEST_FFMPEG_BINARY');
@@ -976,7 +1037,8 @@ class CustomerReturnEvidenceTest extends TestCase
         $input = ['upload_id' => (string) Str::uuid(), 'request_id' => (string) Str::uuid(),
             'original_name' => 'part-one.mp4', 'mime_type' => 'video/mp4', 'byte_size' => strlen($movie),
             'source_md5' => md5($movie), 'duration_seconds' => 300, 'problem_type' => 'damaged',
-            'captured_at_device' => '2026-10-24T12:34:56+05:00', 'capture_timezone' => 'Asia/Karachi'];
+            'captured_at_device' => '2026-10-24T12:34:56+05:00', 'capture_timezone' => 'Asia/Karachi',
+            'video_rotation_degrees' => 90];
         $create = $root.'/'.$return->id.'/items/'.$item->id.'/video-uploads';
         $start = $this->postJson($create, $input)->assertOk()->assertJsonPath('data.total_chunks', 4);
         $sessionId = $start->json('data.session_id');
@@ -1023,6 +1085,7 @@ class CustomerReturnEvidenceTest extends TestCase
             ->assertJsonPath('data.evidence_id', $firstFinal->json('data.evidence_id'));
         $evidence = CustomerReturnEvidence::query()->sole();
         $this->assertSame(hash('sha256', $movie), $evidence->sha256);
+        $this->assertSame(90, $evidence->video_rotation_degrees);
         $this->assertSame($movie, Storage::disk('local')->get($evidence->original_path));
         $this->assertDatabaseCount('customer_return_findings', 1);
         $this->assertSame(1, $inventory->refresh()->qc_pending_quantity);
@@ -1043,6 +1106,8 @@ class CustomerReturnEvidenceTest extends TestCase
             ->assertOk()->assertJsonPath('data.total_chunks', 20);
         $this->postJson($base, [...$input, 'upload_id' => (string) Str::uuid(), 'byte_size' => 200 * 1024 * 1024 + 1])->assertUnprocessable();
         $this->postJson($base, [...$input, 'upload_id' => (string) Str::uuid(), 'duration_seconds' => 301])->assertUnprocessable();
+        $this->postJson($base, [...$input, 'upload_id' => (string) Str::uuid(), 'video_rotation_degrees' => 45])->assertUnprocessable();
+        $this->postJson($base, [...$input, 'video_rotation_degrees' => 90])->assertUnprocessable(); // Cannot change the same upload ID.
         $this->postJson('/api/mobile/v1/workspace/qc/return-evidence/video-uploads/'.$session.'/finalize', ['async' => true])->assertUnprocessable();
         $other = User::factory()->create(['email' => 'other-return-owner@techpointzone.com']);
         Employee::factory()->for($other)->role(EmployeeRole::Owner)->create(['email' => $other->email]);

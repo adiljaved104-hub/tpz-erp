@@ -28,6 +28,7 @@ class NotificationRuleCatalog
             'marketplace.new_order' => $this->rule('Marketplace New Order', 'Marketplace', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback']),
             'claim.needs_filing' => $this->rule('Claim Needs Filing', 'Claims / Returns', 'existing_business_routing', ['existing_business_routing', 'assigned_employee', 'owner_admin_fallback']),
             'return.awaiting_qc' => $this->rule('Return Awaiting QC', 'Claims / Returns', 'existing_business_routing', ['existing_business_routing', 'owner_admin_fallback']),
+            'return.exception_review' => $this->rule('Return Exception Needs Review', 'Claims / Returns', 'owner_admin_fallback', ['owner_admin_fallback']),
             'hr.warning_issued' => $this->rule('Warning Issued', 'HR', 'warned_employee'),
             'hr.notice_issued' => $this->rule('Notice Issued', 'HR', 'materialized_notice_recipients'),
             'leave.submitted' => $this->rule('Leave Request Submitted', 'HR', 'existing_business_routing', null, null, null, [], false),

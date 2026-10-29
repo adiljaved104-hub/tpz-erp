@@ -63,6 +63,11 @@ class CustomerReturnItem extends Model
         return $this->hasOne(CustomerReturnQuarantine::class);
     }
 
+    public function exceptionCases(): HasMany
+    {
+        return $this->hasMany(CustomerReturnExceptionCase::class);
+    }
+
     public function marketplaceDispositions(): HasMany
     {
         return $this->hasMany(CustomerReturnMarketplaceDisposition::class);

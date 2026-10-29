@@ -10,6 +10,7 @@ use App\Enums\StockMovementBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\CustomerReturnException;
 use App\Models\CustomerReturn;
+use App\Models\CustomerReturnExceptionCase;
 use App\Models\CustomerReturnFinding;
 use App\Models\CustomerReturnInspection;
 use App\Models\CustomerReturnItem;
@@ -236,6 +237,19 @@ class CustomerReturnQuarantineService
                 'review_notes' => $validated['review_notes'], 'review_key' => $validated['review_key'],
                 'reviewed_by_user_id' => $actor->id, 'reviewed_at' => now(),
             ])->save();
+            $case = CustomerReturnExceptionCase::query()->where('customer_return_item_id', $locked->id)
+                ->where('kind', 'identity')->whereNull('resolved_at')->lockForUpdate()->first();
+            if ($case !== null) {
+                $case->forceFill([
+                    'status' => 'resolved', 'open_key' => null, 'resolution' => $validated['disposition'],
+                    'resolution_key' => $validated['review_key'], 'resolution_reason' => $validated['review_notes'],
+                    'reviewed_by_user_id' => $actor->id, 'resolved_at' => now(),
+                ])->save();
+                $case->events()->create(['actor_user_id' => $actor->id, 'action' => 'custody_disposition',
+                    'details' => ['disposition' => $validated['disposition'],
+                        'custody_quantity' => $quarantine->actual_custody_quantity,
+                        'reason' => $validated['review_notes']], 'created_at' => now()]);
+            }
             $this->activity->log('customer_return.quarantine_reviewed', $actor, $return, [
                 'return_item_id' => $locked->id, 'disposition' => $quarantine->disposition,
                 'previous_custody_quantity' => $previousCustodyQuantity,

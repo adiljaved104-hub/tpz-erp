@@ -14,12 +14,14 @@ use App\Enums\CustomerReturnStatus;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\QcPermission;
+use App\Enums\StockMovementType;
 use App\Exceptions\CustomerReturnException;
 use App\Jobs\FinalizeCustomerReturnVideo;
 use App\Jobs\LabelCustomerReturnPhoto;
 use App\Jobs\LabelCustomerReturnVideo;
 use App\Models\ActivityLog;
 use App\Models\CustomerReturnEvidence;
+use App\Models\CustomerReturnExceptionCase;
 use App\Models\CustomerReturnVideoUploadSession;
 use App\Models\DamagedStockEvent;
 use App\Models\Employee;
@@ -33,16 +35,23 @@ use App\Models\SafetClaim;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Inventory\DamagedItemsQueueService;
+use App\Services\ReferenceSequenceService;
 use App\Services\Returns\CustomerReturnEvidenceAuthorization;
 use App\Services\Returns\CustomerReturnEvidenceLabelService;
 use App\Services\Returns\CustomerReturnEvidenceService;
+use App\Services\Returns\CustomerReturnExceptionHoldService;
+use App\Services\Returns\CustomerReturnExceptionResolutionService;
+use App\Services\Returns\CustomerReturnQuarantineService;
 use App\Services\Returns\CustomerReturnService;
 use App\Services\Returns\CustomerReturnVideoDuration;
 use App\Services\Returns\CustomerReturnVideoUploadService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -86,6 +95,308 @@ class CustomerReturnEvidenceTest extends TestCase
             $this->assertStringContainsString('wrong or unverified', $exception->getMessage());
         }
         $this->assertSame($before, StockMovement::query()->count());
+    }
+
+    public function test_identity_evidence_opens_one_review_case_without_claiming_unverified_custody(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        $input = ['request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'Different laptop'];
+        $service = app(CustomerReturnEvidenceService::class);
+        $first = $service->record($item, $owner, $input, UploadedFile::fake()->image('wrong.jpg'));
+        $service->record($item, $owner, $input, UploadedFile::fake()->image('wrong.jpg'));
+        $service->record($item, $owner, [...$input, 'upload_id' => (string) Str::uuid()], UploadedFile::fake()->image('second.jpg'));
+
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('identity', $case->kind);
+        $this->assertSame('awaiting_physical_verification', $case->status);
+        $this->assertSame($first->id, $case->evidence_id);
+        $this->assertSame(2, $case->events()->count());
+        $this->assertNull($item->quarantine()->first());
+        $this->assertSame(1, app(DamagedItemsQueueService::class)->returnExceptions($owner)->total());
+        $this->assertSame(0, $inventory->refresh()->available_quantity);
+        $this->assertSame(1, $inventory->qc_pending_quantity);
+    }
+
+    public function test_completed_pass_damage_evidence_holds_only_isolated_stock_and_owner_can_correct_once(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        $originalInspectionId = $item->inspections()->sole()->id;
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged',
+        ], UploadedFile::fake()->image('damaged.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('qc_conflict', $case->kind);
+        $this->assertSame(1, $inventory->refresh()->available_quantity);
+        $holds = app(CustomerReturnExceptionHoldService::class);
+        $holds->assess($case->id, $owner);
+        $holds->assess($case->id, $owner);
+        $this->assertSame('held', $case->refresh()->protection_status, (string) $case->protection_reason);
+        $this->assertSame(1, $inventory->refresh()->reserved_quantity);
+        $this->assertSame(0, $inventory->sellableQuantity());
+        try {
+            app(SaveAsShippedOrder::class)->handle(new SaveAndReserveOrderData(
+                $inventory->warehouse_id, null, null, now()->toDateString(), $owner->employee->id,
+                null, [new OrderItemData($inventory->product_id, 1, '500.00')], (string) Str::uuid(),
+            ), $owner);
+            $this->fail('The temporary hold must block another sale.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('items', $exception->errors());
+        }
+        $this->assertDatabaseCount('inventory_reservations', 1);
+        $this->assertSame(0, $inventory->damaged_quantity);
+
+        $key = (string) Str::uuid();
+        $resolution = app(CustomerReturnExceptionResolutionService::class);
+        $resolved = $resolution->resolve($case, ['decision' => 'damage_confirmed',
+            'reason' => 'Owner verified damaged screen', 'resolution_key' => $key], $owner);
+        $this->assertSame($resolved->id, $resolution->resolve($resolved, ['decision' => 'damage_confirmed',
+            'reason' => 'Owner verified damaged screen', 'resolution_key' => $key], $owner)->id);
+        $this->assertSame(0, $inventory->refresh()->available_quantity);
+        $this->assertSame(0, $inventory->reserved_quantity);
+        $this->assertSame(1, $inventory->damaged_quantity);
+        $this->assertSame($originalInspectionId, $item->inspections()->sole()->id);
+        $this->assertDatabaseCount('damaged_stock_events', 1);
+        $this->assertSame(1, StockMovement::query()->where('source_type', $case->getMorphClass())
+            ->where('source_id', $case->id)->where('movement_type', StockMovementType::MarkDamaged)->count());
+    }
+
+    public function test_completed_pass_with_pooled_stock_escalates_without_reserving_other_inventory(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        $inventory->forceFill(['available_quantity' => 2])->save(); // Simulate a later pooled unit without relying on serial tracking.
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged',
+        ], UploadedFile::fake()->image('pooled.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        app(CustomerReturnExceptionHoldService::class)->assess($case->id, $owner);
+        $this->assertSame('escalation_required', $case->refresh()->status);
+        $this->assertSame('manual_reconciliation', $case->protection_status);
+        $this->assertSame(0, $inventory->refresh()->reserved_quantity);
+        $this->assertSame(0, DamagedStockEvent::query()->count());
+    }
+
+    public function test_owner_can_reject_false_post_qc_finding_and_release_hold_without_changing_qc(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'Reported different product',
+        ], UploadedFile::fake()->image('reported-wrong.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('held', $case->protection_status);
+        $staff = User::factory()->create();
+        Employee::factory()->for($staff)->role(EmployeeRole::Staff)->create(['email' => $staff->email]);
+        $input = ['decision' => 'original_qc_correct', 'reason' => 'Owner inspected the original returned unit',
+            'resolution_key' => (string) Str::uuid()];
+        try {
+            app(CustomerReturnExceptionResolutionService::class)->resolve($case, $input, $staff);
+            $this->fail('Staff must not resolve the exception.');
+        } catch (AuthorizationException) {
+            $this->assertNull($case->refresh()->resolved_at);
+        }
+        $resolved = app(CustomerReturnExceptionResolutionService::class)->resolve($case, $input, $owner);
+        $this->assertSame('resolved', $resolved->status);
+        $this->assertSame(0, $inventory->refresh()->reserved_quantity);
+        $this->assertSame(1, $inventory->available_quantity);
+        $this->assertSame(0, $inventory->damaged_quantity);
+        $this->assertSame(1, $item->inspections()->count());
+        $this->assertSame(0, DamagedStockEvent::query()->count());
+        $this->assertSame($resolved->id, app(CustomerReturnExceptionResolutionService::class)->resolve($resolved, $input, $owner)->id);
+    }
+
+    public function test_empty_package_evidence_queues_review_without_physical_custody_or_original_stock(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'empty_package',
+        ], UploadedFile::fake()->image('empty.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('identity', $case->kind);
+        $this->assertSame('awaiting_physical_verification', $case->status);
+        $this->assertNull($item->quarantine()->first());
+        $this->assertSame(0, $inventory->refresh()->available_quantity);
+        $this->assertSame(1, $inventory->qc_pending_quantity);
+    }
+
+    public function test_owner_custody_review_resolves_wrong_item_case_without_original_sku_receipt(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'Different laptop',
+        ], UploadedFile::fake()->image('wrong-item.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $review = app(CustomerReturnQuarantineService::class)->review($item, [
+            'disposition' => 'retain_in_quarantine', 'actual_custody_quantity' => 1,
+            'review_notes' => 'Owner counted the unrelated unit', 'review_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->assertSame('resolved', $review->status);
+        $this->assertSame('resolved', $case->refresh()->status);
+        $this->assertSame(0, $inventory->refresh()->available_quantity);
+        $this->assertSame(0, $inventory->qc_pending_quantity);
+        $this->assertSame(1, $review->actual_custody_quantity);
+        $this->assertNull($case->open_key);
+    }
+
+    public function test_eligible_marketplace_damage_correction_creates_one_linked_claim_without_external_filing(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $platform = MarketplacePlatform::factory()->create([
+            'customer_return_claims_enabled' => true, 'claim_program_name' => 'Safe-T',
+        ]);
+        $return->forceFill(['marketplace_platform_id' => $platform->id])->save();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged',
+        ], UploadedFile::fake()->image('damage.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('held', $case->protection_status);
+        $input = ['decision' => 'damage_confirmed', 'reason' => 'Owner verified damage',
+            'resolution_key' => (string) Str::uuid()];
+        app(CustomerReturnExceptionResolutionService::class)->resolve($case, $input, $owner);
+        $claim = SafetClaim::query()->sole();
+        $this->assertSame($return->id, $claim->customer_return_id);
+        $this->assertSame($item->id, $claim->customer_return_item_id);
+        $this->assertNull($claim->external_claim_reference);
+        app(CustomerReturnExceptionResolutionService::class)->resolve($case->fresh(), $input, $owner);
+        $this->assertDatabaseCount('safet_claims', 1);
+    }
+
+    public function test_exception_hold_and_resolution_reserve_references_before_their_business_transactions(): void
+    {
+        [$owner, $return] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        $ambientLevel = DB::transactionLevel();
+        $probe = new class extends ReferenceSequenceService
+        {
+            public array $levels = [];
+
+            public function nextInventoryReservationReference(): string
+            {
+                $this->levels[] = DB::transactionLevel();
+
+                return parent::nextInventoryReservationReference();
+            }
+
+            public function nextStockMovementReference(): string
+            {
+                $this->levels[] = DB::transactionLevel();
+
+                return parent::nextStockMovementReference();
+            }
+
+            public function nextDamagedStockReference(?int $year = null): string
+            {
+                $this->levels[] = DB::transactionLevel();
+
+                return parent::nextDamagedStockReference($year);
+            }
+        };
+        $this->app->instance(ReferenceSequenceService::class, $probe);
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged',
+        ], UploadedFile::fake()->image('damaged.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('held', $case->protection_status);
+        $this->assertCount(2, $probe->levels);
+        app(CustomerReturnExceptionResolutionService::class)->resolve($case, [
+            'decision' => 'damage_confirmed', 'reason' => 'Owner approved correction',
+            'resolution_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->assertCount(5, $probe->levels);
+        $this->assertSame(array_fill(0, 5, $ambientLevel), $probe->levels);
+    }
+
+    public function test_owner_can_correct_isolated_false_pass_for_wrong_item_without_creating_damaged_original_stock(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        $inspectionId = $item->inspections()->sole()->id;
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'Different laptop',
+        ], UploadedFile::fake()->image('wrong.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('held', $case->protection_status);
+        $input = ['decision' => 'identity_confirmed', 'reason' => 'Owner verified unrelated received unit',
+            'disposition' => 'retain_in_quarantine', 'actual_custody_quantity' => 1,
+            'resolution_key' => (string) Str::uuid()];
+        $service = app(CustomerReturnExceptionResolutionService::class);
+        $resolved = $service->resolve($case, $input, $owner);
+        $this->assertSame('resolved', $resolved->status);
+        $this->assertSame(0, $inventory->refresh()->available_quantity);
+        $this->assertSame(0, $inventory->reserved_quantity);
+        $this->assertSame(0, $inventory->damaged_quantity);
+        $this->assertSame(1, $item->quarantine()->sole()->actual_custody_quantity);
+        $this->assertSame($inspectionId, $item->inspections()->sole()->id);
+        $this->assertDatabaseCount('damaged_stock_events', 0);
+        $this->assertSame($resolved->id, $service->resolve($resolved, $input, $owner)->id);
+        $this->expectException(CustomerReturnException::class);
+        $service->resolve($resolved, [...$input, 'actual_custody_quantity' => 2], $owner);
+    }
+
+    public function test_marketplace_identity_after_completed_qc_remains_fail_closed(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $platform = MarketplacePlatform::factory()->create(['customer_return_claims_enabled' => true]);
+        $return->forceFill(['marketplace_platform_id' => $platform->id])->save();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'empty_package',
+        ], UploadedFile::fake()->image('empty.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        try {
+            app(CustomerReturnExceptionResolutionService::class)->resolve($case, [
+                'decision' => 'identity_confirmed', 'reason' => 'Package was empty',
+                'disposition' => 'empty_package_confirmed', 'actual_custody_quantity' => 0,
+                'resolution_key' => (string) Str::uuid(),
+            ], $owner);
+            $this->fail('Marketplace ledger correction must remain pending approval.');
+        } catch (CustomerReturnException) {
+            $this->assertNull($case->refresh()->resolved_at);
+        }
+        $this->assertSame(1, $inventory->refresh()->available_quantity);
+        $this->assertSame(0, $inventory->damaged_quantity);
+        $this->assertNull($item->quarantine()->first());
+    }
+
+    public function test_post_qc_fail_sellable_evidence_opens_review_without_restoring_damaged_stock(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(0, 1, (string) Str::uuid()), $owner);
+        $beforeMovements = StockMovement::query()->count();
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'sellable',
+        ], UploadedFile::fake()->image('looks-sellable.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('qc_conflict', $case->kind);
+        $this->assertSame('manual_reconciliation', $case->protection_status);
+        $this->assertSame($beforeMovements, StockMovement::query()->count());
+        $this->assertSame(0, $inventory->refresh()->available_quantity);
+        $this->assertSame(1, $inventory->damaged_quantity);
+        $this->assertSame(1, $item->inspections()->count());
     }
 
     public function test_serial_mismatch_blocks_both_sellable_and_damaged_original_product_posting(): void
@@ -970,10 +1281,12 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertDatabaseCount('customer_return_findings', 2);
         $this->assertDatabaseCount('customer_return_evidence', 2);
         $this->assertSame($inspectionCount, $item->inspections()->count());
-        $this->assertSame($movements, StockMovement::query()->count());
+        $this->assertSame($movements + 1, StockMovement::query()->count());
+        $this->assertSame(1, StockMovement::query()->where('movement_type', StockMovementType::Reservation)->count());
         $this->assertSame(0, DamagedStockEvent::query()->count());
         $this->assertSame(0, SafetClaim::query()->count());
         $this->assertSame(1, $inventory->refresh()->available_quantity);
+        $this->assertSame(1, $inventory->reserved_quantity);
         $this->assertSame(0, $inventory->damaged_quantity);
         $this->assertNotNull($item->fresh()->qcEvidenceReviewReason());
         $this->getJson('/api/mobile/v1/workspace/qc/return-evidence/dashboard')
@@ -1245,8 +1558,7 @@ class CustomerReturnEvidenceTest extends TestCase
     {
         $service = new CustomerReturnEvidenceLabelService;
         $method = new \ReflectionMethod($service, 'resolvedVideoRotation');
-        $resolve = fn (int $width, int $height, ?string $pose, ?int $manual): int =>
-            $method->invoke($service, $width, $height, $pose, $manual);
+        $resolve = fn (int $width, int $height, ?string $pose, ?int $manual): int => $method->invoke($service, $width, $height, $pose, $manual);
 
         $this->assertSame(0, $resolve(1920, 1080, 'landscape_left', null));
         $this->assertSame(0, $resolve(1080, 1920, 'portrait_up', null));

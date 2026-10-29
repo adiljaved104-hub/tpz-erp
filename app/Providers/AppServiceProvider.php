@@ -57,6 +57,7 @@ use App\Models\Component;
 use App\Models\ComponentRecoveryValueEvent;
 use App\Models\Conversation;
 use App\Models\CustomerReturn;
+use App\Models\CustomerReturnExceptionCase;
 use App\Models\CustomerReturnInspection;
 use App\Models\CustomerReturnItem;
 use App\Models\CustomerReturnMarketplaceDisposition;
@@ -571,6 +572,7 @@ class AppServiceProvider extends ServiceProvider
             'stock_transfer_item' => StockTransferItem::class,
             'stock_transfer_status_event' => StockTransferStatusEvent::class,
             'customer_return' => CustomerReturn::class,
+            'customer_return_exception_case' => CustomerReturnExceptionCase::class,
             'customer_return_item' => CustomerReturnItem::class,
             'customer_return_quarantine' => CustomerReturnQuarantine::class,
             'customer_return_inspection' => CustomerReturnInspection::class,

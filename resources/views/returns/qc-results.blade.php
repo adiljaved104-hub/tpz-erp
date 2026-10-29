@@ -2,7 +2,7 @@
     $return = $getRecord();
     $allowed = $return && auth()->user() && app(\App\Services\Authorization\CustomerReturnAuthorization::class)
         ->allows(auth()->user(), \App\Enums\CustomerReturnPermission::View, $return);
-    $items = $allowed ? $return->items()->with(['inspections.inspectedBy', 'inspections.damagedStockEvent', 'findings.evidence', 'claim', 'quarantine'])->get() : collect();
+    $items = $allowed ? $return->items()->with(['inspections.inspectedBy', 'inspections.damagedStockEvent', 'findings.evidence', 'claim', 'quarantine', 'exceptionCases.events.actor', 'exceptionCases.finding.recordedBy'])->get() : collect();
     if ($allowed) {
         $return->loadMissing('platform');
     }
@@ -46,6 +46,21 @@
                 @if ($reviewReason)
                     <p class="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">{{ $reviewReason }}</p>
                 @endif
+
+                @foreach ($item->exceptionCases as $case)
+                    <div @class(['mt-3 rounded-lg p-3 text-sm', 'border border-rose-300 bg-rose-50 text-rose-950 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-100' => $case->resolved_at === null, 'border border-gray-300 bg-gray-50 text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100' => $case->resolved_at !== null])>
+                        <p class="font-semibold">{{ $case->resolved_at ? 'Resolved Return Exception' : ($case->kind === 'identity' ? 'Identity Review Pending' : 'QC Exception / Needs Review') }} · {{ str($case->status)->replace('_', ' ')->headline() }}</p>
+                        <p>Original QC: {{ $case->original_qc_result ? str($case->original_qc_result)->headline() : 'Not completed' }} · New finding: {{ str($case->new_problem_type)->replace('_', ' ')->headline() }} · Quantity: {{ $case->affected_quantity }}</p>
+                        <p>New evidence by {{ $case->finding->recordedBy?->name ?? 'Unknown' }} on {{ $case->finding->recorded_at?->format('d M Y, h:i A') ?? 'Date unavailable' }}.</p>
+                        <p>Inventory protection: {{ str($case->protection_status)->replace('_', ' ')->headline() }}@if ($case->protection_reason) — {{ $case->protection_reason }}@endif</p>
+                        @if ($case->resolved_at)<p>Owner/Admin decision: {{ str($case->resolution)->replace('_', ' ')->headline() }} · {{ $case->resolution_reason }}</p>@endif
+                        <details class="mt-2"><summary class="cursor-pointer font-medium">Review history</summary>
+                            <ul class="mt-1 space-y-1">@foreach ($case->events as $event)
+                                <li>{{ str($event->action)->replace('_', ' ')->headline() }} · {{ $event->actor?->name ?? 'Unknown' }} · {{ $event->created_at?->format('d M Y, h:i A') }}</li>
+                            @endforeach</ul>
+                        </details>
+                    </div>
+                @endforeach
 
                 <div class="mt-3 space-y-2 text-sm text-gray-700 dark:text-gray-200">
                     @forelse ($item->inspections as $inspection)

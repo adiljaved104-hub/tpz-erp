@@ -15,8 +15,10 @@ use App\Exceptions\ReturnRefundException;
 use App\Filament\Actions\CreateTaskFromSourceAction;
 use App\Filament\Actions\OpenChatDiscussionAction;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
+use App\Models\CustomerReturnExceptionCase;
 use App\Models\CustomerReturnItem;
 use App\Models\Warehouse;
+use App\Services\Returns\CustomerReturnExceptionResolutionService;
 use App\Services\Returns\CustomerReturnQuarantineService;
 use App\Services\Returns\MarketplaceReturnService;
 use App\Services\Returns\ReturnRefundService;
@@ -68,6 +70,47 @@ class ViewCustomerReturn extends ViewRecord
                     CustomerReturnItem::findOrFail($data['item_id']),
                     [...$data, 'review_key' => (string) str()->uuid()], auth()->user(),
                 ))),
+            Action::make('resolveQcException')->label('Review QC Exception')->color('danger')
+                ->visible(fn (): bool => in_array(auth()->user()?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+                    && auth()->user()->can('return.inspect', $this->record)
+                    && $this->record->items()->whereHas('exceptionCases', fn ($query) => $query
+                        ->whereNotNull('original_qc_result')->whereNull('resolved_at'))->exists())
+                ->schema([
+                    Select::make('case_id')->label('Exception to review')->live()->options(fn (): array => CustomerReturnExceptionCase::query()
+                        ->whereHas('item', fn ($query) => $query->where('customer_return_id', $this->record->id))
+                        ->whereNotNull('original_qc_result')->whereNull('resolved_at')->get()
+                        ->mapWithKeys(fn ($case): array => [$case->id => $case->item->sku_snapshot.' — '.str($case->new_problem_type)->replace('_', ' ')->headline()])->all())->required(),
+                    Select::make('decision')->label('Owner/Admin decision')->options(function (Get $get): array {
+                        $options = ['original_qc_correct' => 'Original QC was correct'];
+                        $case = CustomerReturnExceptionCase::query()->find((int) $get('case_id'));
+                        if ($case?->kind === 'qc_conflict' && $case->protection_status === 'held') {
+                            $options['damage_confirmed'] = 'Damage confirmed — correct safely held stock';
+                        }
+                        if ($case?->kind === 'identity' && $case->protection_status === 'held'
+                            && $case->item->customerReturn->marketplace_platform_id === null) {
+                            $options['identity_confirmed'] = 'Different item confirmed — correct original stock';
+                        }
+
+                        return $options;
+                    })->required(),
+                    Select::make('disposition')->label('Actual item disposition')->options([
+                        'retain_in_quarantine' => 'Keep actual item in quarantine',
+                        'returned_to_sender' => 'Return actual item to sender',
+                        'empty_package_confirmed' => 'Confirm empty package',
+                    ])->visible(fn (Get $get): bool => $get('decision') === 'identity_confirmed')
+                        ->required(fn (Get $get): bool => $get('decision') === 'identity_confirmed'),
+                    TextInput::make('actual_custody_quantity')->label('Actual items physically received')
+                        ->integer()->minValue(0)->visible(fn (Get $get): bool => $get('decision') === 'identity_confirmed')
+                        ->required(fn (Get $get): bool => $get('decision') === 'identity_confirmed'),
+                    Textarea::make('reason')->label('Reason for decision')->required()->maxLength(5000),
+                ])->action(fn (array $data) => $this->run('Cannot resolve QC exception', function () use ($data): void {
+                    $case = CustomerReturnExceptionCase::query()->findOrFail((int) $data['case_id']);
+                    if ($case->item->customer_return_id !== $this->record->id) {
+                        throw new CustomerReturnException('This exception is not part of the open Return.');
+                    }
+                    app(CustomerReturnExceptionResolutionService::class)->resolve($case,
+                        [...$data, 'resolution_key' => (string) str()->uuid()], auth()->user());
+                })),
             Action::make('recordRefund')->label('Record Customer Refund')->color('warning')
                 ->visible(fn (): bool => $this->record->refund === null && auth()->user()->can('return.record_refund', $this->record))
                 ->schema([

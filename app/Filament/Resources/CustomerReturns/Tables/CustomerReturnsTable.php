@@ -38,6 +38,10 @@ class CustomerReturnsTable
                 ->state(fn (CustomerReturn $record): string => $record->identity_review_needed ? 'Owner/Admin review pending' : '—')
                 ->badge(fn (CustomerReturn $record): bool => (bool) $record->identity_review_needed)
                 ->color(fn (CustomerReturn $record): string => $record->identity_review_needed ? 'warning' : 'gray'),
+            TextColumn::make('qc_exception_needed')->label('QC Exception')
+                ->state(fn (CustomerReturn $record): string => $record->qc_exception_needed ? 'Owner/Admin review pending' : '—')
+                ->badge(fn (CustomerReturn $record): bool => (bool) $record->qc_exception_needed)
+                ->color(fn (CustomerReturn $record): string => $record->qc_exception_needed ? 'danger' : 'gray'),
             TextColumn::make('reported_at')->dateTime('d M Y, h:i A')->toggleable(isToggledHiddenByDefault: true),
         ];
 
@@ -58,6 +62,7 @@ class CustomerReturnsTable
                 'in_transit' => 'In Transit',
                 'awaiting_qc' => 'Awaiting QC',
                 'identity_review' => 'Identity Review Pending',
+                'qc_exception' => 'QC Exceptions / Needs Review',
                 'completed' => 'Completed',
             ])->query(function (Builder $query, array $data): Builder {
                 return match ($data['value'] ?? null) {
@@ -70,6 +75,8 @@ class CustomerReturnsTable
                     'identity_review' => $query->whereHas('items', fn (Builder $items) => $items
                         ->whereHas('findings', fn (Builder $findings) => $findings->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))
                         ->whereDoesntHave('quarantine', fn (Builder $quarantine) => $quarantine->where('status', 'resolved'))),
+                    'qc_exception' => $query->whereHas('items.exceptionCases', fn (Builder $cases) => $cases
+                        ->whereNotNull('original_qc_result')->whereNull('resolved_at')),
                     'completed' => $query->where('status', CustomerReturnStatus::Completed->value),
                     default => $query,
                 };

@@ -6,6 +6,7 @@ use App\Enums\CustomerReturnPermission;
 use App\Enums\DamagedStockPermission;
 use App\Enums\DamagedStockSource;
 use App\Enums\DamagedStockStatus;
+use App\Models\CustomerReturnExceptionCase;
 use App\Models\CustomerReturnQuarantine;
 use App\Models\User;
 use App\Services\Authorization\CustomerReturnAuthorization;
@@ -39,6 +40,25 @@ class DamagedItemsQueueService
         }
 
         return $query->paginate(10, ['*'], 'quarantinePage');
+    }
+
+    /** Evidence-led review cases include discrepancies before custody is verified. */
+    public function returnExceptions(User $user): LengthAwarePaginator
+    {
+        $query = CustomerReturnExceptionCase::query()
+            ->with(['item.customerReturn.order', 'item.customerReturn.platform', 'item.quarantine.warehouse',
+                'item.claim', 'finding.recordedBy', 'evidence'])
+            ->whereNull('resolved_at')
+            ->whereHas('item', fn ($items) => $items->whereIn('customer_return_id',
+                app(CustomerReturnReadService::class)->query($user)->select('customer_returns.id')))
+            ->orderByDesc('id');
+
+        if (! app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View)
+            || ! app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View)) {
+            $query->whereRaw('1 = 0');
+        }
+
+        return $query->paginate(10, ['*'], 'returnExceptionPage');
     }
 
     /** @param array{search?:?string,warehouse_id?:?int,source?:?string,platform_id?:?int,status?:?string} $filters */

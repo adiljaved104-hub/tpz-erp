@@ -139,7 +139,11 @@ class CustomerReturnEvidenceLabelService
             // A separately confirmed, append-only user correction is then
             // applied to the decoded scene BEFORE placing the evidence clock.
             [$width, $height] = $this->videoDimensions($binary, $original);
-            $rotation = (int) ($evidence->video_rotation_degrees ?? 0);
+            $rotation = $this->resolvedVideoRotation(
+                $width, $height,
+                $evidence->device_recording_orientation,
+                $evidence->video_rotation_degrees,
+            );
             [$width, $height] = $this->correctedVideoDimensions($width, $height, $rotation);
             $layout = $this->layout($evidence, $width, $height);
             // Using textfile avoids another filtergraph escaping level for the
@@ -167,6 +171,11 @@ class CustomerReturnEvidenceLabelService
             if (! $process->isSuccessful() || filesize($output) === 0) {
                 throw new \RuntimeException('Video label generation failed.');
             }
+            // An incorrectly oriented derivative must never be marked ready.
+            [$outputWidth, $outputHeight] = $this->videoDimensions($binary, $output);
+            if ([$outputWidth, $outputHeight] !== [$width, $height]) {
+                throw new \RuntimeException('The labeled video orientation does not match the verified target.');
+            }
 
             return $output;
         } catch (Throwable $exception) {
@@ -178,6 +187,38 @@ class CustomerReturnEvidenceLabelService
                 @unlink($disk->path($temporaryDirectory).DIRECTORY_SEPARATOR.$name);
             }
         }
+    }
+
+    private function resolvedVideoRotation(int $width, int $height, ?string $deviceOrientation, ?int $manualRotation): int
+    {
+        // Explicit employee correction remains authoritative for legacy/manual captures.
+        if ($manualRotation !== null) {
+            return $manualRotation;
+        }
+        if ($deviceOrientation === null) {
+            return 0; // Preserve legacy behavior, never infer orientation from upload time.
+        }
+        $landscape = str_starts_with($deviceOrientation, 'landscape_');
+        $portrait = str_starts_with($deviceOrientation, 'portrait_');
+        if (! $landscape && ! $portrait) {
+            throw new \RuntimeException('Unrecognized recorded device orientation.');
+        }
+        // FFmpeg has already honored the MP4 display matrix before filtering.
+        // Correct ONLY if its displayed aspect disagrees with the physical pose
+        // captured when the employee started recording.
+        if (($landscape && $width > $height) || ($portrait && $height > $width)) {
+            return 0;
+        }
+        if ($width === $height) {
+            throw new \RuntimeException('Square video orientation requires manual review.');
+        }
+        return match ($deviceOrientation) {
+            'landscape_left' => 270,
+            'landscape_right' => 90,
+            'portrait_up' => 90,
+            'portrait_down' => 270,
+            default => throw new \RuntimeException('Unrecognized recorded device orientation.'),
+        };
     }
 
     private function correctedVideoDimensions(int $width, int $height, int $degrees): array

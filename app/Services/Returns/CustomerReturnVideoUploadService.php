@@ -44,9 +44,10 @@ class CustomerReturnVideoUploadService
             'captured_at_device' => ['required', 'date', 'regex:/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/'],
             'capture_timezone' => ['required', 'timezone'],
             'video_rotation_degrees' => ['nullable', 'integer', 'in:0,90,180,270'],
+            'device_recording_orientation' => ['nullable', 'in:portrait_up,portrait_down,landscape_left,landscape_right'],
         ])->validate();
         $finding = collect($data)->only(['problem_type', 'actual_product_name', 'actual_serial_number', 'physical_condition', 'remarks'])->all();
-        $capture = collect($data)->only(['captured_at_device', 'capture_timezone', 'video_rotation_degrees'])->all();
+        $capture = collect($data)->only(['captured_at_device', 'capture_timezone', 'video_rotation_degrees', 'device_recording_orientation'])->all();
         $name = preg_replace('/[^A-Za-z0-9._-]/', '_', basename(str_replace('\\', '/', $data['original_name'])));
         if ($name === null || in_array($name, ['', '.', '..'], true)) {
             throw ValidationException::withMessages(['original_name' => 'Choose a valid video filename.']);

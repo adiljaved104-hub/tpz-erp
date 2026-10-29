@@ -1241,6 +1241,25 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertSame($movements, StockMovement::query()->count());
     }
 
+    public function test_device_pose_auto_resolution_uses_ffmpeg_display_aspect_and_honors_manual_override(): void
+    {
+        $service = new CustomerReturnEvidenceLabelService;
+        $method = new \ReflectionMethod($service, 'resolvedVideoRotation');
+        $resolve = fn (int $width, int $height, ?string $pose, ?int $manual): int =>
+            $method->invoke($service, $width, $height, $pose, $manual);
+
+        $this->assertSame(0, $resolve(1920, 1080, 'landscape_left', null));
+        $this->assertSame(0, $resolve(1080, 1920, 'portrait_up', null));
+        $this->assertSame(270, $resolve(1080, 1920, 'landscape_left', null));
+        $this->assertSame(90, $resolve(1080, 1920, 'landscape_right', null));
+        $this->assertSame(90, $resolve(1920, 1080, 'portrait_up', null));
+        $this->assertSame(270, $resolve(1920, 1080, 'portrait_down', null));
+        $this->assertSame(0, $resolve(1080, 1920, null, null)); // preexisting evidence
+        $this->assertSame(180, $resolve(1080, 1920, 'landscape_left', 180)); // manual priority
+        $this->expectException(\RuntimeException::class);
+        $resolve(1080, 1080, 'landscape_left', null);
+    }
+
     private function receivedReturn(string $reason = 'other'): array
     {
         $owner = User::factory()->create(['email' => 'return-evidence-owner-'.Str::uuid().'@techpointzone.com']);

@@ -42,6 +42,7 @@ class CustomerReturnEvidenceService
                 'regex:/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/'],
             'capture_timezone' => ['nullable', 'required_with:captured_at_device', 'timezone'],
             'video_rotation_degrees' => ['nullable', 'integer', 'in:0,90,180,270'],
+            'device_recording_orientation' => ['nullable', 'in:portrait_up,portrait_down,landscape_left,landscape_right'],
             'file' => ['required', 'file', 'mimetypes:image/jpeg,image/png,image/webp,video/mp4,video/quicktime',
                 'max:'.max(config('customer_return_evidence.max_photo_kib'), config('customer_return_evidence.max_video_kib'))],
         ])->validate();
@@ -57,6 +58,9 @@ class CustomerReturnEvidenceService
         }
         if (! $video && ! empty($validated['duration_seconds'])) {
             throw ValidationException::withMessages(['duration_seconds' => 'Photo uploads cannot have video duration.']);
+        }
+        if (! $video && isset($validated['device_recording_orientation'])) {
+            throw ValidationException::withMessages(['device_recording_orientation' => 'Only videos may report device orientation.']);
         }
         if (! $video && isset($validated['video_rotation_degrees'])) {
             throw ValidationException::withMessages(['video_rotation_degrees' => 'Only videos may have a display rotation correction.']);
@@ -83,7 +87,8 @@ class CustomerReturnEvidenceService
                     if ($existing->uploaded_by_user_id !== $actor->id || $existing->sha256 !== $checksum
                         || $existing->finding->customer_return_item_id !== $locked->id
                         || $existing->finding->request_id !== $validated['request_id']
-                        || ($video && (int) ($existing->video_rotation_degrees ?? 0) !== (int) ($validated['video_rotation_degrees'] ?? 0))) {
+                        || ($video && (int) ($existing->video_rotation_degrees ?? 0) !== (int) ($validated['video_rotation_degrees'] ?? 0))
+                        || ($video && $existing->device_recording_orientation !== ($validated['device_recording_orientation'] ?? null))) {
                         throw ValidationException::withMessages(['upload_id' => 'This upload ID belongs to different evidence.']);
                     }
 
@@ -128,6 +133,7 @@ class CustomerReturnEvidenceService
                     'byte_size' => $file->getSize(), 'sha256' => $checksum,
                     'duration_seconds' => $video ? (int) $validated['duration_seconds'] : null,
                     'video_rotation_degrees' => $video ? ($validated['video_rotation_degrees'] ?? null) : null,
+                    'device_recording_orientation' => $video ? ($validated['device_recording_orientation'] ?? null) : null,
                     'captured_at_device' => $capturedAt,
                     'capture_timezone' => $validated['capture_timezone'] ?? null,
                     'uploaded_at' => now(),

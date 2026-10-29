@@ -54,13 +54,13 @@
                                         {{ $label !== null ? 'Labeled copy ready' : 'Labeled copy not ready' }}
                                     </span>
                                 </div>
-                                <div class="tpz-return-gallery-media">
+                                <div class="tpz-return-gallery-media" @if ($proof->media_type === 'video') style="display:block;height:auto;min-height:0;max-height:none" @endif>
                                     @if ($proof->media_type === 'photo')
                                         <a href="{{ $previewUrl }}" target="_blank" rel="noopener noreferrer" aria-label="Open larger {{ $kind }} preview">
                                             <img src="{{ $previewUrl }}" alt="{{ $kind }} for return {{ $return->reference }}" loading="lazy">
                                         </a>
                                     @else
-                                        <video controls playsinline preload="metadata" aria-label="{{ $kind }} for return {{ $return->reference }}">
+                                        <video controls playsinline preload="metadata" style="display:block;width:100%;height:auto;max-height:34rem;object-fit:contain" aria-label="{{ $kind }} for return {{ $return->reference }}">
                                             <source src="{{ $previewUrl }}" type="{{ $label?->mime_type ?? $proof->mime_type }}">
                                         </video>
                                     @endif
@@ -92,6 +92,9 @@
                                         @if ($finding->remarks)<div><dt>Finding remarks</dt><dd>{{ $finding->remarks }}</dd></div>@endif
                                         <div><dt>Device-reported capture</dt><dd>{{ $deviceTime?->format('d M Y H:i:s T') ?? 'Not supplied' }}</dd></div>
                                         <div><dt>Reported time zone</dt><dd>{{ $proof->capture_timezone ?? 'Not supplied' }}</dd></div>
+                                        @if ($proof->media_type === 'video' && $proof->device_recording_orientation)
+                                            <div><dt>Device pose at capture</dt><dd>{{ str($proof->device_recording_orientation)->replace('_', ' ')->headline() }} (device sensor)</dd></div>
+                                        @endif
                                         @if ($proof->media_type === 'video' && $proof->video_rotation_degrees !== null)
                                             <div><dt>Employee-confirmed video correction</dt><dd>{{ $proof->video_rotation_degrees }}° clockwise after original display metadata (labeled copy only)</dd></div>
                                         @endif

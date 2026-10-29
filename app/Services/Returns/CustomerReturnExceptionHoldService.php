@@ -26,6 +26,13 @@ class CustomerReturnExceptionHoldService
     /** Reserve only a provably isolated QC PASS unit; shared SKU stock is otherwise left untouched. */
     public function assess(int $caseId, User $actor): void
     {
+        // The scheduler may revisit a case after an interrupted callback. Avoid
+        // allocating another reference for an already completed assessment.
+        if (! CustomerReturnExceptionCase::query()->whereKey($caseId)
+            ->whereNull('resolved_at')->where('protection_status', 'assessment_pending')->exists()) {
+            return;
+        }
+
         try {
             // References must be allocated before opening the business transaction.
             $reservationReference = $this->references->nextInventoryReservationReference();

@@ -52,8 +52,7 @@ class CustomerReturnResource extends Resource
 
         return app(CustomerReturnReadService::class)->query($user)
             ->withExists(['items as identity_review_needed' => fn (Builder $items) => $items
-                ->whereHas('findings', fn (Builder $findings) => $findings->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))
-                ->whereDoesntHave('quarantine', fn (Builder $quarantine) => $quarantine->where('status', 'resolved'))])
+                ->withUnresolvedIdentityDiscrepancy()])
             ->withExists(['items as qc_exception_needed' => fn (Builder $items) => $items
                 ->whereHas('exceptionCases', fn (Builder $cases) => $cases->whereNotNull('original_qc_result')->whereNull('resolved_at'))])
             ->with([

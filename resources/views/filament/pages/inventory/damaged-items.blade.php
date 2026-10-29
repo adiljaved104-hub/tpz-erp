@@ -67,7 +67,7 @@
                             <td class="px-3 py-2">{{ $case->item->return_quantity }}</td>
                             <td class="px-3 py-2">{{ $case->item->quarantine?->currentCustodyQuantity() ?? 'Not verified' }}</td>
                             <td class="px-3 py-2">{{ $case->finding->recordedBy?->name ?? '—' }}</td>
-                            <td class="px-3 py-2">{{ str($case->status)->replace('_', ' ')->headline() }}<br><span class="text-gray-500">{{ str($case->protection_status)->replace('_', ' ')->headline() }}</span></td>
+                            <td class="px-3 py-2">{{ str($case->status)->replace('_', ' ')->headline() }}<br><span class="text-gray-500">{{ $case->protection_status === 'held' && ! $case->hasVerifiedInventoryHold() ? 'Protection unverified — manual review' : str($case->protection_status)->replace('_', ' ')->headline() }}</span>@if (in_array($case->protection_status, ['assessment_pending', 'manual_reconciliation'], true))<br><strong>Stock protection not verified</strong>@endif</td>
                             <td class="px-3 py-2">{{ $case->item->quarantine?->claim_case_reference ?: $case->item->claim?->reference ?: ($return->platform?->customer_return_claims_enabled ? 'Claim review eligible; no case yet' : 'No eligible case') }}</td>
                         </tr>
                     @empty

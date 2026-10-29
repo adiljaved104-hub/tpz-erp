@@ -52,7 +52,10 @@
                         <p class="font-semibold">{{ $case->resolved_at ? 'Resolved Return Exception' : ($case->kind === 'identity' ? 'Identity Review Pending' : 'QC Exception / Needs Review') }} · {{ str($case->status)->replace('_', ' ')->headline() }}</p>
                         <p>Original QC: {{ $case->original_qc_result ? str($case->original_qc_result)->headline() : 'Not completed' }} · New finding: {{ str($case->new_problem_type)->replace('_', ' ')->headline() }} · Quantity: {{ $case->affected_quantity }}</p>
                         <p>New evidence by {{ $case->finding->recordedBy?->name ?? 'Unknown' }} on {{ $case->finding->recorded_at?->format('d M Y, h:i A') ?? 'Date unavailable' }}.</p>
-                        <p>Inventory protection: {{ str($case->protection_status)->replace('_', ' ')->headline() }}@if ($case->protection_reason) — {{ $case->protection_reason }}@endif</p>
+                        <p>Inventory protection: {{ $case->protection_status === 'held' && ! $case->hasVerifiedInventoryHold() ? 'Unverified — manual stock review required' : str($case->protection_status)->replace('_', ' ')->headline() }}@if ($case->protection_reason) — {{ $case->protection_reason }}@endif</p>
+                        @if (! $case->resolved_at && in_array($case->protection_status, ['assessment_pending', 'manual_reconciliation'], true))
+                            <p class="font-semibold">Stock protection has not been verified. Do not sell or allocate this disputed unit until Owner/Admin completes stock review.</p>
+                        @endif
                         @if ($case->resolved_at)<p>Owner/Admin decision: {{ str($case->resolution)->replace('_', ' ')->headline() }} · {{ $case->resolution_reason }}</p>@endif
                         <details class="mt-2"><summary class="cursor-pointer font-medium">Review history</summary>
                             <ul class="mt-1 space-y-1">@foreach ($case->events as $event)

@@ -13,9 +13,12 @@ use App\DTOs\Returns\InspectCustomerReturnItemData;
 use App\Enums\CustomerReturnStatus;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
+use App\Enums\InventoryReservationStatus;
 use App\Enums\QcPermission;
 use App\Enums\StockMovementType;
 use App\Exceptions\CustomerReturnException;
+use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
+use App\Filament\Resources\CustomerReturns\Pages\ListCustomerReturns;
 use App\Jobs\FinalizeCustomerReturnVideo;
 use App\Jobs\LabelCustomerReturnPhoto;
 use App\Jobs\LabelCustomerReturnVideo;
@@ -26,6 +29,7 @@ use App\Models\CustomerReturnVideoUploadSession;
 use App\Models\DamagedStockEvent;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
+use App\Models\InventoryReservation;
 use App\Models\MarketplacePlatform;
 use App\Models\Product;
 use App\Models\ProductInventory;
@@ -53,9 +57,11 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -212,6 +218,121 @@ class CustomerReturnEvidenceTest extends TestCase
         $this->assertSame(1, $item->inspections()->count());
         $this->assertSame(0, DamagedStockEvent::query()->count());
         $this->assertSame($resolved->id, app(CustomerReturnExceptionResolutionService::class)->resolve($resolved, $input, $owner)->id);
+        $this->assertFalse($item->hasIdentityDiscrepancy());
+        $this->assertNull($item->qcEvidenceReviewReason());
+        $this->actingAs($owner);
+        $this->assertFalse((bool) CustomerReturnResource::getEloquentQuery()->findOrFail($return->id)->identity_review_needed);
+        Livewire::test(ListCustomerReturns::class)->filterTable('operational_stage', 'identity_review')
+            ->assertCanNotSeeTableRecords([$return]);
+        $this->assertSame(0, CustomerReturnExceptionCase::query()->whereNull('resolved_at')->count());
+        $this->assertSame(0, app(DamagedItemsQueueService::class)->returnExceptions($owner)->total());
+        $this->assertSame(1, $item->findings()->where('problem_type', 'wrong_item')->count());
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'New reported different product',
+        ], UploadedFile::fake()->image('new-finding.jpg'));
+        $this->assertTrue($item->hasIdentityDiscrepancy());
+        $this->assertTrue((bool) CustomerReturnResource::getEloquentQuery()->findOrFail($return->id)->identity_review_needed);
+        Livewire::test(ListCustomerReturns::class)->filterTable('operational_stage', 'identity_review')
+            ->assertCanSeeTableRecords([$return]);
+        $this->assertDatabaseCount('customer_return_exception_cases', 2);
+        $this->assertSame(1, CustomerReturnExceptionCase::query()->whereNull('resolved_at')->count());
+        $this->assertSame(1, app(DamagedItemsQueueService::class)->returnExceptions($owner)->total());
+    }
+
+    public function test_interrupted_hold_assessment_is_recovered_once_by_the_scheduler_command(): void
+    {
+        $recovery = collect(Schedule::events())->first(fn ($event) => str_contains($event->command ?? '', 'returns:recover-exception-holds'));
+        $this->assertNotNull($recovery);
+        $this->assertSame('* * * * *', $recovery->expression);
+
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        $interrupted = \Mockery::mock(CustomerReturnExceptionHoldService::class);
+        $interrupted->shouldReceive('assess')->once();
+        $this->app->instance(CustomerReturnExceptionHoldService::class, $interrupted);
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged',
+        ], UploadedFile::fake()->image('new-damage.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('assessment_pending', $case->protection_status);
+        $this->assertFalse($case->hasVerifiedInventoryHold());
+        $this->assertSame(0, $inventory->refresh()->reserved_quantity);
+
+        $this->app->forgetInstance(CustomerReturnExceptionHoldService::class);
+        $this->artisan('returns:recover-exception-holds')->assertExitCode(0);
+        $this->artisan('returns:recover-exception-holds')->assertExitCode(0);
+        $this->assertSame('held', $case->refresh()->protection_status);
+        $this->assertTrue($case->hasVerifiedInventoryHold());
+        $this->assertSame(1, $inventory->refresh()->reserved_quantity);
+        $this->assertSame(1, InventoryReservation::query()->where('idempotency_key', $case->hold_key)->count());
+        $this->assertSame(1, StockMovement::query()->where('source_type', $case->reservation->getMorphClass())
+            ->where('source_id', $case->reservation->id)->where('movement_type', StockMovementType::Reservation)->count());
+        $case->reservation->forceFill(['status' => InventoryReservationStatus::Released])->save();
+        $this->assertFalse($case->hasVerifiedInventoryHold(), 'A released reservation must never display as verified protection.');
+    }
+
+    public function test_recovered_hold_assessment_leaves_pooled_stock_for_manual_review(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        $interrupted = \Mockery::mock(CustomerReturnExceptionHoldService::class);
+        $interrupted->shouldReceive('assess')->once();
+        $this->app->instance(CustomerReturnExceptionHoldService::class, $interrupted);
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged',
+        ], UploadedFile::fake()->image('pooled-after-interruption.jpg'));
+        $inventory->forceFill(['available_quantity' => 2])->save();
+        $this->app->forgetInstance(CustomerReturnExceptionHoldService::class);
+        $this->artisan('returns:recover-exception-holds')->assertExitCode(0);
+        $this->artisan('returns:recover-exception-holds')->assertExitCode(0);
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->assertSame('manual_reconciliation', $case->protection_status);
+        $this->assertFalse($case->hasVerifiedInventoryHold());
+        $this->assertSame(0, $inventory->refresh()->reserved_quantity);
+        $this->assertDatabaseCount('inventory_reservations', 0);
+    }
+
+    public function test_overlapping_hold_assessment_observes_the_first_completed_reservation(): void
+    {
+        [$owner, $return, $inventory] = $this->receivedReturn();
+        $item = $return->items()->firstOrFail();
+        app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        $interrupted = \Mockery::mock(CustomerReturnExceptionHoldService::class);
+        $interrupted->shouldReceive('assess')->once();
+        $this->app->instance(CustomerReturnExceptionHoldService::class, $interrupted);
+        app(CustomerReturnEvidenceService::class)->record($item, $owner, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'damaged',
+        ], UploadedFile::fake()->image('overlapping.jpg'));
+        $case = CustomerReturnExceptionCase::query()->sole();
+        $this->app->forgetInstance(CustomerReturnExceptionHoldService::class);
+        $probe = new class extends ReferenceSequenceService
+        {
+            public ?\Closure $beforeReservation = null;
+
+            public function nextInventoryReservationReference(): string
+            {
+                if ($this->beforeReservation !== null) {
+                    $callback = $this->beforeReservation;
+                    $this->beforeReservation = null;
+                    $callback();
+                }
+
+                return parent::nextInventoryReservationReference();
+            }
+        };
+        $this->app->instance(ReferenceSequenceService::class, $probe);
+        $probe->beforeReservation = fn () => app(CustomerReturnExceptionHoldService::class)->assess($case->id, $owner);
+        app(CustomerReturnExceptionHoldService::class)->assess($case->id, $owner);
+        $this->assertSame('held', $case->refresh()->protection_status);
+        $this->assertSame(1, $inventory->refresh()->reserved_quantity);
+        $this->assertSame(1, InventoryReservation::query()->where('idempotency_key', $case->hold_key)->count());
+        $this->assertSame(1, StockMovement::query()->where('movement_type', StockMovementType::Reservation)->count());
     }
 
     public function test_empty_package_evidence_queues_review_without_physical_custody_or_original_stock(): void

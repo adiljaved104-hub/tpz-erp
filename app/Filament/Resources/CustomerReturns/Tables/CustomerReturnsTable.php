@@ -73,8 +73,7 @@ class CustomerReturnsTable
                     'in_transit' => $query->whereHas('items.removalItems.removal', fn (Builder $removal) => $removal->where('status', MarketplaceReturnRemovalStatus::Dispatched->value)),
                     'awaiting_qc' => $query->where('status', CustomerReturnStatus::QcPending->value),
                     'identity_review' => $query->whereHas('items', fn (Builder $items) => $items
-                        ->whereHas('findings', fn (Builder $findings) => $findings->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package']))
-                        ->whereDoesntHave('quarantine', fn (Builder $quarantine) => $quarantine->where('status', 'resolved'))),
+                        ->withUnresolvedIdentityDiscrepancy()),
                     'qc_exception' => $query->whereHas('items.exceptionCases', fn (Builder $cases) => $cases
                         ->whereNotNull('original_qc_result')->whereNull('resolved_at')),
                     'completed' => $query->where('status', CustomerReturnStatus::Completed->value),

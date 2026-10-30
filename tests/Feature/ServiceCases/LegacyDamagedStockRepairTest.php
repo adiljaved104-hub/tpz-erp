@@ -86,7 +86,7 @@ class LegacyDamagedStockRepairTest extends TestCase
         $this->assertDatabaseCount('stock_movements', 0);
     }
 
-    public function test_legacy_qc_pass_restores_available_once_and_removes_fully_consumed_queue_row(): void
+    public function test_legacy_qc_pass_waits_for_classification_and_holds_damaged_quantity(): void
     {
         $foundation = $this->foundation(1);
         $beforeTotal = $foundation['inventory']->locationTotalOwned();
@@ -95,12 +95,12 @@ class LegacyDamagedStockRepairTest extends TestCase
         $case = app(WarrantyRepairService::class)->transition($case, WarrantyRepairStatus::ReadyToReturn, $foundation['owner']);
 
         $inventory = $foundation['inventory']->refresh();
-        $this->assertSame(WarrantyRepairStatus::Completed, $case->status);
-        $this->assertSame(6, $inventory->available_quantity);
-        $this->assertSame(0, $inventory->damaged_quantity);
+        $this->assertSame(WarrantyRepairStatus::PendingClassification, $case->status);
+        $this->assertSame(5, $inventory->available_quantity);
+        $this->assertSame(1, $inventory->damaged_quantity);
         $this->assertSame($beforeTotal, $inventory->locationTotalOwned());
         $this->assertSame('100.0000', $inventory->average_cost);
-        $this->assertDatabaseCount('stock_movements', 1);
+        $this->assertDatabaseCount('stock_movements', 0);
         $this->assertCount(0, app(DamagedItemsQueueService::class)->paginate($foundation['owner'], ['status' => 'damaged'])->items());
 
         try {
@@ -108,7 +108,7 @@ class LegacyDamagedStockRepairTest extends TestCase
             $this->fail('Legacy repair QC Pass posted twice.');
         } catch (WarrantyRepairException) {
         }
-        $this->assertDatabaseCount('stock_movements', 1);
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     public function test_legacy_qc_fail_leaves_stock_and_allows_a_later_repair(): void

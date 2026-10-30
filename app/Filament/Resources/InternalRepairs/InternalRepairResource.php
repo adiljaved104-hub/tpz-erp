@@ -46,6 +46,8 @@ class InternalRepairResource extends Resource
 
     protected static ?string $navigationLabel = 'Internal Repairs';
 
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $modelLabel = 'Internal Repair';
 
     protected static ?string $recordTitleAttribute = 'reference';

@@ -141,6 +141,13 @@ class ReferenceSequenceService
         return "WR-{$year}-".str_pad((string) $this->next("warranty_repair:{$year}"), 6, '0', STR_PAD_LEFT);
     }
 
+    public function nextRepairClassificationReference(?int $year = null): string
+    {
+        $year ??= (int) now()->format('Y');
+
+        return "RCL-{$year}-".str_pad((string) $this->next("repair_classification:{$year}"), 6, '0', STR_PAD_LEFT);
+    }
+
     public function nextComplaintReference(?int $year = null): string
     {
         $year ??= (int) now()->format('Y');

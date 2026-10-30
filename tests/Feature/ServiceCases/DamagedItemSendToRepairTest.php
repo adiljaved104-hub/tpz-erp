@@ -146,7 +146,7 @@ class DamagedItemSendToRepairTest extends TestCase
         $this->assertDatabaseCount('stock_movements', 0);
     }
 
-    public function test_internal_repair_qc_pass_moves_damaged_to_available_once_and_preserves_total_owned(): void
+    public function test_internal_repair_qc_pass_waits_for_classification_without_stock_movement(): void
     {
         $foundation = $this->foundation('DMG-2026-991003');
         $case = app(WarrantyRepairService::class)->createFromDamagedItem($foundation['damage'], ['idempotency_key' => (string) Str::uuid()], $foundation['owner']);
@@ -164,13 +164,13 @@ class DamagedItemSendToRepairTest extends TestCase
         $case = app(WarrantyRepairService::class)->transition($case, WarrantyRepairStatus::ReadyToReturn, $foundation['owner']);
 
         $inventory = $foundation['inventory']->refresh();
-        $this->assertSame(WarrantyRepairStatus::Completed, $case->status);
-        $this->assertSame($beforeAvailable + 1, $inventory->available_quantity);
-        $this->assertSame($beforeDamaged - 1, $inventory->damaged_quantity);
+        $this->assertSame(WarrantyRepairStatus::PendingClassification, $case->status);
+        $this->assertSame($beforeAvailable, $inventory->available_quantity);
+        $this->assertSame($beforeDamaged, $inventory->damaged_quantity);
         $this->assertSame($beforeTotalOwned, $inventory->locationTotalOwned());
         $this->assertSame('100.0000', $inventory->average_cost);
-        $this->assertDatabaseCount('stock_movements', 1);
-        $this->assertDatabaseHas('stock_movements', ['movement_type' => 'warranty_repair_restored', 'available_delta' => 1, 'damaged_delta' => -1]);
+        $this->assertDatabaseCount('stock_movements', 0);
+        $this->assertNull($case->repair_qc_movement_id);
 
         $this->expectException(WarrantyRepairException::class);
         app(WarrantyRepairService::class)->transition($case, WarrantyRepairStatus::ReadyToReturn, $foundation['owner']);
@@ -200,15 +200,20 @@ class DamagedItemSendToRepairTest extends TestCase
         $case = $this->advanceToQc($case, $foundation['owner']);
         app(WarrantyRepairService::class)->transition($case, WarrantyRepairStatus::ReadyToReturn, $foundation['owner']);
 
-        $this->assertSame(0, app(DamagedStockAvailabilityService::class)->remaining($foundation['damage']));
+        $this->assertSame(1, app(DamagedStockAvailabilityService::class)->remaining($foundation['damage']));
+        $this->assertSame(0, app(DamagedStockAvailabilityService::class)->availableForRepair($foundation['damage']));
         $activeRows = collect(app(DamagedItemsQueueService::class)->paginate($foundation['owner'], ['status' => 'damaged'])->items());
         $this->assertNull($activeRows->firstWhere('reference', $foundation['damage']->reference));
+        $heldRow = collect(app(DamagedItemsQueueService::class)->paginate($foundation['owner'], [])->items())
+            ->firstWhere('reference', $foundation['damage']->reference);
+        $this->assertSame('Awaiting Stock Classification', $heldRow['status_label']);
+        $this->assertSame(0, $heldRow['quantity']);
 
         try {
             app(WarrantyRepairService::class)->createFromDamagedItem($foundation['damage'], ['quantity' => 1, 'idempotency_key' => (string) Str::uuid()], $foundation['owner']);
             $this->fail('Resolved damage was sent to repair again.');
         } catch (WarrantyRepairException $exception) {
-            $this->assertSame('This damaged quantity has already been resolved and is no longer available for repair.', $exception->getMessage());
+            $this->assertSame('The remaining damaged quantity is already covered by an active repair.', $exception->getMessage());
         }
 
         $this->assertDatabaseCount('warranty_repairs', 1);
@@ -241,7 +246,7 @@ class DamagedItemSendToRepairTest extends TestCase
         app(WarrantyRepairService::class)->transition($case, WarrantyRepairStatus::ReadyToReturn, $foundation['owner']);
 
         $availability = app(DamagedStockAvailabilityService::class);
-        $this->assertSame(2, $availability->remaining($foundation['damage']));
+        $this->assertSame(3, $availability->remaining($foundation['damage']));
         $row = app(DamagedItemsQueueService::class)->paginate($foundation['owner'], ['status' => 'damaged'])->items()[0];
         $this->assertSame(2, $row['quantity']);
         $this->assertSame(2, $row['available_repair_quantity']);

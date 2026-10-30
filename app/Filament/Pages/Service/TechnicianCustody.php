@@ -26,6 +26,8 @@ class TechnicianCustody extends Page
 
     protected static ?string $navigationLabel = 'Technician Custody';
 
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $title = 'Technician Custody Overview';
 
     #[Url]

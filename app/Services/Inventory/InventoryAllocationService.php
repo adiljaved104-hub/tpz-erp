@@ -20,7 +20,9 @@ use App\Models\PurchaseReceiptAllocationLine;
 use App\Models\PurchaseReceiptItem;
 use App\Models\Team;
 use App\Models\User;
+use App\Models\WarrantyRepair;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Responsibilities\WarehouseStockActionScopeService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -34,6 +36,7 @@ class InventoryAllocationService
         private readonly InventoryAllocationPolicyService $policy,
         private readonly InventoryAuthorization $authorization,
         private readonly WarehouseStockActionScopeService $warehouseActions,
+        private readonly OrderResponsibilityScopeService $orderScope,
     ) {}
 
     public function canSelectOrderSources(User $actor): bool
@@ -768,6 +771,73 @@ class InventoryAllocationService
         if ($remaining > 0) {
             throw new InventoryInvariantException('The selected holder does not have enough damaged stock available to restore.');
         }
+    }
+
+    /**
+     * Move the damaged unit's known allocation holder to its condition SKU.
+     * Unknown/legacy holders require an explicit management decision; never infer one from the repair assignee.
+     */
+    public function classifyRepairedStock(WarrantyRepair $repair, ProductInventory $source, ProductInventory $destination, User $actor, ?int $selectedAccountId, string $reference): string
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Repair allocation conversion requires an active transaction.');
+        }
+
+        $lines = $repair->damaged_stock_event_id === null ? collect() : InventoryAllocationTransitionLine::query()
+            ->where('context_type', 'damaged')
+            ->where('context_id', $repair->damaged_stock_event_id)
+            ->where('source_product_inventory_id', $source->id)
+            ->where('remaining_quantity', '>', 0)
+            ->with('account')->orderBy('id')->lockForUpdate()->get();
+        $known = (int) $lines->sum('remaining_quantity');
+        $account = $selectedAccountId === null ? null : InventoryAllocationAccount::query()->where('status', true)->findOrFail($selectedAccountId);
+        if ($account?->is_system) {
+            throw ValidationException::withMessages(['allocation_account_id' => 'Choose an active employee or team allocation account.']);
+        }
+        if ($account !== null) {
+            $holders = $account->employee_id !== null
+                ? Employee::query()->whereKey($account->employee_id)->where('status', true)->whereNotNull('user_id')->get()
+                : Employee::query()->where('team_id', $account->team_id)->where('status', true)->whereNotNull('user_id')->get();
+            if ($holders->isEmpty() || $holders->contains(function (Employee $employee) use ($destination, $repair): bool {
+                $user = $employee->user;
+
+                return ! in_array($employee->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
+                    && ! $this->orderScope->hasMatchingActiveResponsibility($user, $destination->product_id,
+                        $repair->marketplace_platform_id, $destination->warehouse_id);
+            })) {
+                throw ValidationException::withMessages(['allocation_account_id' => 'The chosen holder has no active responsibility for the destination SKU and warehouse. Reconcile responsibility first.']);
+            }
+        }
+        if ($source->product_id !== $destination->product_id && $account === null) {
+            throw ValidationException::withMessages(['allocation_account_id' => 'A condition-specific SKU needs an explicit allocation-holder decision. Choose an authorized employee or team.']);
+        }
+        if ($account === null && ($known < $repair->quantity || $lines->contains(fn ($line): bool => ! $line->account?->status || $line->account->is_system))) {
+            throw ValidationException::withMessages(['allocation_account_id' => 'The original stock holder cannot be verified. Select an active employee or team allocation account for this conversion.']);
+        }
+
+        $remaining = $repair->quantity;
+        foreach ($lines as $line) {
+            if ($remaining === 0) {
+                break;
+            }
+            $amount = min($remaining, $line->remaining_quantity);
+            $holder = $account ?? $line->account;
+            $this->increase($holder, $destination, $amount, 'repair_classification_allocation', $actor, $repair,
+                'Damaged repair stock classified into condition-specific SKU', ['classification_reference' => $reference]);
+            $line->forceFill([
+                'remaining_quantity' => $line->remaining_quantity - $amount,
+                'destination_product_inventory_id' => $destination->id,
+                'status' => $line->remaining_quantity === $amount ? 'classified' : 'held',
+            ])->save();
+            $remaining -= $amount;
+        }
+        if ($remaining > 0) {
+            // Legacy damage has no original allocation trail. The selected holder is an explicit approval.
+            $this->increase($account, $destination, $remaining, 'repair_classification_allocation', $actor, $repair,
+                'Repaired legacy stock assigned by management', ['classification_reference' => $reference, 'holder_selection' => 'explicit']);
+        }
+
+        return $account === null ? 'original_holders' : 'management_selected';
     }
 
     public function dispatchTransfer(Model $item, ProductInventory $inventory, int $quantity, User $actor): void

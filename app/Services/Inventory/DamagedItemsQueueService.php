@@ -6,6 +6,7 @@ use App\Enums\CustomerReturnPermission;
 use App\Enums\DamagedStockPermission;
 use App\Enums\DamagedStockSource;
 use App\Enums\DamagedStockStatus;
+use App\Enums\WarrantyRepairStatus;
 use App\Models\CustomerReturnExceptionCase;
 use App\Models\CustomerReturnQuarantine;
 use App\Models\User;
@@ -108,7 +109,13 @@ class DamagedItemsQueueService
     public function query(User $user, array $filters = []): Builder
     {
         $eventAvailability = $this->availability->eventAvailabilityQuery();
+        $pendingClassification = DB::table('warranty_repairs')
+            ->whereNotNull('damaged_stock_event_id')
+            ->where('status', WarrantyRepairStatus::PendingClassification->value)
+            ->selectRaw('damaged_stock_event_id, SUM(quantity) AS pending_quantity')
+            ->groupBy('damaged_stock_event_id');
         $events = DB::query()->fromSub(clone $eventAvailability, 'dse')
+            ->leftJoinSub($pendingClassification, 'pending_classification', 'pending_classification.damaged_stock_event_id', '=', 'dse.id')
             ->join('products as product', 'product.id', '=', 'dse.product_id')
             ->join('warehouses as warehouse', 'warehouse.id', '=', 'dse.warehouse_id')
             ->leftJoin('marketplace_platforms as platform', 'platform.id', '=', 'dse.marketplace_platform_id')
@@ -116,13 +123,13 @@ class DamagedItemsQueueService
             ->leftJoin('orders as orders', 'orders.id', '=', 'dse.order_id')
             ->leftJoin('users as reporter', 'reporter.id', '=', 'dse.reported_by_user_id')
             ->select(['dse.id', 'dse.reference', 'product.sku', 'product.name as product_name'])
-            ->selectRaw('dse.remaining_damaged_quantity AS quantity')
+            ->selectRaw('CASE WHEN dse.remaining_damaged_quantity > COALESCE(pending_classification.pending_quantity, 0) THEN dse.remaining_damaged_quantity - COALESCE(pending_classification.pending_quantity, 0) ELSE 0 END AS quantity')
             ->addSelect([
                 'warehouse.name as location', 'dse.source', 'platform.name as platform',
                 'customer_return.id as return_id', 'customer_return.reference as return_reference', 'orders.reference as order_reference',
                 'dse.reason', 'dse.notes', 'dse.occurred_at', 'reporter.name as reported_by',
             ])
-            ->selectRaw("CASE WHEN dse.remaining_damaged_quantity > 0 THEN 'damaged' ELSE 'resolved' END AS status")
+            ->selectRaw("CASE WHEN dse.remaining_damaged_quantity > COALESCE(pending_classification.pending_quantity, 0) THEN 'damaged' WHEN COALESCE(pending_classification.pending_quantity, 0) > 0 THEN 'awaiting_classification' ELSE 'resolved' END AS status")
             ->addSelect(['dse.product_id', 'dse.warehouse_id', 'dse.marketplace_platform_id'])
             ->selectRaw("'event' AS row_kind")
             ->selectRaw('dse.available_repair_quantity');
@@ -197,7 +204,7 @@ class DamagedItemsQueueService
 
         return (array) $row + [
             'source_label' => $row->source === 'legacy' ? 'Old Damaged Stock' : DamagedStockSource::from($row->source)->getLabel(),
-            'status_label' => DamagedStockStatus::from($row->status)->getLabel(),
+            'status_label' => $row->status === 'awaiting_classification' ? 'Awaiting Stock Classification' : DamagedStockStatus::from($row->status)->getLabel(),
             'damaged_date' => $occurredAt?->format('d M Y, h:i A'),
             'days_damaged' => $occurredAt?->startOfDay()->diffInDays(now(config('app.timezone'))->startOfDay()),
             'related_reference' => $row->return_reference ?? $row->order_reference,

@@ -111,6 +111,11 @@ class WarrantyRepair extends Model
         return $this->hasMany(WarrantyRepairStatusEvent::class)->orderBy('changed_at');
     }
 
+    public function stockClassification(): HasOne
+    {
+        return $this->hasOne(RepairStockClassification::class);
+    }
+
     public function lastStatusEvent(): HasOne
     {
         return $this->hasOne(WarrantyRepairStatusEvent::class)->latestOfMany('changed_at');

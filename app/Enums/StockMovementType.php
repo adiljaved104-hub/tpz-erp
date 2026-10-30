@@ -30,6 +30,8 @@ enum StockMovementType: string
     case MarketplaceReturnCompanyReceipt = 'marketplace_return_company_receipt';
     case WarrantyRetainedDamaged = 'warranty_retained_damaged';
     case WarrantyRepairRestored = 'warranty_repair_restored';
+    case RepairClassificationOut = 'repair_classification_out';
+    case RepairClassificationIn = 'repair_classification_in';
     case UpgradeComponentReservation = 'upgrade_component_reservation';
     case UpgradeComponentReservationRelease = 'upgrade_component_reservation_release';
     case UpgradeComponentInstall = 'upgrade_component_install';
@@ -65,6 +67,8 @@ enum StockMovementType: string
             self::MarketplaceReturnCompanyReceipt => 'Marketplace Return Company Receipt',
             self::WarrantyRetainedDamaged => 'Warranty Retained as Damaged',
             self::WarrantyRepairRestored => 'Warranty Repair Restored',
+            self::RepairClassificationOut => 'Repair Classification — Damaged Source',
+            self::RepairClassificationIn => 'Repair Classification — Sellable Destination',
             self::UpgradeComponentReservation => 'Upgrade Component Reservation',
             self::UpgradeComponentReservationRelease => 'Upgrade Component Reservation Release',
             self::UpgradeComponentInstall => 'Upgrade Component Installed',

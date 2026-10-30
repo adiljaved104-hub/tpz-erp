@@ -60,6 +60,20 @@ class InternalRepairInfolist
                 TextEntry::make('qc_at')->label('QC Date')->dateTime('d M Y, h:i A')->placeholder('—'),
                 TextEntry::make('completed_at')->label('Completed')->dateTime('d M Y, h:i A')->placeholder('—'),
             ]),
+            Section::make('Final Stock Classification')->columns(3)->schema([
+                TextEntry::make('product.condition')->label('Original Condition')->state(fn (WarrantyRepair $record): string => $record->product?->condition?->label() ?? '—'),
+                TextEntry::make('stockClassification.condition')->label('Approved Condition')
+                    ->state(fn (WarrantyRepair $record): string => $record->stockClassification?->condition?->label() ?? 'Waiting for classification'),
+                TextEntry::make('stockClassification.destinationProduct.sku')->label('Destination SKU')->placeholder('Not selected'),
+                TextEntry::make('stockClassification.reference')->label('Classification Ref')->placeholder('—'),
+                TextEntry::make('stockClassification.quantity')->label('Quantity')->placeholder('—'),
+                TextEntry::make('stockClassification.approvedBy.name')->label('Approved By')->placeholder('—'),
+                TextEntry::make('stockClassification.approved_at')->label('Approved At')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('stockClassification.sourceMovement.reference')->label('Source Stock Movement')->placeholder('—'),
+                TextEntry::make('stockClassification.destinationMovement.reference')->label('Destination Stock Movement')->placeholder('—'),
+                TextEntry::make('stockClassification.reason')->label('Reason')->placeholder('—')->columnSpanFull(),
+                TextEntry::make('stockClassification.replacement_evidence_reference')->label('Replacement Evidence Reference')->placeholder('—')->columnSpanFull(),
+            ])->visible(fn (WarrantyRepair $record): bool => $record->status->value === 'pending_classification' || $record->stockClassification !== null),
             Section::make('Status Timeline')->schema([
                 RepeatableEntry::make('statusEvents')->label('')->schema([
                     TextEntry::make('to_status')->label('Status')->badge(),

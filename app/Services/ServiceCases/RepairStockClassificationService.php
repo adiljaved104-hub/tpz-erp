@@ -73,8 +73,8 @@ class RepairStockClassificationService
         }
         $validated = Validator::make($data, [
             'condition' => ['required', Rule::enum(ProductCondition::class)],
-            'destination_product_id' => 'required|integer|exists:products,id',
-            'allocation_account_id' => 'nullable|integer|exists:inventory_allocation_accounts,id',
+            'destination_product_id' => 'required|integer',
+            'allocation_account_id' => 'nullable|integer',
             'reason' => 'required|string|min:10|max:2000',
             'replacement_evidence_reference' => 'nullable|string|max:255',
             'sealed_replacement_confirmed' => 'nullable|boolean',
@@ -85,26 +85,28 @@ class RepairStockClassificationService
             && (! ($validated['sealed_replacement_confirmed'] ?? false) || blank($validated['replacement_evidence_reference'] ?? null))) {
             throw new WarrantyRepairException('New stock requires an explicitly verified sealed replacement and its evidence reference. An ordinarily repaired item cannot be New.');
         }
+        $fingerprint = $this->approvalFingerprint($validated, $actor);
 
         if ($existing = $repair->stockClassification) {
-            if ($existing->idempotency_key !== $validated['idempotency_key']) {
-                throw new WarrantyRepairException('This repair has already been classified.');
-            }
+            $this->assertSameApproval($existing, $validated['idempotency_key'], $fingerprint);
 
             return $existing;
         }
+
+        Validator::make($validated, [
+            'destination_product_id' => 'exists:products,id',
+            'allocation_account_id' => 'nullable|exists:inventory_allocation_accounts,id',
+        ])->validate();
 
         // All references are reserved before the transaction. A rollback may leave gaps, never reused values.
         $classificationReference = $this->references->nextRepairClassificationReference();
         $sourceReference = $this->references->nextStockMovementReference();
         $destinationReference = $this->references->nextStockMovementReference();
 
-        return DB::transaction(function () use ($repair, $validated, $condition, $actor, $classificationReference, $sourceReference, $destinationReference): RepairStockClassification {
+        return DB::transaction(function () use ($repair, $validated, $condition, $fingerprint, $actor, $classificationReference, $sourceReference, $destinationReference): RepairStockClassification {
             $locked = WarrantyRepair::query()->lockForUpdate()->findOrFail($repair->id);
             if ($already = $locked->stockClassification) {
-                if ($already->idempotency_key !== $validated['idempotency_key']) {
-                    throw new WarrantyRepairException('This repair has already been classified.');
-                }
+                $this->assertSameApproval($already, $validated['idempotency_key'], $fingerprint);
 
                 return $already;
             }
@@ -162,6 +164,7 @@ class RepairStockClassificationService
                 'replacement_evidence_reference' => $validated['replacement_evidence_reference'] ?? null,
                 'allocation_resolution' => $allocationResolution,
                 'idempotency_key' => $validated['idempotency_key'],
+                'approval_fingerprint' => $fingerprint,
                 'approved_at' => now(),
             ]);
             $locked->forceFill(['repair_qc_movement_id' => $sourceMovement->id, 'status' => WarrantyRepairStatus::Completed, 'completed_at' => now()])->save();
@@ -179,6 +182,27 @@ class RepairStockClassificationService
 
             return $classification;
         }, 5);
+    }
+
+    /** @param array<string, mixed> $validated */
+    private function approvalFingerprint(array $validated, User $actor): string
+    {
+        return hash('sha256', json_encode([
+            'condition' => $validated['condition'],
+            'destination_product_id' => (int) $validated['destination_product_id'],
+            'allocation_account_id' => isset($validated['allocation_account_id']) ? (int) $validated['allocation_account_id'] : null,
+            'reason' => $validated['reason'],
+            'replacement_evidence_reference' => $validated['replacement_evidence_reference'] ?? null,
+            'sealed_replacement_confirmed' => (bool) ($validated['sealed_replacement_confirmed'] ?? false),
+            'approved_by_user_id' => $actor->id,
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    private function assertSameApproval(RepairStockClassification $existing, string $idempotencyKey, string $fingerprint): void
+    {
+        if ($existing->idempotency_key !== $idempotencyKey || ! hash_equals($existing->approval_fingerprint ?? '', $fingerprint)) {
+            throw new WarrantyRepairException('This repair has already been classified with different approval details.');
+        }
     }
 
     private function postMovement(ProductInventory $inventory, WarrantyRepair $repair, User $actor, string $reference, string $group,

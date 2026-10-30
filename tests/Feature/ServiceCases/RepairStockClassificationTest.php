@@ -194,6 +194,72 @@ class RepairStockClassificationTest extends TestCase
         $this->assertDatabaseCount('stock_movements', 2);
     }
 
+    public function test_identical_retry_after_database_reload_returns_the_original_approval(): void
+    {
+        [$owner, $product, , , $repair] = $this->foundation();
+        $account = app(InventoryAllocationService::class)->employeeAccount($owner->employee->id);
+        $data = $this->decision(ProductCondition::New, $product->id, $account->id);
+        $data['sealed_replacement_confirmed'] = true;
+        $data['replacement_evidence_reference'] = 'SEALED-REPLACEMENT-2026-001';
+        $staleRepair = WarrantyRepair::query()->findOrFail($repair->id);
+        $staleRepair->load('stockClassification'); // Simulate a concurrent caller holding a pre-approval snapshot.
+        $service = app(RepairStockClassificationService::class);
+
+        $approved = $service->approve($repair, $data, $owner);
+        $retried = $service->approve(WarrantyRepair::query()->findOrFail($repair->id), $data, $owner);
+        $staleRetry = $service->approve($staleRepair, $data, $owner);
+
+        $this->assertSame($approved->id, $retried->id);
+        $this->assertSame($approved->id, $staleRetry->id);
+        $this->assertSame($approved->approval_fingerprint, $approved->fresh()->approval_fingerprint);
+        $this->assertSame(64, strlen($approved->approval_fingerprint));
+        $this->assertDatabaseCount('repair_stock_classifications', 1);
+        $this->assertDatabaseCount('stock_movements', 2);
+    }
+
+    #[DataProvider('approvalMutations')]
+    public function test_same_key_with_changed_approval_details_is_rejected(string $field): void
+    {
+        [$owner, $product, , , $repair] = $this->foundation();
+        $account = app(InventoryAllocationService::class)->employeeAccount($owner->employee->id);
+        $data = $this->decision(ProductCondition::New, $product->id, $account->id);
+        $data['sealed_replacement_confirmed'] = true;
+        $data['replacement_evidence_reference'] = 'SEALED-REPLACEMENT-2026-001';
+        $staleRepair = WarrantyRepair::query()->findOrFail($repair->id);
+        $staleRepair->load('stockClassification');
+        $service = app(RepairStockClassificationService::class);
+        $approved = $service->approve($repair, $data, $owner);
+
+        $changed = $data;
+        $changed[$field] = match ($field) {
+            'condition' => ProductCondition::Renewed->value,
+            'destination_product_id' => $this->destination($product, ProductCondition::New)->id,
+            'allocation_account_id' => null,
+            'reason' => 'A different stock-classification explanation.',
+            'replacement_evidence_reference' => 'SEALED-REPLACEMENT-2026-002',
+            'sealed_replacement_confirmed' => false,
+        };
+
+        try {
+            $service->approve($staleRepair, $changed, $owner);
+            $this->fail('A reused key accepted different approval details.');
+        } catch (WarrantyRepairException) {
+        }
+
+        $this->assertSame($approved->approval_fingerprint, $approved->fresh()->approval_fingerprint);
+        $this->assertDatabaseCount('repair_stock_classifications', 1);
+        $this->assertDatabaseCount('stock_movements', 2);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function approvalMutations(): iterable
+    {
+        foreach (['condition', 'destination_product_id', 'allocation_account_id', 'reason',
+            'replacement_evidence_reference', 'sealed_replacement_confirmed'] as $field) {
+            yield $field => [$field];
+        }
+    }
+
     public function test_customer_owned_service_cannot_be_classified_as_company_stock(): void
     {
         [$owner, $product, $inventory] = $this->foundation();

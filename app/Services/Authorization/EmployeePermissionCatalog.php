@@ -94,6 +94,7 @@ class EmployeePermissionCatalog
                 $this->item(HrPermission::LeaveHistoricalAdjust, 'Adjust Historical Leave Balance', true),
                 $this->item(HrPermission::LeaveJoiningDateCorrect, 'Verify / Correct Joining Dates', true),
                 $this->item(HrPermission::WorkScheduleManage, 'Manage Work Schedules', true),
+                $this->item(HrPermission::CompOffManage, 'Authorize and Approve Team Comp-Off', true),
                 $this->item(HrPermission::WarningViewOwn, 'View Own Warnings'),
                 $this->item(HrPermission::WarningViewTeam, 'View Team Warnings', true),
                 $this->item(HrPermission::WarningViewAll, 'View All Warnings', true),

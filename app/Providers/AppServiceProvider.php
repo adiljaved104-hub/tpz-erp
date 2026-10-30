@@ -53,6 +53,8 @@ use App\Models\CompanyProfile;
 use App\Models\CompensatoryOff;
 use App\Models\Complaint;
 use App\Models\ComplaintStatusEvent;
+use App\Models\CompOffCreditRequest;
+use App\Models\CompOffSundayDuty;
 use App\Models\Component;
 use App\Models\ComponentRecoveryValueEvent;
 use App\Models\Conversation;
@@ -604,6 +606,8 @@ class AppServiceProvider extends ServiceProvider
             'work_schedule_assignment' => WorkScheduleAssignment::class,
             'public_holiday' => PublicHoliday::class,
             'compensatory_off' => CompensatoryOff::class,
+            'comp_off_sunday_duty' => CompOffSundayDuty::class,
+            'comp_off_credit_request' => CompOffCreditRequest::class,
             'warning_category' => WarningCategory::class,
             'employee_warning' => EmployeeWarning::class,
             'hr_notice' => HrNotice::class,

@@ -5,6 +5,7 @@ namespace App\Services\Hr;
 use App\DTOs\Attendance\AttendanceDayContext;
 use App\Enums\AttendanceStatus;
 use App\Models\CompensatoryOff;
+use App\Models\CompOffCreditRequestDay;
 use App\Models\Employee;
 use App\Models\PublicHoliday;
 use Carbon\CarbonImmutable;
@@ -24,7 +25,9 @@ class AttendanceDayContextFactory
     ): AttendanceDayContext {
         $schedule = $this->schedules->day($employee, $date);
         $holiday = PublicHoliday::query()->where('status', true)->whereDate('holiday_date', $date)->exists();
-        $compOff = CompensatoryOff::query()->where('employee_id', $employee->id)->whereIn('status', ['approved', 'used'])->whereDate('off_date', $date)->exists();
+        $compOff = CompensatoryOff::query()->where('employee_id', $employee->id)->whereIn('status', ['approved', 'used'])->whereDate('off_date', $date)->exists()
+            || CompOffCreditRequestDay::query()->whereDate('off_date', $date)->where('credits_required', 1)
+                ->whereHas('request', fn ($query) => $query->where('employee_id', $employee->id)->where('status', 'approved'))->exists();
 
         return new AttendanceDayContext(
             publicHoliday: $holiday,

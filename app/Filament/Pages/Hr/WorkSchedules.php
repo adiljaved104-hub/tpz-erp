@@ -18,6 +18,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class WorkSchedules extends Page
@@ -250,6 +251,9 @@ class WorkSchedules extends Page
         $directEmployeeIds = $currentAssignments->pluck('employee_id')->filter()->map(fn ($id): int => (int) $id);
         $assignedTeamIds = $currentAssignments->pluck('team_id')->filter()->map(fn ($id): int => (int) $id)->unique();
         $assignedEmployeeIds = $directEmployeeIds->merge($activeEmployees->whereIn('team_id', $assignedTeamIds)->pluck('id'))->unique();
+        $hasCompanyDefault = DB::table('company_work_schedule_versions as versions')
+            ->join('work_schedules as schedules', 'schedules.id', '=', 'versions.work_schedule_id')
+            ->where('schedules.status', true)->whereDate('versions.effective_from', '<=', today('Asia/Karachi'))->exists();
         $search = trim($this->assignmentEmployeeSearch);
         $employeeQuery = Employee::query()->where('status', true);
         if ($search !== '' || $this->assignmentEmployeeIds !== []) {
@@ -265,8 +269,8 @@ class WorkSchedules extends Page
 
         return [
             'activeScheduleCount' => WorkSchedule::query()->where('status', true)->count(),
-            'assignedEmployeeCount' => $activeEmployees->whereIn('id', $assignedEmployeeIds)->count(),
-            'unassignedEmployeeCount' => max(0, $activeEmployees->count() - $activeEmployees->whereIn('id', $assignedEmployeeIds)->count()),
+            'assignedEmployeeCount' => $hasCompanyDefault ? $activeEmployees->count() : $activeEmployees->whereIn('id', $assignedEmployeeIds)->count(),
+            'unassignedEmployeeCount' => $hasCompanyDefault ? 0 : max(0, $activeEmployees->count() - $activeEmployees->whereIn('id', $assignedEmployeeIds)->count()),
             'schedules' => WorkSchedule::query()->withCount([
                 'days',
                 'assignments as current_assignments_count' => fn ($query) => $query
@@ -298,10 +302,10 @@ class WorkSchedules extends Page
         $days = [];
         foreach (range(1, $weeks) as $week) {
             foreach (range(0, 6) as $weekday) {
-                $working = ! in_array($weekday, [0, 6], true);
+                $working = $weekday !== 0;
                 $days[] = [
                     'cycle_week' => $week, 'weekday' => $weekday, 'is_working_day' => $working,
-                    'expected_start_time' => $working ? '09:00' : null, 'expected_end_time' => $working ? '17:00' : null,
+                    'expected_start_time' => $working ? '09:00' : null, 'expected_end_time' => $weekday === 6 ? '16:00' : ($working ? '17:00' : null),
                     'break_start_time' => null, 'break_end_time' => null, 'earns_compensatory_off' => false,
                 ];
             }

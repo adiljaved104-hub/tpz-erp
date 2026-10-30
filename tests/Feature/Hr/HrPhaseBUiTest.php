@@ -372,12 +372,10 @@ class HrPhaseBUiTest extends TestCase
         ]);
 
         Livewire::actingAs($owner)->test(CompOff::class)
-            ->assertSee('Total Comp Off')->assertSee('Pending approvals')->assertSee('Used')
-            ->assertSee('Record Sunday duty')->assertSee('Worked Sunday')->assertSee('Requested Off Date')
-            ->assertSee('Search Employee')
-            ->assertSee('Example: Employee completed approved Sunday duty and requests compensatory off.')
-            ->set('employeePickerSearch', $employee->employee->employee_id)
-            ->assertViewHas('employeeOptions', fn ($options): bool => $options->count() === 1 && $options->first()->id === $employee->employee->id);
+            ->assertSee('Earned credits')->assertSee('Reserved credits')->assertSee('Available credits')
+            ->assertSee('Request Comp-Off')->assertSee('Authorize Sunday duty')
+            ->assertSee('Sunday date')->assertSee('Manager decisions')
+            ->assertViewHas('teamEmployees', fn ($options): bool => $options->count() === 1 && $options->first()->id === $employee->employee->id);
         Livewire::actingAs($owner)->test(BiometricSync::class)
             ->assertSee('Read-only monitoring')
             ->assertSee('Synchronization and recovery actions')

@@ -29,8 +29,10 @@ class HrAuthorizationTest extends TestCase
         $this->assertTrue($authorization->allows($manager, HrPermission::AttendanceViewTeam));
         $this->assertFalse($authorization->allows($manager, HrPermission::AttendanceViewAll));
         $this->assertFalse($authorization->allows($manager, HrPermission::LeaveApprove));
+        $this->assertTrue($authorization->allows($manager, HrPermission::CompOffManage));
         $this->assertTrue($authorization->allows($staff, HrPermission::AttendanceViewOwn));
         $this->assertFalse($authorization->allows($staff, HrPermission::LeaveApprove));
+        $this->assertFalse($authorization->allows($staff, HrPermission::CompOffManage));
 
         EmployeePermissionOverride::query()->create([
             'employee_id' => $staff->employee->id, 'permission_key' => HrPermission::LeaveApprove->value,
@@ -39,6 +41,7 @@ class HrAuthorizationTest extends TestCase
         app(EmployeePermissionOverrideResolver::class)->forgetEmployee($staff->employee->id);
         $this->assertTrue($authorization->allows($staff, HrPermission::LeaveApprove));
         $this->assertNotNull(app(EmployeePermissionCatalog::class)->find(HrPermission::WorkScheduleManage->value));
+        $this->assertNotNull(app(EmployeePermissionCatalog::class)->find(HrPermission::CompOffManage->value));
     }
 
     private function user(EmployeeRole $role): User

@@ -3,9 +3,11 @@
 namespace App\Services\Hr;
 
 use App\Models\Employee;
+use App\Models\WorkSchedule;
 use App\Models\WorkScheduleAssignment;
 use App\Models\WorkScheduleDay;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class EffectiveWorkScheduleResolver
@@ -18,8 +20,29 @@ class EffectiveWorkScheduleResolver
             ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $date))
             ->latest('effective_from');
 
-        return (clone $base)->where('employee_id', $employee->id)->first()
+        $explicit = (clone $base)->where('employee_id', $employee->id)->first()
             ?? ($employee->team_id === null ? null : (clone $base)->whereNull('employee_id')->where('team_id', $employee->team_id)->first());
+        if ($explicit !== null) {
+            return $explicit;
+        }
+
+        $version = DB::table('company_work_schedule_versions')->where('effective_from', '<=', $date->toDateString())
+            ->orderByDesc('effective_from')->first();
+        if ($version === null) {
+            return null;
+        }
+        $schedule = WorkSchedule::query()->with(['days', 'attendancePolicy'])->where('status', true)->find($version->work_schedule_id);
+        if ($schedule === null) {
+            return null;
+        }
+
+        $fallback = new WorkScheduleAssignment([
+            'work_schedule_id' => $schedule->id, 'effective_from' => $version->effective_from,
+            'effective_to' => null, 'grace_minutes_override' => null,
+        ]);
+        $fallback->setRelation('schedule', $schedule);
+
+        return $fallback;
     }
 
     public function graceMinutes(WorkScheduleAssignment $assignment): int

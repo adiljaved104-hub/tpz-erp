@@ -8,8 +8,8 @@ use App\Models\LeavePolicy;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Models\User;
-use App\Models\WorkScheduleAssignment;
 use App\Services\Authorization\HrAuthorization;
+use App\Services\Hr\EffectiveWorkScheduleResolver;
 use App\Services\Hr\HistoricalLeaveActivationService;
 use App\Services\Hr\HrScopeService;
 use App\Services\Hr\LeaveBalanceService;
@@ -323,10 +323,8 @@ class LeaveManagement extends Page
             'recordableEmployees' => $this->recordableEmployees(),
             'canRecordApproval' => $recordEmployee instanceof Employee && $scope->canApproveEmployee($user, $recordEmployee),
             'showEmployee' => $showEmployee,
-            'scheduleConfigured' => WorkScheduleAssignment::query()
-                ->where(fn ($query) => $query->where('employee_id', $user->employee->id)
-                    ->orWhere(fn ($team) => $team->whereNull('employee_id')->where('team_id', $user->employee->team_id)))
-                ->whereHas('schedule.days')->exists(),
+            'scheduleConfigured' => $user->employee !== null
+                && app(EffectiveWorkScheduleResolver::class)->assignment($user->employee, CarbonImmutable::today('Asia/Karachi'))?->schedule?->days->isNotEmpty(),
         ];
     }
 

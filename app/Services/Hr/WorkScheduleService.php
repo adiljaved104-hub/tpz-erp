@@ -241,7 +241,8 @@ class WorkScheduleService
 
         return DB::transaction(function () use ($schedule, $active, $actor): WorkSchedule {
             $locked = WorkSchedule::query()->lockForUpdate()->findOrFail($schedule->id);
-            if (! $active && $locked->assignments()->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today()))->exists()) {
+            if (! $active && ($locked->assignments()->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today()))->exists()
+                || DB::table('company_work_schedule_versions')->where('work_schedule_id', $locked->id)->exists())) {
                 throw ValidationException::withMessages(['status' => 'A Schedule with a current or future assignment cannot be deactivated.']);
             }
             $locked->forceFill(['status' => $active])->save();
@@ -340,6 +341,7 @@ class WorkScheduleService
     private function isOperationallyReferenced(WorkSchedule $schedule): bool
     {
         return $schedule->assignments()->exists()
+            || DB::table('company_work_schedule_versions')->where('work_schedule_id', $schedule->id)->exists()
             || EmployeeAttendance::query()->where('work_schedule_id', $schedule->id)->exists()
             || LeaveRequestDay::query()->where('work_schedule_id', $schedule->id)->exists();
     }

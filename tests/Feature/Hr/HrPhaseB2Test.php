@@ -326,7 +326,7 @@ class HrPhaseB2Test extends TestCase
             ->set('name', 'National Holiday')->set('holidayDate', '2026-12-25')->call('save')->assertHasNoErrors();
         $this->assertDatabaseHas('public_holidays', ['name' => 'National Holiday', 'holiday_date' => '2026-12-25 00:00:00', 'status' => 1]);
         Livewire::actingAs($owner)->test(CompOff::class)
-            ->assertSee('Worked Sunday')->assertSee('actual qualifying Attendance evidence');
+            ->assertSee('Authorize Sunday duty')->assertSee('verified attendance and a separate approval');
     }
 
     public function test_operational_schedule_pattern_is_immutable_and_future_version_is_required(): void

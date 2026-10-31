@@ -191,6 +191,158 @@ class CompOffCreditWalletTest extends TestCase
         $this->assertSame(1, CompOffWalletEntry::query()->where('kind', 'earned')->count());
     }
 
+    public function test_custom_sunday_timings_are_validated_and_duplicate_submission_cannot_change_them(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $key = (string) Str::uuid();
+        $data = ['employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'shift_start' => '10:00', 'shift_end' => '16:00',
+            'reason' => 'Flexible Sunday duty', 'idempotency_key' => $key];
+        $duty = $service->authorizeSunday($data, $owner);
+        $this->assertSame('10:00:00', $duty->shift_start);
+        $this->assertSame('16:00:00', $duty->shift_end);
+        $this->assertSame($duty->id, $service->authorizeSunday($data, $owner)->id);
+        foreach ([['09:00', '14:59'], ['16:00', '10:00'], ['22:00', '04:00']] as [$start, $end]) {
+            try {
+                $service->authorizeSunday(array_replace($data, [
+                    'idempotency_key' => (string) Str::uuid(), 'shift_start' => $start, 'shift_end' => $end,
+                ]), $owner);
+                $this->fail('Invalid same-day duty window must be rejected.');
+            } catch (ValidationException) {
+                $this->assertDatabaseCount('comp_off_sunday_duties', 1);
+            }
+        }
+        $this->expectException(ValidationException::class);
+        $service->authorizeSunday(array_replace($data, ['shift_start' => '11:00']), $owner);
+    }
+
+    public function test_upcoming_duty_timings_can_be_edited_with_immutable_old_and_new_audit_history(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Sunday stock count', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $page = Livewire::actingAs($owner)->test(CompOff::class)->call('showTab', 'approvals')
+            ->assertSee('11:00 AM – 5:00 PM')->assertSee('Edit Timings');
+        $page->call('startEditingDuty', $duty->id)
+            ->assertSet('editStartTime', '11:00')->assertSet('editEndTime', '17:00')
+            ->set('editStartTime', '10:00')->set('editEndTime', '16:00')
+            ->set('editReason', 'Delivery team requested an earlier duty')
+            ->call('saveDutyTimings')->assertSee('10:00 AM – 4:00 PM');
+        $this->assertSame('10:00:00', $duty->fresh()->shift_start);
+        $this->assertSame('16:00:00', $duty->fresh()->shift_end);
+        $events = CompOffApprovalEvent::query()->where('comp_off_sunday_duty_id', $duty->id)->orderBy('id')->get();
+        $this->assertCount(2, $events);
+        $this->assertSame('timings_changed', $events[1]->action);
+        $this->assertSame($owner->id, $events[1]->actor_user_id);
+        $this->assertStringContainsString('11:00–17:00 to 10:00–16:00', $events[1]->reason);
+        $this->assertStringContainsString('Delivery team requested an earlier duty', $events[1]->reason);
+        $this->assertNotNull($events[1]->occurred_at);
+        $this->assertSame('Sunday stock count', $duty->fresh()->reason);
+        $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+    }
+
+    public function test_duty_editing_rejects_started_attendance_or_completed_decisions(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Sunday stock count', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $edit = ['shift_start' => '10:00', 'shift_end' => '16:00', 'reason' => 'Move duty earlier for receiving'];
+        Carbon::setTestNow('2026-11-08 10:00:00 Asia/Karachi');
+        $this->assertTrue($service->canEditSundayTimings($duty, $owner));
+        try {
+            $service->editSundayTimings($duty, $edit, $owner);
+            $this->fail('A proposed shift already started.');
+        } catch (ValidationException) {
+            $this->assertSame('11:00:00', $duty->fresh()->shift_start);
+        }
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        $attendance = $this->pairedAttendance($staff->employee, '2026-11-08', 30);
+        $attendance->forceFill(['last_check_out_at' => null])->save();
+        $this->assertFalse($service->canEditSundayTimings($duty, $owner));
+        try {
+            $service->editSundayTimings($duty, $edit, $owner);
+            $this->fail('Recorded attendance must block editing, even before the duty date.');
+        } catch (ValidationException) {
+            $this->assertSame('11:00:00', $duty->fresh()->shift_start);
+        }
+        $attendance->forceFill(['first_check_in_at' => null, 'last_check_out_at' => null, 'worked_minutes' => 0])->save();
+        $service->decideSunday($duty, false, $owner, 'Sunday assignment no longer required');
+        $this->expectException(ValidationException::class);
+        $service->editSundayTimings($duty, $edit, $owner);
+    }
+
+    public function test_custom_window_requires_six_verified_hours_and_awards_only_one_credit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'shift_start' => '10:00', 'shift_end' => '16:00',
+            'reason' => 'Flexible receiving duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $attendance = $this->pairedAttendance($staff->employee, '2026-11-08', 360, '09:00');
+        Carbon::setTestNow('2026-11-08 16:01:00 Asia/Karachi');
+        $this->assertSame('Insufficient Hours', $service->sundayApprovalEligibility($duty)['status']);
+        $this->assertStringContainsString('10:00 AM–4:00 PM', $service->sundayApprovalEligibility($duty)['reason']);
+        try {
+            $service->decideSunday($duty, true, $owner);
+            $this->fail('Only time within the authorized window may earn credit.');
+        } catch (ValidationException) {
+            $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+        }
+        $start = CarbonImmutable::parse('2026-11-08 10:00:00', 'Asia/Karachi');
+        $attendance->forceFill(['first_check_in_at' => $start->utc(), 'last_check_out_at' => $start->addHours(6)->utc()])->save();
+        $this->assertSame('Ready for Approval', $service->sundayApprovalEligibility($duty)['status']);
+        $service->decideSunday($duty, true, $owner);
+        $service->decideSunday($duty, true, $owner);
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['available']);
+        $this->assertSame(1, CompOffWalletEntry::query()->where('comp_off_sunday_duty_id', $duty->id)->count());
+        $this->expectException(ValidationException::class);
+        $service->editSundayTimings($duty, ['shift_start' => '09:00', 'shift_end' => '15:00',
+            'reason' => 'Do not edit after credit'], $owner);
+    }
+
+    public function test_manager_can_edit_only_employee_in_scope_and_staff_cannot_edit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $manager = $this->user(EmployeeRole::Manager, $staff->employee->team);
+        $otherTeam = Team::query()->create(['name' => 'Outside timing scope', 'status' => true]);
+        $outsider = $this->user(EmployeeRole::Staff, $otherTeam);
+        $outsideManager = $this->user(EmployeeRole::Manager, $otherTeam);
+        $admin = $this->user(EmployeeRole::Admin, $otherTeam);
+        $service = app(CompOffCreditService::class);
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Scoped Sunday assignment', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->assertTrue($service->canEditSundayTimings($duty, $manager));
+        $this->assertTrue($service->canEditSundayTimings($duty, $admin));
+        $this->assertFalse($service->canEditSundayTimings($duty, $outsider));
+        $this->assertFalse($service->canEditSundayTimings($duty, $outsideManager));
+        Livewire::actingAs($outsideManager)->test(CompOff::class)
+            ->call('startEditingDuty', $duty->id)->assertForbidden();
+        Livewire::actingAs($outsideManager)->test(CompOff::class)
+            ->set('editingDutyId', $duty->id)->set('editStartTime', '09:00')
+            ->set('editEndTime', '15:00')->set('editReason', 'Out-of-scope attempt')
+            ->call('saveDutyTimings')->assertForbidden();
+        $data = ['shift_start' => '09:00', 'shift_end' => '15:00', 'reason' => 'Earlier dispatch check'];
+        try {
+            $service->editSundayTimings($duty, $data, $outsider);
+            $this->fail('Staff must not edit duty timings.');
+        } catch (AuthorizationException) {
+            $this->assertSame('11:00:00', $duty->fresh()->shift_start);
+        }
+        $service->editSundayTimings($duty, $data, $manager);
+        $this->assertSame($manager->id, CompOffApprovalEvent::query()->where('action', 'timings_changed')->firstOrFail()->actor_user_id);
+    }
+
     public function test_comp_off_tabs_hide_approval_controls_from_staff_and_keep_manager_scope(): void
     {
         [$owner, $staff] = $this->people();
@@ -517,9 +669,9 @@ class CompOffCreditWalletTest extends TestCase
         return $user->refresh();
     }
 
-    private function pairedAttendance(Employee $employee, string $date, int $minutes): EmployeeAttendance
+    private function pairedAttendance(Employee $employee, string $date, int $minutes, string $startTime = '11:00'): EmployeeAttendance
     {
-        $start = CarbonImmutable::parse($date.' 11:00:00', 'Asia/Karachi');
+        $start = CarbonImmutable::parse($date.' '.$startTime.':00', 'Asia/Karachi');
         $attendance = EmployeeAttendance::query()->create([
             'employee_id' => $employee->id, 'attendance_date' => $date,
             'work_schedule_id' => WorkSchedule::query()->where('code', 'PK_STD_2026_11')->value('id'),

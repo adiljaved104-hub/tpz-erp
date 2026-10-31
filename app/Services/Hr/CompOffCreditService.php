@@ -85,8 +85,9 @@ class CompOffCreditService
         if (! $policyExists || $legacyConflict) {
             return $this->eligibility('Needs Review', 'The duty policy or an older Comp-Off record needs management review.');
         }
+        $hours = $shiftStart->format('g:i A').'–'.$shiftEnd->format('g:i A');
         if ($now->lessThan($shiftStart)) {
-            return $this->eligibility('Scheduled', 'Approval available after the 11 AM–5 PM shift and verified attendance.');
+            return $this->eligibility('Scheduled', 'Approval is available after the '.$hours.' duty and verified attendance.');
         }
 
         $attendance = EmployeeAttendance::query()->where('employee_id', $duty->employee_id)
@@ -105,10 +106,10 @@ class CompOffCreditService
             max(0, (int) $attendance->first_check_in_at->diffInMinutes($attendance->last_check_out_at)));
         $shiftMinutes = max(0, (int) max($first, $shiftStart)->diffInMinutes(min($last, $shiftEnd), false));
         if ($workedMinutes < 360 || $shiftMinutes < 360) {
-            return $this->eligibility('Insufficient Hours', 'At least 360 verified minutes during the 11 AM–5 PM shift are required.');
+            return $this->eligibility('Insufficient Hours', 'At least 360 verified minutes during the '.$hours.' duty are required.');
         }
         if ($now->lessThan($shiftEnd)) {
-            return $this->eligibility('Awaiting Shift Completion', 'Approval is available after the 5 PM shift ends.');
+            return $this->eligibility('Awaiting Shift Completion', 'Approval is available after the '.$shiftEnd->format('g:i A').' duty ends.');
         }
 
         return ['status' => 'Ready for Approval', 'reason' => 'Attendance and shift completion are verified.', 'ready' => true];
@@ -126,18 +127,24 @@ class CompOffCreditService
         $values = Validator::make($data, [
             'employee_id' => 'required|integer|exists:employees,id',
             'duty_date' => 'required|date', 'reason' => 'required|string|min:5|max:2000',
+            'shift_start' => 'sometimes|required|date_format:H:i',
+            'shift_end' => 'sometimes|required|date_format:H:i',
             'idempotency_key' => 'required|uuid',
         ])->validate();
+        $start = $values['shift_start'] ?? '11:00';
+        $end = $values['shift_end'] ?? '17:00';
+        $this->validateSundayWindow($start, $end);
         $employee = Employee::query()->findOrFail($values['employee_id']);
         throw_unless($this->canManage($actor, $employee), AuthorizationException::class);
         $date = CarbonImmutable::parse($values['duty_date'], 'Asia/Karachi');
         if (! $employee->status || ! $date->isSunday() || $date->isBefore(today('Asia/Karachi'))
-            || ($date->isSameDay(today('Asia/Karachi')) && now('Asia/Karachi')->format('H:i') >= '11:00')) {
+            || ($date->isSameDay(today('Asia/Karachi')) && now('Asia/Karachi')->format('H:i') >= $start)) {
             throw ValidationException::withMessages(['duty_date' => 'Choose an upcoming Sunday for an active employee.']);
         }
         if ($existing = CompOffSundayDuty::query()->where('idempotency_key', $values['idempotency_key'])->first()) {
             if ($existing->employee_id !== $employee->id || $existing->duty_date->toDateString() !== $date->toDateString()
-                || $existing->reason !== trim($values['reason'])) {
+                || $existing->reason !== trim($values['reason'])
+                || substr($existing->shift_start, 0, 5) !== $start || substr($existing->shift_end, 0, 5) !== $end) {
                 throw ValidationException::withMessages(['idempotency_key' => 'This submission key was used for a different duty.']);
             }
 
@@ -145,11 +152,15 @@ class CompOffCreditService
         }
         $reference = $this->reference('sunday_duty', 'CSD');
 
-        return DB::transaction(function () use ($employee, $date, $values, $actor, $reference): CompOffSundayDuty {
+        return DB::transaction(function () use ($employee, $date, $values, $actor, $reference, $start, $end): CompOffSundayDuty {
             Employee::query()->lockForUpdate()->findOrFail($employee->id);
+            if (! now('Asia/Karachi')->lessThan(CarbonImmutable::parse($date->toDateString().' '.$start, 'Asia/Karachi'))) {
+                throw ValidationException::withMessages(['duty_date' => 'Authorize Sunday duty before its selected start time.']);
+            }
             if ($existing = CompOffSundayDuty::query()->where('idempotency_key', $values['idempotency_key'])->first()) {
                 if ($existing->employee_id !== $employee->id || $existing->duty_date->toDateString() !== $date->toDateString()
-                    || $existing->reason !== trim($values['reason'])) {
+                    || $existing->reason !== trim($values['reason'])
+                    || substr($existing->shift_start, 0, 5) !== $start || substr($existing->shift_end, 0, 5) !== $end) {
                     throw ValidationException::withMessages(['idempotency_key' => 'This submission key was used for a different duty.']);
                 }
 
@@ -160,7 +171,7 @@ class CompOffCreditService
             }
             $duty = CompOffSundayDuty::query()->create([
                 'reference' => $reference, 'employee_id' => $employee->id, 'duty_date' => $date->toDateString(),
-                'shift_start' => '11:00:00', 'shift_end' => '17:00:00', 'status' => 'authorized',
+                'shift_start' => $start.':00', 'shift_end' => $end.':00', 'status' => 'authorized',
                 'authorized_by_user_id' => $actor->id, 'reason' => trim($values['reason']),
                 'authorized_at' => now(), 'idempotency_key' => $values['idempotency_key'],
             ]);
@@ -168,6 +179,78 @@ class CompOffCreditService
 
             return $duty;
         }, 5);
+    }
+
+    public function canEditSundayTimings(CompOffSundayDuty $duty, User $actor): bool
+    {
+        $duty->loadMissing('employee');
+        if (! $this->canManage($actor, $duty->employee) || $duty->status !== 'authorized') {
+            return false;
+        }
+
+        $originalStart = CarbonImmutable::parse($duty->duty_date->toDateString().' '.$duty->shift_start, 'Asia/Karachi');
+
+        return now('Asia/Karachi')->lessThan($originalStart) && ! $this->sundayAttendanceStarted($duty);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function editSundayTimings(CompOffSundayDuty $duty, array $data, User $actor): CompOffSundayDuty
+    {
+        $duty->loadMissing('employee');
+        throw_unless($this->canManage($actor, $duty->employee), AuthorizationException::class);
+        $values = Validator::make($data, [
+            'shift_start' => 'required|date_format:H:i',
+            'shift_end' => 'required|date_format:H:i',
+            'reason' => 'required|string|min:5|max:2000',
+        ])->validate();
+        $this->validateSundayWindow($values['shift_start'], $values['shift_end']);
+
+        return DB::transaction(function () use ($duty, $values, $actor): CompOffSundayDuty {
+            $locked = CompOffSundayDuty::query()->lockForUpdate()->findOrFail($duty->id);
+            $this->validateSundayWindow(substr($locked->shift_start, 0, 5), substr($locked->shift_end, 0, 5));
+            if (! $this->canEditSundayTimings($locked, $actor)) {
+                throw ValidationException::withMessages(['shift_start' => 'Timings can only be changed before an authorized duty starts or attendance is recorded.']);
+            }
+            $date = $locked->duty_date->toDateString();
+            $proposedStart = CarbonImmutable::parse($date.' '.$values['shift_start'], 'Asia/Karachi');
+            if (! now('Asia/Karachi')->lessThan($proposedStart)) {
+                throw ValidationException::withMessages(['shift_start' => 'The new duty must also start in the future.']);
+            }
+            $oldStart = substr($locked->shift_start, 0, 5);
+            $oldEnd = substr($locked->shift_end, 0, 5);
+            if ($oldStart === $values['shift_start'] && $oldEnd === $values['shift_end']) {
+                throw ValidationException::withMessages(['shift_start' => 'Choose different duty timings.']);
+            }
+            $locked->forceFill([
+                'shift_start' => $values['shift_start'].':00',
+                'shift_end' => $values['shift_end'].':00',
+            ])->save();
+            $audit = "Timings changed from {$oldStart}–{$oldEnd} to {$values['shift_start']}–{$values['shift_end']}. Reason: ".trim($values['reason']);
+            $this->event($locked, null, 'timings_changed', $actor, $audit);
+            $this->activity->log('comp_off.sunday_timings_changed', $actor, $locked, [
+                'reference' => $locked->reference, 'old_start' => $oldStart, 'old_end' => $oldEnd,
+                'new_start' => $values['shift_start'], 'new_end' => $values['shift_end'],
+            ]);
+
+            return $locked;
+        }, 5);
+    }
+
+    private function validateSundayWindow(string $start, string $end): void
+    {
+        $minutes = CarbonImmutable::createFromFormat('!H:i', $start, 'Asia/Karachi')
+            ->diffInMinutes(CarbonImmutable::createFromFormat('!H:i', $end, 'Asia/Karachi'), false);
+        if ($minutes < 360 || $end <= $start) {
+            throw ValidationException::withMessages(['shift_end' => 'Choose a same-day duty of at least six hours.']);
+        }
+    }
+
+    private function sundayAttendanceStarted(CompOffSundayDuty $duty): bool
+    {
+        return EmployeeAttendance::query()->where('employee_id', $duty->employee_id)
+            ->whereDate('attendance_date', $duty->duty_date)
+            ->where(fn ($query) => $query->whereNotNull('first_check_in_at')
+                ->orWhereNotNull('last_check_out_at')->orWhere('worked_minutes', '>', 0))->exists();
     }
 
     public function decideSunday(CompOffSundayDuty $duty, bool $approve, User $actor, ?string $reason = null): CompOffSundayDuty
@@ -224,7 +307,8 @@ class CompOffCreditService
                 }
                 $verifiedShiftMinutes = max(0, (int) max($first, $shiftStart)->diffInMinutes(min($last, $shiftEnd), false));
                 if ($verifiedShiftMinutes < 360) {
-                    throw ValidationException::withMessages(['attendance' => 'The authorized 11 AM–5 PM shift needs 360 verified working minutes.']);
+                    throw ValidationException::withMessages(['attendance' => 'The authorized '
+                        .$shiftStart->format('g:i A').'–'.$shiftEnd->format('g:i A').' duty needs 360 verified working minutes.']);
                 }
             }
             $locked->forceFill([

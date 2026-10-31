@@ -47,7 +47,19 @@ class CompOff extends Page
 
     public string $dutyDate = '';
 
+    public string $dutyStartTime = '11:00';
+
+    public string $dutyEndTime = '17:00';
+
     public string $dutyReason = '';
+
+    public ?int $editingDutyId = null;
+
+    public string $editStartTime = '';
+
+    public string $editEndTime = '';
+
+    public string $editReason = '';
 
     public string $dutyKey = '';
 
@@ -113,11 +125,48 @@ class CompOff extends Page
         try {
             app(CompOffCreditService::class)->authorizeSunday([
                 'employee_id' => $this->dutyEmployeeId, 'duty_date' => $this->dutyDate,
+                'shift_start' => $this->dutyStartTime, 'shift_end' => $this->dutyEndTime,
                 'reason' => $this->dutyReason, 'idempotency_key' => $this->dutyKey,
             ], $user);
             $this->dutyKey = (string) Str::uuid();
             $this->reset('dutyEmployeeId', 'dutyDate', 'dutyReason');
+            $this->dutyStartTime = '11:00';
+            $this->dutyEndTime = '17:00';
             Notification::make()->title('Sunday duty authorized')->success()->send();
+        } catch (ValidationException $exception) {
+            $this->showError($exception);
+        }
+    }
+
+    public function startEditingDuty(int $id): void
+    {
+        $user = auth()->user();
+        abort_unless($user instanceof User, 403);
+        $duty = CompOffSundayDuty::query()->findOrFail($id);
+        abort_unless(app(CompOffCreditService::class)->canEditSundayTimings($duty, $user), 403);
+        $this->editingDutyId = $duty->id;
+        $this->editStartTime = substr($duty->shift_start, 0, 5);
+        $this->editEndTime = substr($duty->shift_end, 0, 5);
+        $this->editReason = '';
+    }
+
+    public function cancelEditingDuty(): void
+    {
+        $this->reset('editingDutyId', 'editStartTime', 'editEndTime', 'editReason');
+    }
+
+    public function saveDutyTimings(): void
+    {
+        $user = auth()->user();
+        abort_unless($user instanceof User && $this->editingDutyId !== null, 403);
+        try {
+            app(CompOffCreditService::class)->editSundayTimings(
+                CompOffSundayDuty::query()->findOrFail($this->editingDutyId),
+                ['shift_start' => $this->editStartTime, 'shift_end' => $this->editEndTime,
+                    'reason' => $this->editReason], $user,
+            );
+            $this->cancelEditingDuty();
+            Notification::make()->title('Sunday duty timings updated')->success()->send();
         } catch (ValidationException $exception) {
             $this->showError($exception);
         }
@@ -222,6 +271,8 @@ class CompOff extends Page
             'myRequests' => $mine, 'pendingDuties' => $duties, 'pendingRequests' => $requests,
             'dutyEligibility' => $canManage && $this->activeTab === 'approvals'
                 ? $duties->mapWithKeys(fn (CompOffSundayDuty $duty): array => [$duty->id => $service->sundayApprovalEligibility($duty)]) : collect(),
+            'dutyTimingEditable' => $canManage && $this->activeTab === 'approvals'
+                ? $duties->mapWithKeys(fn (CompOffSundayDuty $duty): array => [$duty->id => $service->canEditSundayTimings($duty, $user)]) : collect(),
             'teamEmployees' => $team->where('status', true), 'teamWallets' => $teamWallets, 'canManage' => $canManage,
             'legacyRecords' => $employee ? CompensatoryOff::query()->with('employee')
                 ->whereIn('employee_id', $historyIds)

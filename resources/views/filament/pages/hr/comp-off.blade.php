@@ -68,7 +68,10 @@
                 <div class="grid gap-3 sm:grid-cols-2">
                     <label class="space-y-1 text-sm"><span>Employee</span><select wire:model="dutyEmployeeId" class="w-full rounded-lg border-gray-300 dark:bg-white/5"><option value="">Select employee</option>@foreach($teamEmployees as $person)<option value="{{ $person->id }}">{{ $person->employee_id }} · {{ $person->name }}</option>@endforeach</select></label>
                     <label class="space-y-1 text-sm"><span>Sunday date</span><input type="date" wire:model="dutyDate" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                    <label class="space-y-1 text-sm"><span>Start Time</span><input type="time" wire:model="dutyStartTime" required class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                    <label class="space-y-1 text-sm"><span>End Time</span><input type="time" wire:model="dutyEndTime" required class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
                 </div>
+                <p class="mt-2 text-sm text-gray-500">Choose a same-day duty of at least six hours. Default: 11:00 AM–5:00 PM.</p>
                 <label class="mt-3 block space-y-1 text-sm"><span>Reason</span><textarea wire:model="dutyReason" rows="3" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></textarea></label>
                 <div class="mt-4"><x-filament::button wire:click="authorizeDuty" wire:loading.attr="disabled">Authorize duty</x-filament::button></div>
             </x-filament::section>
@@ -81,13 +84,30 @@
                         @php($eligibility = $dutyEligibility[$duty->id])
                         <div class="rounded-lg border border-gray-200 p-3 text-sm dark:border-white/10">
                             <div class="font-semibold">{{ $duty->employee->name }} · {{ $duty->employee->employee_id }}</div>
-                            <div>{{ $duty->duty_date->format('d M Y') }} · 11 AM–5 PM · {{ $duty->reference }}</div>
+                            <div>{{ $duty->duty_date->format('l, j F Y') }} · {{ \Carbon\CarbonImmutable::parse($duty->shift_start)->format('g:i A') }} – {{ \Carbon\CarbonImmutable::parse($duty->shift_end)->format('g:i A') }} · {{ $duty->reference }}</div>
                             <div class="mt-2"><x-filament::badge :color="$eligibility['ready'] ? 'success' : 'warning'">{{ $eligibility['status'] }}</x-filament::badge></div>
                             <p class="mt-1 text-gray-500">{{ $eligibility['reason'] }}</p>
                             <div class="mt-3 flex flex-wrap gap-2">
+                                @if($dutyTimingEditable[$duty->id])
+                                    <x-filament::button size="xs" color="gray" wire:click="startEditingDuty({{ $duty->id }})">Edit Timings</x-filament::button>
+                                @endif
                                 <x-filament::button size="xs" wire:click="decideDuty({{ $duty->id }}, true)" :disabled="! $eligibility['ready']">Approve credit</x-filament::button>
                                 <x-filament::button size="xs" color="gray" wire:click="decideDuty({{ $duty->id }}, false)">Reject</x-filament::button>
                             </div>
+                            @if($editingDutyId === $duty->id)
+                                <div class="mt-4 space-y-3 border-t border-gray-200 pt-3 dark:border-white/10">
+                                    <p class="font-medium">Edit upcoming Sunday duty</p>
+                                    <div class="grid gap-3 sm:grid-cols-2">
+                                        <label class="space-y-1"><span>New Start Time</span><input type="time" wire:model="editStartTime" required class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                                        <label class="space-y-1"><span>New End Time</span><input type="time" wire:model="editEndTime" required class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                                    </div>
+                                    <label class="block space-y-1"><span>Reason for changing timings</span><textarea wire:model="editReason" rows="2" required class="w-full rounded-lg border-gray-300 dark:bg-white/5"></textarea></label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <x-filament::button size="xs" wire:click="saveDutyTimings" wire:loading.attr="disabled">Save Timings</x-filament::button>
+                                        <x-filament::button size="xs" color="gray" wire:click="cancelEditingDuty">Cancel</x-filament::button>
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     @empty
                         <p class="text-sm text-gray-500">No duties awaiting approval.</p>

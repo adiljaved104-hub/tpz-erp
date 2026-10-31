@@ -1,4 +1,16 @@
 <x-filament-panels::page>
+    @if($health['access_warning'])
+        <x-filament::section heading="Backup access needs attention">
+            <p class="text-sm text-warning-700">One or more protected backup manifests could not be inspected. Accessible records remain visible below. Ask an administrator to check protected backup ownership and permissions.</p>
+        </x-filament::section>
+    @endif
+
+    @if(($history[0]['status'] ?? null) === 'failed')
+        <x-filament::section heading="Most recent backup attempt failed">
+            <p class="text-sm text-warning-700">The latest recorded backup attempt was not successful. Check the scheduler and server logs before relying on scheduled backups.</p>
+        </x-filament::section>
+    @endif
+
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <x-filament::section compact>
             <p class="text-xs text-gray-500">Backup Status</p>

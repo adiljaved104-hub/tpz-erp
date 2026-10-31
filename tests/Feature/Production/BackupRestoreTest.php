@@ -216,6 +216,18 @@ class BackupRestoreTest extends TestCase
         $this->assertPosixMode($result['path'].'/database.sqlite', 0660);
         $this->assertPosixMode($result['path'].'/storage.zip', 0660);
         $this->assertPosixMode($result['path'].'/manifest.json', 0660);
+
+        $sharedGroup = filegroup(config('backup.root'));
+        $this->assertNotFalse($sharedGroup);
+        foreach ([
+            $result['path'],
+            $result['path'].'/database.sqlite',
+            $result['path'].'/storage.zip',
+            $result['path'].'/manifest.json',
+        ] as $artifact) {
+            clearstatcache(true, $artifact);
+            $this->assertSame($sharedGroup, filegroup($artifact), 'Incorrect backup group for '.basename($artifact));
+        }
     }
 
     public function test_disposable_restore_preserves_database_and_storage(): void

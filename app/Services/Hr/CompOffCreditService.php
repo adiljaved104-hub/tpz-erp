@@ -66,6 +66,60 @@ class CompOffCreditService
             && $this->scope->canViewAttendance($actor, $employee);
     }
 
+    /** @return array{status: string, reason: string, ready: bool} */
+    public function sundayApprovalEligibility(CompOffSundayDuty $duty): array
+    {
+        if ($duty->status !== 'authorized') {
+            return $this->eligibility('Already Reviewed', 'This Sunday duty already has a decision.');
+        }
+
+        $date = $duty->duty_date->toDateString();
+        $shiftStart = CarbonImmutable::parse($date.' '.$duty->shift_start, 'Asia/Karachi');
+        $shiftEnd = CarbonImmutable::parse($date.' '.$duty->shift_end, 'Asia/Karachi');
+        $now = CarbonImmutable::now('Asia/Karachi');
+        $policyExists = LeavePolicy::query()->where('status', true)->where('scheduled_sunday_compensatory_off_enabled', true)
+            ->whereDate('effective_from', '<=', $date)
+            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $date))->exists();
+        $legacyConflict = CompensatoryOff::query()->where('employee_id', $duty->employee_id)
+            ->whereDate('earned_work_date', $date)->where('status', '!=', 'cancelled')->exists();
+        if (! $policyExists || $legacyConflict) {
+            return $this->eligibility('Needs Review', 'The duty policy or an older Comp-Off record needs management review.');
+        }
+        if ($now->lessThan($shiftStart)) {
+            return $this->eligibility('Scheduled', 'Approval available after the 11 AM–5 PM shift and verified attendance.');
+        }
+
+        $attendance = EmployeeAttendance::query()->where('employee_id', $duty->employee_id)
+            ->whereDate('attendance_date', $date)->first();
+        if ($attendance?->first_check_in_at === null || $attendance->last_check_out_at === null) {
+            return $this->eligibility('Awaiting Attendance', 'A verified check-in and check-out are required.');
+        }
+        $first = $attendance->first_check_in_at->setTimezone('Asia/Karachi');
+        $last = $attendance->last_check_out_at->setTimezone('Asia/Karachi');
+        $hasEvidence = DB::table('attendance_evidence_links')->where('employee_attendance_id', $attendance->id)->exists()
+            || AttendanceCorrection::query()->where('employee_attendance_id', $attendance->id)->exists();
+        if (! $hasEvidence || $first->toDateString() !== $date || $last->toDateString() !== $date) {
+            return $this->eligibility('Awaiting Attendance', 'Attendance must have auditable evidence for the authorized Sunday.');
+        }
+        $workedMinutes = min((int) ($attendance->worked_minutes ?? 0),
+            max(0, (int) $attendance->first_check_in_at->diffInMinutes($attendance->last_check_out_at)));
+        $shiftMinutes = max(0, (int) max($first, $shiftStart)->diffInMinutes(min($last, $shiftEnd), false));
+        if ($workedMinutes < 360 || $shiftMinutes < 360) {
+            return $this->eligibility('Insufficient Hours', 'At least 360 verified minutes during the 11 AM–5 PM shift are required.');
+        }
+        if ($now->lessThan($shiftEnd)) {
+            return $this->eligibility('Awaiting Shift Completion', 'Approval is available after the 5 PM shift ends.');
+        }
+
+        return ['status' => 'Ready for Approval', 'reason' => 'Attendance and shift completion are verified.', 'ready' => true];
+    }
+
+    /** @return array{status: string, reason: string, ready: bool} */
+    private function eligibility(string $status, string $reason): array
+    {
+        return compact('status', 'reason') + ['ready' => false];
+    }
+
     /** @param array<string, mixed> $data */
     public function authorizeSunday(array $data, User $actor): CompOffSundayDuty
     {

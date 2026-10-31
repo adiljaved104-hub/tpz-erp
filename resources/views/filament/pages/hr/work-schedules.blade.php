@@ -5,10 +5,20 @@
     </div>
 
     <div class="grid gap-3 sm:grid-cols-3">
-        @foreach ([['Active schedules', $activeScheduleCount], ['Employees assigned today', $assignedEmployeeCount], ['Employees without a schedule', $unassignedEmployeeCount]] as [$label, $value])
+        @foreach ([['Active schedules', $activeScheduleCount], ['Employees covered today', $assignedEmployeeCount], ['Employees without coverage today', $unassignedEmployeeCount]] as [$label, $value])
             <x-filament::section compact><div class="text-sm font-medium text-gray-500">{{ $label }}</div><div class="mt-1 text-3xl font-semibold text-gray-950 dark:text-white">{{ $value }}</div></x-filament::section>
         @endforeach
     </div>
+
+    <x-filament::section heading="Company Default Schedule" compact>
+        @if($companyDefault)
+            <div class="flex flex-wrap items-center gap-2 text-sm"><strong>{{ $companyDefault->name }}</strong><x-filament::badge :color="$companyDefaultActiveToday ? 'success' : 'warning'">{{ $companyDefaultActiveToday ? 'Effective today' : 'Not effective today' }}</x-filament::badge></div>
+            <p class="mt-1 text-sm text-gray-500">Effective from {{ \Carbon\CarbonImmutable::parse($companyDefault->effective_from)->format('d M Y') }}.</p>
+        @else
+            <p class="text-sm text-gray-500">No company default schedule is configured.</p>
+        @endif
+        <p class="mt-2 text-sm text-gray-500">Employees without individual or team schedules automatically follow the company default from its effective date. Individual and team schedules take precedence.</p>
+    </x-filament::section>
 
     <x-filament::section :heading="$editingScheduleId ? 'Configure schedule version' : 'Create a work schedule'" compact>
         <form wire:submit="saveSchedule" class="space-y-5">

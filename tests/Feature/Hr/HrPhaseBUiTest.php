@@ -48,7 +48,7 @@ class HrPhaseBUiTest extends TestCase
 
         Livewire::actingAs($owner)->test(WorkSchedules::class)
             ->assertSee('Active schedules')
-            ->assertSee('Employees without a schedule')
+            ->assertSee('Employees without coverage today')
             ->assertSee('Grace period (minutes)')
             ->assertSee('Pakistan Office — Standard 9 AM to 5 PM')
             ->assertSee('1 = same schedule every week. 2 = alternating two-week schedule. 3 = repeating three-week schedule.')
@@ -373,8 +373,9 @@ class HrPhaseBUiTest extends TestCase
 
         Livewire::actingAs($owner)->test(CompOff::class)
             ->assertSee('Earned credits')->assertSee('Reserved credits')->assertSee('Available credits')
-            ->assertSee('Request Comp-Off')->assertSee('Authorize Sunday duty')
-            ->assertSee('Sunday date')->assertSee('Manager decisions')
+            ->assertSee('Request Comp-Off')->call('showTab', 'approvals')
+            ->assertSee('Authorize Sunday duty')->assertSee('Sunday date')
+            ->assertSee('Sunday Duty Awaiting Approval')->assertSee('Comp-Off Requests Awaiting Approval')
             ->assertViewHas('teamEmployees', fn ($options): bool => $options->count() === 1 && $options->first()->id === $employee->employee->id);
         Livewire::actingAs($owner)->test(BiometricSync::class)
             ->assertSee('Read-only monitoring')

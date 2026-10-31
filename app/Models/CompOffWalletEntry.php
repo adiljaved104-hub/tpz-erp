@@ -29,6 +29,11 @@ class CompOffWalletEntry extends Model
         return $this->belongsTo(Employee::class);
     }
 
+    public function actor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'actor_user_id');
+    }
+
     public function request(): BelongsTo
     {
         return $this->belongsTo(CompOffCreditRequest::class, 'comp_off_credit_request_id');

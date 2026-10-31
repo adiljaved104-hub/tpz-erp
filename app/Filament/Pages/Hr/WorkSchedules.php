@@ -10,6 +10,7 @@ use App\Models\WorkSchedule;
 use App\Models\WorkScheduleAssignment;
 use App\Services\Authorization\HrAuthorization;
 use App\Services\Hr\WorkScheduleService;
+use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
@@ -242,18 +243,24 @@ class WorkSchedules extends Page
 
     public function getViewData(): array
     {
+        $today = CarbonImmutable::today('Asia/Karachi');
         $activeEmployees = Employee::query()->where('status', true)->get(['id', 'team_id']);
         $currentAssignments = WorkScheduleAssignment::query()
-            ->whereDate('effective_from', '<=', today())
-            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today()))
-            ->whereHas('schedule', fn ($query) => $query->where('status', true))
+            ->whereDate('effective_from', '<=', $today)
+            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $today))
+            ->whereHas('schedule', fn ($query) => $query->where('status', true)->whereHas('days'))
             ->get(['employee_id', 'team_id']);
         $directEmployeeIds = $currentAssignments->pluck('employee_id')->filter()->map(fn ($id): int => (int) $id);
         $assignedTeamIds = $currentAssignments->pluck('team_id')->filter()->map(fn ($id): int => (int) $id)->unique();
         $assignedEmployeeIds = $directEmployeeIds->merge($activeEmployees->whereIn('team_id', $assignedTeamIds)->pluck('id'))->unique();
-        $hasCompanyDefault = DB::table('company_work_schedule_versions as versions')
+        $defaultVersions = DB::table('company_work_schedule_versions as versions')
             ->join('work_schedules as schedules', 'schedules.id', '=', 'versions.work_schedule_id')
-            ->where('schedules.status', true)->whereDate('versions.effective_from', '<=', today('Asia/Karachi'))->exists();
+            ->select('versions.work_schedule_id', 'versions.effective_from', 'schedules.name', 'schedules.status')
+            ->orderByDesc('versions.effective_from');
+        $companyDefault = (clone $defaultVersions)->first();
+        $currentDefault = (clone $defaultVersions)->whereDate('versions.effective_from', '<=', $today)->first();
+        $hasCompanyDefault = $currentDefault !== null && (bool) $currentDefault->status
+            && DB::table('work_schedule_days')->where('work_schedule_id', $currentDefault->work_schedule_id)->exists();
         $search = trim($this->assignmentEmployeeSearch);
         $employeeQuery = Employee::query()->where('status', true);
         if ($search !== '' || $this->assignmentEmployeeIds !== []) {
@@ -269,19 +276,21 @@ class WorkSchedules extends Page
 
         return [
             'activeScheduleCount' => WorkSchedule::query()->where('status', true)->count(),
+            'companyDefault' => $companyDefault,
+            'companyDefaultActiveToday' => $hasCompanyDefault,
             'assignedEmployeeCount' => $hasCompanyDefault ? $activeEmployees->count() : $activeEmployees->whereIn('id', $assignedEmployeeIds)->count(),
             'unassignedEmployeeCount' => $hasCompanyDefault ? 0 : max(0, $activeEmployees->count() - $activeEmployees->whereIn('id', $assignedEmployeeIds)->count()),
             'schedules' => WorkSchedule::query()->withCount([
                 'days',
                 'assignments as current_assignments_count' => fn ($query) => $query
-                    ->whereDate('effective_from', '<=', today())
-                    ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today())),
-                'assignments as ended_assignments_count' => fn ($query) => $query->whereDate('effective_to', '<', today()),
+                    ->whereDate('effective_from', '<=', $today)
+                    ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $today)),
+                'assignments as ended_assignments_count' => fn ($query) => $query->whereDate('effective_to', '<', $today),
             ])->with(['attendancePolicy:id,grace_minutes', 'days', 'assignments' => fn ($query) => $query->with(['employee:id,name,employee_id', 'team:id,name'])->latest('effective_from')->limit(20)])->orderBy('name')->get(),
             'employees' => $employeeQuery->orderBy('name')->get(['id', 'name', 'employee_id']),
             'teams' => Team::query()->where('status', true)->orderBy('name')->get(['id', 'name']),
             'weekdays' => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
-            'today' => today(),
+            'today' => $today,
         ];
     }
 

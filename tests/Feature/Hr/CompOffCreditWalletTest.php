@@ -7,7 +7,9 @@ use App\Enums\AttendanceStatus;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
+use App\Filament\Pages\Hr\CompOff;
 use App\Filament\Pages\Hr\LeaveManagement;
+use App\Filament\Pages\Hr\WorkSchedules;
 use App\Models\AttendanceCorrection;
 use App\Models\CompensatoryOff;
 use App\Models\CompOffApprovalEvent;
@@ -38,6 +40,13 @@ use Tests\TestCase;
 class CompOffCreditWalletTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        // The forward migration must remain prospective even when this suite runs after November 2026.
+        Carbon::setTestNow('2026-10-30 12:00:00 Asia/Karachi');
+        parent::setUp();
+    }
 
     protected function tearDown(): void
     {
@@ -87,6 +96,124 @@ class CompOffCreditWalletTest extends TestCase
 
         Livewire::actingAs($staff)->test(LeaveManagement::class)
             ->assertViewHas('scheduleConfigured', true);
+    }
+
+    public function test_work_schedule_dashboard_distinguishes_future_default_from_coverage_today(): void
+    {
+        [$owner, $staff] = $this->people();
+        Carbon::setTestNow('2026-10-31 12:00:00 Asia/Karachi');
+
+        Livewire::actingAs($owner)->test(WorkSchedules::class)
+            ->assertViewHas('assignedEmployeeCount', 0)
+            ->assertViewHas('unassignedEmployeeCount', 2)
+            ->assertSee('01 Nov 2026')
+            ->assertSee('Employees without individual or team schedules automatically follow the company default');
+
+        Carbon::setTestNow('2026-11-02 12:00:00 Asia/Karachi');
+        Livewire::actingAs($owner)->test(WorkSchedules::class)
+            ->assertViewHas('assignedEmployeeCount', 2)
+            ->assertViewHas('unassignedEmployeeCount', 0)
+            ->assertSee('Effective today');
+        $this->assertSame('PK_STD_2026_11', app(EffectiveWorkScheduleResolver::class)
+            ->assignment($staff->employee, CarbonImmutable::today('Asia/Karachi'))->schedule->code);
+    }
+
+    public function test_team_and_employee_schedule_overrides_take_precedence_over_company_default(): void
+    {
+        [$owner, $staff] = $this->people();
+        $teammate = $this->user(EmployeeRole::Staff, $staff->employee->team);
+        $teamSchedule = WorkSchedule::query()->create([
+            'code' => 'TEAM_UAT', 'name' => 'Team UAT hours', 'timezone' => 'Asia/Karachi',
+            'schedule_type' => 'custom', 'cycle_length_weeks' => 1, 'status' => true,
+        ]);
+        foreach (range(0, 6) as $weekday) {
+            WorkScheduleDay::query()->create([
+                'work_schedule_id' => $teamSchedule->id, 'cycle_week' => 1, 'weekday' => $weekday,
+                'is_working_day' => $weekday !== 0, 'expected_start_time' => $weekday === 0 ? null : '10:00',
+                'expected_end_time' => $weekday === 0 ? null : '16:00', 'earns_compensatory_off' => false,
+            ]);
+        }
+        WorkScheduleAssignment::query()->create([
+            'work_schedule_id' => $teamSchedule->id, 'team_id' => $staff->employee->team_id,
+            'effective_from' => '2026-11-01', 'assigned_by_user_id' => $owner->id, 'reason' => 'Team UAT schedule',
+        ]);
+        $standard = WorkSchedule::query()->where('code', 'PK_STD_2026_11')->firstOrFail();
+        WorkScheduleAssignment::query()->create([
+            'work_schedule_id' => $standard->id, 'employee_id' => $staff->employee->id,
+            'effective_from' => '2026-11-01', 'assigned_by_user_id' => $owner->id, 'reason' => 'Individual UAT override',
+        ]);
+        $resolver = app(EffectiveWorkScheduleResolver::class);
+        $monday = CarbonImmutable::parse('2026-11-02', 'Asia/Karachi');
+        $this->assertSame($standard->id, $resolver->assignment($staff->employee, $monday)->work_schedule_id);
+        $this->assertSame($teamSchedule->id, $resolver->assignment($teammate->employee, $monday)->work_schedule_id);
+        $this->assertSame('10:00', substr($resolver->day($teammate->employee, $monday)['day']->expected_start_time, 0, 5));
+    }
+
+    public function test_sunday_approval_eligibility_tracks_attendance_and_shift_completion(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Sunday UAT duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->assertSame('Scheduled', $service->sundayApprovalEligibility($duty)['status']);
+
+        Carbon::setTestNow('2026-11-08 12:00:00 Asia/Karachi');
+        $this->assertSame('Awaiting Attendance', $service->sundayApprovalEligibility($duty)['status']);
+        $page = Livewire::actingAs($owner)->test(CompOff::class)->call('showTab', 'approvals')
+            ->assertSee('Awaiting Attendance')->assertSee('A verified check-in and check-out are required.');
+        $this->assertTrue($this->approvalButtonIsDisabled($page->html()));
+        try {
+            $service->decideSunday($duty, true, $owner);
+            $this->fail('The backend must still reject unverified attendance.');
+        } catch (ValidationException) {
+            $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+        }
+
+        $attendance = $this->pairedAttendance($staff->employee, '2026-11-08', 359);
+        $attendance->forceFill(['last_check_out_at' => null])->save();
+        $this->assertSame('Awaiting Attendance', $service->sundayApprovalEligibility($duty)['status']);
+        $attendance->forceFill(['last_check_out_at' => CarbonImmutable::parse('2026-11-08 16:59:00', 'Asia/Karachi')->utc()])->save();
+        $this->assertSame('Insufficient Hours', $service->sundayApprovalEligibility($duty)['status']);
+
+        $attendance->forceFill(['last_check_out_at' => CarbonImmutable::parse('2026-11-08 17:00:00', 'Asia/Karachi')->utc(), 'worked_minutes' => 360])->save();
+        Carbon::setTestNow('2026-11-08 16:59:00 Asia/Karachi');
+        $this->assertSame('Awaiting Shift Completion', $service->sundayApprovalEligibility($duty)['status']);
+        Carbon::setTestNow('2026-11-08 17:01:00 Asia/Karachi');
+        $this->assertSame('Ready for Approval', $service->sundayApprovalEligibility($duty)['status']);
+        $this->assertTrue($service->sundayApprovalEligibility($duty)['ready']);
+        $page->call('$refresh')->assertSee('Ready for Approval');
+        $this->assertFalse($this->approvalButtonIsDisabled($page->html()));
+        $service->decideSunday($duty, true, $owner);
+        $service->decideSunday($duty, true, $owner);
+        $this->assertSame(1, CompOffWalletEntry::query()->where('kind', 'earned')->count());
+    }
+
+    public function test_comp_off_tabs_hide_approval_controls_from_staff_and_keep_manager_scope(): void
+    {
+        [$owner, $staff] = $this->people();
+        $manager = $this->user(EmployeeRole::Manager, $staff->employee->team);
+        $otherTeam = Team::query()->create(['name' => 'Outside UAT team', 'status' => true]);
+        $outsider = $this->user(EmployeeRole::Staff, $otherTeam);
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        app(CompOffCreditService::class)->authorizeSunday([
+            'employee_id' => $outsider->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Outside team Sunday duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+
+        Livewire::actingAs($staff)->test(CompOff::class)
+            ->assertSee('Overview')->assertSee('Credit History')->assertDontSee('Pending Approvals')
+            ->call('showTab', 'approvals')->assertForbidden();
+        Livewire::actingAs($staff)->test(CompOff::class)
+            ->call('showTab', 'history')->assertSee('Wallet Activity')->assertDontSee('Outside UAT team');
+        Livewire::actingAs($manager)->test(CompOff::class)
+            ->call('showTab', 'approvals')->assertSee('Sunday Duty Awaiting Approval')
+            ->assertDontSee($outsider->employee->employee_id);
+        Livewire::actingAs($owner)->test(CompOff::class)
+            ->call('showTab', 'approvals')->assertSee($outsider->employee->employee_id)
+            ->call('showTab', 'history')->assertSee('Approval History');
     }
 
     public function test_verified_sunday_earns_once_and_saturday_sunday_request_uses_one_credit(): void
@@ -367,6 +494,17 @@ class CompOffCreditWalletTest extends TestCase
         $team = Team::query()->create(['name' => 'Operations', 'status' => true]);
 
         return [$this->user(EmployeeRole::Owner, $team), $this->user(EmployeeRole::Staff, $team)];
+    }
+
+    private function approvalButtonIsDisabled(string $html): bool
+    {
+        $document = new \DOMDocument;
+        @$document->loadHTML($html);
+        $buttons = (new \DOMXPath($document))->query("//button[contains(normalize-space(.), 'Approve credit')]");
+        $this->assertNotFalse($buttons);
+        $this->assertGreaterThan(0, $buttons->length, 'Approve credit button must be present for authorized managers.');
+
+        return $buttons->item(0)->hasAttribute('disabled');
     }
 
     private function user(EmployeeRole $role, Team $team): User

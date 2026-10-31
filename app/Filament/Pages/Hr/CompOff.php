@@ -55,6 +55,8 @@ class CompOff extends Page
 
     public string $cancellationReason = '';
 
+    public string $activeTab = 'overview';
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -75,6 +77,16 @@ class CompOff extends Page
         abort_unless(static::canAccess(), 403);
         $this->requestKey = (string) Str::uuid();
         $this->dutyKey = (string) Str::uuid();
+    }
+
+    public function showTab(string $tab): void
+    {
+        abort_unless(in_array($tab, ['overview', 'approvals', 'history'], true), 404);
+        if ($tab === 'approvals') {
+            abort_unless($this->canManageTeam(), 403);
+        }
+
+        $this->activeTab = $tab;
     }
 
     public function submitRequest(): void
@@ -178,8 +190,7 @@ class CompOff extends Page
         $scope = app(HrScopeService::class);
         $service = app(CompOffCreditService::class);
         $employee = $user->employee;
-        $canManage = $employee !== null && in_array($employee->role, [EmployeeRole::Owner, EmployeeRole::Admin, EmployeeRole::Manager], true)
-            && app(HrAuthorization::class)->allows($user, HrPermission::CompOffManage);
+        $canManage = $this->canManageTeam();
         $companyWide = $canManage && in_array($employee->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
         $team = $canManage ? ($companyWide ? Employee::query() : $scope->employeeQuery($user, true))
             ->whereKeyNot($employee->id)->orderBy('name')
@@ -202,22 +213,37 @@ class CompOff extends Page
             ->where('status', 'authorized')->oldest('duty_date')->limit(30)->get() : collect();
         $requests = $canManage ? CompOffCreditRequest::query()->with('employee', 'days')->whereIn('employee_id', $teamIds)
             ->where('status', 'pending')->oldest('submitted_at')->limit(30)->get() : collect();
+        $historyIds = $employee ? array_values(array_unique(array_merge([$employee->id], $teamIds))) : [];
 
         return [
             'wallet' => $employee && $scope->canViewLeave($user, $employee) ? $service->balance($employee, $user) : null,
-            'entries' => $employee ? CompOffWalletEntry::query()->where('employee_id', $employee->id)->latest('id')->limit(20)->get() : collect(),
+            'entries' => CompOffWalletEntry::query()->with(['employee', 'request', 'actor'])->whereIn('employee_id', $historyIds)
+                ->latest('id')->limit(60)->get(),
             'myRequests' => $mine, 'pendingDuties' => $duties, 'pendingRequests' => $requests,
+            'dutyEligibility' => $canManage && $this->activeTab === 'approvals'
+                ? $duties->mapWithKeys(fn (CompOffSundayDuty $duty): array => [$duty->id => $service->sundayApprovalEligibility($duty)]) : collect(),
             'teamEmployees' => $team->where('status', true), 'teamWallets' => $teamWallets, 'canManage' => $canManage,
             'legacyRecords' => $employee ? CompensatoryOff::query()->with('employee')
-                ->whereIn('employee_id', array_unique(array_merge([$employee->id], $teamIds)))
+                ->whereIn('employee_id', $historyIds)
                 ->latest()->limit(30)->get() : collect(),
             'legacyCanApprove' => $canManage ? app(HrAuthorization::class)->allows($user, HrPermission::LeaveApprove) : false,
-            'approvalEvents' => $canManage ? CompOffApprovalEvent::query()->with(['actor', 'duty', 'request'])
-                ->where(function ($query) use ($teamIds): void {
-                    $query->whereHas('duty', fn ($duties) => $duties->whereIn('employee_id', $teamIds))
-                        ->orWhereHas('request', fn ($requests) => $requests->whereIn('employee_id', $teamIds));
+            'legacyPending' => $canManage ? CompensatoryOff::query()->with('employee')->whereIn('employee_id', $teamIds)
+                ->where('status', 'pending')->latest()->limit(30)->get() : collect(),
+            'approvalEvents' => $employee ? CompOffApprovalEvent::query()->with(['actor', 'duty.employee', 'request.employee'])
+                ->where(function ($query) use ($historyIds): void {
+                    $query->whereHas('duty', fn ($duties) => $duties->whereIn('employee_id', $historyIds))
+                        ->orWhereHas('request', fn ($requests) => $requests->whereIn('employee_id', $historyIds));
                 })->latest('id')->limit(30)->get() : collect(),
         ];
+    }
+
+    private function canManageTeam(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User && $user->employee !== null
+            && in_array($user->employee->role, [EmployeeRole::Owner, EmployeeRole::Admin, EmployeeRole::Manager], true)
+            && app(HrAuthorization::class)->allows($user, HrPermission::CompOffManage);
     }
 
     private function showError(ValidationException $exception): void

@@ -1,39 +1,157 @@
 <x-filament-panels::page class="hr-page-form">
-    <div><h2 class="text-xl font-semibold">Comp-Off</h2><p class="text-sm text-gray-500">Use approved Sunday duty credits for time off. This is separate from Annual Leave.</p></div>
-    @if($wallet)
-        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            @foreach (['earned' => 'Earned', 'used' => 'Used', 'reserved' => 'Reserved', 'available' => 'Available'] as $key => $label)
-                <x-filament::section compact><div class="text-sm text-gray-500">{{ $label }} credits</div><div class="text-3xl font-semibold">{{ $wallet[$key] }}</div></x-filament::section>
-            @endforeach
+    <div>
+        <h2 class="text-xl font-semibold">Comp-Off</h2>
+        <p class="text-sm text-gray-500">Sunday duty credits are separate from Annual Leave.</p>
+    </div>
+
+    <nav role="tablist" aria-label="Comp-Off sections" class="flex flex-wrap gap-2 border-b border-gray-200 pb-3 dark:border-white/10">
+        @foreach (['overview' => 'Overview', 'approvals' => 'Pending Approvals', 'history' => 'Credit History'] as $tab => $label)
+            @if($tab !== 'approvals' || $canManage)
+                <button type="button" role="tab" wire:click="showTab('{{ $tab }}')" aria-selected="{{ $activeTab === $tab ? 'true' : 'false' }}"
+                    @class(['rounded-lg px-4 py-2 text-sm font-semibold', 'bg-primary-600 text-white' => $activeTab === $tab, 'bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-gray-200' => $activeTab !== $tab])>{{ $label }}</button>
+            @endif
+        @endforeach
+    </nav>
+
+    @if($activeTab === 'overview')
+        <div role="tabpanel" class="space-y-5">
+            @if($wallet)
+                <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    @foreach (['earned' => 'Earned', 'used' => 'Used', 'reserved' => 'Reserved', 'available' => 'Available'] as $key => $label)
+                        <x-filament::section compact><div class="text-sm text-gray-500">{{ $label }} credits</div><div class="text-3xl font-semibold">{{ $wallet[$key] }}</div></x-filament::section>
+                    @endforeach
+                </div>
+                @if($wallet['legacy_unreconciled'] > 0)
+                    <x-filament::section compact><p class="text-sm text-warning-700">Older Comp-Off records remain in their original history. Management must review them before treating them as wallet credits.</p></x-filament::section>
+                @endif
+            @endif
+
+            <x-filament::section heading="Request Comp-Off" description="Working days use one credit each. Weekly offs and public holidays use none.">
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <label class="space-y-1 text-sm"><span>From date</span><input type="date" wire:model="fromDate" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                    <label class="space-y-1 text-sm"><span>To date</span><input type="date" wire:model="toDate" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                </div>
+                <label class="mt-3 block space-y-1 text-sm"><span>Reason</span><textarea wire:model="requestReason" rows="3" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></textarea></label>
+                <div class="mt-4"><x-filament::button wire:click="submitRequest" wire:loading.attr="disabled">Send request</x-filament::button></div>
+            </x-filament::section>
+
+            <x-filament::section heading="My Requests">
+                <label class="mb-3 block space-y-1 text-sm"><span>Reason for cancelling a pending request</span><input wire:model="cancellationReason" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                <div class="grid gap-3 lg:grid-cols-2">
+                    @forelse($myRequests as $request)
+                        <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-white/10">
+                            <div><strong>{{ $request->reference }}</strong><div>{{ $request->from_date->format('d M Y') }}–{{ $request->to_date->format('d M Y') }} · {{ $request->credits_required }} credit(s)</div><div class="text-gray-500">{{ ucfirst($request->status) }} · {{ $request->reason }}</div></div>
+                            @if($request->status === 'pending')<x-filament::button size="xs" color="gray" wire:click="cancelRequest({{ $request->id }})" wire:confirm="Cancel this pending request? Enter a reason first.">Cancel</x-filament::button>@endif
+                        </div>
+                    @empty
+                        <p class="text-sm text-gray-500">No requests yet.</p>
+                    @endforelse
+                </div>
+            </x-filament::section>
+
+            @if($canManage)
+                <x-filament::section heading="Team Wallets" description="Only employees in your authorized scope appear here.">
+                    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        @foreach($teamWallets as $teamWallet)
+                            <div class="rounded-lg border border-gray-200 p-3 text-sm dark:border-white/10"><strong>{{ $teamWallet['employee']->name }}</strong> · {{ $teamWallet['employee']->employee_id }}
+                                @if(! $teamWallet['employee']->status)<span class="text-gray-500"> · Inactive</span>@endif
+                                <div class="mt-1">Earned {{ $teamWallet['earned'] }} · Used {{ $teamWallet['used'] }} · Reserved {{ $teamWallet['reserved'] }} · Available {{ $teamWallet['available'] }}</div>
+                            </div>
+                        @endforeach
+                    </div>
+                </x-filament::section>
+            @endif
         </div>
-        @if($wallet['legacy_unreconciled'] > 0)<x-filament::section compact><p class="text-sm text-warning-700">Older Comp-Off records remain in their original history. Management must review them before treating them as wallet credits.</p></x-filament::section>@endif
-    @endif
-    <div class="grid gap-5 xl:grid-cols-2">
-        <x-filament::section heading="Request Comp-Off" description="Working days use one credit each. Weekly offs and public holidays use none.">
-            <div class="grid gap-3 sm:grid-cols-2"><label class="space-y-1 text-sm"><span>From date</span><input type="date" wire:model="fromDate" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label><label class="space-y-1 text-sm"><span>To date</span><input type="date" wire:model="toDate" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label></div>
-            <label class="mt-3 block space-y-1 text-sm"><span>Reason</span><textarea wire:model="requestReason" rows="3" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></textarea></label>
-            <div class="mt-4"><x-filament::button wire:click="submitRequest" wire:loading.attr="disabled">Send request</x-filament::button></div>
-        </x-filament::section>
-        @if($canManage)
-            <x-filament::section heading="Authorize Sunday duty" description="Authorize before the shift. A credit needs verified attendance and a separate approval.">
-                <div class="grid gap-3 sm:grid-cols-2"><label class="space-y-1 text-sm"><span>Employee</span><select wire:model="dutyEmployeeId" class="w-full rounded-lg border-gray-300 dark:bg-white/5"><option value="">Select employee</option>@foreach($teamEmployees as $person)<option value="{{ $person->id }}">{{ $person->employee_id }} · {{ $person->name }}</option>@endforeach</select></label><label class="space-y-1 text-sm"><span>Sunday date</span><input type="date" wire:model="dutyDate" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label></div>
+    @elseif($activeTab === 'approvals' && $canManage)
+        <div role="tabpanel" wire:poll.visible.30s class="space-y-5">
+            <x-filament::section heading="Authorize Sunday duty" description="Authorize before the shift. Credits require verified attendance and a separate approval.">
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <label class="space-y-1 text-sm"><span>Employee</span><select wire:model="dutyEmployeeId" class="w-full rounded-lg border-gray-300 dark:bg-white/5"><option value="">Select employee</option>@foreach($teamEmployees as $person)<option value="{{ $person->id }}">{{ $person->employee_id }} · {{ $person->name }}</option>@endforeach</select></label>
+                    <label class="space-y-1 text-sm"><span>Sunday date</span><input type="date" wire:model="dutyDate" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                </div>
                 <label class="mt-3 block space-y-1 text-sm"><span>Reason</span><textarea wire:model="dutyReason" rows="3" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></textarea></label>
                 <div class="mt-4"><x-filament::button wire:click="authorizeDuty" wire:loading.attr="disabled">Authorize duty</x-filament::button></div>
             </x-filament::section>
-        @endif
-    </div>
-    <x-filament::section heading="My requests"><label class="mb-3 block space-y-1 text-sm"><span>Reason for cancelling a pending request</span><input wire:model="cancellationReason" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label><div class="overflow-x-auto"><table class="w-full min-w-[620px] text-sm"><thead><tr class="border-b text-left"><th class="p-2">Reference</th><th class="p-2">Dates</th><th class="p-2">Credits</th><th class="p-2">Status</th><th class="p-2">Action</th></tr></thead><tbody>
-        @forelse($myRequests as $request)<tr class="border-b"><td class="p-2">{{ $request->reference }}</td><td class="p-2">{{ $request->from_date->format('d M Y') }}–{{ $request->to_date->format('d M Y') }}</td><td class="p-2">{{ $request->credits_required }}</td><td class="p-2">{{ ucfirst($request->status) }}</td><td class="p-2">@if($request->status === 'pending')<x-filament::button size="xs" color="gray" wire:click="cancelRequest({{ $request->id }})" wire:confirm="Cancel this pending request? Enter a reason below first.">Cancel</x-filament::button>@endif</td></tr>@empty<tr><td colspan="5" class="p-3 text-gray-500">No requests yet.</td></tr>@endforelse
-    </tbody></table></div></x-filament::section>
-    <x-filament::section heading="My credit history"><div class="overflow-x-auto"><table class="w-full min-w-[620px] text-sm"><thead><tr class="border-b text-left"><th class="p-2">Date</th><th class="p-2">Reference</th><th class="p-2">Reason</th><th class="p-2">Earned</th><th class="p-2">Reserved</th><th class="p-2">Used</th></tr></thead><tbody>@forelse($entries as $entry)<tr class="border-b"><td class="p-2">{{ $entry->occurred_at?->timezone('Asia/Karachi')->format('d M Y H:i') }}</td><td class="p-2">{{ $entry->reference }}</td><td class="p-2">{{ $entry->reason }}</td><td class="p-2">{{ $entry->earned_delta }}</td><td class="p-2">{{ $entry->reserved_delta }}</td><td class="p-2">{{ $entry->used_delta }}</td></tr>@empty<tr><td class="p-3 text-gray-500" colspan="6">No wallet transactions yet.</td></tr>@endforelse</tbody></table></div></x-filament::section>
-    @if($canManage)
-        <x-filament::section heading="Manager decisions" description="A rejection or cancellation needs a written reason.">
-            <label class="mb-4 block space-y-1 text-sm"><span>Decision or cancellation reason</span><input wire:model="decisionReason" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
-            <h3 class="font-semibold">Sunday duty awaiting approval</h3><div class="space-y-2">@forelse($pendingDuties as $duty)<div class="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm"><span>{{ $duty->employee->name }} · {{ $duty->duty_date->format('d M Y') }} · {{ $duty->reference }}</span><span class="flex gap-2"><x-filament::button size="xs" wire:click="decideDuty({{ $duty->id }}, true)" wire:confirm="Approve only if paired attendance verifies at least six hours.">Approve credit</x-filament::button><x-filament::button size="xs" color="gray" wire:click="decideDuty({{ $duty->id }}, false)">Reject</x-filament::button></span></div>@empty<p class="text-sm text-gray-500">No duties awaiting approval.</p>@endforelse</div>
-            <h3 class="mt-5 font-semibold">Comp-Off requests awaiting approval</h3><div class="space-y-2">@forelse($pendingRequests as $request)<div class="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm"><span>{{ $request->employee->name }} · {{ $request->from_date->format('d M Y') }}–{{ $request->to_date->format('d M Y') }} · {{ $request->credits_required }} credit(s) · {{ $request->reason }}</span><span class="flex gap-2"><x-filament::button size="xs" wire:click="decideRequest({{ $request->id }}, true)">Approve</x-filament::button><x-filament::button size="xs" color="gray" wire:click="decideRequest({{ $request->id }}, false)">Reject</x-filament::button></span></div>@empty<p class="text-sm text-gray-500">No requests awaiting approval.</p>@endforelse</div>
-            <h3 class="mt-5 font-semibold">Team wallets</h3><div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">@foreach($teamWallets as $teamWallet)<div class="rounded-lg border p-3 text-sm"><strong>{{ $teamWallet['employee']->name }}</strong>@if(! $teamWallet['employee']->status)<span class="text-gray-500"> · Inactive</span>@endif<div>Earned {{ $teamWallet['earned'] }} · Used {{ $teamWallet['used'] }} · Reserved {{ $teamWallet['reserved'] }} · Available {{ $teamWallet['available'] }}</div></div>@endforeach</div>
-        </x-filament::section>
+
+            <x-filament::section heading="Sunday Duty Awaiting Approval" description="Eligibility refreshes automatically when attendance evidence changes.">
+                <label class="mb-3 block space-y-1 text-sm"><span>Written rejection reason</span><input wire:model="decisionReason" class="w-full rounded-lg border-gray-300 dark:bg-white/5"></label>
+                <div class="mb-3 text-right"><x-filament::button size="xs" color="gray" wire:click="$refresh">Refresh eligibility</x-filament::button></div>
+                <div class="grid gap-3 lg:grid-cols-2">
+                    @forelse($pendingDuties as $duty)
+                        @php($eligibility = $dutyEligibility[$duty->id])
+                        <div class="rounded-lg border border-gray-200 p-3 text-sm dark:border-white/10">
+                            <div class="font-semibold">{{ $duty->employee->name }} · {{ $duty->employee->employee_id }}</div>
+                            <div>{{ $duty->duty_date->format('d M Y') }} · 11 AM–5 PM · {{ $duty->reference }}</div>
+                            <div class="mt-2"><x-filament::badge :color="$eligibility['ready'] ? 'success' : 'warning'">{{ $eligibility['status'] }}</x-filament::badge></div>
+                            <p class="mt-1 text-gray-500">{{ $eligibility['reason'] }}</p>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <x-filament::button size="xs" wire:click="decideDuty({{ $duty->id }}, true)" :disabled="! $eligibility['ready']">Approve credit</x-filament::button>
+                                <x-filament::button size="xs" color="gray" wire:click="decideDuty({{ $duty->id }}, false)">Reject</x-filament::button>
+                            </div>
+                        </div>
+                    @empty
+                        <p class="text-sm text-gray-500">No duties awaiting approval.</p>
+                    @endforelse
+                </div>
+            </x-filament::section>
+
+            <x-filament::section heading="Comp-Off Requests Awaiting Approval">
+                <p class="mb-3 text-sm text-gray-500">The written rejection reason above also applies to request decisions.</p>
+                <div class="grid gap-3 lg:grid-cols-2">
+                    @forelse($pendingRequests as $request)
+                        <div class="rounded-lg border border-gray-200 p-3 text-sm dark:border-white/10"><strong>{{ $request->employee->name }}</strong> · {{ $request->employee->employee_id }}
+                            <div>{{ $request->from_date->format('d M Y') }}–{{ $request->to_date->format('d M Y') }} · {{ $request->credits_required }} credit(s)</div>
+                            <p class="text-gray-500">{{ $request->reason }}</p>
+                            <div class="mt-3 flex gap-2"><x-filament::button size="xs" wire:click="decideRequest({{ $request->id }}, true)">Approve</x-filament::button><x-filament::button size="xs" color="gray" wire:click="decideRequest({{ $request->id }}, false)">Reject</x-filament::button></div>
+                        </div>
+                    @empty
+                        <p class="text-sm text-gray-500">No requests awaiting approval.</p>
+                    @endforelse
+                </div>
+                @if($legacyCanApprove && $legacyPending->isNotEmpty())
+                    <h3 class="mt-5 font-semibold">Older Comp-Off requests</h3>
+                    @foreach($legacyPending as $legacy)
+                        <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><span>{{ $legacy->employee->name }} · {{ $legacy->employee->employee_id }} · {{ $legacy->reference }} · {{ $legacy->off_date->format('d M Y') }}</span><x-filament::button size="xs" wire:click="approveLegacy({{ $legacy->id }})" wire:confirm="Approve this older Comp-Off record under its original rules?">Approve old record</x-filament::button></div>
+                    @endforeach
+                @endif
+            </x-filament::section>
+        </div>
+    @elseif($activeTab === 'history')
+        <div role="tabpanel" class="space-y-5">
+            <x-filament::section heading="Wallet Activity" description="Credits are recorded in an immutable ledger; released reservations are shown separately.">
+                <div class="grid gap-3 lg:grid-cols-2">
+                    @forelse($entries as $entry)
+                        <div class="rounded-lg border border-gray-200 p-3 text-sm dark:border-white/10">
+                            <div class="flex flex-wrap justify-between gap-2"><strong>{{ $entry->reference }}</strong><span>{{ $entry->occurred_at?->timezone('Asia/Karachi')->format('d M Y H:i') }}</span></div>
+                            <div>{{ $entry->employee?->name }} · {{ $entry->employee?->employee_id }} · {{ str($entry->kind)->replace('_', ' ')->title() }}</div>
+                            <div>Earned {{ $entry->earned_delta }} · Reserved {{ $entry->reserved_delta }} · Used {{ $entry->used_delta }}</div>
+                            <div class="text-gray-500">{{ $entry->reason }} · By {{ $entry->actor?->name ?? 'System user' }}@if($entry->request) · Request {{ ucfirst($entry->request->status) }}@endif</div>
+                        </div>
+                    @empty
+                        <p class="text-sm text-gray-500">No wallet transactions yet.</p>
+                    @endforelse
+                </div>
+            </x-filament::section>
+
+            <x-filament::section heading="Approval History" description="Who authorized, approved, rejected or cancelled each request.">
+                <div class="grid gap-3 lg:grid-cols-2">
+                    @forelse($approvalEvents as $event)
+                        <div class="rounded-lg border border-gray-200 p-3 text-sm dark:border-white/10">
+                            <strong>{{ $event->duty?->reference ?? $event->request?->reference }}</strong> · {{ ucfirst($event->action) }}
+                            <div>{{ $event->duty?->employee?->name ?? $event->request?->employee?->name }} · {{ $event->occurred_at?->timezone('Asia/Karachi')->format('d M Y H:i') }}</div>
+                            <div class="text-gray-500">{{ $event->action === 'approved' ? 'Approved by' : 'Recorded by' }} {{ $event->actor?->name ?? 'System user' }}@if($event->reason) · {{ $event->reason }}@endif</div>
+                        </div>
+                    @empty
+                        <p class="text-sm text-gray-500">No decisions yet.</p>
+                    @endforelse
+                </div>
+            </x-filament::section>
+
+            @if($legacyRecords->isNotEmpty())
+                <x-filament::section heading="Older Comp-Off Records" description="These original records have not been converted to wallet credits.">
+                    <div class="grid gap-3 lg:grid-cols-2">@foreach($legacyRecords as $legacy)<div class="rounded-lg border p-3 text-sm">{{ $legacy->reference }} · {{ $legacy->employee->name }} · {{ $legacy->off_date->format('d M Y') }} · {{ ucfirst($legacy->status) }}</div>@endforeach</div>
+                </x-filament::section>
+            @endif
+        </div>
     @endif
-    @if($legacyRecords->isNotEmpty())<x-filament::section heading="Older Comp-Off records" description="These records keep their original meaning and are not silently converted to wallet credits."><div class="space-y-2 text-sm">@foreach($legacyRecords as $legacy)<div class="flex flex-wrap items-center justify-between gap-2 border-b py-2"><span>{{ $legacy->reference }} · {{ $legacy->employee->name }} · {{ $legacy->off_date->format('d M Y') }} · {{ ucfirst($legacy->status) }}</span>@if($legacyCanApprove && $legacy->status === 'pending' && $legacy->employee_id !== auth()->user()->employee?->id)<x-filament::button size="xs" wire:click="approveLegacy({{ $legacy->id }})" wire:confirm="Approve this older Comp-Off record under its original rules?">Approve old record</x-filament::button>@endif</div>@endforeach</div></x-filament::section>@endif
-    @if($canManage)<x-filament::section heading="Approval history" description="Who authorized, approved, rejected or cancelled each request."><div class="space-y-2 text-sm">@forelse($approvalEvents as $event)<div class="border-b py-2">{{ $event->occurred_at?->timezone('Asia/Karachi')->format('d M Y H:i') }} · {{ $event->actor?->name ?? 'System user' }} · {{ ucfirst($event->action) }} · {{ $event->duty?->reference ?? $event->request?->reference }} @if($event->reason)· {{ $event->reason }}@endif</div>@empty<p class="text-gray-500">No decisions yet.</p>@endforelse</div></x-filament::section>@endif
 </x-filament-panels::page>

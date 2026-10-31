@@ -305,6 +305,12 @@ class BackupSettingsUiTest extends TestCase
             'files' => [],
         ], JSON_THROW_ON_ERROR));
 
+        $history = app(BackupHistoryService::class)->all();
+        $this->assertCount(1, $history);
+        $this->assertSame('.incomplete-2026-10-31_020000-error', $history[0]['id']);
+        $this->assertSame('failed', $history[0]['status']);
+        $this->assertNull(app(BackupHistoryService::class)->latestSuccessful());
+
         Livewire::actingAs($this->user(EmployeeRole::Owner))
             ->test(BackupSettingsPage::class)
             ->assertSee('Most recent backup attempt failed');

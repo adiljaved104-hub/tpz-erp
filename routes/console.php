@@ -82,6 +82,7 @@ Schedule::command('hikvision:sync-attendance')
 $backupSettings = app(BackupSettingsService::class)->effective();
 Schedule::command('erp:backup')
     ->dailyAt((string) $backupSettings['backup_time'])
+    ->timezone((string) config('backup.schedule.timezone'))
     ->name('erp-database-storage-backup')
     ->withoutOverlapping((int) config('backup.schedule.overlap_minutes', 180))
     ->when(fn (): bool => (bool) app(BackupSettingsService::class)->effective()['enabled']);

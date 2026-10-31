@@ -13,14 +13,17 @@ use App\Models\EmployeePermissionOverride;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\BackupSettingsAuthorization;
+use App\Services\Backups\BackupHealthService;
 use App\Services\Backups\BackupHistoryService;
 use App\Services\Backups\BackupOperationsService;
 use App\Services\Backups\BackupRetentionService;
 use App\Services\Backups\BackupSettingsService;
+use App\Services\Backups\BackupStorageAccessException;
 use App\Services\Backups\ErpBackupService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use Livewire\Livewire;
 use PDO;
 use RuntimeException;
@@ -174,9 +177,30 @@ class BackupSettingsUiTest extends TestCase
             'offsite_enabled' => false, 'encryption_enabled' => false,
         ], $owner);
 
-        $this->assertSame('2026-08-27 02:30', $service->nextScheduledAt(CarbonImmutable::parse('2026-08-26 03:00 UTC'))->format('Y-m-d H:i'));
+        $next = $service->nextScheduledAt(CarbonImmutable::parse('2026-08-26 03:00 UTC'));
+        $this->assertSame('2026-08-27 02:30', $next->format('Y-m-d H:i'));
+        $this->assertSame('Asia/Karachi', $next->getTimezone()->getName());
+        $this->assertSame('2026-08-26 21:30', $next->setTimezone('UTC')->format('Y-m-d H:i'));
+        Livewire::actingAs($owner)->test(BackupSettingsPage::class)->assertSee('Backup Time (Asia/Karachi)');
         BackupSetting::query()->findOrFail(1)->update(['enabled' => false]);
         $this->assertNull($service->nextScheduledAt());
+    }
+
+    public function test_backup_command_records_safe_storage_access_failure_without_running_retention(): void
+    {
+        $backup = \Mockery::mock(ErpBackupService::class);
+        $backup->shouldReceive('create')->once()->with(false, true)->andThrow(new BackupStorageAccessException);
+        $retention = \Mockery::mock(BackupRetentionService::class);
+        $retention->shouldNotReceive('prune');
+        app()->instance(ErpBackupService::class, $backup);
+        app()->instance(BackupRetentionService::class, $retention);
+        Log::spy();
+
+        $this->artisan('erp:backup --storage-only --retention-dry-run')->assertFailed();
+        Log::shouldHaveReceived('error')->once()->withArgs(fn (string $message, array $context): bool => $message === 'ERP backup command failed.'
+            && $context['category'] === 'storage_unreadable'
+            && $context['exception_class'] === BackupStorageAccessException::class
+            && ! array_key_exists('path', $context));
     }
 
     public function test_manual_operation_uses_selected_components_then_retention_and_audits(): void
@@ -229,7 +253,7 @@ class BackupSettingsUiTest extends TestCase
         ], JSON_THROW_ON_ERROR));
         file_put_contents($badDirectory.'/manifest.json', '{invalid');
 
-        $health = app(\App\Services\Backups\BackupHealthService::class)->status();
+        $health = app(BackupHealthService::class)->status();
         $this->assertTrue($health['access_warning']);
         $this->assertSame(1, $health['unreadable_manifests']);
         $this->assertTrue($health['checksums_valid']);
@@ -261,7 +285,7 @@ class BackupSettingsUiTest extends TestCase
         }
 
         try {
-            $this->assertTrue(app(\App\Services\Backups\BackupHealthService::class)->status()['access_warning']);
+            $this->assertTrue(app(BackupHealthService::class)->status()['access_warning']);
             $this->assertCount(0, app(BackupHistoryService::class)->all());
             Livewire::actingAs($this->user(EmployeeRole::Owner))
                 ->test(BackupSettingsPage::class)
@@ -282,7 +306,7 @@ class BackupSettingsUiTest extends TestCase
             'files' => ['invalid entry', null],
         ], JSON_THROW_ON_ERROR));
 
-        $health = app(\App\Services\Backups\BackupHealthService::class)->status();
+        $health = app(BackupHealthService::class)->status();
         $this->assertFalse($health['checksums_valid']);
 
         $history = app(BackupHistoryService::class)->all();

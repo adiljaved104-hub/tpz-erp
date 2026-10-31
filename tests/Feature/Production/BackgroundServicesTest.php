@@ -34,6 +34,9 @@ class BackgroundServicesTest extends TestCase
             $this->assertNotNull($event, "Missing scheduled command: {$command}");
             $this->assertTrue($event->withoutOverlapping);
             $this->assertLessThanOrEqual($maximumLockMinutes, $event->expiresAt);
+            if ($command === 'erp:backup') {
+                $this->assertSame('Asia/Karachi', $event->timezone);
+            }
         }
     }
 

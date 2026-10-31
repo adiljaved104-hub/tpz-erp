@@ -147,6 +147,7 @@ class ErpBackupService
             throw new RuntimeException('Unable to create the storage backup archive.');
         }
 
+        $closed = false;
         try {
             foreach ((array) config('backup.storage.roots', []) as $prefix => $root) {
                 if (! is_dir($root)) {
@@ -171,12 +172,16 @@ class ErpBackupService
                     }
 
                     if (! $zip->addFile($file->getPathname(), $archiveRoot.'/'.$relative)) {
-                        throw new RuntimeException('Unable to add an eligible storage file to the backup archive.');
+                        throw new BackupStorageAccessException;
                     }
                 }
             }
         } finally {
-            $zip->close();
+            $closed = $zip->close();
+        }
+
+        if (! $closed) {
+            throw new RuntimeException('The storage backup archive could not be finalized.');
         }
 
         if (! is_file($destination) || filesize($destination) === 0) {
@@ -202,12 +207,20 @@ class ErpBackupService
     private function storageIterator(string $root): \RecursiveIteratorIterator
     {
         $root = rtrim($root, '/\\');
+        if (! is_readable($root) || (PHP_OS_FAMILY !== 'Windows' && ! is_executable($root))) {
+            throw new BackupStorageAccessException;
+        }
         $directory = new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS);
         $filtered = new \RecursiveCallbackFilterIterator(
             $directory,
             function (\SplFileInfo $entry) use ($root): bool {
                 if ($entry->isLink()) {
                     return false;
+                }
+
+                if (! $entry->isReadable() || ($entry->isDir() && PHP_OS_FAMILY !== 'Windows'
+                    && ! is_executable($entry->getPathname()))) {
+                    throw new BackupStorageAccessException;
                 }
 
                 $relative = str_replace('\\', '/', substr($entry->getPathname(), strlen($root) + 1));

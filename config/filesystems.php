@@ -33,6 +33,12 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
+            // Private uploads remain non-public, but the approved backup account
+            // can read them through the shared www-data group.
+            'permissions' => [
+                'file' => ['private' => 0640],
+                'dir' => ['private' => 0750],
+            ],
             'serve' => true,
             'throw' => false,
             'report' => false,

@@ -28,6 +28,7 @@ return [
     'schedule' => [
         'enabled' => env('ERP_BACKUP_SCHEDULE_ENABLED', false),
         'time' => env('ERP_BACKUP_SCHEDULE_TIME', '02:00'),
+        'timezone' => env('ERP_BACKUP_TIMEZONE', 'Asia/Karachi'),
         'overlap_minutes' => max(60, (int) env('ERP_BACKUP_OVERLAP_MINUTES', 180)),
     ],
 

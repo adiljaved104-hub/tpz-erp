@@ -30,6 +30,7 @@
         <x-filament::section compact>
             <p class="text-xs text-gray-500">Next Scheduled Backup</p>
             <p class="font-semibold">{{ $health['next_at']?->format('d M Y, g:i A') ?? 'Not scheduled' }}</p>
+            <p class="text-xs text-gray-500">{{ config('backup.schedule.timezone') }} time</p>
             <p class="text-xs text-gray-500">Configured disk: {{ ucfirst($health['backup_disk']) }}</p>
         </x-filament::section>
     </div>
@@ -38,7 +39,7 @@
         <x-filament::section heading="Backup Schedule" description="Automatic local backups remain disabled until explicitly enabled here.">
             <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                 <label class="flex items-center gap-3"><input type="checkbox" wire:model.live="enabled" @disabled(!$canManage) class="rounded border-gray-300 text-primary-600"> <span class="font-medium">Backup Enabled</span></label>
-                <div><label class="mb-1 block text-sm font-medium">Backup Time</label><x-filament::input.wrapper :valid="!$errors->has('backupTime')"><x-filament::input type="time" wire:model="backupTime" :disabled="!$canManage" /></x-filament::input.wrapper>@error('backupTime')<p class="mt-1 text-sm text-danger-600">{{ $message }}</p>@enderror</div>
+                <div><label class="mb-1 block text-sm font-medium">Backup Time ({{ config('backup.schedule.timezone') }})</label><x-filament::input.wrapper :valid="!$errors->has('backupTime')"><x-filament::input type="time" wire:model="backupTime" :disabled="!$canManage" /></x-filament::input.wrapper>@error('backupTime')<p class="mt-1 text-sm text-danger-600">{{ $message }}</p>@enderror</div>
                 <div><label class="mb-1 block text-sm font-medium">Backup Disk</label><select wire:model="backupDisk" @disabled(!$canManage) class="w-full rounded-lg border-gray-300 bg-white text-sm dark:border-white/10 dark:bg-white/5"><option value="local">Local protected storage</option></select></div>
                 <label class="flex items-center gap-3"><input type="checkbox" wire:model="databaseEnabled" @disabled(!$canManage) class="rounded border-gray-300 text-primary-600"> <span>Database Backup Enabled</span></label>
                 <label class="flex items-center gap-3"><input type="checkbox" wire:model="storageEnabled" @disabled(!$canManage) class="rounded border-gray-300 text-primary-600"> <span>Storage Backup Enabled</span></label>

@@ -21,6 +21,7 @@ directories=(
 [[ "$(hostname -s)" == srv1952424 && $EUID -eq 0 ]] || { echo 'GUARD=SERVER_OR_SUDO_FAILED'; exit 1; }
 [[ -d "$app/.git" || -f "$app/.git" ]] || { echo 'GUARD=APPLICATION_PATH_FAILED'; exit 1; }
 id -nG tpzadmin | tr ' ' '\n' | grep -qx www-data || { echo 'GUARD=BACKUP_GROUP_FAILED'; exit 1; }
+[[ "$(getent group www-data)" == www-data:x:33:tpzadmin ]] || { echo 'GUARD=SHARED_GROUP_CHANGED'; exit 1; }
 
 if [[ "$mode" == --rollback ]]; then
     state="${2:-}"
@@ -34,7 +35,8 @@ if [[ "$mode" == --rollback ]]; then
     for index in "${!directories[@]}"; do
         [[ "${saved[$index]}" == "700:www-data:www-data|${directories[$index]}" ]] || { echo 'ROLLBACK=SNAPSHOT_SCOPE_FAILED'; exit 1; }
         [[ ! -L "${directories[$index]}" && -d "${directories[$index]}" ]] || { echo 'ROLLBACK=TARGET_CHANGED'; exit 1; }
-        [[ "$(stat -c '%a:%U:%G' -- "${directories[$index]}")" == 750:www-data:www-data ]] || { echo 'ROLLBACK=TARGET_CHANGED'; exit 1; }
+        current="$(stat -c '%a:%U:%G' -- "${directories[$index]}")"
+        [[ "$current" == 700:www-data:www-data || "$current" == 750:www-data:www-data ]] || { echo 'ROLLBACK=TARGET_CHANGED'; exit 1; }
     done
     chmod 0700 -- "${directories[@]}"
     for directory in "${directories[@]}"; do
@@ -45,6 +47,7 @@ if [[ "$mode" == --rollback ]]; then
 fi
 
 [[ "$mode" == --dry-run || "$mode" == --execute ]] || { echo 'GUARD=INVALID_MODE'; exit 1; }
+[[ "$(git -C "$app" symbolic-ref --short HEAD)" == staging ]] || { echo 'GUARD=STAGING_BRANCH_CHANGED'; exit 1; }
 [[ "$(git -C "$app" rev-parse HEAD)" == "$baseline" ]] || { echo 'GUARD=STAGING_BASELINE_CHANGED'; exit 1; }
 [[ -z "$(git -C "$app" status --porcelain)" ]] || { echo 'GUARD=STAGING_WORKTREE_DIRTY'; exit 1; }
 [[ "$(stat -c '%a:%U:%G' -- "$private")" == 770:tpzadmin:www-data ]] || { echo 'GUARD=PRIVATE_ROOT_CHANGED'; exit 1; }
@@ -54,10 +57,12 @@ for directory in "${directories[@]}"; do
     [[ "$(stat -c '%a:%U:%G' -- "$directory")" == 700:www-data:www-data ]] || { echo 'GUARD=TARGET_CHANGED'; exit 1; }
 done
 expected="$(printf '%s\n' "${directories[@]}" | LC_ALL=C sort)"
-actual="$(find "$private" -name livewire-tmp -prune -o -type d ! -perm -g+rx -print | LC_ALL=C sort)"
+actual="$(find "$private" -name livewire-tmp -prune -o -type d ! -perm -g+rx -print | LC_ALL=C sort)" || { echo 'GUARD=PRIVATE_SCAN_FAILED'; exit 1; }
 [[ "$actual" == "$expected" ]] || { echo 'GUARD=UNREVIEWED_PRIVATE_DIRECTORY'; exit 1; }
-[[ -z "$(find "$private" -name livewire-tmp -prune -o -type f ! -perm -g+r -print -quit)" ]] || { echo 'GUARD=UNREADABLE_PRIVATE_FILE'; exit 1; }
-[[ -z "$(find "$private" -name livewire-tmp -prune -o -type f ! -group www-data ! -user tpzadmin -print -quit)" ]] || { echo 'GUARD=UNREVIEWED_FILE_OWNERSHIP'; exit 1; }
+unreadable="$(find "$private" -name livewire-tmp -prune -o -type f ! -perm -g+r -print -quit)" || { echo 'GUARD=PRIVATE_SCAN_FAILED'; exit 1; }
+[[ -z "$unreadable" ]] || { echo 'GUARD=UNREADABLE_PRIVATE_FILE'; exit 1; }
+unowned="$(find "$private" -name livewire-tmp -prune -o -type f ! -group www-data ! -user tpzadmin -print -quit)" || { echo 'GUARD=PRIVATE_SCAN_FAILED'; exit 1; }
+[[ -z "$unowned" ]] || { echo 'GUARD=UNREVIEWED_FILE_OWNERSHIP'; exit 1; }
 
 printf 'SERVER_ID=VERIFIED\nSTAGING_BASELINE=VERIFIED\nBACKUP_ACCOUNT=tpzadmin\n'
 for directory in "${directories[@]}"; do

@@ -2,6 +2,7 @@
 
 namespace App\Services\Hr;
 
+use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
@@ -13,6 +14,7 @@ use App\Models\WorkScheduleAssignment;
 use App\Models\WorkScheduleDay;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\HrAuthorization;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -249,6 +251,50 @@ class WorkScheduleService
             $this->activity->log('work_schedule.status_changed', $actor, $locked, ['status' => $active ? 'active' : 'inactive']);
 
             return $locked;
+        });
+    }
+
+    public function approveCompanyDefault(int $scheduleId, string $effectiveFrom, string $reason, User $actor): void
+    {
+        $this->authorize($actor);
+        throw_unless($actor->employee?->role === EmployeeRole::Owner, AuthorizationException::class);
+
+        $validated = Validator::make([
+            'work_schedule_id' => $scheduleId,
+            'effective_from' => $effectiveFrom,
+            'reason' => trim($reason),
+        ], [
+            'work_schedule_id' => ['required', 'integer', 'exists:work_schedules,id'],
+            'effective_from' => ['required', 'date_format:Y-m-d', 'after:'.CarbonImmutable::today('Asia/Karachi')->toDateString()],
+            'reason' => ['required', 'string', 'max:255'],
+        ])->validate();
+
+        DB::transaction(function () use ($validated, $actor): void {
+            $schedule = WorkSchedule::query()->lockForUpdate()->findOrFail($validated['work_schedule_id']);
+            if (! $schedule->status || $schedule->timezone !== 'Asia/Karachi'
+                || $schedule->days()->count() !== max(1, (int) $schedule->cycle_length_weeks) * 7) {
+                throw ValidationException::withMessages(['work_schedule_id' => 'Choose an active Pakistan Work Schedule with a complete day pattern.']);
+            }
+
+            $latest = DB::table('company_work_schedule_versions')->orderByDesc('effective_from')->lockForUpdate()->first();
+            if ($latest !== null && $validated['effective_from'] <= $latest->effective_from) {
+                throw ValidationException::withMessages(['effective_from' => 'The approval date must be after the latest company-default version.']);
+            }
+
+            $versionId = DB::table('company_work_schedule_versions')->insertGetId([
+                'work_schedule_id' => $schedule->id,
+                'effective_from' => $validated['effective_from'],
+                'reason' => $validated['reason'],
+                'approved_at' => now(),
+                'approved_by_user_id' => $actor->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $this->activity->log('work_schedule.company_default_approved', $actor, $schedule, [
+                'version_id' => $versionId,
+                'effective_from' => $validated['effective_from'],
+                'reason' => $validated['reason'],
+            ]);
         });
     }
 

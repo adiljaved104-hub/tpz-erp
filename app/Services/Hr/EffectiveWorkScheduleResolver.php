@@ -8,10 +8,13 @@ use App\Models\WorkScheduleAssignment;
 use App\Models\WorkScheduleDay;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class EffectiveWorkScheduleResolver
 {
+    private bool $approvalSchemaReady = false;
+
     public function assignment(Employee $employee, CarbonImmutable $date): ?WorkScheduleAssignment
     {
         $base = WorkScheduleAssignment::query()
@@ -26,7 +29,18 @@ class EffectiveWorkScheduleResolver
             return $explicit;
         }
 
-        $version = DB::table('company_work_schedule_versions')->where('effective_from', '<=', $date->toDateString())
+        // Fail closed while the forward-only approval migration is pending. The
+        // earlier migration's seeded version must never activate on its own.
+        if (! $this->approvalSchemaReady) {
+            if (! Schema::hasTable('company_work_schedule_versions')
+                || ! Schema::hasColumn('company_work_schedule_versions', 'approved_at')) {
+                return null;
+            }
+            $this->approvalSchemaReady = true;
+        }
+
+        $version = DB::table('company_work_schedule_versions')->whereNotNull('approved_at')
+            ->where('effective_from', '<=', $date->toDateString())
             ->orderByDesc('effective_from')->first();
         if ($version === null) {
             return null;

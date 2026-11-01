@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages\Hr;
 
+use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Models\Employee;
 use App\Models\Team;
@@ -71,6 +72,12 @@ class WorkSchedules extends Page
     public string $assignmentReason = '';
 
     public ?int $assignmentGraceMinutesOverride = null;
+
+    public ?int $defaultWorkScheduleId = null;
+
+    public string $defaultEffectiveFrom = '';
+
+    public string $defaultReason = '';
 
     public static function canAccess(): bool
     {
@@ -201,6 +208,24 @@ class WorkSchedules extends Page
         }
     }
 
+    public function approveCompanyDefault(): void
+    {
+        try {
+            app(WorkScheduleService::class)->approveCompanyDefault(
+                (int) $this->defaultWorkScheduleId,
+                $this->defaultEffectiveFrom,
+                $this->defaultReason,
+                $this->user(),
+            );
+            $this->reset('defaultWorkScheduleId', 'defaultEffectiveFrom', 'defaultReason');
+            Notification::make()->success()->title('Company default approved')->body('It will apply from the approved future date only.')->send();
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            $this->showErrors($exception, 'default');
+        }
+    }
+
     public function endAssignmentAction(): Action
     {
         return Action::make('endAssignment')
@@ -255,10 +280,11 @@ class WorkSchedules extends Page
         $assignedEmployeeIds = $directEmployeeIds->merge($activeEmployees->whereIn('team_id', $assignedTeamIds)->pluck('id'))->unique();
         $defaultVersions = DB::table('company_work_schedule_versions as versions')
             ->join('work_schedules as schedules', 'schedules.id', '=', 'versions.work_schedule_id')
-            ->select('versions.work_schedule_id', 'versions.effective_from', 'schedules.name', 'schedules.status')
+            ->select('versions.work_schedule_id', 'versions.effective_from', 'versions.approved_at', 'schedules.name', 'schedules.status')
             ->orderByDesc('versions.effective_from');
         $companyDefault = (clone $defaultVersions)->first();
-        $currentDefault = (clone $defaultVersions)->whereDate('versions.effective_from', '<=', $today)->first();
+        $currentDefault = (clone $defaultVersions)->whereNotNull('versions.approved_at')
+            ->whereDate('versions.effective_from', '<=', $today)->first();
         $hasCompanyDefault = $currentDefault !== null && (bool) $currentDefault->status
             && DB::table('work_schedule_days')->where('work_schedule_id', $currentDefault->work_schedule_id)->exists();
         $search = trim($this->assignmentEmployeeSearch);
@@ -278,6 +304,7 @@ class WorkSchedules extends Page
             'activeScheduleCount' => WorkSchedule::query()->where('status', true)->count(),
             'companyDefault' => $companyDefault,
             'companyDefaultActiveToday' => $hasCompanyDefault,
+            'canApproveCompanyDefault' => $this->user()->employee?->role === EmployeeRole::Owner,
             'assignedEmployeeCount' => $hasCompanyDefault ? $activeEmployees->count() : $activeEmployees->whereIn('id', $assignedEmployeeIds)->count(),
             'unassignedEmployeeCount' => $hasCompanyDefault ? 0 : max(0, $activeEmployees->count() - $activeEmployees->whereIn('id', $assignedEmployeeIds)->count()),
             'schedules' => WorkSchedule::query()->withCount([

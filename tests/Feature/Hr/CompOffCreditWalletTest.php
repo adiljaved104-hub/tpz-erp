@@ -32,6 +32,7 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -101,15 +102,19 @@ class CompOffCreditWalletTest extends TestCase
     public function test_work_schedule_dashboard_distinguishes_future_default_from_coverage_today(): void
     {
         [$owner, $staff] = $this->people();
-        Carbon::setTestNow('2026-10-31 12:00:00 Asia/Karachi');
+        $effectiveFrom = CarbonImmutable::parse(
+            DB::table('company_work_schedule_versions')->latest('effective_from')->value('effective_from'),
+            'Asia/Karachi',
+        );
+        Carbon::setTestNow($effectiveFrom->subDay()->setTime(12, 0));
 
         Livewire::actingAs($owner)->test(WorkSchedules::class)
             ->assertViewHas('assignedEmployeeCount', 0)
             ->assertViewHas('unassignedEmployeeCount', 2)
-            ->assertSee('01 Nov 2026')
+            ->assertSee($effectiveFrom->format('d M Y'))
             ->assertSee('Employees without individual or team schedules automatically follow the company default');
 
-        Carbon::setTestNow('2026-11-02 12:00:00 Asia/Karachi');
+        Carbon::setTestNow($effectiveFrom->addDay()->setTime(12, 0));
         Livewire::actingAs($owner)->test(WorkSchedules::class)
             ->assertViewHas('assignedEmployeeCount', 2)
             ->assertViewHas('unassignedEmployeeCount', 0)

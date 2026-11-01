@@ -122,6 +122,7 @@ class BackupRestoreTest extends TestCase
         $permissions = config('filesystems.disks.local.permissions');
         $this->assertSame(0640, $permissions['file']['private']);
         $this->assertSame(0750, $permissions['dir']['private']);
+        $this->assertSame('private', config('filesystems.disks.local.visibility'));
         $this->assertSame('local', config('filesystems.default'));
     }
 

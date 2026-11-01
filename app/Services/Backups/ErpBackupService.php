@@ -218,14 +218,17 @@ class ErpBackupService
                     return false;
                 }
 
+                $relative = str_replace('\\', '/', substr($entry->getPathname(), strlen($root) + 1));
+                if ($this->storagePathExcluded($relative)) {
+                    return false;
+                }
+
                 if (! $entry->isReadable() || ($entry->isDir() && PHP_OS_FAMILY !== 'Windows'
                     && ! is_executable($entry->getPathname()))) {
                     throw new BackupStorageAccessException;
                 }
 
-                $relative = str_replace('\\', '/', substr($entry->getPathname(), strlen($root) + 1));
-
-                return ! $this->storagePathExcluded($relative);
+                return true;
             },
         );
 

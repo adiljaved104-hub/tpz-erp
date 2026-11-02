@@ -46,5 +46,65 @@
         </table>
     </div>
     {{ $rows->links() }}
+    <x-filament::section heading="Returns Needing Review" description="Reported discrepancies are not confirmed physical custody or valued damaged stock.">
+        <div class="max-w-full overflow-x-auto">
+            <table class="w-full min-w-[1100px] text-sm">
+                <thead class="bg-gray-50 text-left dark:bg-white/5"><tr>
+                    @foreach (['Return / Order', 'Marketplace', 'Originally sold', 'Reported actual item', 'Problem', 'Evidence', 'Expected return qty', 'Confirmed held', 'Responsible employee', 'Review / protection', 'Case'] as $heading)
+                        <th class="px-3 py-2 font-medium">{{ $heading }}</th>
+                    @endforeach
+                </tr></thead>
+                <tbody class="divide-y divide-gray-200 dark:divide-white/10">
+                    @forelse ($returnExceptions as $case)
+                        @php($return = $case->item->customerReturn)
+                        <tr class="align-top">
+                            <td class="px-3 py-2"><a class="text-primary-600 underline" href="{{ \App\Filament\Resources\CustomerReturns\CustomerReturnResource::getUrl('view', ['record' => $return->id]) }}">{{ $return->reference }}</a><br>{{ $return->order?->reference ?? '—' }}</td>
+                            <td class="px-3 py-2">{{ $return->platform?->name ?? 'Internal' }}</td>
+                            <td class="px-3 py-2">{{ $case->item->sku_snapshot }} — {{ $case->item->product_name_snapshot }}</td>
+                            <td class="px-3 py-2">{{ $case->finding->actual_product_name ?: ($case->new_problem_type === 'empty_package' ? 'Empty package reported' : 'Not identified') }}</td>
+                            <td class="px-3 py-2">{{ str($case->new_problem_type)->replace('_', ' ')->headline() }}</td>
+                            <td class="px-3 py-2">{{ $case->evidence ? 'Evidence Ready' : 'Evidence Pending' }}</td>
+                            <td class="px-3 py-2">{{ $case->item->return_quantity }}</td>
+                            <td class="px-3 py-2">{{ $case->item->quarantine?->currentCustodyQuantity() ?? 'Not verified' }}</td>
+                            <td class="px-3 py-2">{{ $case->finding->recordedBy?->name ?? '—' }}</td>
+                            <td class="px-3 py-2">{{ str($case->status)->replace('_', ' ')->headline() }}<br><span class="text-gray-500">{{ $case->protection_status === 'held' && ! $case->hasVerifiedInventoryHold() ? 'Protection unverified — manual review' : str($case->protection_status)->replace('_', ' ')->headline() }}</span>@if (in_array($case->protection_status, ['assessment_pending', 'manual_reconciliation'], true))<br><strong>Stock protection not verified</strong>@endif</td>
+                            <td class="px-3 py-2">{{ $case->item->quarantine?->claim_case_reference ?: $case->item->claim?->reference ?: ($return->platform?->customer_return_claims_enabled ? 'Claim review eligible; no case yet' : 'No eligible case') }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="11" class="px-3 py-6 text-center text-gray-500">No unresolved evidence exceptions are visible in your scope.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+        {{ $returnExceptions->links() }}
+        <p class="mt-5 text-sm font-medium">Confirmed custody records</p>
+        <div class="max-w-full overflow-x-auto">
+            <table class="w-full min-w-[900px] text-sm">
+                <thead class="bg-gray-50 text-left dark:bg-white/5"><tr>
+                    @foreach (['Return', 'Original ordered product', 'Actually received', 'Receiving Warehouse', 'Items Currently Held', 'Reason', 'Case / Evidence', 'Recorded by', 'Review'] as $heading)
+                        <th class="px-3 py-2 font-medium">{{ $heading }}</th>
+                    @endforeach
+                </tr></thead>
+                <tbody class="divide-y divide-gray-200 dark:divide-white/10">
+                    @forelse ($quarantinedReturns as $exception)
+                        <tr>
+                            <td class="px-3 py-2"><a class="text-primary-600 underline" href="{{ \App\Filament\Resources\CustomerReturns\CustomerReturnResource::getUrl('view', ['record' => $exception->item->customer_return_id]) }}">{{ $exception->item->customerReturn->reference }}</a></td>
+                            <td class="px-3 py-2">{{ $exception->item->sku_snapshot }} — {{ $exception->item->product_name_snapshot }}</td>
+                            <td class="px-3 py-2">{{ $exception->actual_product_name ?: ($exception->problem_type === 'empty_package' ? 'Empty package' : 'Unidentified item') }}</td>
+                            <td class="px-3 py-2">{{ $exception->warehouse->name }}</td>
+                            <td class="px-3 py-2">{{ $exception->currentCustodyQuantity() ?? 'Pending count' }}</td>
+                            <td class="px-3 py-2">{{ str($exception->problem_type)->replace('_', ' ')->headline() }}</td>
+                            <td class="px-3 py-2">{{ $exception->claim_case_reference ?: 'Not eligible for an automatic marketplace case' }}<br><span class="text-gray-500">{{ $exception->evidenceReadiness() }}</span></td>
+                            <td class="px-3 py-2">{{ $exception->recordedBy?->name ?? '—' }}</td>
+                            <td class="px-3 py-2">{{ $exception->status === 'awaiting_review' ? 'Owner/Admin review pending' : ($exception->disposition === 'retain_in_quarantine' ? 'Keep Item for Review' : str($exception->disposition)->replace('_', ' ')->headline()) }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="9" class="px-3 py-6 text-center text-gray-500">No returns needing review are visible in your scope.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+        {{ $quarantinedReturns->links() }}
+    </x-filament::section>
     <x-filament-actions::modals />
 </x-filament-panels::page>

@@ -3,9 +3,10 @@
 namespace App\Services\Backups;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\File;
+use FilesystemIterator;
 use PDO;
 use RuntimeException;
+use Throwable;
 
 class BackupHistoryService
 {
@@ -20,33 +21,54 @@ class BackupHistoryService
         }
 
         $history = [];
-        foreach (File::directories($root) as $directory) {
-            $manifestPath = $directory.DIRECTORY_SEPARATOR.'manifest.json';
-            if (! is_file($manifestPath)) {
-                continue;
+        try {
+            if (! is_readable($root) || (PHP_OS_FAMILY !== 'Windows' && ! is_executable($root))) {
+                return [];
             }
 
-            $manifest = json_decode((string) file_get_contents($manifestPath), true);
-            if (! is_array($manifest)) {
-                continue;
-            }
+            // Unlike File::directories(), FilesystemIterator includes hidden
+            // .incomplete-* directories that contain failed backup manifests.
+            foreach (new FilesystemIterator($root, FilesystemIterator::SKIP_DOTS) as $entry) {
+                if ($entry->isLink() || ! $entry->isDir()) {
+                    continue;
+                }
 
-            try {
-                $timestamp = CarbonImmutable::parse((string) ($manifest['backup_timestamp'] ?? ''));
-            } catch (\Throwable) {
-                continue;
-            }
+                $directory = $entry->getPathname();
+                $manifestPath = $directory.DIRECTORY_SEPARATOR.'manifest.json';
+                if (is_link($manifestPath) || ! is_file($manifestPath) || ! is_readable($manifestPath)) {
+                    continue;
+                }
 
-            $files = (array) ($manifest['files'] ?? []);
-            $history[] = [
-                'id' => basename($directory),
-                'timestamp' => $timestamp,
-                'status' => (string) ($manifest['status'] ?? 'unknown'),
-                'database' => collect($files)->contains(fn (array $file): bool => ($file['kind'] ?? null) === 'database'),
-                'storage' => collect($files)->contains(fn (array $file): bool => ($file['kind'] ?? null) === 'storage'),
-                'bytes' => (int) collect($files)->sum(fn (array $file): int => (int) ($file['bytes'] ?? 0)),
-                'driver' => (string) ($manifest['database_driver'] ?? '—'),
-            ];
+                try {
+                    $contents = file_get_contents($manifestPath);
+                    $manifest = is_string($contents) ? json_decode($contents, true) : null;
+                    if (! is_array($manifest) || blank($manifest['backup_timestamp'] ?? null)) {
+                        continue;
+                    }
+
+                    $timestamp = CarbonImmutable::parse((string) $manifest['backup_timestamp']);
+                } catch (Throwable) {
+                    continue;
+                }
+
+                $files = array_values(array_filter(
+                    is_array($manifest['files'] ?? null) ? $manifest['files'] : [],
+                    static fn (mixed $file): bool => is_array($file),
+                ));
+                $status = $manifest['status'] ?? null;
+                $driver = $manifest['database_driver'] ?? null;
+                $history[] = [
+                    'id' => basename($directory),
+                    'timestamp' => $timestamp,
+                    'status' => is_string($status) ? $status : 'unknown',
+                    'database' => collect($files)->contains(fn (array $file): bool => ($file['kind'] ?? null) === 'database'),
+                    'storage' => collect($files)->contains(fn (array $file): bool => ($file['kind'] ?? null) === 'storage'),
+                    'bytes' => (int) collect($files)->sum(fn (array $file): int => (int) ($file['bytes'] ?? 0)),
+                    'driver' => is_string($driver) ? $driver : '—',
+                ];
+            }
+        } catch (Throwable) {
+            // Preserve readable rows if enumeration stops unexpectedly.
         }
 
         usort($history, fn (array $left, array $right): int => $right['timestamp']->timestamp <=> $left['timestamp']->timestamp);

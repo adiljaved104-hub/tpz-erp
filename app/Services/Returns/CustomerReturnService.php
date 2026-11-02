@@ -53,7 +53,7 @@ class CustomerReturnService
         private readonly SafetClaimService $claims,
     ) {}
 
-    public function create(CreateCustomerReturnData $data, User $actor): CustomerReturn
+    public function create(CreateCustomerReturnData $data, User $actor, ?string $reservedReference = null): CustomerReturn
     {
         $this->authorization->authorize($actor, CustomerReturnPermission::Create);
         $validated = Validator::make((array) $data, [
@@ -67,7 +67,7 @@ class CustomerReturnService
 
             return $existing;
         }
-        $reference = $this->references->nextCustomerReturnReference();
+        $reference = $reservedReference ?? $this->references->nextCustomerReturnReference();
 
         return DB::transaction(function () use ($data, $validated, $actor, $reference): CustomerReturn {
             $order = Order::query()->with('fulfillment')->lockForUpdate()->findOrFail($data->orderId);
@@ -111,7 +111,8 @@ class CustomerReturnService
         }, 5);
     }
 
-    public function receive(CustomerReturn $return, User $actor): CustomerReturn
+    /** @param array<int, string>|null $reservedMovementRefs References keyed by fulfilment item ID. */
+    public function receive(CustomerReturn $return, User $actor, ?array $reservedMovementRefs = null): CustomerReturn
     {
         $this->authorization->authorize($actor, CustomerReturnPermission::Receive, $return);
         $return->loadMissing(['items', 'fulfillmentWarehouse.marketplacePlatform']);
@@ -124,7 +125,13 @@ class CustomerReturnService
         }
         $movementRefs = [];
         foreach ($return->items->sortBy('id') as $item) {
-            $movementRefs[$item->id] = $this->references->nextStockMovementReference();
+            if ($item->quarantine()->exists()) {
+                continue;
+            }
+            $movementRefs[$item->id] = $reservedMovementRefs === null
+                ? $this->references->nextStockMovementReference()
+                : ($reservedMovementRefs[$item->order_fulfillment_item_id]
+                    ?? throw new CustomerReturnException('A receipt reference was not reserved for this return item.'));
         }
 
         return DB::transaction(function () use ($return, $actor, $movementRefs): CustomerReturn {
@@ -138,6 +145,11 @@ class CustomerReturnService
             }
             $group = (string) Str::uuid();
             foreach ($locked->items as $item) {
+                // A declared identity discrepancy is physical custody, not a receipt
+                // of the originally sold SKU. It is tracked outside product inventory.
+                if ($item->quarantine()->exists()) {
+                    continue;
+                }
                 $inventory = $this->balances->lockOrCreate($item->product_id, $locked->receiving_warehouse_id);
                 $before = $this->snapshot($inventory);
                 $value = bcmul((string) $item->inventory_unit_cost, (string) $item->return_quantity, 4);
@@ -155,7 +167,8 @@ class CustomerReturnService
         }, 5);
     }
 
-    public function inspect(CustomerReturnItem $item, InspectCustomerReturnItemData $data, User $actor): CustomerReturn
+    /** @param array<string, string>|null $reservedReferences */
+    public function inspect(CustomerReturnItem $item, InspectCustomerReturnItemData $data, User $actor, ?array $reservedReferences = null): CustomerReturn
     {
         $return = $item->customerReturn()->with('order')->firstOrFail();
         $this->authorization->authorize($actor, CustomerReturnPermission::Inspect, $return);
@@ -163,20 +176,32 @@ class CustomerReturnService
         if ($total <= 0) {
             throw new CustomerReturnException('Enter a positive Sellable or Damaged quantity.');
         }
+        if ($data->problemType !== null && ($data->damagedQuantity === 0
+            || ! in_array($data->problemType, ['damaged', 'defective', 'missing_accessories', 'other'], true))) {
+            throw new CustomerReturnException('Choose a valid problem for damaged Return QC.');
+        }
         if (CustomerReturnInspection::query()->where('posting_key', $data->postingKey)->exists()) {
             throw new CustomerReturnException('This inspection has already been posted.');
         }
         $movementRefs = [];
         if ($data->sellableQuantity > 0) {
-            $movementRefs['sellable'] = $this->references->nextStockMovementReference();
+            $movementRefs['sellable'] = $reservedReferences === null
+                ? $this->references->nextStockMovementReference()
+                : ($reservedReferences['sellable'] ?? throw new CustomerReturnException('A sellable QC reference was not reserved.'));
         } if ($data->damagedQuantity > 0) {
-            $movementRefs['damaged'] = $this->references->nextStockMovementReference();
+            $movementRefs['damaged'] = $reservedReferences === null
+                ? $this->references->nextStockMovementReference()
+                : ($reservedReferences['damaged'] ?? throw new CustomerReturnException('A damaged QC reference was not reserved.'));
         }
         $damageReference = $data->damagedQuantity > 0
-            ? $this->references->nextDamagedStockReference()
+            ? ($reservedReferences === null
+                ? $this->references->nextDamagedStockReference()
+                : ($reservedReferences['damage'] ?? throw new CustomerReturnException('A damaged stock reference was not reserved.')))
             : null;
-        $claimReference = $data->damagedQuantity > 0 && $this->claims->eligible($item)
-            ? $this->references->nextSafetClaimReference()
+        $claimReference = $data->damagedQuantity > 0 && $this->claims->eligible($item, $data->problemType)
+            ? ($reservedReferences === null
+                ? $this->references->nextSafetClaimReference()
+                : ($reservedReferences['claim'] ?? throw new CustomerReturnException('An eligible claim reference was not reserved.')))
             : null;
 
         return DB::transaction(function () use ($item, $data, $actor, $total, $movementRefs, $damageReference, $claimReference): CustomerReturn {
@@ -184,6 +209,9 @@ class CustomerReturnService
             $return = CustomerReturn::query()->with('items')->lockForUpdate()->findOrFail($locked->customer_return_id);
             if ($return->status !== CustomerReturnStatus::QcPending) {
                 throw new CustomerReturnException('Only QC Pending Returns can be inspected.');
+            }
+            if ($locked->hasIdentityDiscrepancy()) {
+                throw new CustomerReturnException('Evidence reports a wrong or unverified item. Resolve its disposition before posting inventory for the originally sold product.');
             }
             $inspected = (int) CustomerReturnInspection::query()->where('customer_return_item_id', $locked->id)
                 ->orWhereIn('marketplace_return_removal_item_id', $locked->removalItems()->select('id'))->sum('quantity');
@@ -216,7 +244,7 @@ class CustomerReturnService
                 if ($quantity <= 0) {
                     continue;
                 }
-                $inspection = CustomerReturnInspection::query()->create(['customer_return_item_id' => $locked->id, 'quantity' => $quantity, 'result' => $enum, 'inspected_by_user_id' => $actor->id, 'inspected_at' => now(), 'notes' => $data->notes, 'posting_key' => $ordinal++ === 0 ? $data->postingKey : (string) Str::uuid()]);
+                $inspection = CustomerReturnInspection::query()->create(['customer_return_item_id' => $locked->id, 'quantity' => $quantity, 'result' => $enum, 'problem_type' => $enum === CustomerReturnInspectionResult::Damaged ? $data->problemType : null, 'inspected_by_user_id' => $actor->id, 'inspected_at' => now(), 'notes' => $data->notes, 'posting_key' => $ordinal++ === 0 ? $data->postingKey : (string) Str::uuid()]);
                 $type = $enum === CustomerReturnInspectionResult::Sellable ? StockMovementType::CustomerReturnQcSellable : StockMovementType::CustomerReturnQcDamaged;
                 $movement = $this->movement($inventory, $inspection, $actor, $movementRefs[$enum->value], $group, $type, $quantity, $enum === CustomerReturnInspectionResult::Sellable ? $quantity : 0, $enum === CustomerReturnInspectionResult::Damaged ? $quantity : 0, $before, (string) $locked->inventory_unit_cost, 'Customer Return QC classification');
                 if ($enum === CustomerReturnInspectionResult::Sellable) {
@@ -227,7 +255,7 @@ class CustomerReturnService
                 $qBefore -= $quantity;
                 $vBefore = bcsub($vBefore, $portion, 4);
                 if ($enum === CustomerReturnInspectionResult::Damaged) {
-                    $this->damagedStock->recordReturnQcDamage($inspection, $inventory, $actor, $damageReference, $claimReference);
+                    $this->damagedStock->recordReturnQcDamage($inspection, $inventory, $actor, $damageReference, $claimReference, $data->problemType);
                 }
             }
             $complete = $return->items->every(function (CustomerReturnItem $ri): bool {
@@ -236,7 +264,9 @@ class CustomerReturnService
                 $inspected = (int) CustomerReturnInspection::query()->where('customer_return_item_id', $ri->id)
                     ->orWhereIn('marketplace_return_removal_item_id', $ri->removalItems()->select('id'))->sum('quantity');
 
-                return $sellableAtMarketplace + $inspected === $ri->return_quantity;
+                $resolvedException = $ri->quarantine()->where('status', 'resolved')->sum('expected_quantity');
+
+                return $sellableAtMarketplace + $inspected + $resolvedException === $ri->return_quantity;
             });
             if ($complete) {
                 $return->forceFill(['status' => CustomerReturnStatus::Completed, 'completed_at' => now()])->save();

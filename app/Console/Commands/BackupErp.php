@@ -4,8 +4,10 @@ namespace App\Console\Commands;
 
 use App\Services\Backups\BackupRetentionService;
 use App\Services\Backups\BackupSettingsService;
+use App\Services\Backups\BackupStorageAccessException;
 use App\Services\Backups\ErpBackupService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class BackupErp extends Command
@@ -47,7 +49,13 @@ class BackupErp extends Command
             ));
 
             return self::SUCCESS;
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            // Log a safe category even when preflight fails before a manifest exists.
+            // Exception messages may contain protected paths or database details.
+            Log::error('ERP backup command failed.', [
+                'exception_class' => $exception::class,
+                'category' => $exception instanceof BackupStorageAccessException ? 'storage_unreadable' : 'other',
+            ]);
             $this->error('ERP backup failed. Previous successful backups were not pruned. Review the application log for the safe diagnostic.');
 
             return self::FAILURE;

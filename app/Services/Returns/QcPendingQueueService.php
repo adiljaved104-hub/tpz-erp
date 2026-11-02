@@ -94,10 +94,11 @@ class QcPendingQueueService
             ->leftJoinSub($inspected, 'inspection_totals', 'inspection_totals.customer_return_item_id', '=', 'cri.id')
             ->leftJoinSub($companyReceived, 'company_received', 'company_received.customer_return_item_id', '=', 'cri.id')
             ->leftJoinSub($marketplaceDispositioned, 'marketplace_dispositioned', 'marketplace_dispositioned.customer_return_item_id', '=', 'cri.id')
+            ->leftJoin('customer_return_quarantines as return_quarantine', 'return_quarantine.customer_return_item_id', '=', 'cri.id')
             ->whereIn('cr.id', app(CustomerReturnReadService::class)->query($user)->select('customer_returns.id'))
             ->whereNotNull('cr.received_at')
             ->whereRaw('COALESCE(marketplace_dispositioned.dispositioned_quantity, 0) = 0')
-            ->whereRaw('(CASE WHEN COALESCE(marketplace_dispositioned.dispositioned_quantity, 0) > 0 THEN COALESCE(company_received.received_quantity, 0) ELSE cri.return_quantity END) > COALESCE(inspection_totals.inspected_quantity, 0)')
+            ->whereRaw('(CASE WHEN COALESCE(marketplace_dispositioned.dispositioned_quantity, 0) > 0 THEN COALESCE(company_received.received_quantity, 0) ELSE cri.return_quantity END) - COALESCE(return_quarantine.expected_quantity, 0) > COALESCE(inspection_totals.inspected_quantity, 0)')
             ->select([
                 'cri.id', 'cri.customer_return_id', 'cr.reference as return_reference', 'orders.reference as order_reference',
                 'cri.sku_snapshot as sku', 'cri.product_name_snapshot as product_name',
@@ -106,8 +107,8 @@ class QcPendingQueueService
             ])
             ->selectRaw("'customer_return' AS source_kind, cri.customer_return_id AS source_id, cr.reference AS subject_key, COALESCE(cri.company_receiving_warehouse_id, cr.receiving_warehouse_id) AS receiving_warehouse_id, cr.marketplace_platform_id AS platform_id")
             ->selectRaw('COALESCE(inspection_totals.inspected_quantity, 0) AS inspected_quantity')
-            ->selectRaw('(CASE WHEN COALESCE(marketplace_dispositioned.dispositioned_quantity, 0) > 0 THEN COALESCE(company_received.received_quantity, 0) ELSE cri.return_quantity END) AS received_quantity')
-            ->selectRaw('(CASE WHEN COALESCE(marketplace_dispositioned.dispositioned_quantity, 0) > 0 THEN COALESCE(company_received.received_quantity, 0) ELSE cri.return_quantity END) - COALESCE(inspection_totals.inspected_quantity, 0) AS pending_quantity');
+            ->selectRaw('(CASE WHEN COALESCE(marketplace_dispositioned.dispositioned_quantity, 0) > 0 THEN COALESCE(company_received.received_quantity, 0) ELSE cri.return_quantity END) - COALESCE(return_quarantine.expected_quantity, 0) AS received_quantity')
+            ->selectRaw('(CASE WHEN COALESCE(marketplace_dispositioned.dispositioned_quantity, 0) > 0 THEN COALESCE(company_received.received_quantity, 0) ELSE cri.return_quantity END) - COALESCE(return_quarantine.expected_quantity, 0) - COALESCE(inspection_totals.inspected_quantity, 0) AS pending_quantity');
 
         $removalInspected = DB::table('customer_return_inspections')->whereNotNull('marketplace_return_removal_item_id')
             ->selectRaw('marketplace_return_removal_item_id, SUM(quantity) AS inspected_quantity')->groupBy('marketplace_return_removal_item_id');

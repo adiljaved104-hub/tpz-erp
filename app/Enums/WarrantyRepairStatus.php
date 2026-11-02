@@ -16,6 +16,7 @@ enum WarrantyRepairStatus: string implements HasColor, HasLabel
     case RepairCompleted = 'repair_completed';
     case ReceivedBack = 'received_back';
     case QcPending = 'qc_pending';
+    case PendingClassification = 'pending_classification';
     case ReadyToReturn = 'ready_to_return';
     case DispatchedBack = 'dispatched_back';
     case Completed = 'completed';
@@ -32,7 +33,7 @@ enum WarrantyRepairStatus: string implements HasColor, HasLabel
         return match ($this) {
             self::Received, self::InspectionPending, self::UnderInspection => 'gray',
             self::SendToTechnician, self::InRepair => 'info',
-            self::WaitingForParts, self::QcPending => 'warning',
+            self::WaitingForParts, self::QcPending, self::PendingClassification => 'warning',
             self::RepairCompleted, self::ReceivedBack, self::ReadyToReturn, self::DispatchedBack, self::Completed => 'success',
             self::CannotRepair, self::Cancelled => 'danger',
         };

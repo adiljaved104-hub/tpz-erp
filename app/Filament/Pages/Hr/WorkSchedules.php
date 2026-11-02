@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages\Hr;
 
+use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Models\Employee;
 use App\Models\Team;
@@ -10,6 +11,7 @@ use App\Models\WorkSchedule;
 use App\Models\WorkScheduleAssignment;
 use App\Services\Authorization\HrAuthorization;
 use App\Services\Hr\WorkScheduleService;
+use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
@@ -18,6 +20,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class WorkSchedules extends Page
@@ -69,6 +72,12 @@ class WorkSchedules extends Page
     public string $assignmentReason = '';
 
     public ?int $assignmentGraceMinutesOverride = null;
+
+    public ?int $defaultWorkScheduleId = null;
+
+    public string $defaultEffectiveFrom = '';
+
+    public string $defaultReason = '';
 
     public static function canAccess(): bool
     {
@@ -199,6 +208,24 @@ class WorkSchedules extends Page
         }
     }
 
+    public function approveCompanyDefault(): void
+    {
+        try {
+            app(WorkScheduleService::class)->approveCompanyDefault(
+                (int) $this->defaultWorkScheduleId,
+                $this->defaultEffectiveFrom,
+                $this->defaultReason,
+                $this->user(),
+            );
+            $this->reset('defaultWorkScheduleId', 'defaultEffectiveFrom', 'defaultReason');
+            Notification::make()->success()->title('Company default approved')->body('It will apply from the approved future date only.')->send();
+        } catch (AuthorizationException) {
+            abort(403);
+        } catch (ValidationException $exception) {
+            $this->showErrors($exception, 'default');
+        }
+    }
+
     public function endAssignmentAction(): Action
     {
         return Action::make('endAssignment')
@@ -241,15 +268,25 @@ class WorkSchedules extends Page
 
     public function getViewData(): array
     {
+        $today = CarbonImmutable::today('Asia/Karachi');
         $activeEmployees = Employee::query()->where('status', true)->get(['id', 'team_id']);
         $currentAssignments = WorkScheduleAssignment::query()
-            ->whereDate('effective_from', '<=', today())
-            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today()))
-            ->whereHas('schedule', fn ($query) => $query->where('status', true))
+            ->whereDate('effective_from', '<=', $today)
+            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $today))
+            ->whereHas('schedule', fn ($query) => $query->where('status', true)->whereHas('days'))
             ->get(['employee_id', 'team_id']);
         $directEmployeeIds = $currentAssignments->pluck('employee_id')->filter()->map(fn ($id): int => (int) $id);
         $assignedTeamIds = $currentAssignments->pluck('team_id')->filter()->map(fn ($id): int => (int) $id)->unique();
         $assignedEmployeeIds = $directEmployeeIds->merge($activeEmployees->whereIn('team_id', $assignedTeamIds)->pluck('id'))->unique();
+        $defaultVersions = DB::table('company_work_schedule_versions as versions')
+            ->join('work_schedules as schedules', 'schedules.id', '=', 'versions.work_schedule_id')
+            ->select('versions.work_schedule_id', 'versions.effective_from', 'versions.approved_at', 'schedules.name', 'schedules.status')
+            ->orderByDesc('versions.effective_from');
+        $companyDefault = (clone $defaultVersions)->first();
+        $currentDefault = (clone $defaultVersions)->whereNotNull('versions.approved_at')
+            ->whereDate('versions.effective_from', '<=', $today)->first();
+        $hasCompanyDefault = $currentDefault !== null && (bool) $currentDefault->status
+            && DB::table('work_schedule_days')->where('work_schedule_id', $currentDefault->work_schedule_id)->exists();
         $search = trim($this->assignmentEmployeeSearch);
         $employeeQuery = Employee::query()->where('status', true);
         if ($search !== '' || $this->assignmentEmployeeIds !== []) {
@@ -265,19 +302,22 @@ class WorkSchedules extends Page
 
         return [
             'activeScheduleCount' => WorkSchedule::query()->where('status', true)->count(),
-            'assignedEmployeeCount' => $activeEmployees->whereIn('id', $assignedEmployeeIds)->count(),
-            'unassignedEmployeeCount' => max(0, $activeEmployees->count() - $activeEmployees->whereIn('id', $assignedEmployeeIds)->count()),
+            'companyDefault' => $companyDefault,
+            'companyDefaultActiveToday' => $hasCompanyDefault,
+            'canApproveCompanyDefault' => $this->user()->employee?->role === EmployeeRole::Owner,
+            'assignedEmployeeCount' => $hasCompanyDefault ? $activeEmployees->count() : $activeEmployees->whereIn('id', $assignedEmployeeIds)->count(),
+            'unassignedEmployeeCount' => $hasCompanyDefault ? 0 : max(0, $activeEmployees->count() - $activeEmployees->whereIn('id', $assignedEmployeeIds)->count()),
             'schedules' => WorkSchedule::query()->withCount([
                 'days',
                 'assignments as current_assignments_count' => fn ($query) => $query
-                    ->whereDate('effective_from', '<=', today())
-                    ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', today())),
-                'assignments as ended_assignments_count' => fn ($query) => $query->whereDate('effective_to', '<', today()),
+                    ->whereDate('effective_from', '<=', $today)
+                    ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $today)),
+                'assignments as ended_assignments_count' => fn ($query) => $query->whereDate('effective_to', '<', $today),
             ])->with(['attendancePolicy:id,grace_minutes', 'days', 'assignments' => fn ($query) => $query->with(['employee:id,name,employee_id', 'team:id,name'])->latest('effective_from')->limit(20)])->orderBy('name')->get(),
             'employees' => $employeeQuery->orderBy('name')->get(['id', 'name', 'employee_id']),
             'teams' => Team::query()->where('status', true)->orderBy('name')->get(['id', 'name']),
             'weekdays' => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
-            'today' => today(),
+            'today' => $today,
         ];
     }
 
@@ -298,10 +338,10 @@ class WorkSchedules extends Page
         $days = [];
         foreach (range(1, $weeks) as $week) {
             foreach (range(0, 6) as $weekday) {
-                $working = ! in_array($weekday, [0, 6], true);
+                $working = $weekday !== 0;
                 $days[] = [
                     'cycle_week' => $week, 'weekday' => $weekday, 'is_working_day' => $working,
-                    'expected_start_time' => $working ? '09:00' : null, 'expected_end_time' => $working ? '17:00' : null,
+                    'expected_start_time' => $working ? '09:00' : null, 'expected_end_time' => $weekday === 6 ? '16:00' : ($working ? '17:00' : null),
                     'break_start_time' => null, 'break_end_time' => null, 'earns_compensatory_off' => false,
                 ];
             }

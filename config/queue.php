@@ -44,6 +44,29 @@ return [
             'after_commit' => env('DB_QUEUE_AFTER_COMMIT', true),
         ],
 
+        // A separate worker must process long-running video labels. Its lease
+        // exceeds the job timeout so a second worker cannot reclaim the same
+        // encoding job while the first still runs.
+        'return_evidence_labels' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'return-evidence-labels',
+            'retry_after' => 2100,
+            'after_commit' => true,
+        ],
+
+        // Separate from default ERP jobs and FFmpeg encoding. Its lease is
+        // longer than the 10-minute finalization job timeout.
+        'return_evidence_uploads' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'return-evidence-uploads',
+            'retry_after' => 900,
+            'after_commit' => true,
+        ],
+
         'beanstalkd' => [
             'driver' => 'beanstalkd',
             'host' => env('BEANSTALKD_QUEUE_HOST', 'localhost'),

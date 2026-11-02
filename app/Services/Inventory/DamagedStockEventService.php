@@ -22,6 +22,7 @@ class DamagedStockEventService
         User $actor,
         string $reference,
         ?string $claimReference = null,
+        ?string $problemType = null,
     ): DamagedStockEvent {
         if ($existing = DamagedStockEvent::query()->where('idempotency_key', $inspection->posting_key)->first()) {
             return $existing;
@@ -64,7 +65,7 @@ class DamagedStockEventService
         ]);
 
         if ($linkedReturnItem !== null) {
-            $this->claims->createFromQcDamage($event, $linkedReturnItem, $actor, $claimReference);
+            $this->claims->createFromQcDamage($event, $linkedReturnItem, $actor, $claimReference, $problemType);
         }
 
         return $event;

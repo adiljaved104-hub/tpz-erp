@@ -3,13 +3,18 @@
 namespace App\Services\Hr;
 
 use App\Models\Employee;
+use App\Models\WorkSchedule;
 use App\Models\WorkScheduleAssignment;
 use App\Models\WorkScheduleDay;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class EffectiveWorkScheduleResolver
 {
+    private bool $approvalSchemaReady = false;
+
     public function assignment(Employee $employee, CarbonImmutable $date): ?WorkScheduleAssignment
     {
         $base = WorkScheduleAssignment::query()
@@ -18,8 +23,40 @@ class EffectiveWorkScheduleResolver
             ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $date))
             ->latest('effective_from');
 
-        return (clone $base)->where('employee_id', $employee->id)->first()
+        $explicit = (clone $base)->where('employee_id', $employee->id)->first()
             ?? ($employee->team_id === null ? null : (clone $base)->whereNull('employee_id')->where('team_id', $employee->team_id)->first());
+        if ($explicit !== null) {
+            return $explicit;
+        }
+
+        // Fail closed while the forward-only approval migration is pending. The
+        // earlier migration's seeded version must never activate on its own.
+        if (! $this->approvalSchemaReady) {
+            if (! Schema::hasTable('company_work_schedule_versions')
+                || ! Schema::hasColumn('company_work_schedule_versions', 'approved_at')) {
+                return null;
+            }
+            $this->approvalSchemaReady = true;
+        }
+
+        $version = DB::table('company_work_schedule_versions')->whereNotNull('approved_at')
+            ->where('effective_from', '<=', $date->toDateString())
+            ->orderByDesc('effective_from')->first();
+        if ($version === null) {
+            return null;
+        }
+        $schedule = WorkSchedule::query()->with(['days', 'attendancePolicy'])->where('status', true)->find($version->work_schedule_id);
+        if ($schedule === null) {
+            return null;
+        }
+
+        $fallback = new WorkScheduleAssignment([
+            'work_schedule_id' => $schedule->id, 'effective_from' => $version->effective_from,
+            'effective_to' => null, 'grace_minutes_override' => null,
+        ]);
+        $fallback->setRelation('schedule', $schedule);
+
+        return $fallback;
     }
 
     public function graceMinutes(WorkScheduleAssignment $assignment): int

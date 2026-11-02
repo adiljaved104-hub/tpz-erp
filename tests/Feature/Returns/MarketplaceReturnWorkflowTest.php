@@ -36,16 +36,20 @@ use App\Models\ResponsibilityAssignment;
 use App\Models\ResponsibilityAssignmentPlatform;
 use App\Models\ResponsibilityAssignmentProduct;
 use App\Models\SafetClaim;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\MarketplaceReturnAuthorization;
 use App\Services\Inventory\InventoryBalanceService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\ReferenceSequenceService;
+use App\Services\Returns\CustomerReturnEvidenceService;
 use App\Services\Returns\MarketplaceReturnService;
 use App\Services\Returns\QcPendingQueueService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -53,6 +57,50 @@ use Tests\TestCase;
 class MarketplaceReturnWorkflowTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_wrong_item_evidence_blocks_marketplace_removal_qc_inventory_posting(): void
+    {
+        Storage::fake('local');
+        [$owner, $product, , $company, , $order] = $this->marketplaceOrder();
+        $return = app(CreateCustomerReturn::class)->handle(new CreateCustomerReturnData(
+            $order->id, null,
+            [['order_fulfillment_item_id' => $order->fulfillment->items->sole()->id, 'quantity' => 1, 'return_reason' => 'other']],
+            (string) Str::uuid(),
+        ), $owner);
+        $service = app(MarketplaceReturnService::class);
+        $item = $return->items->sole();
+        $service->disposition($item, 0, 1, (string) Str::uuid(), $owner);
+        $removal = $service->requestRemoval($item, 1, $company->id, (string) Str::uuid(), $owner);
+        $service->dispatch($removal, (string) Str::uuid(), $owner);
+        $service->receive($removal->refresh(), (string) Str::uuid(), $owner);
+        $technician = User::factory()->create();
+        Employee::factory()->for($technician)->role(EmployeeRole::Technician)->create(['email' => $technician->email]);
+        $photo = app(CustomerReturnEvidenceService::class)->record($item->refresh(), $technician, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'Unrelated laptop',
+        ], UploadedFile::fake()->image('wrong-item.jpg'));
+        $movieHeader = pack('N', 24).'ftypisom'.pack('N', 0).'isommp42';
+        $mvhd = pack('N', 28).'mvhd'.pack('N', 0).pack('N', 0).pack('N', 0).pack('N', 1000).pack('N', 7000);
+        $movie = $movieHeader.pack('N', strlen($mvhd) + 8).'moov'.$mvhd;
+        $video = UploadedFile::fake()->createWithContent('wrong-item.mp4', $movie);
+        $video->mimeTypeToReport = 'video/mp4';
+        $recording = app(CustomerReturnEvidenceService::class)->record($item->refresh(), $technician, [
+            'request_id' => (string) Str::uuid(), 'upload_id' => (string) Str::uuid(),
+            'problem_type' => 'wrong_item', 'actual_product_name' => 'Unrelated laptop',
+            'duration_seconds' => 7,
+        ], $video);
+        $this->assertSame('photo', $photo->media_type);
+        $this->assertSame('video', $recording->media_type);
+        $this->assertSame($movie, Storage::disk('local')->get($recording->original_path));
+        $movements = StockMovement::query()->count();
+        $this->expectException(CustomerReturnException::class);
+        try {
+            $service->inspectRemovalItem($removal->items()->firstOrFail(), new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
+        } finally {
+            $this->assertSame($movements, StockMovement::query()->count());
+            $this->assertSame(1, ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $company->id)->sole()->qc_pending_quantity);
+        }
+    }
 
     public function test_mixed_marketplace_disposition_removal_company_receipt_and_existing_qc_preserve_value(): void
     {

@@ -8,6 +8,7 @@ use App\Exceptions\ImmutableInventoryRecordException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class CustomerReturn extends Model
@@ -64,6 +65,11 @@ class CustomerReturn extends Model
     public function displayItems(): HasMany
     {
         return $this->hasMany(CustomerReturnItem::class)->select(['id', 'customer_return_id', 'product_id', 'sku_snapshot', 'product_name_snapshot', 'return_quantity', 'return_reason']);
+    }
+
+    public function quarantines(): HasManyThrough
+    {
+        return $this->hasManyThrough(CustomerReturnQuarantine::class, CustomerReturnItem::class);
     }
 
     public function statusEvents(): HasMany

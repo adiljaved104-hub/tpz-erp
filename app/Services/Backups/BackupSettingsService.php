@@ -89,7 +89,8 @@ class BackupSettingsService
             return null;
         }
 
-        $now ??= CarbonImmutable::now(config('app.timezone'));
+        $timezone = (string) config('backup.schedule.timezone', 'Asia/Karachi');
+        $now = ($now ?? CarbonImmutable::now($timezone))->setTimezone($timezone);
         [$hour, $minute] = array_map('intval', explode(':', (string) $settings['backup_time']));
         $next = $now->setTime($hour, $minute);
 

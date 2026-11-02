@@ -25,6 +25,8 @@ final class TechnicianPermissionPolicy
             QcPermission::ShipDispatch->value,
             QcPermission::AssignMarketplaceTransferDevice->value,
             QcPermission::ViewMarketplaceTransferAssignments->value,
+            QcPermission::ViewReturnEvidence->value,
+            QcPermission::RecordReturnEvidence->value,
         ];
     }
 

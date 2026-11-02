@@ -3,6 +3,7 @@
 namespace App\Services\Hr;
 
 use App\Models\CompensatoryOff;
+use App\Models\CompOffCreditRequestDay;
 use App\Models\Employee;
 use App\Models\PublicHoliday;
 use Carbon\CarbonImmutable;
@@ -28,6 +29,10 @@ class LeaveDayCalculator
             ->whereDate('off_date', '>=', $from->toDateString())
             ->whereDate('off_date', '<=', $to->toDateString())
             ->get(['id', 'off_date'])->mapWithKeys(fn (CompensatoryOff $compOff): array => [$compOff->off_date->toDateString() => $compOff->id]);
+        $walletCompOffDates = CompOffCreditRequestDay::query()->where('credits_required', 1)
+            ->whereBetween('off_date', [$from->toDateString(), $to->toDateString()])
+            ->whereHas('request', fn ($query) => $query->where('employee_id', $employee->id)->where('status', 'approved'))
+            ->pluck('off_date')->mapWithKeys(fn ($date): array => [CarbonImmutable::parse($date)->toDateString() => true]);
 
         $days = [];
         foreach (CarbonPeriod::create($from, $to) as $mutableDate) {
@@ -44,7 +49,7 @@ class LeaveDayCalculator
             $compOffId = $compOffs[$date->toDateString()] ?? null;
             [$classification, $counts, $units] = match (true) {
                 $holidayId !== null => ['public_holiday', false, '0.00'],
-                $compOffId !== null => ['compensatory_off', false, '0.00'],
+                $compOffId !== null || isset($walletCompOffDates[$date->toDateString()]) => ['compensatory_off', false, '0.00'],
                 ! $scheduleDay->is_working_day => ['schedule_off', false, '0.00'],
                 default => ['working_leave', true, '1.00'],
             };

@@ -2,10 +2,18 @@
 
 namespace App\Services\Inventory;
 
+use App\Enums\CustomerReturnPermission;
+use App\Enums\DamagedStockPermission;
 use App\Enums\DamagedStockSource;
 use App\Enums\DamagedStockStatus;
+use App\Enums\WarrantyRepairStatus;
+use App\Models\CustomerReturnExceptionCase;
+use App\Models\CustomerReturnQuarantine;
 use App\Models\User;
+use App\Services\Authorization\CustomerReturnAuthorization;
+use App\Services\Authorization\DamagedStockAuthorization;
 use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Returns\CustomerReturnReadService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder;
@@ -14,6 +22,45 @@ use Illuminate\Support\Facades\DB;
 class DamagedItemsQueueService
 {
     public function __construct(private readonly DamagedStockAvailabilityService $availability) {}
+
+    /**
+     * Physical custody exceptions are deliberately separate from valued damaged
+     * inventory. The caller needs Return View as well as Damaged Stock View.
+     */
+    public function quarantinedReturns(User $user): LengthAwarePaginator
+    {
+        $query = CustomerReturnQuarantine::query()
+            ->with(['item.customerReturn', 'warehouse:id,name', 'recordedBy:id,name'])
+            ->whereHas('item', fn ($items) => $items->whereIn('customer_return_id',
+                app(CustomerReturnReadService::class)->query($user)->select('customer_returns.id')))
+            ->orderByDesc('id');
+
+        if (! app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View)
+            || ! app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View)) {
+            $query->whereRaw('1 = 0');
+        }
+
+        return $query->paginate(10, ['*'], 'quarantinePage');
+    }
+
+    /** Evidence-led review cases include discrepancies before custody is verified. */
+    public function returnExceptions(User $user): LengthAwarePaginator
+    {
+        $query = CustomerReturnExceptionCase::query()
+            ->with(['item.customerReturn.order', 'item.customerReturn.platform', 'item.quarantine.warehouse',
+                'item.claim', 'finding.recordedBy', 'evidence'])
+            ->whereNull('resolved_at')
+            ->whereHas('item', fn ($items) => $items->whereIn('customer_return_id',
+                app(CustomerReturnReadService::class)->query($user)->select('customer_returns.id')))
+            ->orderByDesc('id');
+
+        if (! app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View)
+            || ! app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View)) {
+            $query->whereRaw('1 = 0');
+        }
+
+        return $query->paginate(10, ['*'], 'returnExceptionPage');
+    }
 
     /** @param array{search?:?string,warehouse_id?:?int,source?:?string,platform_id?:?int,status?:?string} $filters */
     public function paginate(User $user, array $filters, int $perPage = 25): LengthAwarePaginator
@@ -62,7 +109,13 @@ class DamagedItemsQueueService
     public function query(User $user, array $filters = []): Builder
     {
         $eventAvailability = $this->availability->eventAvailabilityQuery();
+        $pendingClassification = DB::table('warranty_repairs')
+            ->whereNotNull('damaged_stock_event_id')
+            ->where('status', WarrantyRepairStatus::PendingClassification->value)
+            ->selectRaw('damaged_stock_event_id, SUM(quantity) AS pending_quantity')
+            ->groupBy('damaged_stock_event_id');
         $events = DB::query()->fromSub(clone $eventAvailability, 'dse')
+            ->leftJoinSub($pendingClassification, 'pending_classification', 'pending_classification.damaged_stock_event_id', '=', 'dse.id')
             ->join('products as product', 'product.id', '=', 'dse.product_id')
             ->join('warehouses as warehouse', 'warehouse.id', '=', 'dse.warehouse_id')
             ->leftJoin('marketplace_platforms as platform', 'platform.id', '=', 'dse.marketplace_platform_id')
@@ -70,13 +123,13 @@ class DamagedItemsQueueService
             ->leftJoin('orders as orders', 'orders.id', '=', 'dse.order_id')
             ->leftJoin('users as reporter', 'reporter.id', '=', 'dse.reported_by_user_id')
             ->select(['dse.id', 'dse.reference', 'product.sku', 'product.name as product_name'])
-            ->selectRaw('dse.remaining_damaged_quantity AS quantity')
+            ->selectRaw('CASE WHEN dse.remaining_damaged_quantity > COALESCE(pending_classification.pending_quantity, 0) THEN dse.remaining_damaged_quantity - COALESCE(pending_classification.pending_quantity, 0) ELSE 0 END AS quantity')
             ->addSelect([
                 'warehouse.name as location', 'dse.source', 'platform.name as platform',
-                'customer_return.reference as return_reference', 'orders.reference as order_reference',
+                'customer_return.id as return_id', 'customer_return.reference as return_reference', 'orders.reference as order_reference',
                 'dse.reason', 'dse.notes', 'dse.occurred_at', 'reporter.name as reported_by',
             ])
-            ->selectRaw("CASE WHEN dse.remaining_damaged_quantity > 0 THEN 'damaged' ELSE 'resolved' END AS status")
+            ->selectRaw("CASE WHEN dse.remaining_damaged_quantity > COALESCE(pending_classification.pending_quantity, 0) THEN 'damaged' WHEN COALESCE(pending_classification.pending_quantity, 0) > 0 THEN 'awaiting_classification' ELSE 'resolved' END AS status")
             ->addSelect(['dse.product_id', 'dse.warehouse_id', 'dse.marketplace_platform_id'])
             ->selectRaw("'event' AS row_kind")
             ->selectRaw('dse.available_repair_quantity');
@@ -95,7 +148,7 @@ class DamagedItemsQueueService
             ->selectRaw('-inventory.id AS id, NULL AS reference, product.sku, product.name AS product_name')
             ->selectRaw('inventory.damaged_quantity - COALESCE(classified.classified_quantity, 0) - COALESCE(legacy_repair.active_legacy_repair_quantity, 0) AS quantity')
             ->addSelect(['warehouse.name as location'])
-            ->selectRaw("'legacy' AS source, NULL AS platform, NULL AS return_reference, NULL AS order_reference")
+            ->selectRaw("'legacy' AS source, NULL AS platform, NULL AS return_id, NULL AS return_reference, NULL AS order_reference")
             ->selectRaw("'Existing damaged balance without recorded history' AS reason, NULL AS notes, NULL AS occurred_at, NULL AS reported_by, 'damaged' AS status")
             ->addSelect(['inventory.product_id', 'inventory.warehouse_id'])
             ->selectRaw("NULL AS marketplace_platform_id, 'legacy' AS row_kind, inventory.damaged_quantity - COALESCE(classified.classified_quantity, 0) - COALESCE(legacy_repair.active_legacy_repair_quantity, 0) AS available_repair_quantity");
@@ -151,7 +204,7 @@ class DamagedItemsQueueService
 
         return (array) $row + [
             'source_label' => $row->source === 'legacy' ? 'Old Damaged Stock' : DamagedStockSource::from($row->source)->getLabel(),
-            'status_label' => DamagedStockStatus::from($row->status)->getLabel(),
+            'status_label' => $row->status === 'awaiting_classification' ? 'Awaiting Stock Classification' : DamagedStockStatus::from($row->status)->getLabel(),
             'damaged_date' => $occurredAt?->format('d M Y, h:i A'),
             'days_damaged' => $occurredAt?->startOfDay()->diffInDays(now(config('app.timezone'))->startOfDay()),
             'related_reference' => $row->return_reference ?? $row->order_reference,

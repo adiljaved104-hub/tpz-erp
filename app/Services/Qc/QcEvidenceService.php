@@ -130,7 +130,7 @@ class QcEvidenceService
                     imagedestroy($logo);
                 }
                 $white = imagecolorallocate($canvas, 255, 255, 255);
-                foreach (['TECH POINT ZONE - VERIFIED QC', 'QC: '.$inspection->device->reference.' v'.$inspection->version, $timestamp->format('d M Y H:i:s T'), self::KINDS[$kind]] as $line => $text) {
+                foreach (['TECH POINT ZONE - VERIFIED QC', 'QC: '.$inspection->device->reference.' v'.$inspection->version, 'Server received '.$timestamp->format('d M Y H:i:s T'), self::KINDS[$kind]] as $line => $text) {
                     imagestring($canvas, 4, 105, $height + 12 + $line * 24, $text, $white);
                 }
                 ob_start();

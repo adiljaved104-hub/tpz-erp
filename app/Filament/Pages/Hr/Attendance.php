@@ -268,7 +268,7 @@ class Attendance extends Page
             'showEmployee' => $scopedEmployees->count() > 1,
             'canCorrect' => app(HrAuthorization::class)->allows($this->user(), HrPermission::AttendanceCorrect),
             'canManual' => app(AttendanceCorrectionService::class)->canCreateManual($this->user()) && $scopedEmployees->isNotEmpty(),
-            'statuses' => collect(AttendanceStatus::cases())->mapWithKeys(fn (AttendanceStatus $status): array => [$status->value => str($status->value)->replace('_', ' ')->title()->toString()]),
+            'statuses' => collect(AttendanceStatus::cases())->mapWithKeys(fn (AttendanceStatus $status): array => [$status->value => $status === AttendanceStatus::CompensatoryOff ? 'Comp-Off' : str($status->value)->replace('_', ' ')->title()->toString()]),
             'rangeLabel' => $from->format('d M Y').' – '.$to->format('d M Y'),
             'calendarDays' => $calendarDays,
             'calendarRecords' => $calendarRecords,

@@ -5,6 +5,8 @@ namespace App\Services\Hr;
 use App\Enums\AttendanceStatus;
 use App\Enums\HrPermission;
 use App\Models\CompensatoryOff;
+use App\Models\CompOffCreditRequestDay;
+use App\Models\CompOffSundayDuty;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\LeavePolicy;
@@ -65,6 +67,10 @@ class CompensatoryOffService
             if (CompensatoryOff::query()->where('employee_id', $employee->id)->where('source', 'scheduled_sunday')->whereDate('earned_work_date', $validated['earned_work_date'])->exists()) {
                 throw ValidationException::withMessages(['earned_work_date' => 'This Sunday duty already has a Comp Off record.']);
             }
+            if (CompOffSundayDuty::query()->where('employee_id', $employee->id)
+                ->whereDate('duty_date', $validated['earned_work_date'])->exists()) {
+                throw ValidationException::withMessages(['earned_work_date' => 'This Sunday duty is already tracked in the Comp-Off credit wallet.']);
+            }
             $this->ensureOffDateIsAvailable($employee, $validated['off_date']);
             $policy = LeavePolicy::query()->where('status', true)->whereDate('effective_from', '<=', $validated['earned_work_date'])
                 ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $validated['earned_work_date']))
@@ -109,7 +115,10 @@ class CompensatoryOffService
             ->when($exceptCompOffId !== null, fn ($query) => $query->whereKeyNot($exceptCompOffId))->exists();
         $leaveConflict = LeaveRequestDay::query()->whereDate('leave_date', $offDate)->where('counts_as_leave', true)
             ->whereHas('request', fn ($query) => $query->where('employee_id', $employee->id)->whereIn('status', ['pending', 'approved']))->exists();
-        if ($compOffConflict || $leaveConflict) {
+        $walletConflict = CompOffCreditRequestDay::query()->whereDate('off_date', $offDate)
+            ->whereHas('request', fn ($query) => $query->where('employee_id', $employee->id)
+                ->whereIn('status', ['pending', 'approved']))->exists();
+        if ($compOffConflict || $leaveConflict || $walletConflict) {
             throw ValidationException::withMessages(['off_date' => 'This Employee already has Comp Off or chargeable Leave on the selected date.']);
         }
     }

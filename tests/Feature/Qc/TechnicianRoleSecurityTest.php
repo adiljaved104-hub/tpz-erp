@@ -76,6 +76,8 @@ class TechnicianRoleSecurityTest extends TestCase
             QcPermission::ShipDispatch,
             QcPermission::AssignMarketplaceTransferDevice,
             QcPermission::ViewMarketplaceTransferAssignments,
+            QcPermission::ViewReturnEvidence,
+            QcPermission::RecordReturnEvidence,
         ];
 
         foreach (QcPermission::cases() as $permission) {

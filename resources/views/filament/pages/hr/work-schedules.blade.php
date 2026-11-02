@@ -5,10 +5,31 @@
     </div>
 
     <div class="grid gap-3 sm:grid-cols-3">
-        @foreach ([['Active schedules', $activeScheduleCount], ['Employees assigned today', $assignedEmployeeCount], ['Employees without a schedule', $unassignedEmployeeCount]] as [$label, $value])
+        @foreach ([['Active schedules', $activeScheduleCount], ['Employees covered today', $assignedEmployeeCount], ['Employees without coverage today', $unassignedEmployeeCount]] as [$label, $value])
             <x-filament::section compact><div class="text-sm font-medium text-gray-500">{{ $label }}</div><div class="mt-1 text-3xl font-semibold text-gray-950 dark:text-white">{{ $value }}</div></x-filament::section>
         @endforeach
     </div>
+
+    <x-filament::section heading="Company Default Schedule" compact>
+        @if($companyDefault)
+            <div class="flex flex-wrap items-center gap-2 text-sm"><strong>{{ $companyDefault->name }}</strong><x-filament::badge :color="$companyDefaultActiveToday ? 'success' : 'warning'">{{ $companyDefaultActiveToday ? 'Effective today' : ($companyDefault->approved_at ? 'Owner approved — future date' : 'Awaiting Owner approval') }}</x-filament::badge></div>
+            <p class="mt-1 text-sm text-gray-500">{{ $companyDefault->approved_at ? 'Approved effective date' : 'Proposed date (not active)' }}: {{ \Carbon\CarbonImmutable::parse($companyDefault->effective_from)->format('d M Y') }}.</p>
+        @else
+            <p class="text-sm text-gray-500">No company default schedule is configured.</p>
+        @endif
+        <p class="mt-2 text-sm text-gray-500">No company default applies until the Owner explicitly approves a schedule and a future effective date. Individual and team schedules always take precedence.</p>
+        @if($canApproveCompanyDefault)
+            <form wire:submit="approveCompanyDefault" class="mt-4 space-y-3 border-t border-gray-200 pt-4 dark:border-white/10">
+                <p class="text-sm font-semibold">Approve a prospective company default</p>
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <label class="space-y-1 text-sm"><span>Work Schedule</span><select wire:model="defaultWorkScheduleId" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"><option value="">Select a configured schedule</option>@foreach($schedules->where('status', true) as $schedule)<option value="{{ $schedule->id }}">{{ $schedule->name }}</option>@endforeach</select>@error('defaultWorkScheduleId')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                    <label class="space-y-1 text-sm"><span>Future effective date</span><input type="date" wire:model="defaultEffectiveFrom" min="{{ $today->addDay()->toDateString() }}" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">@error('defaultEffectiveFrom')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                </div>
+                <label class="block space-y-1 text-sm"><span>Approval reason</span><textarea wire:model="defaultReason" maxlength="255" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"></textarea>@error('defaultReason')<p class="text-danger-600">{{ $message }}</p>@enderror</label>
+                <div class="flex justify-end"><x-filament::button type="submit">Approve Company Default</x-filament::button></div>
+            </form>
+        @endif
+    </x-filament::section>
 
     <x-filament::section :heading="$editingScheduleId ? 'Configure schedule version' : 'Create a work schedule'" compact>
         <form wire:submit="saveSchedule" class="space-y-5">

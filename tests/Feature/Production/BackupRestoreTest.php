@@ -26,9 +26,14 @@ class BackupRestoreTest extends TestCase
         File::ensureDirectoryExists($this->workspace);
         File::ensureDirectoryExists($this->workspace.'/storage/public/company-profile');
         File::ensureDirectoryExists($this->workspace.'/storage/private/documents');
+        File::ensureDirectoryExists($this->workspace.'/storage/private/customer-return-evidence/originals');
+        File::ensureDirectoryExists($this->workspace.'/storage/private/customer-return-evidence/labels');
         File::ensureDirectoryExists($this->workspace.'/storage/private/livewire-tmp');
         file_put_contents($this->workspace.'/storage/public/company-profile/logo.png', 'logo-content');
         file_put_contents($this->workspace.'/storage/private/documents/recovery.txt', 'recoverable-content');
+        file_put_contents($this->workspace.'/storage/private/customer-return-evidence/originals/photo.jpg', 'original-photo');
+        file_put_contents($this->workspace.'/storage/private/customer-return-evidence/originals/video.mp4', 'original-video');
+        file_put_contents($this->workspace.'/storage/private/customer-return-evidence/labels/claim.mp4', 'labeled-video');
         file_put_contents($this->workspace.'/storage/private/livewire-tmp/temporary.txt', 'temporary-content');
         file_put_contents($this->workspace.'/storage/public/.gitignore', '*');
 
@@ -82,6 +87,7 @@ class BackupRestoreTest extends TestCase
         $this->assertStringEndsWith('+00:00', $manifest['backup_timestamp']);
         $this->assertSame('2026_08_26_090000_create_login_email_recovery_and_expenses', $manifest['latest_migration']);
         $this->assertCount(2, $manifest['files']);
+        $this->assertSame(['database', 'storage'], array_column($manifest['files'], 'kind'));
 
         foreach ($manifest['files'] as $file) {
             $path = $result['path'].'/'.$file['filename'];
@@ -104,8 +110,20 @@ class BackupRestoreTest extends TestCase
 
         $this->assertContains('public/company-profile/logo.png', $names);
         $this->assertContains('private/documents/recovery.txt', $names);
+        $this->assertContains('private/customer-return-evidence/originals/photo.jpg', $names);
+        $this->assertContains('private/customer-return-evidence/originals/video.mp4', $names);
+        $this->assertContains('private/customer-return-evidence/labels/claim.mp4', $names);
         $this->assertNotContains('private/livewire-tmp/temporary.txt', $names);
         $this->assertNotContains('public/.gitignore', $names);
+    }
+
+    public function test_private_disk_permissions_allow_only_owner_and_approved_backup_group_to_read(): void
+    {
+        $permissions = config('filesystems.disks.local.permissions');
+        $this->assertSame(0640, $permissions['file']['private']);
+        $this->assertSame(0750, $permissions['dir']['private']);
+        $this->assertSame('private', config('filesystems.disks.local.visibility'));
+        $this->assertSame('local', config('filesystems.default'));
     }
 
     public function test_storage_only_backup_creates_a_verified_archive_for_empty_configured_roots(): void
@@ -194,7 +212,7 @@ class BackupRestoreTest extends TestCase
         $method = new \ReflectionMethod($service, 'directorySize');
 
         $this->assertSame(
-            strlen('recoverable-content'),
+            strlen('recoverable-content') + strlen('original-photo') + strlen('original-video') + strlen('labeled-video'),
             $method->invoke($service, $this->workspace.'/storage/private'),
         );
         $this->assertSame(
@@ -216,6 +234,18 @@ class BackupRestoreTest extends TestCase
         $this->assertPosixMode($result['path'].'/database.sqlite', 0660);
         $this->assertPosixMode($result['path'].'/storage.zip', 0660);
         $this->assertPosixMode($result['path'].'/manifest.json', 0660);
+
+        $sharedGroup = filegroup(config('backup.root'));
+        $this->assertNotFalse($sharedGroup);
+        foreach ([
+            $result['path'],
+            $result['path'].'/database.sqlite',
+            $result['path'].'/storage.zip',
+            $result['path'].'/manifest.json',
+        ] as $artifact) {
+            clearstatcache(true, $artifact);
+            $this->assertSame($sharedGroup, filegroup($artifact), 'Incorrect backup group for '.basename($artifact));
+        }
     }
 
     public function test_disposable_restore_preserves_database_and_storage(): void
@@ -233,9 +263,12 @@ class BackupRestoreTest extends TestCase
         $this->assertSame('ok', $result['database']['integrity']);
         $this->assertSame(0, $result['database']['foreign_key_violations']);
         $this->assertSame($backup['manifest']['latest_migration'], $result['database']['latest_migration']);
-        $this->assertSame(2, $result['storage_files']);
+        $this->assertSame(5, $result['storage_files']);
         $this->assertFileExists($restoredStorage.'/public/company-profile/logo.png');
         $this->assertFileExists($restoredStorage.'/private/documents/recovery.txt');
+        $this->assertFileExists($restoredStorage.'/private/customer-return-evidence/originals/photo.jpg');
+        $this->assertFileExists($restoredStorage.'/private/customer-return-evidence/originals/video.mp4');
+        $this->assertFileExists($restoredStorage.'/private/customer-return-evidence/labels/claim.mp4');
 
         $pdo = new PDO('sqlite:'.$restoredDatabase);
         $this->assertSame(2, (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn());

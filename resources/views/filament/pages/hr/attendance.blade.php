@@ -41,7 +41,7 @@
                             <div class="flex min-w-0 items-center gap-1 truncate text-[9px] leading-tight sm:text-[10px]" title="{{ $calendarRecord->employee->name }} · {{ $statuses[$calendarRecord->status->value] }}">
                                 <span aria-hidden="true" class="inline-block size-1.5 shrink-0 rounded-full {{ match($calendarRecord->status->value) {'present' => 'bg-emerald-500', 'late' => 'bg-amber-500', 'absent' => 'bg-red-500', 'half_day' => 'bg-blue-500', default => 'bg-gray-400'} }}"></span>
                                 <span class="truncate font-medium">{{ $calendarRecord->employee->name }}</span>
-                                <span class="hidden shrink-0 text-gray-500 sm:inline">· {{ str($calendarRecord->status->value)->replace('_', ' ')->title() }}</span>
+                                <span class="hidden shrink-0 text-gray-500 sm:inline">· {{ $statuses[$calendarRecord->status->value] }}</span>
                             </div>
                         @endforeach
                         @if ($cell['more_count'] > 0)<div class="text-[10px] text-gray-500">+{{ $cell['more_count'] }} more</div>@endif

@@ -7,6 +7,7 @@ use App\Enums\AttendanceStatus;
 use App\Enums\HrPermission;
 use App\Models\AttendanceCorrection;
 use App\Models\CompensatoryOff;
+use App\Models\CompOffCreditRequestDay;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\LeavePolicy;
@@ -442,6 +443,13 @@ class LeaveService
 
     private function assertNoOverlappingLeaveRequestForEmployee(int $employeeId, CarbonImmutable $from, CarbonImmutable $to, ?int $exceptRequestId = null): void
     {
+        $compOffOverlap = CompOffCreditRequestDay::query()
+            ->whereBetween('off_date', [$from->toDateString(), $to->toDateString()])
+            ->whereHas('request', fn ($query) => $query->where('employee_id', $employeeId)
+                ->whereIn('status', ['pending', 'approved']))->exists();
+        if ($compOffOverlap) {
+            throw ValidationException::withMessages(['from_date' => 'The selected dates overlap a pending or approved Comp-Off request.']);
+        }
         $overlapping = LeaveRequest::query()->where('employee_id', $employeeId)
             ->whereIn('status', ['pending', 'approved'])
             ->when($exceptRequestId !== null, fn ($query) => $query->whereKeyNot($exceptRequestId))

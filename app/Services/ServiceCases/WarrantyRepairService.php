@@ -287,13 +287,8 @@ class WarrantyRepairService
     {
         $permission = $to === WarrantyRepairStatus::UnderInspection ? WarrantyRepairPermission::Inspect : WarrantyRepairPermission::UpdateStatus;
         $this->auth->authorize($actor, $permission, $case);
-        $repairMovementReference = $this->lifecycle->isInternalCompanyOwnedRepair($case)
-            && $case->status === WarrantyRepairStatus::QcPending
-            && $to === WarrantyRepairStatus::ReadyToReturn
-                ? $this->refs->nextStockMovementReference()
-                : null;
 
-        return DB::transaction(function () use ($case, $to, $actor, $note, $fields, $repairMovementReference) {
+        return DB::transaction(function () use ($case, $to, $actor, $note, $fields) {
             $locked = WarrantyRepair::query()->lockForUpdate()->findOrFail($case->id);
             $from = $locked->status;
             if (! $this->lifecycle->allows($locked, $to)) {
@@ -304,7 +299,9 @@ class WarrantyRepairService
             }
             $isInternal = $this->lifecycle->isInternalCompanyOwnedRepair($locked);
             $isInternalQcResult = $isInternal && $from === WarrantyRepairStatus::QcPending && in_array($to, [WarrantyRepairStatus::ReadyToReturn, WarrantyRepairStatus::CannotRepair], true);
-            $effectiveTo = ($isInternal && $to === WarrantyRepairStatus::CannotRepair) || $isInternalQcResult ? WarrantyRepairStatus::Completed : $to;
+            $effectiveTo = $isInternalQcResult
+                ? ($to === WarrantyRepairStatus::ReadyToReturn ? WarrantyRepairStatus::PendingClassification : WarrantyRepairStatus::Completed)
+                : $to;
             $transitionedAt = now();
             $timestamps = match ($effectiveTo) {
                 WarrantyRepairStatus::InRepair => ['sent_to_technician_at' => $transitionedAt],WarrantyRepairStatus::RepairCompleted => ['repair_completed_at' => $transitionedAt],WarrantyRepairStatus::ReceivedBack => ['received_back_at' => $transitionedAt],WarrantyRepairStatus::ReadyToReturn => ['qc_at' => $transitionedAt],WarrantyRepairStatus::DispatchedBack => ['dispatched_back_at' => $this->validatedDispatchDate($locked, $fields['dispatched_back_at'] ?? $transitionedAt)],WarrantyRepairStatus::Completed => ['completed_at' => $transitionedAt],default => []
@@ -314,17 +311,6 @@ class WarrantyRepairService
             }
             unset($fields['dispatched_back_at']);
             $this->assertChronology($locked, [...$timestamps, ...$fields]);
-            if ($repairMovementReference !== null) {
-                if ($locked->repair_qc_movement_id !== null) {
-                    throw new WarrantyRepairException('This repaired inventory has already been restored.');
-                }
-                $inventory = $this->balances->lock($locked->product_inventory_id);
-                if ($inventory->damaged_quantity < $locked->quantity) {
-                    throw new WarrantyRepairException('Damaged inventory is insufficient for this repair QC result.');
-                }
-                $movement = $this->movement($inventory, $locked, $actor, $repairMovementReference, StockMovementType::WarrantyRepairRestored, $locked->quantity, $locked->quantity, -$locked->quantity, 'Internal damaged item restored after repair QC');
-                $locked->repair_qc_movement_id = $movement->id;
-            }
             $locked->forceFill(['status' => $effectiveTo, ...$timestamps, ...$fields])->save();
             $this->event($locked, $from, $effectiveTo, $note, $actor);
             $this->activity->log('warranty.status_changed', $actor, $locked, ['warranty_reference' => $locked->reference, 'from_status' => $from->value, 'to_status' => $effectiveTo->value, 'requested_transition' => $to->value, 'note_present' => filled($note)]);

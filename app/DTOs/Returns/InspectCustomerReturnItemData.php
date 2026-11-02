@@ -9,5 +9,6 @@ final readonly class InspectCustomerReturnItemData
         public int $damagedQuantity,
         public string $postingKey,
         public ?string $notes = null,
+        public ?string $problemType = null,
     ) {}
 }

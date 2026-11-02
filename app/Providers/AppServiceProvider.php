@@ -53,13 +53,17 @@ use App\Models\CompanyProfile;
 use App\Models\CompensatoryOff;
 use App\Models\Complaint;
 use App\Models\ComplaintStatusEvent;
+use App\Models\CompOffCreditRequest;
+use App\Models\CompOffSundayDuty;
 use App\Models\Component;
 use App\Models\ComponentRecoveryValueEvent;
 use App\Models\Conversation;
 use App\Models\CustomerReturn;
+use App\Models\CustomerReturnExceptionCase;
 use App\Models\CustomerReturnInspection;
 use App\Models\CustomerReturnItem;
 use App\Models\CustomerReturnMarketplaceDisposition;
+use App\Models\CustomerReturnQuarantine;
 use App\Models\CustomerReturnRefund;
 use App\Models\CustomerReturnStatusEvent;
 use App\Models\DamagedStockEvent;
@@ -570,7 +574,9 @@ class AppServiceProvider extends ServiceProvider
             'stock_transfer_item' => StockTransferItem::class,
             'stock_transfer_status_event' => StockTransferStatusEvent::class,
             'customer_return' => CustomerReturn::class,
+            'customer_return_exception_case' => CustomerReturnExceptionCase::class,
             'customer_return_item' => CustomerReturnItem::class,
+            'customer_return_quarantine' => CustomerReturnQuarantine::class,
             'customer_return_inspection' => CustomerReturnInspection::class,
             'customer_return_status_event' => CustomerReturnStatusEvent::class,
             'customer_return_marketplace_disposition' => CustomerReturnMarketplaceDisposition::class,
@@ -600,6 +606,8 @@ class AppServiceProvider extends ServiceProvider
             'work_schedule_assignment' => WorkScheduleAssignment::class,
             'public_holiday' => PublicHoliday::class,
             'compensatory_off' => CompensatoryOff::class,
+            'comp_off_sunday_duty' => CompOffSundayDuty::class,
+            'comp_off_credit_request' => CompOffCreditRequest::class,
             'warning_category' => WarningCategory::class,
             'employee_warning' => EmployeeWarning::class,
             'hr_notice' => HrNotice::class,

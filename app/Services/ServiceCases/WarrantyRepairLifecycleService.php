@@ -42,10 +42,10 @@ class WarrantyRepairLifecycleService
     {
         if ($case !== null && $this->isInternalCompanyOwnedRepair($case)) {
             if ($status === WarrantyRepairStatus::ReadyToReturn) {
-                return 'Pass';
+                return 'QC PASS — Await Stock Classification';
             }
             if ($status === WarrantyRepairStatus::CannotRepair) {
-                return $case->status === WarrantyRepairStatus::QcPending ? 'Fail' : 'Cannot Repair / Close Case';
+                return $case->status === WarrantyRepairStatus::QcPending ? 'QC FAIL — Repair Unsuccessful' : 'Cannot Repair / Close Case';
             }
             if ($status === WarrantyRepairStatus::Completed) {
                 return 'Close Case';
@@ -84,6 +84,8 @@ class WarrantyRepairLifecycleService
             WarrantyRepairStatus::RepairCompleted => [WarrantyRepairStatus::ReceivedBack],
             WarrantyRepairStatus::ReceivedBack => [WarrantyRepairStatus::QcPending],
             WarrantyRepairStatus::QcPending => [WarrantyRepairStatus::ReadyToReturn, WarrantyRepairStatus::CannotRepair],
+            // Only historical cases can still have ReadyToReturn here. New internal QC passes
+            // enter PendingClassification in WarrantyRepairService instead.
             WarrantyRepairStatus::ReadyToReturn => [WarrantyRepairStatus::Completed],
             default => [],
         };

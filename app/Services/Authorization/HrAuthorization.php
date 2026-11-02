@@ -19,6 +19,7 @@ class HrAuthorization
                 HrPermission::AttendanceViewOwn, HrPermission::AttendanceViewTeam,
                 HrPermission::LeaveViewOwn, HrPermission::LeaveRequest,
                 HrPermission::LeaveViewTeam, HrPermission::LeaveRecordOnBehalf,
+                HrPermission::CompOffManage,
                 HrPermission::WarningViewOwn, HrPermission::NoticeView, HrPermission::AnnouncementView,
             ], true),
             EmployeeRole::Staff => in_array($permission, [

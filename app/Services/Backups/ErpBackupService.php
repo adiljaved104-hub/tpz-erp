@@ -147,6 +147,7 @@ class ErpBackupService
             throw new RuntimeException('Unable to create the storage backup archive.');
         }
 
+        $closed = false;
         try {
             foreach ((array) config('backup.storage.roots', []) as $prefix => $root) {
                 if (! is_dir($root)) {
@@ -171,12 +172,16 @@ class ErpBackupService
                     }
 
                     if (! $zip->addFile($file->getPathname(), $archiveRoot.'/'.$relative)) {
-                        throw new RuntimeException('Unable to add an eligible storage file to the backup archive.');
+                        throw new BackupStorageAccessException;
                     }
                 }
             }
         } finally {
-            $zip->close();
+            $closed = $zip->close();
+        }
+
+        if (! $closed) {
+            throw new RuntimeException('The storage backup archive could not be finalized.');
         }
 
         if (! is_file($destination) || filesize($destination) === 0) {
@@ -202,6 +207,9 @@ class ErpBackupService
     private function storageIterator(string $root): \RecursiveIteratorIterator
     {
         $root = rtrim($root, '/\\');
+        if (! is_readable($root) || (PHP_OS_FAMILY !== 'Windows' && ! is_executable($root))) {
+            throw new BackupStorageAccessException;
+        }
         $directory = new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS);
         $filtered = new \RecursiveCallbackFilterIterator(
             $directory,
@@ -211,8 +219,16 @@ class ErpBackupService
                 }
 
                 $relative = str_replace('\\', '/', substr($entry->getPathname(), strlen($root) + 1));
+                if ($this->storagePathExcluded($relative)) {
+                    return false;
+                }
 
-                return ! $this->storagePathExcluded($relative);
+                if (! $entry->isReadable() || ($entry->isDir() && PHP_OS_FAMILY !== 'Windows'
+                    && ! is_executable($entry->getPathname()))) {
+                    throw new BackupStorageAccessException;
+                }
+
+                return true;
             },
         );
 
@@ -304,6 +320,7 @@ class ErpBackupService
     {
         File::ensureDirectoryExists($path, self::DIRECTORY_MODE);
         $this->applyPosixMode($path, self::DIRECTORY_MODE, true);
+        $this->matchBackupRootGroup($path);
     }
 
     private function secureBackupFile(string $path): void
@@ -313,6 +330,7 @@ class ErpBackupService
         }
 
         $this->applyPosixMode($path, self::FILE_MODE, false);
+        $this->matchBackupRootGroup($path);
     }
 
     private function secureIncompleteBackup(string $directory): void
@@ -336,9 +354,46 @@ class ErpBackupService
                 $entry->isDir() ? self::DIRECTORY_MODE : self::FILE_MODE,
                 $entry->isDir(),
             );
+            $this->matchBackupRootGroup($entry->getPathname());
         }
 
         $this->applyPosixMode($directory, self::DIRECTORY_MODE, true);
+        $this->matchBackupRootGroup($directory);
+    }
+
+    /**
+     * Backup files must share the protected root's group. Restricting a file
+     * to 0660 does not help the web user if its group is the deploy user's
+     * primary group instead of the shared backup group.
+     */
+    private function matchBackupRootGroup(string $path): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            return;
+        }
+
+        $root = (string) config('backup.root');
+        clearstatcache(true, $root);
+        clearstatcache(true, $path);
+        $expectedGroup = @filegroup($root);
+        $currentGroup = @filegroup($path);
+
+        if ($expectedGroup === false || $currentGroup === false) {
+            throw new RuntimeException('Unable to inspect protected backup group.');
+        }
+
+        if ($expectedGroup === $currentGroup) {
+            return;
+        }
+
+        if (! @chgrp($path, $expectedGroup)) {
+            throw new RuntimeException('Unable to apply protected backup group.');
+        }
+
+        clearstatcache(true, $path);
+        if (@filegroup($path) !== $expectedGroup) {
+            throw new RuntimeException('Protected backup group verification failed.');
+        }
     }
 
     private function applyPosixMode(string $path, int $mode, bool $preserveDirectorySpecialBits): void

@@ -21,6 +21,7 @@ enum StockMovementType: string
     case TransferReceipt = 'transfer_receipt';
     case TransferReturnedToSource = 'transfer_returned_to_source';
     case CustomerReturnCompanyReceipt = 'customer_return_company_receipt';
+    case CustomerReturnReceiptCorrection = 'customer_return_receipt_correction';
     case CustomerReturnQcSellable = 'customer_return_qc_sellable';
     case CustomerReturnQcDamaged = 'customer_return_qc_damaged';
     case MarketplaceReturnSellable = 'marketplace_return_sellable';
@@ -29,6 +30,8 @@ enum StockMovementType: string
     case MarketplaceReturnCompanyReceipt = 'marketplace_return_company_receipt';
     case WarrantyRetainedDamaged = 'warranty_retained_damaged';
     case WarrantyRepairRestored = 'warranty_repair_restored';
+    case RepairClassificationOut = 'repair_classification_out';
+    case RepairClassificationIn = 'repair_classification_in';
     case UpgradeComponentReservation = 'upgrade_component_reservation';
     case UpgradeComponentReservationRelease = 'upgrade_component_reservation_release';
     case UpgradeComponentInstall = 'upgrade_component_install';
@@ -55,6 +58,7 @@ enum StockMovementType: string
             self::TransferReceipt => 'Transfer Receipt',
             self::TransferReturnedToSource => 'Transfer Returned to Source',
             self::CustomerReturnCompanyReceipt => 'Customer Return Company Receipt',
+            self::CustomerReturnReceiptCorrection => 'Customer Return Receipt Correction',
             self::CustomerReturnQcSellable => 'Customer Return QC Sellable',
             self::CustomerReturnQcDamaged => 'Customer Return QC Damaged',
             self::MarketplaceReturnSellable => 'Marketplace Return Sellable',
@@ -63,6 +67,8 @@ enum StockMovementType: string
             self::MarketplaceReturnCompanyReceipt => 'Marketplace Return Company Receipt',
             self::WarrantyRetainedDamaged => 'Warranty Retained as Damaged',
             self::WarrantyRepairRestored => 'Warranty Repair Restored',
+            self::RepairClassificationOut => 'Repair Classification — Damaged Source',
+            self::RepairClassificationIn => 'Repair Classification — Sellable Destination',
             self::UpgradeComponentReservation => 'Upgrade Component Reservation',
             self::UpgradeComponentReservationRelease => 'Upgrade Component Reservation Release',
             self::UpgradeComponentInstall => 'Upgrade Component Installed',

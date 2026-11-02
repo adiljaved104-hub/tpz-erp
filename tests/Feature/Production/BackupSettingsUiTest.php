@@ -13,14 +13,17 @@ use App\Models\EmployeePermissionOverride;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\BackupSettingsAuthorization;
+use App\Services\Backups\BackupHealthService;
 use App\Services\Backups\BackupHistoryService;
 use App\Services\Backups\BackupOperationsService;
 use App\Services\Backups\BackupRetentionService;
 use App\Services\Backups\BackupSettingsService;
+use App\Services\Backups\BackupStorageAccessException;
 use App\Services\Backups\ErpBackupService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use Livewire\Livewire;
 use PDO;
 use RuntimeException;
@@ -174,9 +177,30 @@ class BackupSettingsUiTest extends TestCase
             'offsite_enabled' => false, 'encryption_enabled' => false,
         ], $owner);
 
-        $this->assertSame('2026-08-27 02:30', $service->nextScheduledAt(CarbonImmutable::parse('2026-08-26 03:00 UTC'))->format('Y-m-d H:i'));
+        $next = $service->nextScheduledAt(CarbonImmutable::parse('2026-08-26 03:00 UTC'));
+        $this->assertSame('2026-08-27 02:30', $next->format('Y-m-d H:i'));
+        $this->assertSame('Asia/Karachi', $next->getTimezone()->getName());
+        $this->assertSame('2026-08-26 21:30', $next->setTimezone('UTC')->format('Y-m-d H:i'));
+        Livewire::actingAs($owner)->test(BackupSettingsPage::class)->assertSee('Backup Time (Asia/Karachi)');
         BackupSetting::query()->findOrFail(1)->update(['enabled' => false]);
         $this->assertNull($service->nextScheduledAt());
+    }
+
+    public function test_backup_command_records_safe_storage_access_failure_without_running_retention(): void
+    {
+        $backup = \Mockery::mock(ErpBackupService::class);
+        $backup->shouldReceive('create')->once()->with(false, true)->andThrow(new BackupStorageAccessException);
+        $retention = \Mockery::mock(BackupRetentionService::class);
+        $retention->shouldNotReceive('prune');
+        app()->instance(ErpBackupService::class, $backup);
+        app()->instance(BackupRetentionService::class, $retention);
+        Log::spy();
+
+        $this->artisan('erp:backup --storage-only --retention-dry-run')->assertFailed();
+        Log::shouldHaveReceived('error')->once()->withArgs(fn (string $message, array $context): bool => $message === 'ERP backup command failed.'
+            && $context['category'] === 'storage_unreadable'
+            && $context['exception_class'] === BackupStorageAccessException::class
+            && ! array_key_exists('path', $context));
     }
 
     public function test_manual_operation_uses_selected_components_then_retention_and_audits(): void
@@ -209,6 +233,111 @@ class BackupSettingsUiTest extends TestCase
 
         $this->assertDatabaseHas('activity_logs', ['event' => 'backup.manual_started', 'actor_user_id' => $owner->id]);
         $this->assertDatabaseHas('activity_logs', ['event' => 'backup.manual_completed', 'actor_user_id' => $owner->id]);
+    }
+
+    public function test_corrupt_backup_manifest_does_not_crash_health_history_or_owner_page(): void
+    {
+        $validDirectory = $this->backupRoot.'/2026-10-29_020000';
+        $badDirectory = $this->backupRoot.'/2026-10-30_020000';
+        File::ensureDirectoryExists($validDirectory);
+        File::ensureDirectoryExists($badDirectory);
+
+        $contents = 'example backup file';
+        file_put_contents($validDirectory.'/database.sql', $contents);
+        file_put_contents($validDirectory.'/manifest.json', json_encode([
+            'backup_timestamp' => '2026-10-29T02:00:00+00:00',
+            'status' => 'successful',
+            'database_driver' => 'mysql',
+            'files' => [['kind' => 'database', 'filename' => 'database.sql',
+                'sha256' => hash('sha256', $contents), 'bytes' => strlen($contents)]],
+        ], JSON_THROW_ON_ERROR));
+        file_put_contents($badDirectory.'/manifest.json', '{invalid');
+
+        $health = app(BackupHealthService::class)->status();
+        $this->assertTrue($health['access_warning']);
+        $this->assertSame(1, $health['unreadable_manifests']);
+        $this->assertTrue($health['checksums_valid']);
+
+        $history = app(BackupHistoryService::class)->all();
+        $this->assertCount(1, $history);
+        $this->assertSame('2026-10-29_020000', $history[0]['id']);
+
+        Livewire::actingAs($this->user(EmployeeRole::Owner))
+            ->test(BackupSettingsPage::class)
+            ->assertSee('Backup access needs attention')
+            ->assertSee('29 Oct 2026');
+    }
+
+    public function test_unreadable_manifest_is_warned_about_without_a_server_error_on_posix(): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $this->markTestSkipped('POSIX unreadable file permission is not available on Windows.');
+        }
+
+        $directory = $this->backupRoot.'/2026-10-30_020000';
+        File::ensureDirectoryExists($directory);
+        $manifestPath = $directory.'/manifest.json';
+        file_put_contents($manifestPath, '{"status":"successful","backup_timestamp":"2026-10-30T02:00:00+00:00"}');
+        chmod($manifestPath, 0000);
+        if (is_readable($manifestPath)) {
+            chmod($manifestPath, 0600);
+            $this->markTestSkipped('The test process can still read mode 0000 files.');
+        }
+
+        try {
+            $this->assertTrue(app(BackupHealthService::class)->status()['access_warning']);
+            $this->assertCount(0, app(BackupHistoryService::class)->all());
+            Livewire::actingAs($this->user(EmployeeRole::Owner))
+                ->test(BackupSettingsPage::class)
+                ->assertSee('Backup access needs attention');
+        } finally {
+            chmod($manifestPath, 0600);
+        }
+    }
+
+    public function test_bad_manifest_file_entries_do_not_cause_a_type_error(): void
+    {
+        $directory = $this->backupRoot.'/2026-10-31_020000';
+        File::ensureDirectoryExists($directory);
+        file_put_contents($directory.'/manifest.json', json_encode([
+            'backup_timestamp' => '2026-10-31T02:00:00+00:00',
+            'status' => 'successful',
+            'database_driver' => 'mysql',
+            'files' => ['invalid entry', null],
+        ], JSON_THROW_ON_ERROR));
+
+        $health = app(BackupHealthService::class)->status();
+        $this->assertFalse($health['checksums_valid']);
+
+        $history = app(BackupHistoryService::class)->all();
+        $this->assertCount(1, $history);
+        $this->assertFalse($history[0]['database']);
+
+        Livewire::actingAs($this->user(EmployeeRole::Owner))
+            ->test(BackupSettingsPage::class)
+            ->assertSee('Backup Status');
+    }
+
+    public function test_latest_failed_backup_attempt_is_visible_to_owner_without_an_error(): void
+    {
+        $directory = $this->backupRoot.'/.incomplete-2026-10-31_020000-error';
+        File::ensureDirectoryExists($directory);
+        file_put_contents($directory.'/manifest.json', json_encode([
+            'backup_timestamp' => '2026-10-31T02:00:00+00:00',
+            'status' => 'failed',
+            'database_driver' => 'mysql',
+            'files' => [],
+        ], JSON_THROW_ON_ERROR));
+
+        $history = app(BackupHistoryService::class)->all();
+        $this->assertCount(1, $history);
+        $this->assertSame('.incomplete-2026-10-31_020000-error', $history[0]['id']);
+        $this->assertSame('failed', $history[0]['status']);
+        $this->assertNull(app(BackupHistoryService::class)->latestSuccessful());
+
+        Livewire::actingAs($this->user(EmployeeRole::Owner))
+            ->test(BackupSettingsPage::class)
+            ->assertSee('Most recent backup attempt failed');
     }
 
     private function user(EmployeeRole $role): User

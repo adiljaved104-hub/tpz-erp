@@ -189,7 +189,7 @@ class WarrantyRepairComplaintsPhaseATest extends TestCase
         app(WarrantyRepairService::class)->moveToDamaged($case, 1, $warehouse->id, 'Not authorized', null, (string) Str::uuid(), $staffUser);
     }
 
-    public function test_internal_damaged_repair_qc_pass_moves_damaged_to_available_and_qc_fail_stays_damaged(): void
+    public function test_internal_damaged_repair_qc_pass_stays_non_saleable_and_qc_fail_stays_damaged(): void
     {
         [$owner, $product, $warehouse, $inventory] = $this->foundation();
         $damage = DamagedStockEvent::query()->create(['reference' => 'DMG-2026-990011', 'product_id' => $product->id, 'warehouse_id' => $warehouse->id, 'product_inventory_id' => $inventory->id, 'quantity' => 1, 'source' => 'internal_warehouse', 'reason' => 'Repair candidate', 'occurred_at' => now(), 'reported_by_user_id' => $owner->id, 'status' => 'damaged', 'idempotency_key' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);
@@ -197,9 +197,10 @@ class WarrantyRepairComplaintsPhaseATest extends TestCase
         foreach ([WarrantyRepairStatus::SendToTechnician, WarrantyRepairStatus::InRepair, WarrantyRepairStatus::RepairCompleted, WarrantyRepairStatus::ReceivedBack, WarrantyRepairStatus::QcPending, WarrantyRepairStatus::ReadyToReturn] as $status) {
             $case = app(WarrantyRepairService::class)->transition($case, $status, $owner);
         }
-        $this->assertSame(6, $inventory->refresh()->available_quantity);
-        $this->assertSame(0, $inventory->damaged_quantity);
-        $this->assertDatabaseHas('stock_movements', ['movement_type' => 'warranty_repair_restored', 'available_delta' => 1, 'damaged_delta' => -1]);
+        $this->assertSame(WarrantyRepairStatus::PendingClassification, $case->status);
+        $this->assertSame(5, $inventory->refresh()->available_quantity);
+        $this->assertSame(1, $inventory->damaged_quantity);
+        $this->assertDatabaseCount('stock_movements', 0);
 
         $inventory->forceFill(['available_quantity' => 5, 'damaged_quantity' => 1])->save();
         $damage2 = DamagedStockEvent::query()->create(['reference' => 'DMG-2026-990012', 'product_id' => $product->id, 'warehouse_id' => $warehouse->id, 'product_inventory_id' => $inventory->id, 'quantity' => 1, 'source' => 'internal_warehouse', 'reason' => 'Repair candidate', 'occurred_at' => now(), 'reported_by_user_id' => $owner->id, 'status' => 'damaged', 'idempotency_key' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);

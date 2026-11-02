@@ -50,11 +50,16 @@ class CustomerReturnResource extends Resource
             array_push($claimFields, 'reimbursed_amount', 'paid_at');
         }
 
-        return app(CustomerReturnReadService::class)->query($user)->with([
-            'order:id,reference,warehouse_id,marketplace_platform_id', 'platform:id,name', 'fulfillmentWarehouse:id,name', 'receivingWarehouse:id,name',
-            'displayItems', 'refund' => fn ($query) => $query->select($refundFields),
-            'refund.warrantyRepair:id,reference', 'claims' => fn ($query) => $query->select($claimFields),
-        ]);
+        return app(CustomerReturnReadService::class)->query($user)
+            ->withExists(['items as identity_review_needed' => fn (Builder $items) => $items
+                ->withUnresolvedIdentityDiscrepancy()])
+            ->withExists(['items as qc_exception_needed' => fn (Builder $items) => $items
+                ->whereHas('exceptionCases', fn (Builder $cases) => $cases->whereNotNull('original_qc_result')->whereNull('resolved_at'))])
+            ->with([
+                'order:id,reference,warehouse_id,marketplace_platform_id', 'platform:id,name', 'fulfillmentWarehouse:id,name,location_type', 'receivingWarehouse:id,name',
+                'displayItems', 'refund' => fn ($query) => $query->select($refundFields),
+                'refund.warrantyRepair:id,reference', 'claims' => fn ($query) => $query->select($claimFields),
+            ]);
     }
 
     public static function form(Schema $schema): Schema

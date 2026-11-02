@@ -23,6 +23,7 @@ enum HrPermission: string
     case LeaveHistoricalAdjust = 'leave.historical.adjust';
     case LeaveJoiningDateCorrect = 'leave.joining_date.correct';
     case WorkScheduleManage = 'work_schedule.manage';
+    case CompOffManage = 'comp_off.manage';
     case WarningViewOwn = 'warning.view_own';
     case WarningViewTeam = 'warning.view_team';
     case WarningViewAll = 'warning.view_all';

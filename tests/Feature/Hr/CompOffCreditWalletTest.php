@@ -1,0 +1,829 @@
+<?php
+
+namespace Tests\Feature\Hr;
+
+use App\Contracts\EmployeePermissionOverrideResolver;
+use App\Enums\AttendanceStatus;
+use App\Enums\EmployeePermissionEffect;
+use App\Enums\EmployeeRole;
+use App\Enums\HrPermission;
+use App\Filament\Pages\Hr\CompOff;
+use App\Filament\Pages\Hr\LeaveManagement;
+use App\Filament\Pages\Hr\WorkSchedules;
+use App\Models\AttendanceCorrection;
+use App\Models\CompensatoryOff;
+use App\Models\CompOffApprovalEvent;
+use App\Models\CompOffCreditRequest;
+use App\Models\CompOffWalletEntry;
+use App\Models\Employee;
+use App\Models\EmployeeAttendance;
+use App\Models\EmployeePermissionOverride;
+use App\Models\LeavePolicy;
+use App\Models\PublicHoliday;
+use App\Models\Team;
+use App\Models\User;
+use App\Models\WorkSchedule;
+use App\Models\WorkScheduleAssignment;
+use App\Models\WorkScheduleDay;
+use App\Services\Hr\BiometricAttendanceProcessor;
+use App\Services\Hr\CompOffCreditService;
+use App\Services\Hr\EffectiveWorkScheduleResolver;
+use App\Services\Hr\WorkScheduleService;
+use Carbon\Carbon;
+use Carbon\CarbonImmutable;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
+use Tests\TestCase;
+
+class CompOffCreditWalletTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        // The forward migration must remain prospective even when this suite runs after November 2026.
+        Carbon::setTestNow('2026-10-30 12:00:00 Asia/Karachi');
+        parent::setUp();
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    public function test_prospective_standard_schedule_and_employee_override(): void
+    {
+        [$owner, $staff] = $this->people();
+        $resolver = app(EffectiveWorkScheduleResolver::class);
+        $this->assertNull($resolver->assignment($staff->employee, CarbonImmutable::parse('2026-11-08')));
+        $effectiveFrom = $this->approveDefault($owner);
+        $mondayDate = $effectiveFrom->next(CarbonImmutable::MONDAY);
+        $monday = $resolver->day($staff->employee, $mondayDate);
+        $saturday = $resolver->day($staff->employee, $mondayDate->addDays(5));
+        $sunday = $resolver->day($staff->employee, $mondayDate->addDays(6));
+        $this->assertTrue($monday['day']->is_working_day);
+        $this->assertSame('17:00', substr($monday['day']->expected_end_time, 0, 5));
+        $this->assertTrue($saturday['day']->is_working_day);
+        $this->assertSame('16:00', substr($saturday['day']->expected_end_time, 0, 5));
+        $this->assertFalse($sunday['day']->is_working_day);
+        $this->assertNull($resolver->assignment($staff->employee, $effectiveFrom->subDay()));
+
+        $override = WorkSchedule::query()->create([
+            'code' => 'TEST_SUN_WORK', 'name' => 'Sunday working test', 'timezone' => 'Asia/Karachi',
+            'schedule_type' => 'custom', 'cycle_length_weeks' => 1, 'status' => true,
+        ]);
+        foreach (range(0, 6) as $weekday) {
+            WorkScheduleDay::query()->create([
+                'work_schedule_id' => $override->id, 'cycle_week' => 1, 'weekday' => $weekday,
+                'is_working_day' => $weekday === 0, 'expected_start_time' => $weekday === 0 ? '11:00' : null,
+                'expected_end_time' => $weekday === 0 ? '17:00' : null,
+                'earns_compensatory_off' => false,
+            ]);
+        }
+        WorkScheduleAssignment::query()->create([
+            'work_schedule_id' => $override->id, 'employee_id' => $staff->employee->id,
+            'effective_from' => $effectiveFrom->toDateString(), 'assigned_by_user_id' => $owner->id,
+            'reason' => 'Approved individual pattern',
+        ]);
+        $this->assertSame($override->id, $resolver->day($staff->employee, $mondayDate->addDays(6))['assignment']->work_schedule_id);
+        $this->assertFalse($resolver->day($staff->employee, $mondayDate->addDays(5))['day']->is_working_day);
+    }
+
+    public function test_leave_page_recognizes_the_effective_company_schedule(): void
+    {
+        [$owner, $staff] = $this->people();
+        $effectiveFrom = $this->approveDefault($owner);
+        Carbon::setTestNow($effectiveFrom->setTime(10, 0));
+
+        Livewire::actingAs($staff)->test(LeaveManagement::class)
+            ->assertViewHas('scheduleConfigured', true);
+    }
+
+    public function test_work_schedule_dashboard_distinguishes_future_default_from_coverage_today(): void
+    {
+        [$owner, $staff] = $this->people();
+        $seededFrom = CarbonImmutable::parse(
+            DB::table('company_work_schedule_versions')->latest('effective_from')->value('effective_from'),
+            'Asia/Karachi',
+        );
+        Carbon::setTestNow($seededFrom->addDay()->setTime(12, 0));
+
+        Livewire::actingAs($owner)->test(WorkSchedules::class)
+            ->assertViewHas('assignedEmployeeCount', 0)
+            ->assertViewHas('unassignedEmployeeCount', 2)
+            ->assertSee('Awaiting Owner approval');
+
+        $effectiveFrom = $this->approveDefault($owner);
+        Livewire::actingAs($owner)->test(WorkSchedules::class)
+            ->assertViewHas('assignedEmployeeCount', 0)
+            ->assertViewHas('unassignedEmployeeCount', 2)
+            ->assertSee($effectiveFrom->format('d M Y'));
+
+        Carbon::setTestNow($effectiveFrom->setTime(12, 0));
+        Livewire::actingAs($owner)->test(WorkSchedules::class)
+            ->assertViewHas('assignedEmployeeCount', 2)
+            ->assertViewHas('unassignedEmployeeCount', 0)
+            ->assertSee('Effective today');
+        $this->assertSame('PK_STD_2026_11', app(EffectiveWorkScheduleResolver::class)
+            ->assignment($staff->employee, CarbonImmutable::today('Asia/Karachi'))->schedule->code);
+    }
+
+    public function test_seeded_default_remains_unapproved_without_changing_existing_attendance_data(): void
+    {
+        [, $staff] = $this->people();
+        $seed = DB::table('company_work_schedule_versions')->first();
+        $this->assertNotNull($seed);
+        $this->assertNull($seed->approved_at);
+        $this->assertNull($seed->approved_by_user_id);
+
+        $date = CarbonImmutable::parse($seed->effective_from, 'Asia/Karachi')->addWeek();
+        $this->assertNull(app(EffectiveWorkScheduleResolver::class)->assignment($staff->employee, $date));
+        $this->assertDatabaseCount('employee_attendances', 0);
+        $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+        $this->assertDatabaseCount('employee_annual_leave_activations', 0);
+    }
+
+    public function test_unassigned_employee_has_no_default_before_approval_migration_completes(): void
+    {
+        [, $staff] = $this->people();
+        Schema::shouldReceive('hasTable')->once()->with('company_work_schedule_versions')->andReturn(true);
+        Schema::shouldReceive('hasColumn')->once()->with('company_work_schedule_versions', 'approved_at')->andReturn(false);
+
+        $this->assertNull(app(EffectiveWorkScheduleResolver::class)->assignment(
+            $staff->employee,
+            CarbonImmutable::parse('2026-11-15', 'Asia/Karachi'),
+        ));
+    }
+
+    public function test_only_owner_can_approve_a_future_company_default_from_the_page(): void
+    {
+        [$owner, $staff] = $this->people();
+        $admin = $this->user(EmployeeRole::Admin, $staff->employee->team);
+        $schedule = WorkSchedule::query()->where('code', 'PK_STD_2026_11')->firstOrFail();
+        $seed = DB::table('company_work_schedule_versions')->first();
+        $effectiveFrom = CarbonImmutable::parse($seed->effective_from, 'Asia/Karachi')->addDay();
+
+        Livewire::actingAs($admin)->test(WorkSchedules::class)
+            ->assertDontSee('Approve Company Default')
+            ->call('approveCompanyDefault')->assertForbidden();
+        $this->assertDatabaseCount('company_work_schedule_versions', 1);
+
+        Livewire::actingAs($owner)->test(WorkSchedules::class)
+            ->set('defaultWorkScheduleId', $schedule->id)
+            ->set('defaultEffectiveFrom', $effectiveFrom->toDateString())
+            ->set('defaultReason', 'Owner approved after reviewing company policy')
+            ->call('approveCompanyDefault')->assertHasNoErrors();
+
+        $this->assertDatabaseHas('company_work_schedule_versions', [
+            'work_schedule_id' => $schedule->id,
+            'effective_from' => $effectiveFrom->toDateString(),
+            'approved_by_user_id' => $owner->id,
+        ]);
+        $this->assertDatabaseHas('activity_logs', [
+            'actor_user_id' => $owner->id,
+            'event' => 'work_schedule.company_default_approved',
+        ]);
+        $this->assertNull(DB::table('company_work_schedule_versions')->where('id', $seed->id)->value('approved_at'));
+        $resolver = app(EffectiveWorkScheduleResolver::class);
+        $this->assertNull($resolver->assignment($staff->employee, $effectiveFrom->subDay()));
+        $this->assertSame($schedule->id, $resolver->assignment($staff->employee, $effectiveFrom)->work_schedule_id);
+        $this->assertDatabaseCount('employee_attendances', 0);
+        $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+        $this->assertDatabaseCount('employee_annual_leave_activations', 0);
+    }
+
+    public function test_company_default_approval_rejects_nonprospective_or_duplicate_dates(): void
+    {
+        [$owner] = $this->people();
+        $schedule = WorkSchedule::query()->where('code', 'PK_STD_2026_11')->firstOrFail();
+        $seededFrom = DB::table('company_work_schedule_versions')->value('effective_from');
+
+        try {
+            app(WorkScheduleService::class)->approveCompanyDefault($schedule->id, $seededFrom, 'Conflicting date', $owner);
+            $this->fail('A seeded version date must not be reused.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('effective_from', $exception->errors());
+        }
+        $this->assertDatabaseCount('company_work_schedule_versions', 1);
+    }
+
+    public function test_team_and_employee_schedule_overrides_take_precedence_over_company_default(): void
+    {
+        [$owner, $staff] = $this->people();
+        $effectiveFrom = $this->approveDefault($owner);
+        $teammate = $this->user(EmployeeRole::Staff, $staff->employee->team);
+        $teamSchedule = WorkSchedule::query()->create([
+            'code' => 'TEAM_UAT', 'name' => 'Team UAT hours', 'timezone' => 'Asia/Karachi',
+            'schedule_type' => 'custom', 'cycle_length_weeks' => 1, 'status' => true,
+        ]);
+        foreach (range(0, 6) as $weekday) {
+            WorkScheduleDay::query()->create([
+                'work_schedule_id' => $teamSchedule->id, 'cycle_week' => 1, 'weekday' => $weekday,
+                'is_working_day' => $weekday !== 0, 'expected_start_time' => $weekday === 0 ? null : '10:00',
+                'expected_end_time' => $weekday === 0 ? null : '16:00', 'earns_compensatory_off' => false,
+            ]);
+        }
+        WorkScheduleAssignment::query()->create([
+            'work_schedule_id' => $teamSchedule->id, 'team_id' => $staff->employee->team_id,
+            'effective_from' => '2026-11-01', 'assigned_by_user_id' => $owner->id, 'reason' => 'Team UAT schedule',
+        ]);
+        $standard = WorkSchedule::query()->where('code', 'PK_STD_2026_11')->firstOrFail();
+        WorkScheduleAssignment::query()->create([
+            'work_schedule_id' => $standard->id, 'employee_id' => $staff->employee->id,
+            'effective_from' => '2026-11-01', 'assigned_by_user_id' => $owner->id, 'reason' => 'Individual UAT override',
+        ]);
+        $resolver = app(EffectiveWorkScheduleResolver::class);
+        $monday = $effectiveFrom->next(CarbonImmutable::MONDAY);
+        $this->assertSame($standard->id, $resolver->assignment($staff->employee, $monday)->work_schedule_id);
+        $this->assertSame($teamSchedule->id, $resolver->assignment($teammate->employee, $monday)->work_schedule_id);
+        $this->assertSame('10:00', substr($resolver->day($teammate->employee, $monday)['day']->expected_start_time, 0, 5));
+    }
+
+    public function test_sunday_approval_eligibility_tracks_attendance_and_shift_completion(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Sunday UAT duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->assertSame('Scheduled', $service->sundayApprovalEligibility($duty)['status']);
+
+        Carbon::setTestNow('2026-11-08 12:00:00 Asia/Karachi');
+        $this->assertSame('Awaiting Attendance', $service->sundayApprovalEligibility($duty)['status']);
+        $page = Livewire::actingAs($owner)->test(CompOff::class)->call('showTab', 'approvals')
+            ->assertSee('Awaiting Attendance')->assertSee('A verified check-in and check-out are required.');
+        $this->assertTrue($this->approvalButtonIsDisabled($page->html()));
+        try {
+            $service->decideSunday($duty, true, $owner);
+            $this->fail('The backend must still reject unverified attendance.');
+        } catch (ValidationException) {
+            $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+        }
+
+        $attendance = $this->pairedAttendance($staff->employee, '2026-11-08', 359);
+        $attendance->forceFill(['last_check_out_at' => null])->save();
+        $this->assertSame('Awaiting Attendance', $service->sundayApprovalEligibility($duty)['status']);
+        $attendance->forceFill(['last_check_out_at' => CarbonImmutable::parse('2026-11-08 16:59:00', 'Asia/Karachi')->utc()])->save();
+        $this->assertSame('Insufficient Hours', $service->sundayApprovalEligibility($duty)['status']);
+
+        $attendance->forceFill(['last_check_out_at' => CarbonImmutable::parse('2026-11-08 17:00:00', 'Asia/Karachi')->utc(), 'worked_minutes' => 360])->save();
+        Carbon::setTestNow('2026-11-08 16:59:00 Asia/Karachi');
+        $this->assertSame('Awaiting Shift Completion', $service->sundayApprovalEligibility($duty)['status']);
+        Carbon::setTestNow('2026-11-08 17:01:00 Asia/Karachi');
+        $this->assertSame('Ready for Approval', $service->sundayApprovalEligibility($duty)['status']);
+        $this->assertTrue($service->sundayApprovalEligibility($duty)['ready']);
+        $page->call('$refresh')->assertSee('Ready for Approval');
+        $this->assertFalse($this->approvalButtonIsDisabled($page->html()));
+        $service->decideSunday($duty, true, $owner);
+        $service->decideSunday($duty, true, $owner);
+        $this->assertSame(1, CompOffWalletEntry::query()->where('kind', 'earned')->count());
+    }
+
+    public function test_custom_sunday_timings_are_validated_and_duplicate_submission_cannot_change_them(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $key = (string) Str::uuid();
+        $data = ['employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'shift_start' => '10:00', 'shift_end' => '16:00',
+            'reason' => 'Flexible Sunday duty', 'idempotency_key' => $key];
+        $duty = $service->authorizeSunday($data, $owner);
+        $this->assertSame('10:00:00', $duty->shift_start);
+        $this->assertSame('16:00:00', $duty->shift_end);
+        $this->assertSame($duty->id, $service->authorizeSunday($data, $owner)->id);
+        foreach ([['09:00', '14:59'], ['16:00', '10:00'], ['22:00', '04:00']] as [$start, $end]) {
+            try {
+                $service->authorizeSunday(array_replace($data, [
+                    'idempotency_key' => (string) Str::uuid(), 'shift_start' => $start, 'shift_end' => $end,
+                ]), $owner);
+                $this->fail('Invalid same-day duty window must be rejected.');
+            } catch (ValidationException) {
+                $this->assertDatabaseCount('comp_off_sunday_duties', 1);
+            }
+        }
+        $this->expectException(ValidationException::class);
+        $service->authorizeSunday(array_replace($data, ['shift_start' => '11:00']), $owner);
+    }
+
+    public function test_upcoming_duty_timings_can_be_edited_with_immutable_old_and_new_audit_history(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Sunday stock count', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $page = Livewire::actingAs($owner)->test(CompOff::class)->call('showTab', 'approvals')
+            ->assertSee('11:00 AM – 5:00 PM')->assertSee('Edit Timings');
+        $page->call('startEditingDuty', $duty->id)
+            ->assertSet('editStartTime', '11:00')->assertSet('editEndTime', '17:00')
+            ->set('editStartTime', '10:00')->set('editEndTime', '16:00')
+            ->set('editReason', 'Delivery team requested an earlier duty')
+            ->call('saveDutyTimings')->assertSee('10:00 AM – 4:00 PM');
+        $this->assertSame('10:00:00', $duty->fresh()->shift_start);
+        $this->assertSame('16:00:00', $duty->fresh()->shift_end);
+        $events = CompOffApprovalEvent::query()->where('comp_off_sunday_duty_id', $duty->id)->orderBy('id')->get();
+        $this->assertCount(2, $events);
+        $this->assertSame('timings_changed', $events[1]->action);
+        $this->assertSame($owner->id, $events[1]->actor_user_id);
+        $this->assertStringContainsString('11:00–17:00 to 10:00–16:00', $events[1]->reason);
+        $this->assertStringContainsString('Delivery team requested an earlier duty', $events[1]->reason);
+        $this->assertNotNull($events[1]->occurred_at);
+        $this->assertSame('Sunday stock count', $duty->fresh()->reason);
+        $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+    }
+
+    public function test_duty_editing_rejects_started_attendance_or_completed_decisions(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Sunday stock count', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $edit = ['shift_start' => '10:00', 'shift_end' => '16:00', 'reason' => 'Move duty earlier for receiving'];
+        Carbon::setTestNow('2026-11-08 10:00:00 Asia/Karachi');
+        $this->assertTrue($service->canEditSundayTimings($duty, $owner));
+        try {
+            $service->editSundayTimings($duty, $edit, $owner);
+            $this->fail('A proposed shift already started.');
+        } catch (ValidationException) {
+            $this->assertSame('11:00:00', $duty->fresh()->shift_start);
+        }
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        $attendance = $this->pairedAttendance($staff->employee, '2026-11-08', 30);
+        $attendance->forceFill(['last_check_out_at' => null])->save();
+        $this->assertFalse($service->canEditSundayTimings($duty, $owner));
+        try {
+            $service->editSundayTimings($duty, $edit, $owner);
+            $this->fail('Recorded attendance must block editing, even before the duty date.');
+        } catch (ValidationException) {
+            $this->assertSame('11:00:00', $duty->fresh()->shift_start);
+        }
+        $attendance->forceFill(['first_check_in_at' => null, 'last_check_out_at' => null, 'worked_minutes' => 0])->save();
+        $service->decideSunday($duty, false, $owner, 'Sunday assignment no longer required');
+        $this->expectException(ValidationException::class);
+        $service->editSundayTimings($duty, $edit, $owner);
+    }
+
+    public function test_custom_window_requires_six_verified_hours_and_awards_only_one_credit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'shift_start' => '10:00', 'shift_end' => '16:00',
+            'reason' => 'Flexible receiving duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $attendance = $this->pairedAttendance($staff->employee, '2026-11-08', 360, '09:00');
+        Carbon::setTestNow('2026-11-08 16:01:00 Asia/Karachi');
+        $this->assertSame('Insufficient Hours', $service->sundayApprovalEligibility($duty)['status']);
+        $this->assertStringContainsString('10:00 AM–4:00 PM', $service->sundayApprovalEligibility($duty)['reason']);
+        try {
+            $service->decideSunday($duty, true, $owner);
+            $this->fail('Only time within the authorized window may earn credit.');
+        } catch (ValidationException) {
+            $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+        }
+        $start = CarbonImmutable::parse('2026-11-08 10:00:00', 'Asia/Karachi');
+        $attendance->forceFill(['first_check_in_at' => $start->utc(), 'last_check_out_at' => $start->addHours(6)->utc()])->save();
+        $this->assertSame('Ready for Approval', $service->sundayApprovalEligibility($duty)['status']);
+        $service->decideSunday($duty, true, $owner);
+        $service->decideSunday($duty, true, $owner);
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['available']);
+        $this->assertSame(1, CompOffWalletEntry::query()->where('comp_off_sunday_duty_id', $duty->id)->count());
+        $this->expectException(ValidationException::class);
+        $service->editSundayTimings($duty, ['shift_start' => '09:00', 'shift_end' => '15:00',
+            'reason' => 'Do not edit after credit'], $owner);
+    }
+
+    public function test_manager_can_edit_only_employee_in_scope_and_staff_cannot_edit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $manager = $this->user(EmployeeRole::Manager, $staff->employee->team);
+        $otherTeam = Team::query()->create(['name' => 'Outside timing scope', 'status' => true]);
+        $outsider = $this->user(EmployeeRole::Staff, $otherTeam);
+        $outsideManager = $this->user(EmployeeRole::Manager, $otherTeam);
+        $admin = $this->user(EmployeeRole::Admin, $otherTeam);
+        $service = app(CompOffCreditService::class);
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Scoped Sunday assignment', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->assertTrue($service->canEditSundayTimings($duty, $manager));
+        $this->assertTrue($service->canEditSundayTimings($duty, $admin));
+        $this->assertFalse($service->canEditSundayTimings($duty, $outsider));
+        $this->assertFalse($service->canEditSundayTimings($duty, $outsideManager));
+        Livewire::actingAs($outsideManager)->test(CompOff::class)
+            ->call('startEditingDuty', $duty->id)->assertForbidden();
+        Livewire::actingAs($outsideManager)->test(CompOff::class)
+            ->set('editingDutyId', $duty->id)->set('editStartTime', '09:00')
+            ->set('editEndTime', '15:00')->set('editReason', 'Out-of-scope attempt')
+            ->call('saveDutyTimings')->assertForbidden();
+        $data = ['shift_start' => '09:00', 'shift_end' => '15:00', 'reason' => 'Earlier dispatch check'];
+        try {
+            $service->editSundayTimings($duty, $data, $outsider);
+            $this->fail('Staff must not edit duty timings.');
+        } catch (AuthorizationException) {
+            $this->assertSame('11:00:00', $duty->fresh()->shift_start);
+        }
+        $service->editSundayTimings($duty, $data, $manager);
+        $this->assertSame($manager->id, CompOffApprovalEvent::query()->where('action', 'timings_changed')->firstOrFail()->actor_user_id);
+    }
+
+    public function test_comp_off_tabs_hide_approval_controls_from_staff_and_keep_manager_scope(): void
+    {
+        [$owner, $staff] = $this->people();
+        $manager = $this->user(EmployeeRole::Manager, $staff->employee->team);
+        $otherTeam = Team::query()->create(['name' => 'Outside UAT team', 'status' => true]);
+        $outsider = $this->user(EmployeeRole::Staff, $otherTeam);
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        app(CompOffCreditService::class)->authorizeSunday([
+            'employee_id' => $outsider->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Outside team Sunday duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+
+        Livewire::actingAs($staff)->test(CompOff::class)
+            ->assertSee('Overview')->assertSee('Credit History')->assertDontSee('Pending Approvals')
+            ->call('showTab', 'approvals')->assertForbidden();
+        Livewire::actingAs($staff)->test(CompOff::class)
+            ->call('showTab', 'history')->assertSee('Wallet Activity')->assertDontSee('Outside UAT team');
+        Livewire::actingAs($manager)->test(CompOff::class)
+            ->call('showTab', 'approvals')->assertSee('Sunday Duty Awaiting Approval')
+            ->assertDontSee($outsider->employee->employee_id);
+        Livewire::actingAs($owner)->test(CompOff::class)
+            ->call('showTab', 'approvals')->assertSee($outsider->employee->employee_id)
+            ->call('showTab', 'history')->assertSee('Approval History');
+    }
+
+    public function test_verified_sunday_earns_once_and_saturday_sunday_request_uses_one_credit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $this->assignStandardSchedule($staff->employee, $owner);
+        $service = app(CompOffCreditService::class);
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Approved test Sunday duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->assertSame('authorized', $duty->status);
+        $this->pairedAttendance($staff->employee, '2026-11-08', 360);
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        $service->decideSunday($duty, true, $owner);
+        $service->decideSunday($duty, true, $owner);
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['available']);
+        $this->assertSame(1, CompOffWalletEntry::query()->where('employee_id', $staff->employee->id)->where('kind', 'earned')->count());
+        $request = $service->submit([
+            'from_date' => '2026-11-14', 'to_date' => '2026-11-15',
+            'reason' => 'Use one earned Sunday credit', 'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
+        $this->assertSame(1, $request->credits_required);
+        $this->assertSame(['working_day', 'weekly_off'], $request->days()->orderBy('off_date')->pluck('classification')->all());
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['available']);
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['reserved']);
+        $service->decideRequest($request, true, $owner);
+        $service->decideRequest($request, true, $owner);
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['used']);
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['reserved']);
+        $this->assertSame(AttendanceStatus::CompensatoryOff,
+            EmployeeAttendance::query()->where('employee_id', $staff->employee->id)
+                ->whereDate('attendance_date', '2026-11-14')->firstOrFail()->status);
+        $this->assertFalse(EmployeeAttendance::query()->where('employee_id', $staff->employee->id)
+            ->whereDate('attendance_date', '2026-11-15')->where('status', AttendanceStatus::CompensatoryOff)->exists());
+    }
+
+    public function test_missing_checkout_and_insufficient_minutes_never_earn_credit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Approved test Sunday duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $attendance = $this->pairedAttendance($staff->employee, '2026-11-08', 359);
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        try {
+            $service->decideSunday($duty, true, $owner);
+            $this->fail('Insufficient verified minutes should fail.');
+        } catch (ValidationException) {
+            $this->assertSame(0, CompOffWalletEntry::query()->count());
+        }
+        $attendance->forceFill(['worked_minutes' => 360, 'last_check_out_at' => null])->save();
+        $this->expectException(ValidationException::class);
+        $service->decideSunday($duty, true, $owner);
+    }
+
+    public function test_sunday_duty_rejection_is_audited_without_awarding_credit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        $duty = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Proposed Sunday shift', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $service->decideSunday($duty, false, $owner, 'Sunday assignment was cancelled');
+        $service->decideSunday($duty, false, $owner, 'Sunday assignment was cancelled');
+        $this->assertSame('rejected', $duty->fresh()->status);
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['earned']);
+        $this->assertSame(2, CompOffApprovalEvent::query()->where('comp_off_sunday_duty_id', $duty->id)->count());
+    }
+
+    public function test_rejection_releases_reservation_and_out_of_scope_manager_is_denied(): void
+    {
+        [$owner, $staff] = $this->people();
+        $otherTeam = Team::query()->create(['name' => 'Other', 'status' => true]);
+        $otherManager = $this->user(EmployeeRole::Manager, $otherTeam);
+        $service = app(CompOffCreditService::class);
+        $this->seedCredit($staff->employee, $owner);
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        $request = $service->submit([
+            'from_date' => '2026-11-14', 'to_date' => '2026-11-15',
+            'reason' => 'Use earned duty credit', 'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['available']);
+        try {
+            $service->decideRequest($request, true, $otherManager);
+            $this->fail('Out-of-scope manager should be denied.');
+        } catch (AuthorizationException) {
+            $this->assertSame('pending', $request->fresh()->status);
+        }
+        $service->decideRequest($request, false, $owner, 'Employee no longer needs this absence');
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['available']);
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['reserved']);
+    }
+
+    public function test_pending_cancellation_releases_credit_and_duplicate_submission_is_idempotent(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $this->seedCredit($staff->employee, $owner);
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        $key = (string) Str::uuid();
+        $data = ['from_date' => '2026-11-14', 'to_date' => '2026-11-15',
+            'reason' => 'Use earned Sunday credit', 'idempotency_key' => $key];
+        $first = $service->submit($data, $staff);
+        $second = $service->submit($data, $staff);
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, CompOffCreditRequest::query()->count());
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['reserved']);
+        $service->cancel($first, $staff, 'Plans changed before the absence');
+        $service->cancel($first, $staff, 'Plans changed before the absence');
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['available']);
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['reserved']);
+        $this->assertSame(2, CompOffWalletEntry::query()->where('comp_off_credit_request_id', $first->id)->count());
+    }
+
+    public function test_comp_off_approval_survives_biometric_reprocessing_and_does_not_change_annual_policy(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $this->seedCredit($staff->employee, $owner);
+        $policy = LeavePolicy::query()->latest('effective_from')->firstOrFail();
+        $before = $policy->toArray();
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        $request = $service->submit([
+            'from_date' => '2026-11-14', 'to_date' => '2026-11-14',
+            'reason' => 'Use one credit independently', 'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
+        $service->decideRequest($request, true, $owner);
+        $reprocessed = app(BiometricAttendanceProcessor::class)->rebuild($staff->employee, CarbonImmutable::parse('2026-11-14'));
+        $this->assertSame(AttendanceStatus::CompensatoryOff, $reprocessed->status);
+        $this->assertSame($before, $policy->fresh()->toArray());
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['used']);
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['available']);
+    }
+
+    public function test_two_requests_cannot_reserve_the_same_credit_and_employee_cannot_self_approve(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $this->seedCredit($staff->employee, $owner);
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        $first = $service->submit([
+            'from_date' => '2026-11-14', 'to_date' => '2026-11-14',
+            'reason' => 'First credit request', 'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
+        try {
+            $service->decideRequest($first, true, $staff);
+            $this->fail('Employees must not approve their own requests.');
+        } catch (AuthorizationException) {
+            $this->assertSame('pending', $first->fresh()->status);
+        }
+        $this->expectException(ValidationException::class);
+        $service->submit([
+            'from_date' => '2026-11-16', 'to_date' => '2026-11-16',
+            'reason' => 'Second credit request', 'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
+    }
+
+    public function test_manager_can_manage_only_scoped_employees_and_a_permission_denial_is_enforced(): void
+    {
+        [$owner, $staff] = $this->people();
+        $manager = $this->user(EmployeeRole::Manager, $staff->employee->team);
+        $service = app(CompOffCreditService::class);
+        $this->assertTrue($service->canManage($manager, $staff->employee));
+        $this->assertFalse($service->canManage($manager, $manager->employee));
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $manager->employee->id, 'permission_key' => HrPermission::CompOffManage->value,
+            'effect' => EmployeePermissionEffect::Deny, 'granted_by_user_id' => $owner->id,
+            'reason' => 'Scoped permission-denial regression',
+        ]);
+        app(EmployeePermissionOverrideResolver::class)->forgetEmployee($manager->employee->id);
+        $this->assertFalse($service->canManage($manager, $staff->employee));
+    }
+
+    public function test_credits_accumulate_across_months_and_two_working_days_use_two_credits(): void
+    {
+        [$owner, $staff] = $this->people();
+        $this->assignStandardSchedule($staff->employee, $owner);
+        $service = app(CompOffCreditService::class);
+        Carbon::setTestNow('2026-11-01 09:00:00 Asia/Karachi');
+        $first = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-11-08',
+            'reason' => 'Approved November Sunday duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->pairedAttendance($staff->employee, '2026-11-08', 360);
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        $service->decideSunday($first, true, $owner);
+        $second = $service->authorizeSunday([
+            'employee_id' => $staff->employee->id, 'duty_date' => '2026-12-06',
+            'reason' => 'Approved December Sunday duty', 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $this->pairedAttendance($staff->employee, '2026-12-06', 360);
+        Carbon::setTestNow('2026-12-07 09:00:00 Asia/Karachi');
+        $service->decideSunday($second, true, $owner);
+        $this->assertSame(2, $service->balance($staff->employee, $staff)['available']);
+        $request = $service->submit([
+            'from_date' => '2026-12-12', 'to_date' => '2026-12-14',
+            'reason' => 'Use two credits over the weekend', 'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
+        $this->assertSame(2, $request->credits_required);
+        $this->assertSame(['working_day', 'weekly_off', 'working_day'],
+            $request->days()->orderBy('off_date')->pluck('classification')->all());
+        $service->decideRequest($request, true, $owner);
+        $this->assertSame(2, $service->balance($staff->employee, $staff)['used']);
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['available']);
+    }
+
+    public function test_approved_future_absence_requires_manager_reversal_and_rebuilds_attendance(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $this->seedCredit($staff->employee, $owner);
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        $request = $service->submit([
+            'from_date' => '2026-11-14', 'to_date' => '2026-11-14',
+            'reason' => 'Use one credit on Saturday', 'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
+        $service->decideRequest($request, true, $owner);
+        try {
+            $service->cancel($request, $staff, 'Employee asks to reverse approved day');
+            $this->fail('Only a manager may reverse approved absence.');
+        } catch (AuthorizationException) {
+            $this->assertSame('approved', $request->fresh()->status);
+        }
+        $service->cancel($request, $owner, 'Approved absence cancelled before its date');
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['available']);
+        $this->assertSame(0, $service->balance($staff->employee, $staff)['used']);
+        $attendance = EmployeeAttendance::query()->where('employee_id', $staff->employee->id)
+            ->whereDate('attendance_date', '2026-11-14')->firstOrFail();
+        $this->assertSame(AttendanceStatus::Absent, $attendance->status);
+        $this->assertSame(1, $attendance->corrections()->count());
+    }
+
+    public function test_public_holiday_in_range_does_not_consume_a_credit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $service = app(CompOffCreditService::class);
+        $this->seedCredit($staff->employee, $owner);
+        PublicHoliday::query()->create([
+            'name' => 'Test public holiday', 'holiday_date' => '2026-11-16',
+            'status' => true, 'created_by_user_id' => $owner->id,
+        ]);
+        Carbon::setTestNow('2026-11-09 09:00:00 Asia/Karachi');
+        $request = $service->submit([
+            'from_date' => '2026-11-14', 'to_date' => '2026-11-16',
+            'reason' => 'Saturday followed by off and holiday', 'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
+        $this->assertSame(1, $request->credits_required);
+        $this->assertSame(['working_day', 'weekly_off', 'public_holiday'],
+            $request->days()->orderBy('off_date')->pluck('classification')->all());
+        $this->assertSame(1, $service->balance($staff->employee, $staff)['reserved']);
+    }
+
+    public function test_older_comp_off_history_is_preserved_and_not_converted_to_wallet_credit(): void
+    {
+        [$owner, $staff] = $this->people();
+        $legacy = CompensatoryOff::query()->create([
+            'reference' => 'COF-2026-999998', 'employee_id' => $staff->employee->id,
+            'earned_work_date' => '2026-10-25', 'off_date' => '2026-11-03',
+            'source' => 'scheduled_sunday', 'status' => 'approved',
+            'granted_by_user_id' => $owner->id, 'approved_by_user_id' => $owner->id,
+            'approved_at' => now(), 'reason' => 'Original approved historical record',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $wallet = app(CompOffCreditService::class)->balance($staff->employee, $staff);
+        $this->assertSame(0, $wallet['available']);
+        $this->assertSame(1, $wallet['legacy_unreconciled']);
+        $this->assertSame('approved', $legacy->fresh()->status);
+        $this->assertDatabaseCount('comp_off_wallet_entries', 0);
+    }
+
+    private function people(): array
+    {
+        $team = Team::query()->create(['name' => 'Operations', 'status' => true]);
+
+        return [$this->user(EmployeeRole::Owner, $team), $this->user(EmployeeRole::Staff, $team)];
+    }
+
+    private function approveDefault(User $owner): CarbonImmutable
+    {
+        $latest = CarbonImmutable::parse(
+            DB::table('company_work_schedule_versions')->latest('effective_from')->value('effective_from'),
+            'Asia/Karachi',
+        );
+        $effectiveFrom = $latest->addDay()->max(CarbonImmutable::today('Asia/Karachi')->addDay());
+        app(WorkScheduleService::class)->approveCompanyDefault(
+            (int) WorkSchedule::query()->where('code', 'PK_STD_2026_11')->value('id'),
+            $effectiveFrom->toDateString(),
+            'Owner-approved prospective default for local test',
+            $owner,
+        );
+
+        return $effectiveFrom;
+    }
+
+    private function approvalButtonIsDisabled(string $html): bool
+    {
+        $document = new \DOMDocument;
+        @$document->loadHTML($html);
+        $buttons = (new \DOMXPath($document))->query("//button[contains(normalize-space(.), 'Approve credit')]");
+        $this->assertNotFalse($buttons);
+        $this->assertGreaterThan(0, $buttons->length, 'Approve credit button must be present for authorized managers.');
+
+        return $buttons->item(0)->hasAttribute('disabled');
+    }
+
+    private function user(EmployeeRole $role, Team $team): User
+    {
+        $user = User::factory()->create();
+        Employee::factory()->for($user)->role($role)->create([
+            'email' => $user->email, 'team_id' => $team->id, 'status' => true,
+        ]);
+
+        return $user->refresh();
+    }
+
+    private function pairedAttendance(Employee $employee, string $date, int $minutes, string $startTime = '11:00'): EmployeeAttendance
+    {
+        $start = CarbonImmutable::parse($date.' '.$startTime.':00', 'Asia/Karachi');
+        $attendance = EmployeeAttendance::query()->create([
+            'employee_id' => $employee->id, 'attendance_date' => $date,
+            'work_schedule_id' => WorkSchedule::query()->where('code', 'PK_STD_2026_11')->value('id'),
+            'first_check_in_at' => $start->utc(), 'last_check_out_at' => $start->addMinutes($minutes)->utc(),
+            'worked_minutes' => $minutes, 'status' => AttendanceStatus::WeekendOff,
+            'source' => 'manual', 'is_overridden' => true, 'calculated_at' => now(),
+        ]);
+        AttendanceCorrection::query()->create([
+            'employee_attendance_id' => $attendance->id, 'actor_user_id' => User::query()->firstOrFail()->id,
+            'reason' => 'Verified authorized paired Sunday attendance', 'old_values' => [],
+            'new_values' => ['first_check_in_at' => $start->utc()->toIso8601String(),
+                'last_check_out_at' => $start->addMinutes($minutes)->utc()->toIso8601String()],
+            'idempotency_key' => (string) Str::uuid(), 'occurred_at' => now(), 'created_at' => now(),
+        ]);
+
+        return $attendance;
+    }
+
+    private function seedCredit(Employee $employee, User $actor): void
+    {
+        $this->assignStandardSchedule($employee, $actor);
+        CompOffWalletEntry::query()->create([
+            'reference' => 'CWL-2026-999999', 'employee_id' => $employee->id, 'kind' => 'earned',
+            'earned_delta' => 1, 'reserved_delta' => 0, 'used_delta' => 0,
+            'actor_user_id' => $actor->id, 'operation_key' => 'test:earned:'.$employee->id,
+            'reason' => 'Test fixture', 'occurred_at' => now(), 'created_at' => now(),
+        ]);
+    }
+
+    private function assignStandardSchedule(Employee $employee, User $actor): void
+    {
+        WorkScheduleAssignment::query()->create([
+            'work_schedule_id' => WorkSchedule::query()->where('code', 'PK_STD_2026_11')->value('id'),
+            'employee_id' => $employee->id,
+            'effective_from' => '2026-11-01',
+            'assigned_by_user_id' => $actor->id,
+            'reason' => 'Explicit employee schedule for Comp-Off regression test',
+        ]);
+    }
+}

@@ -39,6 +39,7 @@ class SafetClaimsTable
             TextColumn::make('product.name')->label('Product')->searchable()->limit(48)->tooltip(fn (SafetClaim $record): ?string => $record->product?->name),
             TextColumn::make('quantity')->label('Qty'),
             TextColumn::make('claim_reason')->label('Damage Reason'),
+            TextColumn::make('evidence_readiness')->label('Evidence')->state(fn (SafetClaim $record): string => $record->evidenceReadiness()),
             TextColumn::make('damagedStockEvent.occurred_at')->label('QC / Damaged Date')->dateTime('d M Y, h:i A'),
             TextColumn::make('source')->label('Source')->badge(),
             TextColumn::make('status')->badge(),

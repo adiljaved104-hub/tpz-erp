@@ -128,6 +128,17 @@ class BackupRestoreTest extends TestCase
         $this->assertSame('local', config('filesystems.default'));
     }
 
+    public function test_scheduled_backups_are_explicitly_unprotected_and_default_manual_backups_are_protected(): void
+    {
+        $result = app(ErpBackupService::class)->create(includeDatabase: true, includeStorage: true, purpose: 'scheduled');
+        $this->assertSame('scheduled', $result['manifest']['purpose']);
+        $this->assertFalse($result['manifest']['retention_protected']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Invalid backup purpose');
+        app(ErpBackupService::class)->create(purpose: 'untrusted');
+    }
+
     public function test_storage_only_backup_creates_a_verified_archive_for_empty_configured_roots(): void
     {
         File::deleteDirectory($this->workspace.'/storage/public');

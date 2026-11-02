@@ -128,6 +128,36 @@ class BackupRestoreTest extends TestCase
         $this->assertSame('local', config('filesystems.default'));
     }
 
+    public function test_cli_full_deployment_backup_includes_database_and_storage_and_survives_rotation(): void
+    {
+        config([
+            'backup.database.enabled' => false,
+            'backup.storage.enabled' => false,
+            'backup.retention.daily' => 1,
+            'backup.retention.weekly' => 0,
+            'backup.retention.monthly' => 0,
+        ]);
+
+        // --full overrides disabled component settings, and dry-run must not
+        // delete anything. The deployment backup is permanently protected.
+        $this->artisan('erp:backup', [
+            '--full' => true,
+            '--purpose' => 'deployment',
+            '--retention-dry-run' => true,
+        ])->assertSuccessful();
+
+        $directories = File::directories(config('backup.root'));
+        $this->assertCount(1, $directories);
+        $protected = $directories[0];
+        $manifest = json_decode(file_get_contents($protected.'/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('deployment', $manifest['purpose']);
+        $this->assertTrue($manifest['retention_protected']);
+        $this->assertSame(['database', 'storage'], array_column($manifest['files'], 'kind'));
+        $this->assertFileExists($protected.'/database.sqlite');
+        $this->assertFileExists($protected.'/storage.zip');
+        $this->assertNotContains($protected, app(BackupRetentionService::class)->plan()['expired']);
+    }
+
     public function test_scheduled_backups_are_explicitly_unprotected_and_default_manual_backups_are_protected(): void
     {
         $result = app(ErpBackupService::class)->create(includeDatabase: true, includeStorage: true, purpose: 'scheduled');

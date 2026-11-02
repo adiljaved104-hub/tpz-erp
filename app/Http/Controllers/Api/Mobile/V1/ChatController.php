@@ -39,24 +39,34 @@ class ChatController extends MobileController
     {
         $c->loadMissing(['team:id,name', 'participants.employee:id,name', 'latestMessage.sender:id,name']);
         $unread = app(ConversationMessageService::class)->unreadCount($request->user(), $c);
+        $latestBody = null;
+        if ($c->latestMessage !== null) {
+            $previews = app(ChatRecordMentionService::class)->previewsForMessages(
+                collect([$c->latestMessage]),
+                $request->user(),
+                500,
+            );
+            $latestBody = $previews[$c->latestMessage->id] ?? '';
+        }
         $data = ['id' => $c->id, 'title' => app(ConversationPresenter::class)->label($c, $request->user()),
             'subtitle' => app(ConversationPresenter::class)->typeLabel($c), 'meta' => $c->latestMessage?->created_at?->toIso8601String(),
-            'status' => $c->status->value, 'unread_count' => $unread];
-        if (! $detail) {
-            return $data;
-        }
-
-        return [...$data,
-            'fields' => ['type' => $c->type->value, 'team' => $c->team?->name],
+            'status' => $c->status->value, 'unread_count' => $unread, 'type' => $c->type->value,
             'participants' => $c->participants->whereNull('left_at')->map(fn ($participant) => [
                 'id' => $participant->employee_id,
                 'name' => $participant->employee?->name,
             ])->values(),
             'latest_message' => $c->latestMessage ? [
                 'id' => $c->latestMessage->id,
+                'body' => $latestBody,
                 'sender' => $c->latestMessage->sender?->name,
                 'created_at' => $c->latestMessage->created_at?->toIso8601String(),
-            ] : null,
+            ] : null];
+        if (! $detail) {
+            return $data;
+        }
+
+        return [...$data,
+            'fields' => ['type' => $c->type->value, 'team' => $c->team?->name],
         ];
     }
 
@@ -114,8 +124,15 @@ class ChatController extends MobileController
         app(ChatAuthorization::class)->authorizeConversation($request->user(), $conversation);
         $d = $request->validate(['body' => 'required|string|max:5000']);
         $m = app(ConversationMessageService::class)->send($request->user(), $conversation, $d['body']);
+        $preview = app(ChatRecordMentionService::class)->previewsForMessages(collect([$m]), $request->user(), 5000);
 
-        return response()->json(['data' => ['id' => $m->id]], 201);
+        return response()->json(['data' => [
+            'id' => $m->id,
+            'body' => $preview[$m->id] ?? '',
+            'sender' => $m->sender?->name ?? $request->user()->employee?->name,
+            'mine' => true,
+            'created_at' => $m->created_at->toIso8601String(),
+        ]], 201);
     }
 
     public function read(Request $request, Conversation $conversation): JsonResponse

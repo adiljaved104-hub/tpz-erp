@@ -48,7 +48,11 @@ class NotificationController extends MobileController
             : app(NotificationTarget::class)->resolve($request->user(), $n->data);
         $inbox->markRead($request->user(), $notification);
 
-        return response()->json(['data' => ['target' => $target], 'unread_count' => $inbox->unreadCount($request->user())]);
+        return response()->json(['data' => [
+            'target' => $target,
+            'type' => $n->type,
+            'available' => $n->type === 'app.update' || $target !== null,
+        ], 'unread_count' => $inbox->unreadCount($request->user())]);
     }
 
     public function acknowledge(Request $request, string $notification): JsonResponse

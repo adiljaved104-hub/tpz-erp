@@ -16,6 +16,7 @@ use App\Models\Conversation;
 use App\Models\CustomerReturn;
 use App\Models\EmployeeWarning;
 use App\Models\HrNotice;
+use App\Models\LeaveRequest;
 use App\Models\MarketplaceOperationIncident;
 use App\Models\MarketplaceOrderEvent;
 use App\Models\Order;
@@ -36,6 +37,7 @@ use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
+use App\Services\Hr\HrScopeService;
 use App\Services\Inventory\StockRequestService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 
@@ -53,8 +55,9 @@ class NotificationTarget
             'safet_claim' => [SafetClaim::class, 'cases/claims'], 'complaint' => [Complaint::class, 'cases/complaints'],
             'conversation' => [Conversation::class, 'chat'], 'responsibility_assignment' => [ResponsibilityAssignment::class, 'responsibilities'],
             'product_inventory' => [ProductInventory::class, 'inventory'], 'stock_request' => [StockRequest::class, 'stock-requests'],
-            'marketplace_operation_incident' => [MarketplaceOperationIncident::class, 'marketplace-operations'],
-            'marketplace_order_event' => [MarketplaceOrderEvent::class, 'marketplace-operations'],
+            'marketplace_operation_incident' => [MarketplaceOperationIncident::class, 'marketplace-operations/incidents'],
+            'marketplace_order_event' => [MarketplaceOrderEvent::class, 'marketplace-operations/orders'],
+            'leave_request' => [LeaveRequest::class, 'hr/leave-requests'],
             'hr_notice' => [HrNotice::class, 'hr/notices'], 'employee_warning' => [EmployeeWarning::class, 'hr/warnings'], default => [null, null],
         };
         if ($model === null || ! ($record = $model::query()->find((int) $id))) {
@@ -73,6 +76,8 @@ class NotificationTarget
             $record instanceof WarrantyRepair => app(WarrantyRepairAuthorization::class)->allows($user, WarrantyRepairPermission::View, $record),
             $record instanceof HrNotice => app(HrRecordAuthorization::class)->canViewNotice($user, $record),
             $record instanceof EmployeeWarning => app(HrRecordAuthorization::class)->canViewWarning($user, $record),
+            $record instanceof LeaveRequest => $record->employee !== null
+                && app(HrScopeService::class)->canViewLeave($user, $record->employee),
             $record instanceof Conversation => app(ChatAuthorization::class)->canAccessConversation($user, $record),
             $record instanceof ResponsibilityAssignment => app(ResponsibilityAuthorization::class)->canView($user, $record),
             $record instanceof ProductInventory => (app(InventoryAuthorization::class)->allows($user, InventoryPermission::View, $record)

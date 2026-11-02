@@ -5,6 +5,7 @@ namespace App\Services\Mobile;
 use App\Enums\DamagedStockPermission;
 use App\Enums\InventoryPermission;
 use App\Enums\ResponsibilityPermission;
+use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\DamagedStockAuthorization;
 use App\Services\Authorization\InventoryAuthorization;
@@ -98,5 +99,52 @@ class MobileInventoryService
         });
 
         return $page->toArray();
+    }
+
+    public function record(User $user, ProductInventory $inventory): array
+    {
+        $row = $this->query($user)
+            ->where('pi.id', $inventory->id)
+            ->select([
+                'p.id as product_id', 'p.name', 'p.sku', 'b.name as brand', 'pi.id as inventory_id',
+                'pi.available_quantity', 'pi.reserved_quantity', 'pi.damaged_quantity', 'pi.qc_pending_quantity',
+                'w.name as warehouse',
+            ])
+            ->first();
+        abort_unless($row !== null, 404);
+
+        $allocation = app(ResponsibilityReadService::class)
+            ->myInventory($user, [$row->product_id], ownedOnly: false)
+            ->firstWhere('inventory_id', $row->inventory_id);
+        $available = (int) $row->available_quantity;
+        $reserved = (int) $row->reserved_quantity;
+        $sellable = max(0, $available - $reserved);
+        $remaining = $allocation?->is_quantity_limited
+            ? min($sellable, $allocation->remaining_allocation)
+            : $sellable;
+        $fields = [
+            'sku' => $row->sku,
+            'brand' => $row->brand,
+            'warehouse' => $row->warehouse,
+            'available_quantity' => $available,
+            'reserved_quantity' => $reserved,
+            'sellable_quantity' => $sellable,
+            'remaining_quantity' => max(0, $remaining),
+            'assigned_quantity' => $allocation?->is_quantity_limited ? $allocation->assigned_quantity : null,
+            'qc_pending_quantity' => (int) $row->qc_pending_quantity,
+        ];
+        if (app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View)) {
+            $fields['damaged_quantity'] = (int) $row->damaged_quantity;
+        }
+
+        return [
+            'id' => $row->inventory_id,
+            'title' => $row->name,
+            'subtitle' => collect([$row->sku, $row->brand, $row->warehouse])->filter()->implode(' · '),
+            'meta' => "Available: $available · Reserved: $reserved · Sellable: $sellable · Remaining: ".max(0, $remaining),
+            'status' => app(StockStatus::class)->forQuantity($sellable),
+            'product_id' => $row->product_id,
+            'fields' => $fields,
+        ];
     }
 }

@@ -8,6 +8,7 @@ use App\Enums\WarrantyRepairPermission;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\ProductInventory;
 use App\Models\User;
 use App\Models\WarrantyRepair;
 use App\Services\Authorization\CustomerReturnAuthorization;
@@ -54,6 +55,11 @@ class WorkspaceController extends Controller
     public function inventory(Request $request): JsonResponse
     {
         return response()->json(app(MobileInventoryService::class)->page($request));
+    }
+
+    public function inventoryRecord(Request $request, ProductInventory $inventory): JsonResponse
+    {
+        return response()->json(['data' => app(MobileInventoryService::class)->record($request->user(), $inventory)]);
     }
 
     public function products(Request $request): JsonResponse

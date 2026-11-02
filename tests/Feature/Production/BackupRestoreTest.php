@@ -395,7 +395,7 @@ class BackupRestoreTest extends TestCase
         $root = config('backup.root');
         File::ensureDirectoryExists($root);
         $fixture = function (string $name, array $metadata) use ($root): string {
-            $directory = $root.'/'.$name;
+            $directory = $root.DIRECTORY_SEPARATOR.$name;
             File::ensureDirectoryExists($directory);
             file_put_contents($directory.'/manifest.json', json_encode([
                 'status' => 'successful',
@@ -442,7 +442,7 @@ class BackupRestoreTest extends TestCase
         File::ensureDirectoryExists($root);
 
         foreach (['2026-11-01_120000', '2026-11-01_210000'] as $name) {
-            $directory = $root.'/'.$name;
+            $directory = $root.DIRECTORY_SEPARATOR.$name;
             File::ensureDirectoryExists($directory);
             file_put_contents($directory.'/manifest.json', json_encode([
                 'status' => 'successful',
@@ -452,7 +452,7 @@ class BackupRestoreTest extends TestCase
             ], JSON_THROW_ON_ERROR));
         }
 
-        $candidate = $root.'/2026-11-01_120000';
+        $candidate = $root.DIRECTORY_SEPARATOR.'2026-11-01_120000';
         $this->assertContains($candidate, app(BackupRetentionService::class)->plan()['expired']);
         // A protected backup with the same day never enters a prune plan.
         $manifest = json_decode(file_get_contents($candidate.'/manifest.json'), true, 512, JSON_THROW_ON_ERROR);

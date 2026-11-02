@@ -43,7 +43,10 @@ class RecordedRenewedStockQueue extends Page implements HasTable
 
     public static function canAccess(): bool
     {
-        return auth()->user() && app(QcRecordedRenewedStockIntakeService::class)->canAccess(auth()->user());
+        $user = auth()->user();
+
+        return $user && (app(QcRecordedRenewedStockIntakeService::class)->canAccess($user)
+            || app(RenewedStockQcExceptionService::class)->canRelease($user));
     }
 
     protected function getViewData(): array
@@ -53,7 +56,10 @@ class RecordedRenewedStockQueue extends Page implements HasTable
 
     public function table(Table $table): Table
     {
-        return $table->query(fn () => app(QcRecordedRenewedStockIntakeService::class)->queueQuery(auth()->user()))
+        return $table->query(fn () =>
+            app(QcRecordedRenewedStockIntakeService::class)->canAccess(auth()->user())
+                ? app(QcRecordedRenewedStockIntakeService::class)->queueQuery(auth()->user())
+                : app(RenewedStockQcExceptionService::class)->queueQuery(auth()->user()))
             ->columns([
                 TextColumn::make('product.sku')->label('SKU')->searchable(),
                 TextColumn::make('product.name')->label('Product')->wrap()->searchable(),
@@ -70,6 +76,7 @@ class RecordedRenewedStockQueue extends Page implements HasTable
             ])
             ->recordActions([
                 Action::make('startQc')->label('Start QC')->icon('heroicon-o-play')
+                    ->visible(fn (): bool => app(QcRecordedRenewedStockIntakeService::class)->canAccess(auth()->user()))
                     ->url(fn (QcRecordedStockIntake $record): string => QcInspectionResource::getUrl('create', ['recorded_stock_intake_id' => $record->id])),
                 Action::make('adjustRecordedQcIntake')->label('Adjust Recorded QC Intake')->icon('heroicon-o-minus-circle')
                     ->visible(fn (): bool => app(QcRecordedStockIntakeAdjustmentService::class)->canAdjust(auth()->user()))
@@ -139,6 +146,10 @@ class RecordedRenewedStockQueue extends Page implements HasTable
         }
 
         $actor = auth()->user();
+        if (! app(QcRecordedRenewedStockIntakeService::class)->canAccess($actor)) {
+            return $this->orderPriorityProjection = ['units_needed' => 0, 'by_intake_id' => []];
+        }
+
         $demand = app(QcOrderDemandService::class)->calculateForQcQueue($actor);
         $intakes = app(QcRecordedRenewedStockIntakeService::class)->queueQuery($actor)->get();
 

@@ -56,8 +56,7 @@ class RecordedRenewedStockQueue extends Page implements HasTable
 
     public function table(Table $table): Table
     {
-        return $table->query(fn () =>
-            app(QcRecordedRenewedStockIntakeService::class)->canAccess(auth()->user())
+        return $table->query(fn () => app(QcRecordedRenewedStockIntakeService::class)->canAccess(auth()->user())
                 ? app(QcRecordedRenewedStockIntakeService::class)->queueQuery(auth()->user())
                 : app(RenewedStockQcExceptionService::class)->queueQuery(auth()->user()))
             ->columns([
@@ -102,13 +101,10 @@ class RecordedRenewedStockQueue extends Page implements HasTable
                         Notification::make()->title('Recorded QC Intake adjusted')->success()->send();
                     }),
                 Action::make('releaseWithoutQc')
-                    ->label('Move to Sellable — Temporary QC Exception')
+                    ->label('Move to Sellable — QC Exception')
                     ->icon('heroicon-o-exclamation-triangle')
                     ->color('warning')
-                    ->visible(fn (QcRecordedStockIntake $record): bool =>
-                        app(RenewedStockQcExceptionService::class)->canReleaseIntake($record, auth()->user()))
-                    ->authorize(fn (QcRecordedStockIntake $record): bool =>
-                        app(RenewedStockQcExceptionService::class)->canReleaseIntake($record, auth()->user()))
+                    ->visible(fn (QcRecordedStockIntake $record): bool => app(RenewedStockQcExceptionService::class)->canReleaseIntake($record, auth()->user()))
                     ->requiresConfirmation()
                     ->modalHeading('Release Renewed stock WITHOUT QC?')
                     ->modalDescription(fn (QcRecordedStockIntake $record): string => implode(' · ', [
@@ -118,7 +114,7 @@ class RecordedRenewedStockQueue extends Page implements HasTable
                         'Original GRN accepted: '.$record->receiptItem->accepted_quantity,
                         'Unstarted QC quantity: '.$record->accepted_quantity,
                         'This records a temporary no-QC inventory exception; NO QC certificate is created.',
-                        'Renewed sales dispatch still requires normal QC validation.',
+                        'Only this released quantity may be reserved and fulfilled without a normal QC certificate.',
                     ]))
                     ->schema([
                         TextInput::make('quantity')->label('Quantity to move to Sellable')

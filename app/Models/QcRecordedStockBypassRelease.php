@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use LogicException;
 
 class QcRecordedStockBypassRelease extends Model
@@ -40,5 +41,10 @@ class QcRecordedStockBypassRelease extends Model
     public function movement(): BelongsTo
     {
         return $this->belongsTo(StockMovement::class, 'stock_movement_id');
+    }
+
+    public function reservationAllocations(): HasMany
+    {
+        return $this->hasMany(QcRecordedStockBypassReservationAllocation::class, 'bypass_release_id');
     }
 }

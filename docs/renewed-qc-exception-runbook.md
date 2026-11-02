@@ -30,7 +30,7 @@ Do not grant broad permissions to a whole role. Owner/Admin have role-default QC
 ## Workflow
 
 1. GRN is received and visible in Purchase Stock QC.
-2. Authorized user opens **Move to Sellable — Temporary QC Exception** on an **unstarted** Renewed intake, enters a positive quantity not exceeding remaining QC intake and a reason (10–2000 characters).
+2. Authorized user opens **Move to Sellable — QC Exception** on an **unstarted** Renewed intake, enters a positive quantity not exceeding remaining QC intake and a reason (10–2000 characters).
 3. User confirms the warning that no QC was performed, and that sale shipment QC enforcement remains unchanged.
 4. System locks intake and warehouse inventory rows; checks category, permission, holder, unit cost and QC Pending quantity/value; writes immutable exception and stock/bucket/allocation records in one transaction.
 5. Queue quantity falls by the bypassed amount. Original Purchase Receipt accepted count does **not** change. Operations reports show the no-QC stock movement type.
@@ -52,7 +52,7 @@ Verify in Staging:
 - Idempotent retries do not duplicate balances.
 - QC Pending units/value decrease by the exact amount; Sellable, average cost, stock movement, allocation balances and receipt allocation lines reconcile.
 - No QC certificate or inspection appears.
-- Renewed sales dispatch still **requires QC**; no implicit dispatch bypass.
+- Renewed sales dispatch requires QC only for quantities without active exception provenance; mixed orders still enforce certificates for their remaining Renewed units.
 - Unrelated products, tax invoices, real purchases/orders, HR and normal QC workflows remain unchanged.
 
 **No deployment to Main/UAT without Owner's explicit Staging signoff.**

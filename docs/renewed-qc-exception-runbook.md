@@ -22,7 +22,7 @@ Then rebuild Laravel config cache on Staging. A missing, invalid or past expiry 
 **Do not automatically turn on the setting when migrating or deploying.**
 
 In Access Control, grant the named Renewed employees:
-- Quality Control: **View**, **Start**, **Release Without QC** (sensitive permission).
+- Quality Control: **View** and **Release Without QC** (sensitive permission); **Start** is not required for exception-only staff.
 - Inventory: **View**, scoped to their authorized Product/Location Responsibility.
 
 Do not grant broad permissions to a whole role. Owner/Admin have role-default QC permission only while the explicit global feature flag is active. Only employees with valid product/warehouse responsibility scope can release.

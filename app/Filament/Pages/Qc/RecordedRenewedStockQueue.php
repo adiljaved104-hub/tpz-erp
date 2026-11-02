@@ -99,12 +99,9 @@ class RecordedRenewedStockQueue extends Page implements HasTable
                     ->icon('heroicon-o-exclamation-triangle')
                     ->color('warning')
                     ->visible(fn (QcRecordedStockIntake $record): bool =>
-                        app(RenewedStockQcExceptionService::class)->canRelease(auth()->user())
-                        && $record->started_quantity === 0
-                        && $record->released_quantity === 0
-                        && $record->accepted_quantity > 0
-                    )
-                    ->authorize(fn (): bool => app(RenewedStockQcExceptionService::class)->canRelease(auth()->user()))
+                        app(RenewedStockQcExceptionService::class)->canReleaseIntake($record, auth()->user()))
+                    ->authorize(fn (QcRecordedStockIntake $record): bool =>
+                        app(RenewedStockQcExceptionService::class)->canReleaseIntake($record, auth()->user()))
                     ->requiresConfirmation()
                     ->modalHeading('Release Renewed stock WITHOUT QC?')
                     ->modalDescription(fn (QcRecordedStockIntake $record): string => implode(' · ', [

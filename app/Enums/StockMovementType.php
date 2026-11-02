@@ -13,6 +13,7 @@ enum StockMovementType: string
     case RenewedQcIntake = 'renewed_qc_intake';
     case RenewedQcRelease = 'renewed_qc_release';
     case RenewedQcIntakeAdjustment = 'renewed_qc_intake_adjustment';
+    case RenewedQcExceptionRelease = 'renewed_qc_exception_release';
     case PurchaseReceiptCorrection = 'purchase_receipt_correction';
     case InventoryAdjustment = 'inventory_adjustment';
     case QuotationSourcingReceipt = 'quotation_sourcing_receipt';
@@ -50,6 +51,7 @@ enum StockMovementType: string
             self::RenewedQcIntake => 'Renewed Stock QC Intake',
             self::RenewedQcRelease => 'Renewed Stock QC Release',
             self::RenewedQcIntakeAdjustment => 'Renewed QC Intake Adjustment',
+            self::RenewedQcExceptionRelease => 'Renewed QC Exception Release (No QC)',
             self::PurchaseReceiptCorrection => 'Purchase Receipt Correction',
             self::InventoryAdjustment => 'Inventory Adjustment',
             self::QuotationSourcingReceipt => 'Quotation Sourcing Receipt',

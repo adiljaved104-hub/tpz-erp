@@ -56,6 +56,7 @@ use App\Services\Qc\QcOrderAssignmentService;
 use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\QcRecordedRenewedStockIntakeService;
 use App\Services\Qc\QcRecordedStockIntakeAdjustmentService;
+use App\Services\Qc\RenewedStockQcExceptionService;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -76,6 +77,109 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
     {
         parent::setUp();
         Storage::fake('local');
+    }
+
+    public function test_temporary_renewed_qc_exception_defaults_off_and_expires_closed(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 2, '100.0000');
+        $this->receive($owner, $purchase, 2, 0, 0);
+        $intake = QcRecordedStockIntake::query()->sole();
+        $service = app(RenewedStockQcExceptionService::class);
+        $payload = ['quantity' => 1, 'reason' => 'Temporary inventory-entry exception approved for Renewed staff.', 'idempotency_key' => (string) Str::uuid()];
+
+        $this->assertFalse($service->canRelease($owner));
+        try {
+            $service->release($intake->id, $owner, $payload);
+            $this->fail('Exception must be disabled by default.');
+        } catch (AuthorizationException) {
+            $this->assertSame(2, $intake->fresh()->accepted_quantity);
+        }
+        config()->set('renewed_qc_exception.enabled', true);
+        config()->set('renewed_qc_exception.expires_at', now()->subMinute()->toIso8601String());
+        $this->assertFalse($service->canRelease($owner));
+        $this->assertDatabaseCount('qc_recorded_stock_bypass_releases', 0);
+    }
+
+    public function test_owner_can_release_unstarted_renewed_qc_stock_to_sellable_with_full_ledger_and_replay(): void
+    {
+        config()->set('renewed_qc_exception.enabled', true);
+        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+
+        $owner = $this->actor(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 3, '100.0000');
+        $receipt = $this->receive($owner, $purchase, 3, 0, 0);
+        $intake = QcRecordedStockIntake::query()->sole();
+        $service = app(RenewedStockQcExceptionService::class);
+        $this->assertTrue($service->canRelease($owner));
+
+        $input = [
+            'quantity' => 2,
+            'reason' => 'Temporary Owner-authorized Renewed inventory-entry exception.',
+            'idempotency_key' => (string) Str::uuid(),
+        ];
+        $release = $service->release($intake->id, $owner, $input);
+        $inventory = ProductInventory::query()->where('product_id', $product->id)->sole();
+
+        $this->assertSame(3, $receipt->items->sole()->fresh()->accepted_quantity);
+        $this->assertSame(1, $intake->fresh()->accepted_quantity);
+        $this->assertSame(0, $intake->fresh()->started_quantity);
+        $this->assertSame(2, $inventory->available_quantity);
+        $this->assertSame(1, $inventory->qc_pending_quantity);
+        $this->assertSame('100.0000', $inventory->qc_pending_value);
+        $this->assertSame('100.0000', $inventory->average_cost);
+        $this->assertSame(2, InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->sole()->allocated_quantity);
+        $this->assertSame(2, $receipt->items->sole()->allocationLines()->sole()->quantity);
+        $this->assertSame(0, QcInspection::query()->count());
+        $this->assertDatabaseCount('qc_certificates', 0);
+        $this->assertSame(StockMovementType::RenewedQcExceptionRelease, $release->movement->movement_type);
+        $this->assertSame(2, $release->movement->available_delta);
+        $this->assertSame(-2, $release->movement->bucketChanges()->sole()->quantity_delta);
+        $this->assertSame('-200.0000', $release->movement->bucketChanges()->sole()->value_delta);
+        $this->assertSame($release->id, $service->release($intake->id, $owner, $input)->id);
+        $this->assertSame(2, $inventory->fresh()->available_quantity);
+        $this->assertDatabaseCount('qc_recorded_stock_bypass_releases', 1);
+
+        Livewire::actingAs($owner)->test(RecordedRenewedStockQueue::class)
+            ->assertSee('Move to Sellable');
+    }
+
+    public function test_temporary_renewed_qc_exception_rejects_unauthorized_staff_and_already_started_qc(): void
+    {
+        config()->set('renewed_qc_exception.enabled', true);
+        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        $owner = $this->actor(EmployeeRole::Owner);
+        $staff = $this->actor(EmployeeRole::Staff);
+        $technician = $this->actor(EmployeeRole::Technician);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 2, '100.0000');
+        $this->receive($owner, $purchase, 2, 0, 0);
+        $intake = QcRecordedStockIntake::query()->sole();
+        $service = app(RenewedStockQcExceptionService::class);
+        $this->assertFalse($service->canRelease($staff));
+
+        try {
+            $service->release($intake->id, $staff, [
+                'quantity' => 1, 'reason' => 'Staff not authorized to waive QC.', 'idempotency_key' => (string) Str::uuid(),
+            ]);
+            $this->fail('Ungrantable staff must be rejected.');
+        } catch (AuthorizationException) {
+            $this->assertSame(2, $intake->fresh()->accepted_quantity);
+        }
+
+        app(QcInspectionService::class)->start($this->startData($product, $warehouse, 'QC-ALREADY-STARTED-001', $intake->id), $technician);
+        $this->assertValidation(fn () => $service->release($intake->id, $owner, [
+            'quantity' => 1,
+            'reason' => 'Attempt to bypass QC after a technician started.',
+            'idempotency_key' => (string) Str::uuid(),
+        ]), 'quantity');
+        $this->assertSame(2, ProductInventory::query()->where('product_id', $product->id)->sole()->qc_pending_quantity);
+        $this->assertDatabaseCount('qc_recorded_stock_bypass_releases', 0);
     }
 
     public function test_only_renewed_accepted_grn_quantity_enters_qc_pending_with_its_own_value_and_movement(): void

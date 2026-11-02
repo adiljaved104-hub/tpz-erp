@@ -5,11 +5,13 @@ namespace App\Services\Qc;
 use App\Enums\InventoryPermission;
 use App\Enums\ProductCondition;
 use App\Enums\QcPermission;
+use App\Enums\QcInspectionStatus;
 use App\Enums\StockMovementBucket;
 use App\Enums\StockMovementType;
 use App\Models\ProductInventory;
 use App\Models\QcRecordedStockBypassRelease;
 use App\Models\QcRecordedStockIntake;
+use App\Models\QcInspection;
 use App\Models\StockMovement;
 use App\Models\StockMovementBucketChange;
 use App\Models\User;
@@ -21,6 +23,7 @@ use App\Services\Inventory\WeightedAverageCostCalculator;
 use App\Services\ReferenceSequenceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -70,8 +73,36 @@ class RenewedStockQcExceptionService
     public function canRelease(User $actor): bool
     {
         return $this->enabled()
-            && $this->qcAuthorization->allows($actor, QcPermission::ReleaseWithoutQc)
-            && $this->qcAuthorization->allows($actor, QcPermission::Start);
+            && $this->qcAuthorization->allows($actor, QcPermission::ReleaseWithoutQc);
+    }
+
+    /**
+     * Read-only, responsibility-scoped queue for exception-only Renewed staff.
+     * Does not grant QC Start or expose unrelated GRNs.
+     */
+    public function queueQuery(User $actor): Builder
+    {
+        $this->authorize($actor);
+        $inventoryIds = ProductInventory::query()
+            ->get(['id', 'product_id', 'warehouse_id'])
+            ->filter(fn (ProductInventory $inventory): bool =>
+                $this->inventoryAuthorization->allows($actor, InventoryPermission::View, $inventory))
+            ->pluck('id')->all();
+
+        return QcRecordedStockIntake::query()->awaitingStart()
+            ->where('started_quantity', 0)
+            ->where('released_quantity', 0)
+            ->whereHas('product', fn (Builder $query) => $query->where('condition', ProductCondition::Renewed->value))
+            ->whereExists(function ($query) use ($inventoryIds): void {
+                $query->selectRaw('1')->from('product_inventories as eligible_inventory')
+                    ->whereColumn('eligible_inventory.product_id', 'qc_recorded_stock_intakes.product_id')
+                    ->whereColumn('eligible_inventory.warehouse_id', 'qc_recorded_stock_intakes.warehouse_id')
+                    ->whereIn('eligible_inventory.id', $inventoryIds);
+            })
+            ->with(['product:id,sku,name,condition', 'warehouse:id,name', 'receiptItem.receipt:id,reference,received_at'])
+            ->addSelect(['completed_quantity' => QcInspection::query()->selectRaw('COUNT(DISTINCT device_id)')
+                ->whereColumn('recorded_stock_intake_id', 'qc_recorded_stock_intakes.id')
+                ->where('status', QcInspectionStatus::Completed->value)]);
     }
 
     public function canReleaseIntake(QcRecordedStockIntake $intake, User $actor): bool

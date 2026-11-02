@@ -27,4 +27,5 @@ enum QcPermission: string
     case ViewMarketplaceTransferAssignments = 'qc.view_marketplace_transfer_assignments';
     case ViewReturnEvidence = 'qc.view_return_evidence';
     case RecordReturnEvidence = 'qc.record_return_evidence';
+    case ReleaseWithoutQc = 'qc.release_without_qc';
 }

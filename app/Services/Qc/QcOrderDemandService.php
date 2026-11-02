@@ -152,6 +152,7 @@ class QcOrderDemandService
             ->with([
                 'warehouse:id,name',
                 'items.product',
+                'items.qcBypassReservationAllocations',
                 'items.upgradeSelection',
                 'items.qcAssignments.device',
                 'items.qcAssignments.certificate.device',

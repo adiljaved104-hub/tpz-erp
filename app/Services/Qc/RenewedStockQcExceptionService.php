@@ -4,14 +4,14 @@ namespace App\Services\Qc;
 
 use App\Enums\InventoryPermission;
 use App\Enums\ProductCondition;
-use App\Enums\QcPermission;
 use App\Enums\QcInspectionStatus;
+use App\Enums\QcPermission;
 use App\Enums\StockMovementBucket;
 use App\Enums\StockMovementType;
 use App\Models\ProductInventory;
+use App\Models\QcInspection;
 use App\Models\QcRecordedStockBypassRelease;
 use App\Models\QcRecordedStockIntake;
-use App\Models\QcInspection;
 use App\Models\StockMovement;
 use App\Models\StockMovementBucketChange;
 use App\Models\User;
@@ -33,8 +33,9 @@ use Throwable;
 /**
  * Owner-gated, time-limited intake-only exception for Renewed inventory entry.
  *
- * This does NOT create QC inspections/certificates or bypass Renewed sales
- * dispatch QC checks. Only unstarted GRN intake units are eligible.
+ * This does NOT create QC inspections/certificates. Sales eligibility is
+ * limited to quantities attributed through immutable reservation provenance.
+ * Only unstarted GRN intake units are eligible.
  */
 class RenewedStockQcExceptionService
 {
@@ -85,8 +86,7 @@ class RenewedStockQcExceptionService
         $this->authorize($actor);
         $inventoryIds = ProductInventory::query()
             ->get(['id', 'product_id', 'warehouse_id'])
-            ->filter(fn (ProductInventory $inventory): bool =>
-                $this->inventoryAuthorization->allows($actor, InventoryPermission::View, $inventory))
+            ->filter(fn (ProductInventory $inventory): bool => $this->inventoryAuthorization->allows($actor, InventoryPermission::View, $inventory))
             ->pluck('id')->all();
 
         return QcRecordedStockIntake::query()->awaitingStart()
@@ -148,6 +148,16 @@ class RenewedStockQcExceptionService
             $intake = QcRecordedStockIntake::query()
                 ->with(['product', 'receiptItem', 'allocationAccount'])
                 ->lockForUpdate()->findOrFail($intakeId);
+
+            // The unique key protects storage, while this in-lock replay check
+            // also makes concurrent submissions deterministic and non-destructive.
+            if ($existing = QcRecordedStockBypassRelease::query()
+                ->where('idempotency_key', $data['idempotency_key'])
+                ->first()) {
+                $this->assertReplayMatches($existing, $intakeId, $actor, $data);
+
+                return $existing;
+            }
 
             if ($intake->product?->condition !== ProductCondition::Renewed
                 || (int) $intake->started_quantity !== 0

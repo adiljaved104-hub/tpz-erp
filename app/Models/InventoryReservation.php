@@ -87,4 +87,9 @@ class InventoryReservation extends Model
     {
         return $this->hasMany(InventoryAllocationReservationLine::class);
     }
+
+    public function qcBypassReservationAllocations(): HasMany
+    {
+        return $this->hasMany(QcRecordedStockBypassReservationAllocation::class);
+    }
 }

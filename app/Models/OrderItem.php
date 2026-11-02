@@ -90,6 +90,11 @@ class OrderItem extends Model
         return $this->hasMany(QcOrderAssignment::class)->orderBy('assigned_at')->orderBy('id');
     }
 
+    public function qcBypassReservationAllocations(): HasMany
+    {
+        return $this->hasMany(QcRecordedStockBypassReservationAllocation::class);
+    }
+
     public function customerDescription(): string
     {
         $configuration = $this->upgradeSelection?->description();

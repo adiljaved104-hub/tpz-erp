@@ -46,6 +46,7 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Qc\RenewedQcExceptionSalesService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
 use Illuminate\Support\Facades\DB;
@@ -62,6 +63,7 @@ class InventoryService
         private readonly ActivityLogger $activity,
         private readonly ResponsibilityAllocationService $allocations,
         private readonly InventoryAllocationService $allocationLedger,
+        private readonly RenewedQcExceptionSalesService $qcExceptionSales,
     ) {}
 
     public function postOpeningStock(PostOpeningStockData $data, User $actor): InventoryMutationResult
@@ -550,6 +552,7 @@ class InventoryService
             }
             $this->allocationLedger->reserveExact($reservation, $exactAllocationSources, $actor, $authorizeExactSources);
         }
+        $this->qcExceptionSales->sync($reservation, $item, $actor);
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $item->ordered_quantity])->save();
         $movement = $this->createMovement(
             $inventory,
@@ -664,6 +667,7 @@ class InventoryService
 
         $before = $this->snapshot($inventory);
         $this->allocationLedger->release($reservation, $actor, $reason);
+        $this->qcExceptionSales->release($reservation, $actor);
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity - $reservation->quantity])->save();
         $reservation->forceFill([
             'status' => InventoryReservationStatus::Released,
@@ -732,6 +736,11 @@ class InventoryService
                 'released_at' => now(),
             ];
             $reservation->forceFill($attributes)->save();
+            if ($newQuantity > 0 && $reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
+                $this->qcExceptionSales->sync($reservation, $reservation->orderItem()->with('order')->firstOrFail(), $actor);
+            } elseif ($newQuantity === 0) {
+                $this->qcExceptionSales->release($reservation, $actor);
+            }
             $movement = $this->createMovement(
                 $inventory, $actor, array_shift($movementReferences), $adjustment->movement_group,
                 $reservation->reservation_kind === InventoryReservationKind::UpgradeComponent
@@ -782,11 +791,16 @@ class InventoryService
         }
 
         $before = $this->snapshot($inventory);
+        $orderItem = null;
         if ($reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
-            $this->allocationLedger->adjustReservation($reservation, $reservation->orderItem()->with('order')->firstOrFail(), $quantity, $actor, $additionalAllocationSources);
+            $orderItem = $reservation->orderItem()->with('order')->firstOrFail();
+            $this->allocationLedger->adjustReservation($reservation, $orderItem, $quantity, $actor, $additionalAllocationSources);
         }
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $delta])->save();
         $reservation->forceFill(['quantity' => $quantity])->save();
+        if ($orderItem !== null) {
+            $this->qcExceptionSales->sync($reservation, $orderItem, $actor);
+        }
         $component = $reservation->reservation_kind === InventoryReservationKind::UpgradeComponent;
         $type = $delta > 0
             ? ($component ? StockMovementType::UpgradeComponentReservation : StockMovementType::Reservation)
@@ -1002,6 +1016,7 @@ class InventoryService
             }
         } elseif ($reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
             $this->allocationLedger->fulfill($reservation, $actor);
+            $this->qcExceptionSales->fulfill($reservation, $actor);
         }
         $reservedDelta = $reservation === null ? 0 : -$quantity;
         $inventory->forceFill([

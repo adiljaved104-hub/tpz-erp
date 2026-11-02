@@ -11,6 +11,7 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\QcDevice;
 use App\Models\QcInspection;
+use App\Models\QcRecordedStockBypassReservationAllocation;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\QcAuthorization;
@@ -50,7 +51,7 @@ class RenewedQcDispatchService
 
     private function items(Order $order): Collection
     {
-        return $order->items()->with(['product', 'upgradeSelection', 'qcAssignments.device', 'qcAssignments.certificate.inspection'])->get();
+        return $order->items()->with(['product', 'upgradeSelection', 'qcBypassReservationAllocations', 'qcAssignments.device', 'qcAssignments.certificate.inspection'])->get();
     }
 
     public function readiness(Order $order, ?Collection $items = null, bool $locked = false): array
@@ -101,10 +102,17 @@ class RenewedQcDispatchService
         // locks through stock posting so Re-QC cannot slip between validation/shipment.
         $items = $order->items()->with('upgradeSelection')->orderBy('id')->lockForUpdate()->get();
         $products = Product::query()->whereKey($items->pluck('product_id')->unique()->sort())->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        $bypassAllocations = QcRecordedStockBypassReservationAllocation::query()
+            ->whereIn('order_item_id', $items->modelKeys())
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->groupBy('order_item_id');
         foreach ($items as $item) {
             $item->setRelation('product', $products[$item->product_id]);
+            $item->setRelation('qcBypassReservationAllocations', $bypassAllocations->get($item->id, collect()));
         }
-        if (! $items->contains(fn ($item) => $this->requiresQc($item))) {
+        if ($items->sum(fn (OrderItem $item): int => app(RenewedQcRequirement::class)->requiredQuantity($item)) === 0) {
             return;
         }
         app(QcAuthorization::class)->authorize($actor, QcPermission::ShipDispatch);
@@ -144,7 +152,8 @@ class RenewedQcDispatchService
             app(QcOrderDispatchAuthorization::class)->authorizeOrder($actor, $order);
             app(QcAuthorization::class)->authorize($actor, QcPermission::ScanDispatch);
             $item = $order->items()->lockForUpdate()->find($itemId);
-            if ($order->status !== OrderStatus::Reserved || ! $item || ! $this->requiresQc($item)) {
+            if ($order->status !== OrderStatus::Reserved || ! $item
+                || app(RenewedQcRequirement::class)->requiredQuantity($item) < 1) {
                 throw ValidationException::withMessages(['order_item_id' => 'Select a Renewed item on this Reserved Order.']);
             }
             $service = app(QcOrderAssignmentService::class);
@@ -195,7 +204,7 @@ class RenewedQcDispatchService
             $requirement = app(RenewedQcRequirement::class);
             foreach ($candidates as $candidate) {
                 $alreadyAssigned = $candidate->qcAssignments()->active()->where('qc_certificate_id', $certificate->id)->exists();
-                if (! $requirement->requires($candidate)
+                if ($requirement->requiredQuantity($candidate) < 1
                     || (! $alreadyAssigned && $candidate->qcAssignments()->active()->count() >= $requirement->requiredQuantity($candidate))) {
                     continue;
                 }

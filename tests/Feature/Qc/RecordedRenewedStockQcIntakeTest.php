@@ -4,6 +4,7 @@ namespace Tests\Feature\Qc;
 
 use App\Actions\Purchases\ApprovePurchase;
 use App\Actions\Purchases\CreatePurchase;
+use App\DTOs\Orders\CancelOrderData;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\DTOs\Purchases\ApprovePurchaseData;
@@ -33,6 +34,7 @@ use App\Models\ProductInventory;
 use App\Models\Purchase;
 use App\Models\PurchaseReceiptCorrection;
 use App\Models\QcInspection;
+use App\Models\QcRecordedStockBypassReservationAllocation;
 use App\Models\QcRecordedStockIntake;
 use App\Models\QcRecordedStockIntakeAdjustment;
 use App\Models\QcRecordedStockIntakeRelease;
@@ -56,6 +58,7 @@ use App\Services\Qc\QcOrderAssignmentService;
 use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\QcRecordedRenewedStockIntakeService;
 use App\Services\Qc\QcRecordedStockIntakeAdjustmentService;
+use App\Services\Qc\RenewedQcDispatchService;
 use App\Services\Qc\RenewedStockQcExceptionService;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -143,9 +146,10 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertSame($release->id, $service->release($intake->id, $owner, $input)->id);
         $this->assertSame(2, $inventory->fresh()->available_quantity);
         $this->assertDatabaseCount('qc_recorded_stock_bypass_releases', 1);
+        $this->assertTrue($service->canReleaseIntake($intake->fresh()->load('product'), $owner));
 
         Livewire::actingAs($owner)->test(RecordedRenewedStockQueue::class)
-            ->assertSee('Move to Sellable');
+            ->assertTableActionExists('releaseWithoutQc');
     }
 
     public function test_temporary_renewed_qc_exception_rejects_unauthorized_staff_and_already_started_qc(): void
@@ -180,6 +184,107 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         ]), 'quantity');
         $this->assertSame(2, ProductInventory::query()->where('product_id', $product->id)->sole()->qc_pending_quantity);
         $this->assertDatabaseCount('qc_recorded_stock_bypass_releases', 0);
+    }
+
+    public function test_exception_released_quantity_is_reserved_and_fulfilled_without_fake_qc(): void
+    {
+        config()->set('renewed_qc_exception.enabled', true);
+        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        $owner = $this->actor(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 2, '100.0000');
+        $this->receive($owner, $purchase, 2, 0, 0);
+        $intake = QcRecordedStockIntake::query()->sole();
+        $release = app(RenewedStockQcExceptionService::class)->release($intake->id, $owner, [
+            'quantity' => 2,
+            'reason' => 'Owner approved this isolated quantity for temporary sales fulfilment.',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+
+        $order = $this->reservedOrder($owner, $product, $warehouse, 2);
+        $item = $order->items()->sole();
+        $reservation = $item->reservation;
+        $this->assertSame(2, QcRecordedStockBypassReservationAllocation::query()
+            ->where('inventory_reservation_id', $reservation->id)->where('status', 'reserved')->sum('quantity'));
+        $this->assertSame('not_required', app(RenewedQcDispatchService::class)->readiness($order)['status']);
+        $this->assertDatabaseCount('qc_certificates', 0);
+        $this->assertDatabaseCount('qc_order_assignments', 0);
+
+        $fulfilled = app(OrderService::class)->fulfill($order, (string) Str::uuid(), $owner);
+
+        $this->assertSame(OrderStatus::Fulfilled, $fulfilled->status);
+        $this->assertSame(2, QcRecordedStockBypassReservationAllocation::query()
+            ->where('inventory_reservation_id', $reservation->id)->where('status', 'fulfilled')->sum('quantity'));
+        $this->assertSame(2, $release->fresh()->quantity);
+        $this->assertDatabaseCount('qc_recorded_stock_bypass_releases', 1);
+        $inventory = ProductInventory::query()->where('product_id', $product->id)->where('warehouse_id', $warehouse->id)->sole();
+        $this->assertSame(0, $inventory->available_quantity);
+        $this->assertSame(0, $inventory->reserved_quantity);
+    }
+
+    public function test_mixed_qc_and_exception_quantities_require_qc_only_for_the_normal_unit(): void
+    {
+        config()->set('renewed_qc_exception.enabled', true);
+        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        $owner = $this->actor(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 2, '100.0000');
+        $this->receive($owner, $purchase, 2, 0, 0);
+        $intake = QcRecordedStockIntake::query()->sole();
+        app(RenewedStockQcExceptionService::class)->release($intake->id, $owner, [
+            'quantity' => 1,
+            'reason' => 'One specifically approved unit may bypass QC for temporary sales use.',
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $inspection = app(QcInspectionService::class)->start(
+            $this->startData($product, $warehouse, 'MIXED-QC-EXCEPTION-001', $intake->id),
+            $owner,
+        );
+        $this->readyForCompletion($inspection, $owner);
+        $this->uploadRequiredEvidence($inspection, $owner);
+        $certificate = app(QcInspectionService::class)->complete($inspection->fresh(), $owner);
+
+        $order = $this->reservedOrder($owner, $product, $warehouse, 2);
+        $item = $order->items()->sole();
+        $readiness = app(RenewedQcDispatchService::class)->readiness($order);
+        $this->assertSame(1, $readiness['required']);
+        $this->assertSame(1, QcRecordedStockBypassReservationAllocation::query()
+            ->where('order_item_id', $item->id)->where('status', 'reserved')->sum('quantity'));
+
+        app(RenewedQcDispatchService::class)->scan($order, $item->id, $certificate->snapshot['serial'], $owner);
+        $this->assertSame('ready', app(RenewedQcDispatchService::class)->readiness($order)['status']);
+        $this->assertSame(OrderStatus::Fulfilled, app(OrderService::class)
+            ->fulfill($order, (string) Str::uuid(), $owner)->status);
+        $this->assertDatabaseCount('qc_order_assignments', 1);
+    }
+
+    public function test_cancelled_order_releases_exception_provenance_for_one_later_reservation(): void
+    {
+        config()->set('renewed_qc_exception.enabled', true);
+        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        $owner = $this->actor(EmployeeRole::Owner);
+        $warehouse = Warehouse::factory()->create();
+        $product = $this->product(ProductCondition::Renewed);
+        $purchase = $this->approvedPurchase($owner, $product, $warehouse, 1, '100.0000');
+        $this->receive($owner, $purchase, 1, 0, 0);
+        $release = app(RenewedStockQcExceptionService::class)->release(
+            QcRecordedStockIntake::query()->sole()->id,
+            $owner,
+            ['quantity' => 1, 'reason' => 'Temporary exception unit used for cancellation attribution test.', 'idempotency_key' => (string) Str::uuid()],
+        );
+        $first = $this->reservedOrder($owner, $product, $warehouse, 1);
+        app(OrderService::class)->cancel($first, new CancelOrderData('Synthetic order cancelled before fulfilment.', (string) Str::uuid()), $owner);
+        $this->assertSame(1, QcRecordedStockBypassReservationAllocation::query()
+            ->where('bypass_release_id', $release->id)->where('status', 'released')->sum('quantity'));
+
+        $second = $this->reservedOrder($owner, $product, $warehouse, 1);
+        $this->assertSame(1, QcRecordedStockBypassReservationAllocation::query()
+            ->where('bypass_release_id', $release->id)->where('status', 'reserved')->sum('quantity'));
+        $this->assertSame(1, QcRecordedStockBypassReservationAllocation::query()
+            ->where('bypass_release_id', $release->id)->whereIn('status', ['reserved', 'fulfilled'])->sum('quantity'));
+        $this->assertSame('not_required', app(RenewedQcDispatchService::class)->readiness($second)['status']);
     }
 
     public function test_only_renewed_accepted_grn_quantity_enters_qc_pending_with_its_own_value_and_movement(): void
@@ -1294,6 +1399,20 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
             [new PurchaseReceiptItemData($purchase->items->sole()->id, $accepted, $damaged, $rejected)],
             now()->toDateTimeString(),
             (string) Str::uuid(),
+        ), $owner);
+    }
+
+    private function reservedOrder(User $owner, Product $product, Warehouse $warehouse, int $quantity): Order
+    {
+        return app(OrderService::class)->saveAndReserve(new SaveAndReserveOrderData(
+            warehouseId: $warehouse->id,
+            platformId: null,
+            externalOrderNumber: null,
+            orderDate: now()->toDateString(),
+            handledByEmployeeId: $owner->employee->id,
+            notes: 'Synthetic Renewed QC exception regression order.',
+            items: [new OrderItemData($product->id, $quantity, '500.00')],
+            idempotencyKey: (string) Str::uuid(),
         ), $owner);
     }
 

@@ -74,6 +74,25 @@ class RenewedStockQcExceptionService
             && $this->qcAuthorization->allows($actor, QcPermission::Start);
     }
 
+    public function canReleaseIntake(QcRecordedStockIntake $intake, User $actor): bool
+    {
+        if (! $this->canRelease($actor)
+            || (int) $intake->started_quantity !== 0
+            || (int) $intake->released_quantity !== 0
+            || (int) $intake->accepted_quantity < 1
+            || $intake->product?->condition !== ProductCondition::Renewed) {
+            return false;
+        }
+
+        $inventory = ProductInventory::query()
+            ->where('product_id', $intake->product_id)
+            ->where('warehouse_id', $intake->warehouse_id)
+            ->first();
+
+        return $inventory !== null
+            && $this->inventoryAuthorization->allows($actor, InventoryPermission::View, $inventory);
+    }
+
     public function release(int $intakeId, User $actor, array $input): QcRecordedStockBypassRelease
     {
         $this->authorize($actor);

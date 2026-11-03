@@ -1,0 +1,116 @@
+name: Renewed QC Linux QA
+
+on:
+  push:
+    branches:
+      - feature/temporary-renewed-qc-sellable-exception
+  workflow_dispatch:
+
+jobs:
+  renewed-qc:
+    runs-on: ubuntu-24.04
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: tpz_erp_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: tpz_erp_test
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      CACHE_STORE: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      SESSION_DRIVER: array
+      BROADCAST_CONNECTION: null
+      PULSE_ENABLED: false
+      TELESCOPE_ENABLED: false
+      NIGHTWATCH_ENABLED: false
+
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: feature/temporary-renewed-qc-sellable-exception
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, bcmath, curl, dom, fileinfo, gd, intl, mysql, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare Laravel test environment
+        run: |
+          cp .env.example .env
+          php artisan config:clear
+          php artisan migrate --force
+
+      - name: Run blocked UI test 1
+        run: |
+          set -o pipefail
+          mkdir -p storage/qa
+          DB_CONNECTION=sqlite DB_DATABASE=:memory: timeout --signal=TERM 180s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
+            --filter=test_owner_can_reduce_recorded_intake_without_rewriting_the_grn_and_with_immutable_movement_audit \
+            --no-coverage 2>&1 | tee storage/qa/ui-test-1.log
+
+      - name: Run blocked UI test 2
+        run: |
+          set -o pipefail
+          mkdir -p storage/qa
+          DB_CONNECTION=sqlite DB_DATABASE=:memory: timeout --signal=TERM 180s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
+            --filter=test_sales_order_create_draft_adds_qc_pending_demand_to_the_technician_queue \
+            --no-coverage 2>&1 | tee storage/qa/ui-test-2.log
+
+      - name: Run complete Renewed QC intake suite
+        run: |
+          set -o pipefail
+          DB_CONNECTION=sqlite DB_DATABASE=:memory: timeout --signal=TERM 600s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
+            --no-coverage 2>&1 | tee storage/qa/intake-suite.log
+
+      - name: Run regression suites
+        run: |
+          set -o pipefail
+          export DB_CONNECTION=sqlite DB_DATABASE=:memory:
+          timeout --signal=TERM 600s php artisan test \
+            tests/Feature/Qc/RenewedQcDispatchTest.php \
+            tests/Feature/Inventory/InventoryAllocationLedgerTest.php \
+            --no-coverage 2>&1 | tee storage/qa/regression-suite.log
+
+      - name: Upload QA logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renewed-qc-linux-qa-logs
+          path: storage/qa/*.log
+          if-no-files-found: warn

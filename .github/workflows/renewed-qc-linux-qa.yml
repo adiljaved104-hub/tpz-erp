@@ -78,25 +78,30 @@ jobs:
 
       - name: Run blocked UI test 1
         run: |
+          set -o pipefail
           mkdir -p storage/qa
-          timeout --signal=TERM 180s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
+          DB_CONNECTION=sqlite DB_DATABASE=:memory: timeout --signal=TERM 180s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
             --filter=test_owner_can_reduce_recorded_intake_without_rewriting_the_grn_and_with_immutable_movement_audit \
             --no-coverage 2>&1 | tee storage/qa/ui-test-1.log
 
       - name: Run blocked UI test 2
         run: |
+          set -o pipefail
           mkdir -p storage/qa
-          timeout --signal=TERM 180s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
+          DB_CONNECTION=sqlite DB_DATABASE=:memory: timeout --signal=TERM 180s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
             --filter=test_sales_order_create_draft_adds_qc_pending_demand_to_the_technician_queue \
             --no-coverage 2>&1 | tee storage/qa/ui-test-2.log
 
       - name: Run complete Renewed QC intake suite
         run: |
-          timeout --signal=TERM 600s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
+          set -o pipefail
+          DB_CONNECTION=sqlite DB_DATABASE=:memory: timeout --signal=TERM 600s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
             --no-coverage 2>&1 | tee storage/qa/intake-suite.log
 
       - name: Run regression suites
         run: |
+          set -o pipefail
+          export DB_CONNECTION=sqlite DB_DATABASE=:memory:
           timeout --signal=TERM 600s php artisan test \
             tests/Feature/Qc/RenewedQcDispatchTest.php \
             tests/Feature/Inventory/InventoryAllocationLedgerTest.php \

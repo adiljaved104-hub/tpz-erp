@@ -50,7 +50,7 @@ jobs:
       - name: Checkout exact integration commit
         uses: actions/checkout@v4
         with:
-          ref: integration/renewed-qc-owner-settings-staging
+          ref: 5b3c466adf3a9ee8e808e59418b8eb7a6feb017e
           fetch-depth: 0
 
       - name: Verify checked-out SHA

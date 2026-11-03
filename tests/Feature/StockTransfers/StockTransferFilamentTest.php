@@ -127,6 +127,53 @@ class StockTransferFilamentTest extends TestCase
         $this->assertDatabaseCount('stock_movements', 1);
     }
 
+    public function test_create_and_ship_uses_the_existing_dispatch_service_atomically(): void
+    {
+        [$owner, $source, $destination, $product] = $this->foundation();
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $source->id,
+            'available_quantity' => 2,
+            'reserved_quantity' => 0,
+            'damaged_quantity' => 0,
+            'average_cost' => '100.0000',
+        ]);
+
+        Livewire::actingAs($owner)
+            ->test(CreateStockTransfer::class)
+            ->fillForm([
+                'source_warehouse_id' => $source->id,
+                'destination_warehouse_id' => $destination->id,
+                'transfer_date' => today()->toDateString(),
+                'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            ])
+            ->assertActionVisible('createAndShip')
+            ->callAction('createAndShip');
+
+        $transfer = StockTransfer::query()->latest('id')->firstOrFail();
+        $this->assertSame(StockTransferStatus::Dispatched, $transfer->status);
+        $this->assertSame(1, $inventory->refresh()->available_quantity);
+        $this->assertDatabaseCount('stock_movements', 1);
+    }
+
+    public function test_create_and_ship_failure_rolls_back_the_new_transfer(): void
+    {
+        [$owner, $source, $destination, $product] = $this->foundation();
+
+        Livewire::actingAs($owner)
+            ->test(CreateStockTransfer::class)
+            ->fillForm([
+                'source_warehouse_id' => $source->id,
+                'destination_warehouse_id' => $destination->id,
+                'transfer_date' => today()->toDateString(),
+                'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            ])
+            ->callAction('createAndShip');
+
+        $this->assertDatabaseCount('stock_transfers', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
     public function test_renewed_marketplace_transfer_shows_dispatch_block_and_hides_release_without_active_assignment(): void
     {
         [$owner, $source, , $product] = $this->foundation();

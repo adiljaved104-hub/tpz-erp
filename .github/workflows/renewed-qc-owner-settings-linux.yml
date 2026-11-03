@@ -1,0 +1,115 @@
+name: Renewed QC Owner Settings Linux QA
+
+on:
+  push:
+    branches:
+      - integration/renewed-qc-owner-settings-staging
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    env:
+      EXPECTED_SHA: 5b3c466adf3a9ee8e808e59418b8eb7a6feb017e
+      APP_ENV: testing
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      APP_DEBUG: false
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: tpz_erp_owner_settings_qa
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      CACHE_STORE: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      SESSION_DRIVER: array
+      BROADCAST_CONNECTION: null
+      PULSE_ENABLED: false
+      TELESCOPE_ENABLED: false
+      NIGHTWATCH_ENABLED: false
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: tpz_erp_owner_settings_qa
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=30
+
+    steps:
+      - name: Checkout exact integration commit
+        uses: actions/checkout@v4
+        with:
+          ref: integration/renewed-qc-owner-settings-staging
+          fetch-depth: 0
+
+      - name: Verify checked-out SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA"
+          echo "QA_SHA=$actual"
+
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, mysqli, pdo_mysql, xml, xmlwriter, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Prepare isolated Laravel environment
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          php artisan config:clear --no-ansi
+
+      - name: Run all migrations on disposable MySQL 8.4
+        run: |
+          set -euo pipefail
+          mkdir -p storage/qa
+          php artisan migrate --force --no-interaction 2>&1 | tee storage/qa/migrations.log
+          php artisan migrate:status --no-ansi 2>&1 | tee storage/qa/migration-status.log
+
+      - name: Run Owner activation regression tests
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM 600s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
+            --filter='owner_controls_qc_exception_activation|non_owner_cannot_change_qc_exception_activation|expired_owner_activation_is_not_active' \
+            --no-coverage 2>&1 | tee storage/qa/owner-settings.log
+
+      - name: Run complete Renewed QC intake suite
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM 900s php artisan test tests/Feature/Qc/RecordedRenewedStockQcIntakeTest.php \
+            --no-coverage 2>&1 | tee storage/qa/renewed-qc-intake.log
+
+      - name: Run QC inventory and reservation regressions
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM 900s php artisan test \
+            tests/Feature/Qc/RenewedQcDispatchTest.php \
+            tests/Feature/Inventory/InventoryAllocationLedgerTest.php \
+            --no-coverage 2>&1 | tee storage/qa/qc-inventory-regressions.log
+
+      - name: Upload QA logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renewed-qc-owner-settings-qa-logs
+          path: storage/qa/*.log
+          if-no-files-found: warn

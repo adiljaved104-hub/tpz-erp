@@ -13,7 +13,7 @@ jobs:
   qa:
     runs-on: ubuntu-24.04
     env:
-      EXPECTED_SHA: 5b3c466adf3a9ee8e808e59418b8eb7a6feb017e
+      EXPECTED_SHA: 9c545e54d579d162263b45b79a6f045cbdb7367e
       APP_ENV: testing
       APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       APP_DEBUG: false
@@ -50,7 +50,7 @@ jobs:
       - name: Checkout exact integration commit
         uses: actions/checkout@v4
         with:
-          ref: 5b3c466adf3a9ee8e808e59418b8eb7a6feb017e
+          ref: 9c545e54d579d162263b45b79a6f045cbdb7367e
           fetch-depth: 0
 
       - name: Verify checked-out SHA

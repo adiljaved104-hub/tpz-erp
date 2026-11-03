@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/temporary-renewed-qc-sellable-exception
+      - qa/renewed-qc-integration-20261103
   workflow_dispatch:
 
 jobs:

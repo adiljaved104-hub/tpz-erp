@@ -187,7 +187,8 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertTrue($service->canReleaseIntake($intake->fresh()->load('product'), $owner));
 
         Livewire::actingAs($owner)->test(RecordedRenewedStockQueue::class)
-            ->assertTableActionExists('releaseWithoutQc');
+            ->assertTableActionExists('releaseWithoutQc')
+            ->assertTableActionVisible('releaseWithoutQc', $intake->fresh()->load(['product', 'warehouse', 'receiptItem.receipt']));
     }
 
     public function test_temporary_renewed_qc_exception_rejects_unauthorized_staff_and_already_started_qc(): void

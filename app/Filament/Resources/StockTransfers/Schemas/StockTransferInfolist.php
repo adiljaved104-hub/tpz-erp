@@ -26,8 +26,8 @@ class StockTransferInfolist
             && app(QcAuthorization::class)->allows($user, QcPermission::ViewOrderAssignments)
             && app(QcStockTransferReadinessService::class)->isRequired($record);
         $relation = $cost ? 'costedDisplayItems' : 'displayItems';
-        $entries = [TextEntry::make('sku')->label('SKU'), TextEntry::make('product_name')->label('Product'), TextEntry::make('quantity')->label('Qty'), TextEntry::make('dispatched_quantity')->label('Dispatched'), TextEntry::make('received_quantity')->label('Received'), TextEntry::make('returned_quantity')->label('Returned')];
-        $columns = collect(['SKU', 'Product', 'Qty', 'Dispatched', 'Received', 'Returned'])->map(fn (string $label) => TableColumn::make($label))->all();
+        $entries = [TextEntry::make('sku')->label('SKU'), TextEntry::make('product_name')->label('Product'), TextEntry::make('quantity')->label('Requested'), TextEntry::make('dispatched_quantity')->label('Shipped'), TextEntry::make('received_quantity')->label('Previously Received'), TextEntry::make('inTransitQuantity')->label('Remaining')->state(fn ($record): int => max(0, (int) $record->inTransitQuantity())), TextEntry::make('shortage_quantity')->label('Shortage')->state(fn ($record): int => max(0, (int) $record->quantity - (int) $record->received_quantity - (int) $record->returned_quantity - (int) $record->lost_quantity))];
+        $columns = collect(['SKU', 'Product', 'Requested', 'Shipped', 'Previously Received', 'Remaining', 'Shortage'])->map(fn (string $label) => TableColumn::make($label))->all();
         if ($cost) {
             $entries[] = TextEntry::make('dispatch_unit_cost')->label('Dispatch Cost')->money('AED', decimalPlaces: 2);
             $columns[] = TableColumn::make('Dispatch Cost');

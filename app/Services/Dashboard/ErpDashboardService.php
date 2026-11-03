@@ -22,6 +22,7 @@ use App\Filament\Pages\Hr\LeaveManagement;
 use App\Filament\Pages\Inventory\MyInventory;
 use App\Filament\Pages\MyWork;
 use App\Filament\Pages\Notifications;
+use App\Filament\Pages\Purchasing\QuickStockPurchase;
 use App\Filament\Resources\Announcements\AnnouncementResource;
 use App\Filament\Resources\Complaints\ComplaintResource;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
@@ -213,6 +214,10 @@ class ErpDashboardService
         if ($this->orders->allows($user, OrderPermission::ViewSellingPrice)) {
             $cards->push($this->card('revenue', "Sales {$label}", $this->money((string) (clone $query)->sum('grand_total')), 'Recorded Order total', OrderResource::getUrl(), 'success'));
         }
+
+        if ($this->purchases->allows($user, PurchasePermission::QuickReceive)) {
+            $cards->push($this->card('quick_purchase', 'Quick Purchase', '→', 'Receive stock through the authorized purchasing workflow', QuickStockPurchase::getUrl(), 'success'));
+        }
     }
 
     private function addInventoryCards(Collection $cards, Collection $attention, User $user, bool $includeCards = true): void
@@ -229,6 +234,13 @@ class ErpDashboardService
             $cards->push($this->card('inventory_units', 'Inventory Units', $summary['total_company_stock'], 'Company-owned units in authorized scope', $url));
             $cards->push($this->card('damaged', 'Damaged Stock', $summary['damaged'], 'Units requiring operational attention', $url, $summary['damaged'] > 0 ? 'danger' : 'gray'));
             $cards->push($this->card('qc_pending', 'QC Pending', $summary['qc_pending'], 'Units awaiting quality control', $url, $summary['qc_pending'] > 0 ? 'warning' : 'gray'));
+            $marketplace = DB::table('product_inventories as marketplace_inventory')
+                ->join('warehouses as marketplace_warehouses', 'marketplace_warehouses.id', '=', 'marketplace_inventory.warehouse_id')
+                ->where('marketplace_warehouses.status', true)
+                ->where('marketplace_warehouses.location_type', 'marketplace_fulfilment')
+                ->selectRaw('COALESCE(SUM(marketplace_inventory.available_quantity + marketplace_inventory.damaged_quantity), 0)')
+                ->value();
+            $cards->push($this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', (int) $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url));
         }
 
         if ($includeCards && $this->inventory->allows($user, InventoryPermission::ViewFinancials)) {
@@ -255,6 +267,9 @@ class ErpDashboardService
                 $cards->push($this->card('returns', 'Open Returns', $count, 'Returns not yet completed', $url));
             }
             $this->attentionWhen($attention, $count, 'Returns need processing', $url, 75);
+            if ($this->returns->allows($user, CustomerReturnPermission::Create)) {
+                $cards->push($this->card('record_return', 'Record Return', '→', 'Start a customer return without bypassing QC or disposition safeguards', CustomerReturnResource::getUrl('create'), 'indigo'));
+            }
         }
 
         if ($this->claims->allows($user, SafetClaimPermission::View)) {

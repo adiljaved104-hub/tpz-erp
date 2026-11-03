@@ -16,6 +16,7 @@ use App\Models\ResponsibilityAssignment;
 use App\Models\Team;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Enums\InventoryLocationType;
 use App\Services\Dashboard\ErpDashboardService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -26,6 +27,23 @@ use Tests\TestCase;
 class ErpDashboardTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_dashboard_exposes_authorized_quick_actions_and_marketplace_on_hand_without_main_stock(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner, 'Owner');
+        $marketplace = Warehouse::factory()->create(['location_type' => InventoryLocationType::MarketplaceFulfilment, 'status' => true]);
+        $main = Warehouse::factory()->create(['location_type' => InventoryLocationType::CompanyWarehouse, 'status' => true]);
+        $product = Product::factory()->create();
+        ProductInventory::factory()->create(['warehouse_id' => $marketplace->id, 'product_id' => $product->id, 'available_quantity' => 3, 'reserved_quantity' => 1]);
+        ProductInventory::factory()->create(['warehouse_id' => $main->id, 'product_id' => $product->id, 'available_quantity' => 9, 'reserved_quantity' => 0]);
+
+        $cards = app(ErpDashboardService::class)->forUser($owner)['cards'];
+        $keys = $cards->pluck('key');
+        $this->assertContains('marketplace_inventory', $keys);
+        $this->assertContains('quick_purchase', $keys);
+        $this->assertContains('record_return', $keys);
+        $this->assertSame(3, $cards->firstWhere('key', 'marketplace_inventory')['value']);
+    }
 
     public function test_active_employee_dashboard_renders_compact_operational_cards_and_period_switches(): void
     {

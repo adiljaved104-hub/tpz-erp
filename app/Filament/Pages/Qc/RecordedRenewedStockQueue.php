@@ -107,6 +107,7 @@ class RecordedRenewedStockQueue extends Page implements HasTable
                     ->label('Move to Sellable — QC Exception')
                     ->icon('heroicon-o-exclamation-triangle')
                     ->color('warning')
+                    ->button()
                     ->visible(fn (QcRecordedStockIntake $record): bool => app(RenewedStockQcExceptionService::class)->canReleaseIntake($record, auth()->user()))
                     ->requiresConfirmation()
                     ->modalHeading('Release Renewed stock WITHOUT QC?')

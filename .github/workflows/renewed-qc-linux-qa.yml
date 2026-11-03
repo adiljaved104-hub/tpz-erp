@@ -1,6 +1,9 @@
 name: Renewed QC Linux QA
 
 on:
+  push:
+    branches:
+      - feature/temporary-renewed-qc-sellable-exception
   workflow_dispatch:
 
 jobs:

@@ -25,12 +25,24 @@ class WebSalesService
         private readonly DefaultWarehouseService $warehouses,
         private readonly OrderService $orders,
         private readonly ActivityLogger $activity,
+        private readonly ManualSourcingService $manualSourcing,
     ) {}
 
     public function createConfirmed(WebSalesOrderData $data, User $actor): Order
     {
         $this->authorization->authorize($actor, WebSalesPermission::Create);
-        $order = $this->orders->saveAndReserve($this->orderData($data, $actor), $actor);
+        if ($existing = Order::query()->where('idempotency_key', $data->idempotencyKey)->first()) {
+            abort_unless($existing->created_by_user_id === $actor->id, 403);
+
+            return $existing->load(['items', 'manualSourcingLines']);
+        }
+        $data = $this->materializeManualLines($data, $actor);
+        $isManual = collect($data->items)->contains(fn ($item): bool => $item->sourceType === 'manual_sourced');
+        $order = $isManual ? $this->orders->saveDraft($this->orderData($data, $actor), $actor) : $this->orders->saveAndReserve($this->orderData($data, $actor), $actor);
+        if ($isManual) {
+            $order->forceFill(['status' => OrderStatus::PendingReview])->save();
+            $this->manualSourcing->recordLines($order, $data->items, $actor);
+        }
         $this->logCreated($order, $actor, false);
 
         return $order;
@@ -50,6 +62,10 @@ class WebSalesService
             'delivery_type.in' => 'Complete Sale requires Shop Pickup.',
         ])->validate();
         unset($validated);
+
+        if (collect($data->items)->contains(fn ($item): bool => $item->sourceType === 'manual_sourced')) {
+            throw ValidationException::withMessages(['items' => 'Manual sourced lines require verified receipt before fulfilment.']);
+        }
 
         $order = $this->orders->saveAsShipped($this->orderData($data, $actor), $actor);
         $this->logCreated($order, $actor, true);
@@ -160,6 +176,11 @@ class WebSalesService
         $prefix = str_starts_with($phone, '+') ? '+' : '';
 
         return $prefix.preg_replace('/\D+/', '', $phone);
+    }
+
+    private function materializeManualLines(WebSalesOrderData $data, User $actor): WebSalesOrderData
+    {
+        return new WebSalesOrderData($data->customerName, $data->customerPhone, $data->channel, $data->deliveryType, $data->courierName, $data->trackingNumber, $this->manualSourcing->materializeItems($data->items, $actor), $data->idempotencyKey, $data->notes, $data->customerAddress);
     }
 
     private function logCreated(Order $order, User $actor, bool $completed): void

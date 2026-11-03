@@ -67,7 +67,7 @@ class StockTransferFilamentTest extends TestCase
             ->callMountedAction()
             ->assertNotified(Notification::make()
                 ->danger()
-                ->title('Cannot dispatch transfer')
+                ->title('Cannot ship transfer')
                 ->body("No source inventory exists for {$product->sku} at Main Warehouse."));
 
         $this->assertSame(StockTransferStatus::Draft, $transfer->refresh()->status);
@@ -93,7 +93,7 @@ class StockTransferFilamentTest extends TestCase
             ->callMountedAction()
             ->assertNotified(Notification::make()
                 ->danger()
-                ->title('Cannot dispatch transfer')
+                ->title('Cannot ship transfer')
                 ->body("Insufficient Sellable inventory for {$product->sku} at Main Warehouse."));
 
         $inventory->refresh();

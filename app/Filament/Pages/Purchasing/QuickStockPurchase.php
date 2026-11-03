@@ -18,6 +18,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\DefaultWarehouseService;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationPolicyService;
 use App\Services\Orders\OrderResponsibilityScopeService;
@@ -76,7 +77,7 @@ class QuickStockPurchase extends Page
         $employee = auth()->user()?->employee;
         $warehouseId = (int) request()->query('warehouse_id', 0);
         $productId = (int) request()->query('product_id', 0);
-        $warehouse = $warehouseId > 0 ? Warehouse::query()->active()->find($warehouseId) : null;
+        $warehouse = $warehouseId > 0 ? Warehouse::query()->active()->find($warehouseId) : app(DefaultWarehouseService::class)->operationalDefault();
         $product = $productId > 0 ? Product::query()->where('status', 'active')->find($productId) : null;
         $item = ['ordered_quantity' => 1, 'unit_cost_touched' => false];
         if ($warehouse !== null && $product !== null && app(OrderResponsibilityScopeService::class)->canReceiveProduct(auth()->user(), $product->id, $warehouse->id)) {
@@ -118,7 +119,7 @@ class QuickStockPurchase extends Page
                         ->options(fn (): array => InventoryAllocationAccount::query()->where('status', true)
                             ->when(app(InventoryAllocationPolicyService::class)->mode() === InventoryAllocationMode::Strict, fn ($query) => $query->where('is_system', false))
                             ->orderBy('is_system')->orderBy('name')->pluck('name', 'id')->all())
-                        ->helperText('Optional in migration/shadow mode. If blank, the configured GRN allocation policy applies; Handled By does not determine stock ownership.'),
+                        ->helperText('Optional. Leave blank to use the default stock allocation policy.'),
                 ]),
                 Textarea::make('notes')->maxLength(5000)->rows(2),
             ])->compact(),

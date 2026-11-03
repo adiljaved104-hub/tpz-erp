@@ -1,8 +1,8 @@
 @php
     $sections = [
-        'sales' => ['heading' => 'Sales & Orders', 'description' => 'Order activity for the selected period.', 'keys' => ['orders', 'revenue', 'quick_purchase']],
+        'sales' => ['heading' => 'Sales & Orders', 'description' => 'Order activity and common operational entry points.', 'keys' => ['orders', 'revenue', 'quick_purchase', 'record_return']],
         'inventory' => ['heading' => 'Inventory', 'description' => 'Current authorized stock position.', 'keys' => ['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory']],
-        'service' => ['heading' => 'Service & Claims', 'description' => 'Open operational cases requiring follow-up.', 'keys' => ['returns', 'record_return', 'claims', 'warranty', 'internal_repairs', 'complaints']],
+        'service' => ['heading' => 'Service & Claims', 'description' => 'Open operational cases requiring follow-up.', 'keys' => ['returns', 'claims', 'warranty', 'internal_repairs', 'complaints']],
         'work' => ['heading' => 'Work', 'description' => 'Tasks and communication in your authorized scope.', 'keys' => ['tasks', 'chat_unread', 'notifications']],
         'hr' => ['heading' => 'HR', 'description' => 'Attendance, leave, and acknowledgment status.', 'keys' => ['attendance_present', 'attendance_late', 'attendance_absent', 'pending_leave', 'warning_acknowledgments', 'notice_acknowledgments']],
     ];

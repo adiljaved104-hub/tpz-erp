@@ -41,6 +41,7 @@ use App\Models\EmployeeWarning;
 use App\Models\HrNotice;
 use App\Models\LeaveRequest;
 use App\Models\Order;
+use App\Models\ProductInventory;
 use App\Models\Purchase;
 use App\Models\SafetClaim;
 use App\Models\User;
@@ -59,6 +60,7 @@ use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Chat\ChatQueryService;
 use App\Services\Hr\AttendanceQueryService;
 use App\Services\Hr\HrScopeService;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
@@ -216,7 +218,11 @@ class ErpDashboardService
         }
 
         if ($this->purchases->allows($user, PurchasePermission::QuickReceive)) {
-            $cards->push($this->card('quick_purchase', 'Quick Purchase', '→', 'Receive stock through the authorized purchasing workflow', QuickStockPurchase::getUrl(), 'success'));
+            $cards->push($this->actionCard('quick_purchase', 'Quick Purchase', 'Receive stock through the authorized purchasing workflow', QuickStockPurchase::getUrl(), 'success'));
+        }
+
+        if ($this->returns->allows($user, CustomerReturnPermission::Create)) {
+            $cards->push($this->actionCard('record_return', 'Record Return', 'Start a customer return without bypassing QC or disposition safeguards', CustomerReturnResource::getUrl('create'), 'indigo'));
         }
     }
 
@@ -234,13 +240,13 @@ class ErpDashboardService
             $cards->push($this->card('inventory_units', 'Inventory Units', $summary['total_company_stock'], 'Company-owned units in authorized scope', $url));
             $cards->push($this->card('damaged', 'Damaged Stock', $summary['damaged'], 'Units requiring operational attention', $url, $summary['damaged'] > 0 ? 'danger' : 'gray'));
             $cards->push($this->card('qc_pending', 'QC Pending', $summary['qc_pending'], 'Units awaiting quality control', $url, $summary['qc_pending'] > 0 ? 'warning' : 'gray'));
-            $marketplace = DB::table('product_inventories as marketplace_inventory')
-                ->join('warehouses as marketplace_warehouses', 'marketplace_warehouses.id', '=', 'marketplace_inventory.warehouse_id')
+            $marketplaceQuery = ProductInventory::query()
+                ->join('warehouses as marketplace_warehouses', 'marketplace_warehouses.id', '=', 'product_inventories.warehouse_id')
                 ->where('marketplace_warehouses.status', true)
-                ->where('marketplace_warehouses.location_type', 'marketplace_fulfilment')
-                ->selectRaw('COALESCE(SUM(marketplace_inventory.available_quantity + marketplace_inventory.damaged_quantity), 0) as total')
-                ->value('total');
-            $cards->push($this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', (int) $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url));
+                ->where('marketplace_warehouses.location_type', 'marketplace_fulfilment');
+            app(EmployeeOwnedInventoryReadService::class)->apply($marketplaceQuery->getQuery(), 'product_inventories.id', $user);
+            $marketplace = (int) $marketplaceQuery->sum(DB::raw('product_inventories.available_quantity + product_inventories.damaged_quantity'));
+            $cards->push($this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', (int) $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url.'?marketplace=1'));
         }
 
         if ($includeCards && $this->inventory->allows($user, InventoryPermission::ViewFinancials)) {
@@ -267,9 +273,6 @@ class ErpDashboardService
                 $cards->push($this->card('returns', 'Open Returns', $count, 'Returns not yet completed', $url));
             }
             $this->attentionWhen($attention, $count, 'Returns need processing', $url, 75);
-            if ($this->returns->allows($user, CustomerReturnPermission::Create)) {
-                $cards->push($this->card('record_return', 'Record Return', '→', 'Start a customer return without bypassing QC or disposition safeguards', CustomerReturnResource::getUrl('create'), 'indigo'));
-            }
         }
 
         if ($this->claims->allows($user, SafetClaimPermission::View)) {
@@ -522,6 +525,12 @@ class ErpDashboardService
     private function card(string $key, string $label, int|string $value, string $description, string $url, string $color = 'primary'): array
     {
         return compact('key', 'label', 'value', 'description', 'url', 'color');
+    }
+
+    /** @return array<string, mixed> */
+    private function actionCard(string $key, string $label, string $description, string $url, string $color = 'primary'): array
+    {
+        return ['key' => $key, 'label' => $label, 'value' => null, 'description' => $description, 'url' => $url, 'color' => $color, 'type' => 'action'];
     }
 
     /** @return array<string, mixed> */

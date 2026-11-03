@@ -43,6 +43,9 @@ class ErpDashboardTest extends TestCase
         $this->assertContains('quick_purchase', $keys);
         $this->assertContains('record_return', $keys);
         $this->assertSame(3, $cards->firstWhere('key', 'marketplace_inventory')['value']);
+        $this->assertSame('action', $cards->firstWhere('key', 'quick_purchase')['type']);
+        $this->assertNull($cards->firstWhere('key', 'quick_purchase')['value']);
+        $this->assertSame('action', $cards->firstWhere('key', 'record_return')['type']);
     }
 
     public function test_active_employee_dashboard_renders_compact_operational_cards_and_period_switches(): void

@@ -49,17 +49,18 @@ class QuickStockPurchaseUiTest extends TestCase
         }
     }
 
-    public function test_products_wait_for_warehouse_and_only_active_products_are_available(): void
+    public function test_page_defaults_to_main_warehouse_and_only_active_products_are_available(): void
     {
         $this->actingAs($this->user(EmployeeRole::Owner));
         $warehouse = Warehouse::factory()->create();
         $active = Product::factory()->create(['sku' => 'ACTIVE-SKU', 'status' => 'active']);
         $inactive = Product::factory()->create(['sku' => 'STOPPED-SKU', 'status' => 'discontinued']);
-        $component = Livewire::test(QuickStockPurchase::class)->assertSee('Select a Warehouse first.');
+        $component = Livewire::test(QuickStockPurchase::class);
+        $this->assertSame((int) Warehouse::query()->where('code', 'MAIN')->value('id'), (int) $component->get('data.warehouse_id'));
         $field = collect($component->instance()->getSchema('content')->getFlatFields(withHidden: true))
             ->first(fn ($field): bool => $field->getName() === 'product_id');
         $this->assertInstanceOf(Select::class, $field);
-        $this->assertTrue($field->isDisabled());
+        $this->assertFalse($field->isDisabled());
 
         $component->fillForm(['warehouse_id' => $warehouse->id]);
         $field = collect($component->instance()->getSchema('content')->getFlatFields(withHidden: true))

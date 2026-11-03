@@ -124,6 +124,7 @@ use App\Models\QcCertificate;
 use App\Models\QcDevice;
 use App\Models\QcDeviceClaim;
 use App\Models\QcEvidence;
+use App\Models\QcExceptionSetting;
 use App\Models\QcInspection;
 use App\Models\QcOrderAssignment;
 use App\Models\QcRecordedStockBypassRelease;
@@ -530,6 +531,7 @@ class AppServiceProvider extends ServiceProvider
             'qc_recorded_stock_intake' => QcRecordedStockIntake::class,
             'qc_recorded_stock_intake_adjustment' => QcRecordedStockIntakeAdjustment::class,
             'qc_device_claim' => QcDeviceClaim::class,
+            'qc_exception_setting' => QcExceptionSetting::class,
             'user' => User::class,
             'employee' => Employee::class,
             'team' => Team::class,

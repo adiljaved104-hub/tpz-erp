@@ -6,17 +6,29 @@ use App\Contracts\EmployeePermissionOverrideResolver;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\ProductPermission;
+use App\Enums\PurchasePermission;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
+use App\Models\LeavePolicy;
+use App\Models\LeaveRequest;
+use App\Models\LeaveType;
+use App\Models\MarketplaceAccount;
+use App\Models\MarketplaceOperationIncident;
+use App\Models\MarketplaceOperationIncidentRecipient;
+use App\Models\MarketplacePlatform;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductBrand;
+use App\Models\ProductInventory;
 use App\Models\Supplier;
+use App\Models\Team;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarningCategory;
+use App\Services\Chat\ConversationService;
 use App\Services\Hr\EmployeeWarningService;
 use App\Services\Hr\HrNoticeService;
+use App\Services\Qc\QcInspectionService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Search\GlobalSearchService;
@@ -28,7 +40,17 @@ use Tests\TestCase;
 class MobileGlobalSearchTest extends TestCase
 {
     use RefreshDatabase;
-    use ResponsibilityTestFoundation;
+    use ResponsibilityTestFoundation { responsibilityUser as foundationResponsibilityUser; }
+
+    protected function responsibilityUser(EmployeeRole $role, ?Team $team = null): User
+    {
+        $user = $this->foundationResponsibilityUser($role, $team);
+        $email = 'mobile-search-scope-'.$user->id.'@techpointzone.com';
+        $user->forceFill(['email' => $email])->save();
+        $user->employee->forceFill(['email' => $email])->save();
+
+        return $user->refresh();
+    }
 
     public function test_authorized_product_order_employee_and_hr_records_return_mobile_targets_without_web_urls(): void
     {
@@ -267,6 +289,174 @@ class MobileGlobalSearchTest extends TestCase
 
         $this->assertSame($supplier->id, $item['target']['id']);
         $this->assertStringNotContainsString('"url"', $response->getContent());
+    }
+
+    public function test_authorized_module_pages_are_searchable_without_exposing_denied_modules(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $admin = $this->employee(EmployeeRole::Admin);
+
+        $this->assertTarget($owner, 'purchase receipts', 'Modules & Pages', [
+            'module' => 'purchase-receipts',
+            'id' => 0,
+        ]);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $admin->employee->id,
+            'permission_key' => PurchasePermission::ViewReceipts->value,
+            'effect' => EmployeePermissionEffect::Deny,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Mobile module search authorization test',
+        ]);
+        app(EmployeePermissionOverrideResolver::class)->forgetEmployee($admin->employee->id);
+
+        $response = $this->search($admin, 'purchase receipts')->assertOk();
+        $response->assertJsonMissing(['target' => ['module' => 'purchase-receipts', 'id' => 0]]);
+    }
+
+    public function test_inventory_search_keeps_employee_product_responsibility_scope(): void
+    {
+        $foundation = $this->responsibilityFoundation(5);
+        $foundation['product']->forceFill(['name' => 'Scoped Global Inventory Device'])->save();
+        app(ResponsibilityAssignmentService::class)->create($this->assignmentData($foundation), $foundation['owner']);
+        $unrelatedBrand = ProductBrand::factory()->create(['name' => 'Unrelated Search Brand']);
+        $unrelatedProduct = Product::factory()->create([
+            'name' => 'Scoped Global Inventory Device',
+            'brand' => $unrelatedBrand->name,
+            'brand_id' => $unrelatedBrand->id,
+        ]);
+        $unrelatedInventory = ProductInventory::factory()->create([
+            'product_id' => $unrelatedProduct->id,
+            'warehouse_id' => $foundation['inventory']->warehouse_id,
+        ]);
+
+        $response = $this->search($foundation['employee']->user, 'Scoped Global Inventory')->assertOk();
+        $items = collect(collect($response->json('data'))->firstWhere('group', 'Inventory')['items'] ?? []);
+
+        $this->assertTrue($items->pluck('target.id')->contains($foundation['inventory']->id), $response->getContent());
+        $this->assertFalse($items->pluck('target.id')->contains($unrelatedInventory->id), $response->getContent());
+    }
+
+    public function test_marketplace_incident_search_remains_recipient_private(): void
+    {
+        $recipient = $this->employee(EmployeeRole::Staff);
+        $outsider = $this->employee(EmployeeRole::Staff);
+        $platform = MarketplacePlatform::factory()->create();
+        $account = MarketplaceAccount::query()->create([
+            'marketplace_platform_id' => $platform->id,
+            'name' => 'Search Marketplace Account',
+            'code' => 'search-marketplace-account',
+            'product_condition' => 'new',
+            'enabled' => true,
+        ]);
+        $product = Product::factory()->create(['sku' => 'SEARCH-INCIDENT-SKU']);
+        $incident = MarketplaceOperationIncident::query()->create([
+            'incident_key' => (string) Str::uuid(),
+            'product_id' => $product->id,
+            'marketplace_platform_id' => $platform->id,
+            'marketplace_account_id' => $account->id,
+            'incident_type' => MarketplaceOperationIncident::STOCK_EXPOSURE,
+            'active_key' => 'mobile-search:'.$product->id,
+            'exposed_listing_count' => 2,
+            'usable_quantity' => 0,
+            'opened_at' => now(),
+        ]);
+        MarketplaceOperationIncidentRecipient::query()->create([
+            'incident_id' => $incident->id,
+            'user_id' => $recipient->id,
+            'recipient_role' => MarketplaceOperationIncidentRecipient::PRIMARY,
+        ]);
+
+        $this->assertTarget($recipient, $product->sku, 'Marketplace Incidents', [
+            'module' => 'marketplace-operations/incidents',
+            'id' => $incident->id,
+        ]);
+        $this->search($outsider, $product->sku)->assertOk()->assertJsonMissing([
+            'target' => ['module' => 'marketplace-operations/incidents', 'id' => $incident->id],
+        ]);
+    }
+
+    public function test_leave_and_chat_search_reuse_record_privacy_scopes(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+        $outsider = $this->employee(EmployeeRole::Staff);
+        $leave = LeaveRequest::query()->create([
+            'reference' => 'LR-GLOBAL-SEARCH-PRIVATE',
+            'employee_id' => $staff->employee->id,
+            'team_id_at_request' => $staff->employee->team_id,
+            'leave_type_id' => LeaveType::query()->firstOrFail()->id,
+            'leave_policy_id' => LeavePolicy::query()->firstOrFail()->id,
+            'from_date' => now()->addWeek()->toDateString(),
+            'to_date' => now()->addWeek()->toDateString(),
+            'requested_working_days' => '1.00',
+            'status' => 'pending',
+            'reason' => 'Private global search leave',
+            'submitted_at' => now(),
+            'idempotency_key' => (string) Str::uuid(),
+        ]);
+        $conversation = app(ConversationService::class)->direct($owner, $staff->employee);
+
+        $this->assertTarget($staff, $leave->reference, 'Leave Requests', [
+            'module' => 'hr/leave-requests',
+            'id' => $leave->id,
+        ]);
+        $this->assertTarget($staff, $owner->employee->name, 'Chat', [
+            'module' => 'chat',
+            'id' => $conversation->id,
+        ]);
+
+        $outsiderLeave = $this->search($outsider, $leave->reference)->assertOk();
+        $outsiderLeave->assertJsonMissing(['target' => ['module' => 'hr/leave-requests', 'id' => $leave->id]]);
+        $outsiderChat = $this->search($outsider, $owner->employee->name)->assertOk();
+        $outsiderChat->assertJsonMissing(['target' => ['module' => 'chat', 'id' => $conversation->id]]);
+    }
+
+    public function test_authorized_qc_inspection_search_returns_the_exact_native_destination(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $product = Product::factory()->create();
+        $inspection = app(QcInspectionService::class)->start([
+            'product_id' => $product->id,
+            'warehouse_id' => Warehouse::factory()->create()->id,
+            'serial' => 'QC-GLOBAL-SEARCH-001',
+            'features' => [],
+            'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+
+        $this->assertTarget($owner, 'QC-GLOBAL-SEARCH-001', 'QC Inspections', [
+            'module' => 'qc/inspections',
+            'id' => $inspection->id,
+        ]);
+    }
+
+    public function test_qc_focused_user_can_search_without_unrelated_inventory_permission_failure(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $technician = $this->employee(EmployeeRole::Technician);
+        $otherTechnician = $this->employee(EmployeeRole::Technician);
+        $product = Product::factory()->create();
+        $warehouse = Warehouse::factory()->create();
+        $service = app(QcInspectionService::class);
+        $own = $service->start([
+            'product_id' => $product->id, 'warehouse_id' => $warehouse->id,
+            'serial' => 'QC-FOCUSED-OWN-001', 'features' => [], 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $other = $service->start([
+            'product_id' => $product->id, 'warehouse_id' => $warehouse->id,
+            'serial' => 'QC-FOCUSED-OTHER-001', 'features' => [], 'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+        $own->forceFill(['technician_user_id' => $technician->id])->save();
+        $other->forceFill(['technician_user_id' => $otherTechnician->id])->save();
+
+        $this->assertTarget($technician, 'qc', 'Modules & Pages', [
+            'module' => 'qc',
+            'id' => 0,
+        ]);
+        $this->assertTarget($technician, 'QC-FOCUSED-OWN-001', 'QC Inspections', [
+            'module' => 'qc/inspections',
+            'id' => $own->id,
+        ]);
+        $this->search($technician, 'QC-FOCUSED-OTHER-001')->assertOk()->assertJsonPath('data', []);
     }
 
     public function test_short_queries_return_empty_results_safely(): void

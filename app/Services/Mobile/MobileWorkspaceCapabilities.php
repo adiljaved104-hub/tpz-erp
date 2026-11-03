@@ -73,7 +73,10 @@ class MobileWorkspaceCapabilities
             || $hr->allows($user, HrPermission::AnnouncementView)
             || $hr->allows($user, HrPermission::WarningViewOwn)
             || $hr->allows($user, HrPermission::WarningViewTeam)
-            || $hr->allows($user, HrPermission::WarningViewAll);
+            || $hr->allows($user, HrPermission::WarningViewAll)
+            || $hr->allows($user, HrPermission::LeaveViewOwn)
+            || $hr->allows($user, HrPermission::LeaveViewTeam)
+            || $hr->allows($user, HrPermission::LeaveViewAll);
 
         return array_values(array_filter([
             $this->module('qc', 'My QC Work / Dispatch', 'Renewed QC and physical unit dispatch', 'QC', $qc),

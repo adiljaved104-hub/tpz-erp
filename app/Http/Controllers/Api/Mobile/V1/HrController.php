@@ -11,11 +11,11 @@ use App\Models\HrNotice;
 use App\Models\Team;
 use App\Models\WarningCategory;
 use App\Services\Authorization\EmployeeDirectoryScopeService;
-use App\Services\Authorization\HrAuthorization;
 use App\Services\Authorization\HrRecordAuthorization;
 use App\Services\Hr\EmployeeWarningService;
 use App\Services\Hr\HrNoticeService;
 use App\Services\Hr\HrScopeService;
+use App\Services\Mobile\MobileHrSectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -23,26 +23,7 @@ class HrController extends MobileController
 {
     private function sections(Request $request): array
     {
-        $user = $request->user();
-        $auth = app(HrRecordAuthorization::class);
-
-        return array_values(array_filter([
-            $user->can('viewAny', Employee::class) || $user->can('view', $user->employee)
-                ? ['key' => 'employees', 'title' => 'Employees'] : null,
-            $user->can('viewAny', Team::class) ? ['key' => 'teams', 'title' => 'Teams'] : null,
-            $auth->allows($user, HrPermission::NoticeView) || $auth->allows($user, HrPermission::NoticeManage)
-                || $auth->allows($user, HrPermission::NoticePublish)
-                || $auth->allows($user, HrPermission::AnnouncementView) || $auth->allows($user, HrPermission::AnnouncementManage)
-                || $auth->allows($user, HrPermission::AnnouncementPublish)
-                ? ['key' => 'notices', 'title' => 'Official Notices & Announcements'] : null,
-            $auth->allows($user, HrPermission::WarningViewOwn) || $auth->allows($user, HrPermission::WarningViewTeam)
-                || $auth->allows($user, HrPermission::WarningViewAll)
-                ? ['key' => 'warnings', 'title' => 'Employee Warnings'] : null,
-            app(HrAuthorization::class)->allows($user, HrPermission::LeaveViewOwn)
-                || app(HrAuthorization::class)->allows($user, HrPermission::LeaveViewTeam)
-                || app(HrAuthorization::class)->allows($user, HrPermission::LeaveViewAll)
-                ? ['key' => 'leave-requests', 'title' => 'Leave Requests'] : null,
-        ]));
+        return app(MobileHrSectionService::class)->sections($request->user());
     }
 
     public function home(Request $request): JsonResponse

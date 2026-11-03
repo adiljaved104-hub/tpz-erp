@@ -93,6 +93,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         $this->assertTrue($service->active());
         $this->assertSame('unlimited', $service->stored()->duration_mode);
         $this->assertNull($service->stored()->expires_at);
+        $this->assertSame('qc_exception_setting', $service->stored()->getMorphClass());
 
         $service->save(['enabled' => false, 'duration_mode' => 'disabled'], $owner);
         $this->assertFalse($service->active());

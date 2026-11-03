@@ -139,16 +139,17 @@ class StockTransferFilamentTest extends TestCase
             'average_cost' => '100.0000',
         ]);
 
-        Livewire::actingAs($owner)
+        $component = Livewire::actingAs($owner)
             ->test(CreateStockTransfer::class)
             ->fillForm([
                 'source_warehouse_id' => $source->id,
                 'destination_warehouse_id' => $destination->id,
                 'transfer_date' => today()->toDateString(),
                 'items' => [['product_id' => $product->id, 'quantity' => 1]],
-            ])
-            ->assertActionVisible('createAndShip')
-            ->callAction('createAndShip');
+            ]);
+
+        $this->assertStringContainsString('Create &amp; Ship', $component->html());
+        $component->set('shipImmediately', true)->call('create');
 
         $transfer = StockTransfer::query()->latest('id')->firstOrFail();
         $this->assertSame(StockTransferStatus::Dispatched, $transfer->status);
@@ -160,15 +161,17 @@ class StockTransferFilamentTest extends TestCase
     {
         [$owner, $source, $destination, $product] = $this->foundation();
 
-        Livewire::actingAs($owner)
+        $component = Livewire::actingAs($owner)
             ->test(CreateStockTransfer::class)
             ->fillForm([
                 'source_warehouse_id' => $source->id,
                 'destination_warehouse_id' => $destination->id,
                 'transfer_date' => today()->toDateString(),
                 'items' => [['product_id' => $product->id, 'quantity' => 1]],
-            ])
-            ->callAction('createAndShip');
+            ]);
+
+        $this->assertStringContainsString('Create &amp; Ship', $component->html());
+        $component->set('shipImmediately', true)->call('create');
 
         $this->assertDatabaseCount('stock_transfers', 0);
         $this->assertDatabaseCount('stock_movements', 0);

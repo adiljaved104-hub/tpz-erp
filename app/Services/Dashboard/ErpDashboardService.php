@@ -238,8 +238,8 @@ class ErpDashboardService
                 ->join('warehouses as marketplace_warehouses', 'marketplace_warehouses.id', '=', 'marketplace_inventory.warehouse_id')
                 ->where('marketplace_warehouses.status', true)
                 ->where('marketplace_warehouses.location_type', 'marketplace_fulfilment')
-                ->selectRaw('COALESCE(SUM(marketplace_inventory.available_quantity + marketplace_inventory.damaged_quantity), 0)')
-                ->value();
+                ->selectRaw('COALESCE(SUM(marketplace_inventory.available_quantity + marketplace_inventory.damaged_quantity), 0) as total')
+                ->value('total');
             $cards->push($this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', (int) $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url));
         }
 

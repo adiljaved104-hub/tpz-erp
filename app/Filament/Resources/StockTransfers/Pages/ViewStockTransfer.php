@@ -42,7 +42,7 @@ class ViewStockTransfer extends ViewRecord
                 ->disabled(fn (): bool => $this->qcDispatchBlocked())
                 ->tooltip(fn (): ?string => $this->qcDispatchBlocked() ? 'Dispatch is blocked until all Renewed units have current valid QC assignments.' : null)
                 ->action(fn () => $this->runTransferAction(
-                    'Cannot ship transfer',
+                    'Cannot dispatch transfer',
                     fn () => app(DispatchStockTransfer::class)->handle($this->record, (string) str()->uuid(), auth()->user()),
                     appendSourceLocation: true,
                 )),

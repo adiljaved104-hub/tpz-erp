@@ -34,6 +34,7 @@ use App\Models\ProductInventory;
 use App\Models\Purchase;
 use App\Models\PurchaseReceiptCorrection;
 use App\Models\QcInspection;
+use App\Models\QcExceptionSetting;
 use App\Models\QcRecordedStockBypassReservationAllocation;
 use App\Models\QcRecordedStockIntake;
 use App\Models\QcRecordedStockIntakeAdjustment;
@@ -52,6 +53,7 @@ use App\Services\Authorization\QcAuthorization;
 use App\Services\Orders\OrderService;
 use App\Services\Purchases\PurchaseReceivingService;
 use App\Services\Qc\QcAvailableCertificateService;
+use App\Services\Qc\QcExceptionSettingsService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionService;
 use App\Services\Qc\QcOrderAssignmentService;
@@ -82,6 +84,43 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         Storage::fake('local');
     }
 
+    public function test_owner_controls_qc_exception_activation_and_unlimited_duration(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        $service = app(QcExceptionSettingsService::class);
+
+        $service->save(['enabled' => true, 'duration_mode' => 'unlimited'], $owner);
+        $this->assertTrue($service->active());
+        $this->assertSame('unlimited', $service->stored()->duration_mode);
+        $this->assertNull($service->stored()->expires_at);
+
+        $service->save(['enabled' => false, 'duration_mode' => 'disabled'], $owner);
+        $this->assertFalse($service->active());
+        $this->assertDatabaseHas('activity_logs', ['event' => 'qc_exception_settings.updated']);
+    }
+
+    public function test_non_owner_cannot_change_qc_exception_activation(): void
+    {
+        $staff = $this->actor(EmployeeRole::Staff);
+
+        $this->expectException(AuthorizationException::class);
+        app(QcExceptionSettingsService::class)->save([
+            'enabled' => true,
+            'duration_mode' => 'seven_days',
+        ], $staff);
+    }
+
+    public function test_expired_owner_activation_is_not_active_and_environment_fallback_is_ignored(): void
+    {
+        $owner = $this->actor(EmployeeRole::Owner);
+        QcExceptionSetting::create(['enabled' => true, 'duration_mode' => 'custom', 'expires_at' => now()->subMinute()]);
+        config()->set('renewed_qc_exception.enabled', true);
+        config()->set('renewed_qc_exception.expires_at', now()->addMonth()->toIso8601String());
+
+        $this->assertFalse(app(QcExceptionSettingsService::class)->active());
+        $this->assertFalse(app(RenewedStockQcExceptionService::class)->canRelease($owner));
+    }
+
     public function test_temporary_renewed_qc_exception_defaults_off_and_expires_closed(): void
     {
         $owner = $this->actor(EmployeeRole::Owner);
@@ -100,16 +139,14 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
         } catch (AuthorizationException) {
             $this->assertSame(2, $intake->fresh()->accepted_quantity);
         }
-        config()->set('renewed_qc_exception.enabled', true);
-        config()->set('renewed_qc_exception.expires_at', now()->subMinute()->toIso8601String());
+        QcExceptionSetting::create(['enabled' => true, 'duration_mode' => 'custom', 'expires_at' => now()->subMinute()]);
         $this->assertFalse($service->canRelease($owner));
         $this->assertDatabaseCount('qc_recorded_stock_bypass_releases', 0);
     }
 
     public function test_owner_can_release_unstarted_renewed_qc_stock_to_sellable_with_full_ledger_and_replay(): void
     {
-        config()->set('renewed_qc_exception.enabled', true);
-        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        QcExceptionSetting::create(['enabled' => true, 'duration_mode' => 'one_day', 'expires_at' => now()->addDay()]);
 
         $owner = $this->actor(EmployeeRole::Owner);
         $warehouse = Warehouse::factory()->create();
@@ -154,8 +191,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
     public function test_temporary_renewed_qc_exception_rejects_unauthorized_staff_and_already_started_qc(): void
     {
-        config()->set('renewed_qc_exception.enabled', true);
-        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        QcExceptionSetting::create(['enabled' => true, 'duration_mode' => 'one_day', 'expires_at' => now()->addDay()]);
         $owner = $this->actor(EmployeeRole::Owner);
         $staff = $this->actor(EmployeeRole::Staff);
         $technician = $this->actor(EmployeeRole::Technician);
@@ -188,8 +224,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
     public function test_exception_released_quantity_is_reserved_and_fulfilled_without_fake_qc(): void
     {
-        config()->set('renewed_qc_exception.enabled', true);
-        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        QcExceptionSetting::create(['enabled' => true, 'duration_mode' => 'one_day', 'expires_at' => now()->addDay()]);
         $owner = $this->actor(EmployeeRole::Owner);
         $warehouse = Warehouse::factory()->create();
         $product = $this->product(ProductCondition::Renewed);
@@ -225,8 +260,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
     public function test_mixed_qc_and_exception_quantities_require_qc_only_for_the_normal_unit(): void
     {
-        config()->set('renewed_qc_exception.enabled', true);
-        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        QcExceptionSetting::create(['enabled' => true, 'duration_mode' => 'one_day', 'expires_at' => now()->addDay()]);
         $owner = $this->actor(EmployeeRole::Owner);
         $warehouse = Warehouse::factory()->create();
         $product = $this->product(ProductCondition::Renewed);
@@ -262,8 +296,7 @@ class RecordedRenewedStockQcIntakeTest extends TestCase
 
     public function test_cancelled_order_releases_exception_provenance_for_one_later_reservation(): void
     {
-        config()->set('renewed_qc_exception.enabled', true);
-        config()->set('renewed_qc_exception.expires_at', now()->addDay()->toIso8601String());
+        QcExceptionSetting::create(['enabled' => true, 'duration_mode' => 'one_day', 'expires_at' => now()->addDay()]);
         $owner = $this->actor(EmployeeRole::Owner);
         $warehouse = Warehouse::factory()->create();
         $product = $this->product(ProductCondition::Renewed);

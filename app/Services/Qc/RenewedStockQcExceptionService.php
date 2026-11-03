@@ -21,14 +21,12 @@ use App\Services\Authorization\QcAuthorization;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
 use App\Services\ReferenceSequenceService;
-use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Throwable;
 
 /**
  * Owner-gated, time-limited intake-only exception for Renewed inventory entry.
@@ -50,25 +48,14 @@ class RenewedStockQcExceptionService
 
     public function enabled(): bool
     {
-        if (config('renewed_qc_exception.enabled') !== true) {
-            return false;
-        }
+        // Database-backed Owner activation is authoritative. Until its migration
+        // exists and the Owner explicitly enables the feature, remain disabled.
+        return app(QcExceptionSettingsService::class)->active();
+    }
 
-        $deadline = config('renewed_qc_exception.expires_at');
-        if (! is_string($deadline) || trim($deadline) === '') {
-            return false;
-        }
-
-        try {
-            // Require an explicit timezone offset to prevent ambiguous expiry.
-            if (! preg_match('/(?:Z|[+-]\\d{2}:\\d{2})$/', $deadline)) {
-                return false;
-            }
-
-            return CarbonImmutable::now()->lessThanOrEqualTo(CarbonImmutable::parse($deadline));
-        } catch (Throwable) {
-            return false;
-        }
+    public function settings(): QcExceptionSettingsService
+    {
+        return app(QcExceptionSettingsService::class);
     }
 
     public function canRelease(User $actor): bool

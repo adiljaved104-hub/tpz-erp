@@ -1142,13 +1142,14 @@ class InventoryService
         }, 5);
     }
 
-    public function dispatchTransferItem(StockTransferItem $item, ProductInventory $inventory, User $actor, string $movementReference, string $movementGroup): StockMovement
+    public function dispatchTransferItem(StockTransferItem $item, ProductInventory $inventory, User $actor, string $movementReference, string $movementGroup, ?int $quantity = null, ?string $postingKey = null): StockMovement
     {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Stock Transfer dispatch requires an active transaction.');
         }
 
-        if ($inventory->product_id !== $item->product_id || $item->quantity > $inventory->sellableQuantity()) {
+        $quantity ??= $item->quantity;
+        if ($quantity < 1 || $quantity > ($item->quantity - $item->dispatched_quantity) || $inventory->product_id !== $item->product_id || $quantity > $inventory->sellableQuantity()) {
             throw new InsufficientInventoryException("Insufficient Sellable inventory for {$item->sku}.");
         }
 
@@ -1158,27 +1159,31 @@ class InventoryService
 
         $this->allocationLedger->ensureShadowCoverage($inventory, $actor);
         $before = $this->snapshot($inventory);
-        $inventory->forceFill(['available_quantity' => $inventory->available_quantity - $item->quantity])->save();
-        $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferDispatch, $item->quantity, -$item->quantity, 0, 0, $before, $item, 'Stock Transfer dispatch', $item->posting_key, $inventory->average_cost);
-        $this->allocationLedger->dispatchTransfer($item, $inventory, $item->quantity, $actor);
-        $this->activity->log('inventory.transfer_out', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'source_warehouse_id' => $inventory->warehouse_id, 'quantity' => $item->quantity]);
+        $inventory->forceFill(['available_quantity' => $inventory->available_quantity - $quantity])->save();
+        $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferDispatch, $quantity, -$quantity, 0, 0, $before, $item, 'Stock Transfer dispatch', $postingKey ?? $item->posting_key, $inventory->average_cost);
+        $this->allocationLedger->dispatchTransfer($item, $inventory, $quantity, $actor);
+        $this->activity->log('inventory.transfer_out', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'source_warehouse_id' => $inventory->warehouse_id, 'quantity' => $quantity]);
 
         return $movement;
     }
 
-    public function receiveTransferItem(StockTransferItem $item, int $destinationWarehouseId, User $actor, string $movementReference, string $movementGroup): array
+    public function receiveTransferItem(StockTransferItem $item, int $destinationWarehouseId, User $actor, string $movementReference, string $movementGroup, ?int $quantity = null): array
     {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Stock Transfer receipt requires an active transaction.');
         }
 
+        $quantity ??= $item->inTransitQuantity();
+        if ($quantity < 1 || $quantity > $item->inTransitQuantity()) {
+            throw new InventoryInvariantException('Received quantity exceeds the remaining in-transit quantity.');
+        }
         $inventory = $this->balances->lockOrCreate($item->product_id, $destinationWarehouseId);
         $before = $this->snapshot($inventory);
-        $newAverage = $this->costs->weightedAverage($inventory->totalOnHand(), $inventory->average_cost, $item->dispatched_quantity, (string) $item->dispatch_unit_cost);
-        $inventory->forceFill(['available_quantity' => $inventory->available_quantity + $item->dispatched_quantity, 'average_cost' => $newAverage])->save();
-        $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferReceipt, $item->dispatched_quantity, $item->dispatched_quantity, 0, 0, $before, $item, 'Stock Transfer receipt', null, (string) $item->dispatch_unit_cost);
+        $newAverage = $this->costs->weightedAverage($inventory->totalOnHand(), $inventory->average_cost, $quantity, (string) $item->dispatch_unit_cost);
+        $inventory->forceFill(['available_quantity' => $inventory->available_quantity + $quantity, 'average_cost' => $newAverage])->save();
+        $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferReceipt, $quantity, $quantity, 0, 0, $before, $item, 'Stock Transfer receipt', null, (string) $item->dispatch_unit_cost);
         $this->allocationLedger->completeTransfer($item, $inventory, $actor, false);
-        $this->activity->log('inventory.transfer_in', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'destination_warehouse_id' => $destinationWarehouseId, 'quantity' => $item->dispatched_quantity]);
+        $this->activity->log('inventory.transfer_in', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'destination_warehouse_id' => $destinationWarehouseId, 'quantity' => $quantity]);
 
         return [$inventory, $movement];
     }

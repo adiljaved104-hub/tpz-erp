@@ -4,6 +4,7 @@ namespace App\Filament\Resources\StockTransfers\Pages;
 
 use App\Actions\StockTransfers\CreateStockTransfer as CreateStockTransferAction;
 use App\Actions\StockTransfers\DispatchStockTransfer;
+use App\Services\StockTransfers\StockTransferReservationService;
 use App\DTOs\StockTransfers\CreateStockTransferData;
 use App\DTOs\StockTransfers\StockTransferItemData;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
@@ -39,6 +40,12 @@ class CreateStockTransfer extends CreateRecord
                 ->requiresConfirmation()
                 ->modalDescription('Create this Draft transfer and immediately ship it using the existing authorization, QC, and inventory safeguards.')
                 ->action(fn (): mixed => $this->createAndShip()),
+            Action::make('createAndReserve')
+                ->label('Create & Reserve')
+                ->color('info')
+                ->requiresConfirmation()
+                ->modalDescription('Create this Draft transfer and reserve the requested source stock using existing inventory safeguards.')
+                ->action(fn (): mixed => $this->createAndReserve()),
             $this->getCancelFormAction(),
         ];
     }
@@ -61,5 +68,12 @@ class CreateStockTransfer extends CreateRecord
     {
         $this->shipImmediately = true;
         $this->create();
+    }
+
+    private function createAndReserve(): void
+    {
+        $this->create();
+        app(StockTransferReservationService::class)->reserve($this->record, (string) str()->uuid(), auth()->user());
+        Notification::make()->success()->title('Transfer created and source stock reserved.')->send();
     }
 }

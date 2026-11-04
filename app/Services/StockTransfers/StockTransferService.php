@@ -37,6 +37,7 @@ class StockTransferService
         private readonly InventoryService $inventory,
         private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
+        private readonly StockTransferReservationService $transferReservations,
     ) {}
 
     public function createDraft(CreateStockTransferData $data, User $actor): StockTransfer
@@ -162,6 +163,7 @@ class StockTransferService
             if ($transfer->status !== StockTransferStatus::Draft) {
                 throw new InvalidStockTransferTransitionException('Only a Draft Transfer can be cancelled.');
             }
+            $this->transferReservations->releaseForCancellation($transfer, $actor);
             app(QcStockTransferAssignmentService::class)->releaseForDraftCancellation($transfer, trim($reason), $actor);
             $transfer->forceFill(['status' => StockTransferStatus::Cancelled, 'cancellation_reason' => trim($reason), 'cancellation_idempotency_key' => $idempotencyKey, 'cancelled_by_user_id' => $actor->id, 'cancelled_at' => now()])->save();
             $this->event($transfer, StockTransferStatus::Draft, StockTransferStatus::Cancelled, $actor, trim($reason));

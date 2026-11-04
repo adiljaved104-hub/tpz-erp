@@ -76,4 +76,14 @@ class StockTransfer extends Model
     {
         return $this->hasMany(StockTransferStatusEvent::class)->orderBy('created_at')->orderBy('id');
     }
+
+    public function reservations(): HasMany
+    {
+        return $this->hasMany(StockTransferReservation::class);
+    }
+
+    public function marketplaceLosses(): HasMany
+    {
+        return $this->hasMany(StockTransferMarketplaceLoss::class);
+    }
 }

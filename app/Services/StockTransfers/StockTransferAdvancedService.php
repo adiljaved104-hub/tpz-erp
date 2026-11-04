@@ -31,7 +31,17 @@ class StockTransferAdvancedService
     {
         $this->authorization->authorize($actor, StockTransferPermission::Dispatch, $transfer);
 
-        return DB::transaction(function () use ($transfer, $quantitiesByItemId, $idempotencyKey, $actor): StockTransfer {
+        $movementReferences = [];
+        foreach (array_keys($quantitiesByItemId) as $itemId) {
+            $movementReferences[$itemId] = $this->references->nextStockMovementReference();
+        }
+        $reservationMovementReferences = $transfer->reservations()->where('status', 'active')->pluck('id')->mapWithKeys(fn ($id): array => [$id => [
+            'release' => $this->references->nextStockMovementReference(),
+            'reservation' => $this->references->nextInventoryReservationReference(),
+            'reservation_movement' => $this->references->nextStockMovementReference(),
+        ]])->all();
+
+        return DB::transaction(function () use ($transfer, $quantitiesByItemId, $idempotencyKey, $actor, $movementReferences, $reservationMovementReferences): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             if (! in_array($transfer->status, [StockTransferStatus::Draft, StockTransferStatus::Dispatched], true)) {
                 throw new InvalidStockTransferTransitionException('Only Draft or In Transit transfers can be shipped.');
@@ -45,8 +55,10 @@ class StockTransferAdvancedService
                     continue;
                 }
                 $inventory = $item->sourceInventory()->lockForUpdate()->firstOrFail();
-                $this->reservations->consumeForDispatch($item, $actor);
-                $this->inventory->dispatchTransferItem($item, $inventory, $actor, $this->references->nextStockMovementReference(), (string) Str::uuid(), $quantity, (string) Str::uuid());
+                $reservation = $transfer->reservations()->where('stock_transfer_item_id', $item->id)->where('status', 'active')->first();
+                $refs = $reservation ? ($reservationMovementReferences[$reservation->id] ?? []) : [];
+                $this->reservations->consumeForDispatch($item, $quantity, $actor, $refs['release'] ?? null, $refs['reservation'] ?? null, $refs['reservation_movement'] ?? null);
+                $this->inventory->dispatchTransferItem($item, $inventory, $actor, $movementReferences[$item->id], (string) Str::uuid(), $quantity, (string) Str::uuid());
                 $item->forceFill([
                     'source_product_inventory_id' => $inventory->id,
                     'dispatched_quantity' => $item->dispatched_quantity + $quantity,
@@ -67,7 +79,12 @@ class StockTransferAdvancedService
     {
         $this->authorization->authorize($actor, StockTransferPermission::Receive, $transfer);
 
-        return DB::transaction(function () use ($transfer, $quantitiesByItemId, $idempotencyKey, $actor): StockTransfer {
+        $movementReferences = [];
+        foreach (array_keys($quantitiesByItemId) as $itemId) {
+            $movementReferences[$itemId] = $this->references->nextStockMovementReference();
+        }
+
+        return DB::transaction(function () use ($transfer, $quantitiesByItemId, $idempotencyKey, $actor, $movementReferences): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             if ($transfer->status !== StockTransferStatus::Dispatched) {
                 throw new InvalidStockTransferTransitionException('Only an In Transit transfer can be received.');
@@ -77,7 +94,7 @@ class StockTransferAdvancedService
                 if ($quantity < 1) {
                     continue;
                 }
-                [$inventory] = $this->inventory->receiveTransferItem($item, $transfer->destination_warehouse_id, $actor, $this->references->nextStockMovementReference(), (string) Str::uuid(), $quantity);
+                [$inventory] = $this->inventory->receiveTransferItem($item, $transfer->destination_warehouse_id, $actor, $movementReferences[$item->id], (string) Str::uuid(), $quantity);
                 $item->forceFill(['destination_product_inventory_id' => $inventory->id, 'received_quantity' => $item->received_quantity + $quantity])->save();
             }
             $complete = ! $transfer->items()->whereColumn('received_quantity', '<', 'dispatched_quantity')->exists();

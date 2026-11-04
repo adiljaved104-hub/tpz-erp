@@ -13,6 +13,7 @@ use App\Models\StockTransferReservation;
 use App\Models\User;
 use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Inventory\InventoryService;
+use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -27,7 +28,15 @@ class StockTransferReservationService
     {
         $this->authorization->authorize($actor, StockTransferPermission::Dispatch, $transfer);
 
-        return DB::transaction(function () use ($transfer, $idempotencyKey, $actor): StockTransfer {
+        $references = [];
+        foreach ($transfer->items()->get(['id']) as $item) {
+            $references[$item->id] = [
+                'reservation' => app(ReferenceSequenceService::class)->nextInventoryReservationReference(),
+                'movement' => app(ReferenceSequenceService::class)->nextStockMovementReference(),
+            ];
+        }
+
+        return DB::transaction(function () use ($transfer, $idempotencyKey, $actor, $references): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $this->authorization->authorize($actor, StockTransferPermission::Dispatch, $transfer);
             if ($transfer->status !== StockTransferStatus::Draft) {
@@ -47,6 +56,8 @@ class StockTransferReservationService
                     (int) $item->quantity,
                     'Stock Transfer reservation '.$transfer->reference,
                     (string) Str::uuid(),
+                    $references[$item->id]['reservation'],
+                    $references[$item->id]['movement'],
                 ), $actor);
                 StockTransferReservation::query()->create([
                     'stock_transfer_id' => $transfer->id,
@@ -63,17 +74,17 @@ class StockTransferReservationService
         }, 5);
     }
 
-    public function releaseForCancellation(StockTransfer $transfer, User $actor): void
+    public function releaseForCancellation(StockTransfer $transfer, User $actor, array $movementReferences = []): void
     {
         foreach ($transfer->reservations()->where('status', 'active')->with('reservation')->lockForUpdate()->get() as $link) {
             $this->inventory->release($link->reservation, new ReleaseReservationData(
-                'Stock Transfer cancelled.', (string) Str::uuid(),
+                'Stock Transfer cancelled.', (string) Str::uuid(), $movementReferences[$link->id] ?? null,
             ), $actor);
             $link->forceFill(['status' => 'released', 'released_at' => now()])->save();
         }
     }
 
-    public function consumeForDispatch(StockTransferItem $item, User $actor): void
+    public function consumeForDispatch(StockTransferItem $item, int $shippedQuantity, User $actor, ?string $movementReference = null, ?string $reservationReference = null, ?string $reservationMovementReference = null): void
     {
         $links = StockTransferReservation::query()
             ->where('stock_transfer_item_id', $item->id)
@@ -83,8 +94,29 @@ class StockTransferReservationService
             ->get();
 
         foreach ($links as $link) {
+            if ($shippedQuantity < $link->quantity) {
+                $this->inventory->release($link->reservation, new ReleaseReservationData(
+                    'Stock Transfer partial dispatch; reservation resized.', (string) Str::uuid(), $movementReference,
+                ), $actor);
+                $remaining = $link->quantity - $shippedQuantity;
+                $replacement = $this->inventory->reserve(new ReserveInventoryData(
+                    (int) $link->reservation->product_inventory_id,
+                    $remaining,
+                    'Stock Transfer reservation retained for remaining shipment.',
+                    (string) Str::uuid(),
+                    $reservationReference,
+                    $reservationMovementReference,
+                ), $actor);
+                $link->forceFill([
+                    'inventory_reservation_id' => $replacement->source->id,
+                    'quantity' => $remaining,
+                    'idempotency_key' => (string) Str::uuid(),
+                ])->save();
+
+                continue;
+            }
             $this->inventory->release($link->reservation, new ReleaseReservationData(
-                'Stock Transfer dispatched; reservation consumed.', (string) Str::uuid(),
+                'Stock Transfer dispatched; reservation consumed.', (string) Str::uuid(), $movementReference,
             ), $actor);
             $link->forceFill(['status' => 'fulfilled', 'fulfilled_at' => now()])->save();
         }

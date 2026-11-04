@@ -3,7 +3,7 @@ name: Manual sourcing and advanced transfers Linux QA
 on:
   workflow_dispatch:
   push:
-    branches: [qa/manual-sourcing-advanced-transfers]
+    branches: [qa/manual-sourcing-baseline]
 
 permissions:
   contents: read

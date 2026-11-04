@@ -17,7 +17,8 @@ class OrderLineFulfillmentService
 
         return DB::transaction(function () use ($item, $quantity, $actor, $idempotencyKey, $externalReference, $evidence): OrderLineFulfillment {
             $item = OrderItem::query()->lockForUpdate()->findOrFail($item->id);
-            $line = OrderLineFulfillment::query()->firstOrCreate(['idempotency_key' => 'line-'.$item->id], [
+            $lineKey = $this->lineKey($item->id);
+            $line = OrderLineFulfillment::query()->firstOrCreate(['idempotency_key' => $lineKey], [
                 'order_id' => $item->order_id, 'order_item_id' => $item->id, 'source_type' => 'supplier_direct',
                 'requested_quantity' => $item->ordered_quantity, 'status' => 'pending', 'accounting_status' => 'pending',
             ]);
@@ -35,5 +36,14 @@ class OrderLineFulfillmentService
             $line->forceFill(['fulfilled_quantity' => $total, 'status' => $total >= $line->requested_quantity ? 'fulfilled' : 'partial'])->save();
             return $line->refresh();
         }, 5);
+    }
+
+    private function lineKey(int $itemId): string
+    {
+        $hex = substr(hash('sha256', 'order-line-fulfillment:'.$itemId), 0, 32);
+        $hex[12] = '5';
+        $hex[16] = dechex((hexdec($hex[16]) & 0x3) | 0x8);
+
+        return sprintf('%s-%s-%s-%s-%s', substr($hex, 0, 8), substr($hex, 8, 4), substr($hex, 12, 4), substr($hex, 16, 4), substr($hex, 20, 12));
     }
 }

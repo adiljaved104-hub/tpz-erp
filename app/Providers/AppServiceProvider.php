@@ -154,6 +154,7 @@ use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseStockVisibilityGrant;
+use App\Models\WebSalesManualSourcingLine;
 use App\Models\WarningCategory;
 use App\Models\WarrantyRepair;
 use App\Models\WarrantyRepairStatusEvent;
@@ -559,6 +560,7 @@ class AppServiceProvider extends ServiceProvider
             'order_fulfillment' => OrderFulfillment::class,
             'order_fulfillment_item' => OrderFulfillmentItem::class,
             'order_item' => OrderItem::class,
+            'web_sales_manual_sourcing_line' => WebSalesManualSourcingLine::class,
             'order_item_upgrade_selection' => OrderItemUpgradeSelection::class,
             'order_upgrade_execution' => OrderUpgradeExecution::class,
             'order_upgrade_execution_line' => OrderUpgradeExecutionLine::class,

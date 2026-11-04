@@ -5,6 +5,7 @@ namespace App\Services\Orders;
 use App\Models\OrderLineFulfillment;
 use App\Models\OrderLineFulfillmentEvent;
 use App\Models\OrderItem;
+use App\Models\AccountingObligation;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -34,6 +35,15 @@ class OrderLineFulfillmentService
             ]);
             $total = (int) $line->events()->where('event_type', 'delivered')->sum('quantity');
             $line->forceFill(['fulfilled_quantity' => $total, 'status' => $total >= $line->requested_quantity ? 'fulfilled' : 'partial'])->save();
+            AccountingObligation::query()->firstOrCreate(['source_type' => 'order_line_fulfillment', 'source_id' => $line->id], [
+                'reference' => 'supplier-direct:'.$item->order_id.':'.$item->id,
+                'quantity' => $total,
+                'unit_cost' => null,
+                'currency' => null,
+                'status' => 'pending',
+                'metadata' => ['order_id' => $item->order_id, 'order_item_id' => $item->id, 'source' => 'supplier_direct'],
+                'created_by_user_id' => $actor->id,
+            ]);
             return $line->refresh();
         }, 5);
     }

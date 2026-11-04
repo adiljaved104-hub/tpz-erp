@@ -108,8 +108,13 @@ class StockTransferService
         }
         $items = $transfer->items()->orderBy('product_id')->get();
         $movementReferences = $items->map(fn (): string => $this->references->nextStockMovementReference());
+        $reservationMovementReferences = $transfer->reservations()->where('status', 'active')->pluck('id')->mapWithKeys(fn ($id): array => [$id => [
+            'release' => $this->references->nextStockMovementReference(),
+            'reservation' => $this->references->nextStockMovementReference(),
+            'reservation_movement' => $this->references->nextStockMovementReference(),
+        ]])->all();
 
-        return DB::transaction(function () use ($transfer, $idempotencyKey, $actor, $movementReferences): StockTransfer {
+        return DB::transaction(function () use ($transfer, $idempotencyKey, $actor, $movementReferences, $reservationMovementReferences): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $this->authorization->authorize($actor, StockTransferPermission::Dispatch, $transfer);
             if ($transfer->status !== StockTransferStatus::Draft) {
@@ -126,7 +131,9 @@ class StockTransferService
                 if (! $inventory) {
                     throw new InsufficientInventoryException("No source inventory exists for {$item->sku}.");
                 }
-                $this->transferReservations->consumeForDispatch($item, $actor);
+                $reservation = $transfer->reservations()->where('stock_transfer_item_id', $item->id)->where('status', 'active')->first();
+                $refs = $reservation ? ($reservationMovementReferences[$reservation->id] ?? []) : [];
+                $this->transferReservations->consumeForDispatch($item, $item->quantity, $actor, $refs['release'] ?? null, $refs['reservation'] ?? null, $refs['reservation_movement'] ?? null);
                 $this->inventory->dispatchTransferItem($item, $inventory, $actor, $movementReferences[$index], $group);
                 $item->forceFill(['source_product_inventory_id' => $inventory->id, 'dispatched_quantity' => $item->quantity, 'dispatch_unit_cost' => $inventory->average_cost])->save();
             }
@@ -158,13 +165,18 @@ class StockTransferService
             return $transfer;
         }
 
-        return DB::transaction(function () use ($transfer, $reason, $idempotencyKey, $actor): StockTransfer {
+        $reservationMovementReferences = [];
+        foreach ($transfer->reservations()->where('status', 'active')->get(['id']) as $reservation) {
+            $reservationMovementReferences[$reservation->id] = $this->references->nextStockMovementReference();
+        }
+
+        return DB::transaction(function () use ($transfer, $reason, $idempotencyKey, $actor, $reservationMovementReferences): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $this->authorization->authorize($actor, StockTransferPermission::Cancel, $transfer);
             if ($transfer->status !== StockTransferStatus::Draft) {
                 throw new InvalidStockTransferTransitionException('Only a Draft Transfer can be cancelled.');
             }
-            $this->transferReservations->releaseForCancellation($transfer, $actor);
+            $this->transferReservations->releaseForCancellation($transfer, $actor, $reservationMovementReferences);
             app(QcStockTransferAssignmentService::class)->releaseForDraftCancellation($transfer, trim($reason), $actor);
             $transfer->forceFill(['status' => StockTransferStatus::Cancelled, 'cancellation_reason' => trim($reason), 'cancellation_idempotency_key' => $idempotencyKey, 'cancelled_by_user_id' => $actor->id, 'cancelled_at' => now()])->save();
             $this->event($transfer, StockTransferStatus::Draft, StockTransferStatus::Cancelled, $actor, trim($reason));

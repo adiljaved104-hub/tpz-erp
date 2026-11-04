@@ -203,8 +203,8 @@ class InventoryService
             return $this->resultFor($existing->product_id, $existing->warehouse_id, $existing);
         }
 
-        $reservationReference = $this->references->nextInventoryReservationReference();
-        $movementReference = $this->references->nextStockMovementReference();
+        $reservationReference = $data->reservationReference ?? $this->references->nextInventoryReservationReference();
+        $movementReference = $data->movementReference ?? $this->references->nextStockMovementReference();
 
         return DB::transaction(function () use ($validated, $actor, $reservationReference, $movementReference): InventoryMutationResult {
             $inventory = $this->balances->lock($validated['product_inventory_id']);
@@ -286,7 +286,7 @@ class InventoryService
             throw new DuplicateInventoryPostingException('The release idempotency key belongs to another inventory operation.');
         }
 
-        $movementReference = $this->references->nextStockMovementReference();
+        $movementReference = $data->movementReference ?? $this->references->nextStockMovementReference();
 
         return DB::transaction(function () use ($reservation, $validated, $actor, $movementReference): InventoryMutationResult {
             $reservation = InventoryReservation::query()->lockForUpdate()->findOrFail($reservation->id);

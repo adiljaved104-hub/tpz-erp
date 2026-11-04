@@ -24,7 +24,14 @@ class ManualSourcingService
     /** @param array<int, OrderItemData> $items */
     public function materializeItems(array $items, User $actor): array
     {
-        return DB::transaction(fn (): array => array_map(function (OrderItemData $item) use ($actor): OrderItemData {
+        $reservedSkus = [];
+        foreach ($items as $index => $item) {
+            if ($item->sourceType === 'manual_sourced') {
+                $reservedSkus[$index] = $this->references->nextProductSku();
+            }
+        }
+
+        return DB::transaction(fn (): array => array_map(function (OrderItemData $item, int $index) use ($actor, $reservedSkus): OrderItemData {
             if ($item->sourceType !== 'manual_sourced') {
                 return $item;
             }
@@ -49,7 +56,7 @@ class ManualSourcingService
             if ($product === null) {
                 $product = new Product;
                 $product->forceFill([
-                    'sku' => $this->references->nextProductSku(), 'inventory_item_type' => InventoryItemType::Product,
+                    'sku' => $reservedSkus[$index], 'inventory_item_type' => InventoryItemType::Product,
                     'name' => trim($item->manualDescription), 'brand' => filled($item->manualBrand) ? trim($item->manualBrand) : null,
                     'category' => filled($item->manualCategory) ? trim($item->manualCategory) : null,
                     'model' => filled($item->manualModel) ? trim($item->manualModel) : null, 'condition' => $condition,
@@ -61,7 +68,7 @@ class ManualSourcingService
             }
 
             return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $item->manualCategory, $item->manualModel, $condition, $item->supplierId, $item->sourceMode);
-        }, $items), 5);
+        }, $items, array_keys($items)), 5);
     }
 
     /** @param array<int, OrderItemData> $items */

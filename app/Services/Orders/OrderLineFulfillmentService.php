@@ -12,11 +12,11 @@ use Illuminate\Validation\ValidationException;
 
 class OrderLineFulfillmentService
 {
-    public function recordSupplierDirectDelivery(OrderItem $item, int $quantity, User $actor, string $idempotencyKey, ?string $externalReference = null, ?array $evidence = null): OrderLineFulfillment
+    public function recordSupplierDirectDelivery(OrderItem $item, int $quantity, User $actor, string $idempotencyKey, ?string $externalReference = null, ?array $evidence = null, ?string $unitCost = null, ?string $currency = null, ?array $metadata = null): OrderLineFulfillment
     {
         if ($quantity < 1) throw ValidationException::withMessages(['quantity' => 'Delivery quantity must be positive.']);
 
-        return DB::transaction(function () use ($item, $quantity, $actor, $idempotencyKey, $externalReference, $evidence): OrderLineFulfillment {
+        return DB::transaction(function () use ($item, $quantity, $actor, $idempotencyKey, $externalReference, $evidence, $unitCost, $currency, $metadata): OrderLineFulfillment {
             $item = OrderItem::query()->lockForUpdate()->findOrFail($item->id);
             $lineKey = $this->lineKey($item->id);
             $line = OrderLineFulfillment::query()->firstOrCreate(['idempotency_key' => $lineKey], [
@@ -35,15 +35,18 @@ class OrderLineFulfillmentService
             ]);
             $total = (int) $line->events()->where('event_type', 'delivered')->sum('quantity');
             $line->forceFill(['fulfilled_quantity' => $total, 'status' => $total >= $line->requested_quantity ? 'fulfilled' : 'partial'])->save();
-            AccountingObligation::query()->firstOrCreate(['source_type' => 'order_line_fulfillment', 'source_id' => $line->id], [
+            $obligation = AccountingObligation::query()->firstOrCreate(['source_type' => 'order_line_fulfillment', 'source_id' => $line->id], [
                 'reference' => 'supplier-direct:'.$item->order_id.':'.$item->id,
                 'quantity' => $total,
-                'unit_cost' => null,
-                'currency' => null,
+                'unit_cost' => $unitCost,
+                'currency' => $currency,
                 'status' => 'pending',
-                'metadata' => ['order_id' => $item->order_id, 'order_item_id' => $item->id, 'source' => 'supplier_direct'],
+                'metadata' => array_merge(['order_id' => $item->order_id, 'order_item_id' => $item->id, 'source' => 'supplier_direct'], $metadata ?? []),
                 'created_by_user_id' => $actor->id,
             ]);
+            if ($unitCost !== null || $currency !== null || $metadata !== null) {
+                $obligation->forceFill(['quantity' => $total, 'unit_cost' => $unitCost, 'currency' => $currency, 'metadata' => array_merge((array) $obligation->metadata, $metadata ?? [])])->save();
+            }
             return $line->refresh();
         }, 5);
     }

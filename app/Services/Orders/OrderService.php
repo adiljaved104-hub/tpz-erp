@@ -944,8 +944,9 @@ class OrderService
 
             $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->lockForUpdate()->get();
             $manualLines = $order->manualSourcingLines()->lockForUpdate()->get()->keyBy('order_item_id');
-            $physicalItems = $items->reject(fn (OrderItem $item): bool => $manualLines->get($item->id)?->source_mode === 'supplier_direct'
-                && $manualLines->get($item->id)?->status?->value !== 'ready_for_allocation');
+            // Supplier-direct lines are fulfilled by the atomic manual-sourcing
+            // shipment transaction and must never reserve warehouse stock.
+            $physicalItems = $items->reject(fn (OrderItem $item): bool => $manualLines->get($item->id)?->source_mode === 'supplier_direct');
 
             if ($items->isEmpty()) {
                 throw ValidationException::withMessages(['items' => 'Add at least one Product before reserving.']);

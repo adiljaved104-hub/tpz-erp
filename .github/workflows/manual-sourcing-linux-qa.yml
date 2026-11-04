@@ -45,6 +45,15 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
           php artisan package:discover --ansi
+      - name: Configure Node.js 22 for browser assets
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked browser dependencies
+        run: npm ci
+      - name: Build Vite assets before UI tests
+        run: npm run build
       - name: Run complete PHPUnit suite
         run: php artisan test --no-ansi
 

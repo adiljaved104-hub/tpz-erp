@@ -9,7 +9,6 @@ use App\Enums\PurchaseEntryType;
 use App\Enums\PurchasePermission;
 use App\Enums\PurchaseStatus;
 use App\Enums\StockMovementType;
-use App\Models\AccountingObligation;
 use App\Models\ManualSourcingShipmentPosting;
 use App\Models\Order;
 use App\Models\Purchase;
@@ -67,11 +66,6 @@ class ManualSourcingShipmentService
                     strtoupper((string) $line->purchase_currency),
                     ['custody_mode' => 'direct_to_customer'],
                 );
-                AccountingObligation::query()->firstOrCreate(['source_type' => 'manual_sourcing_shipment', 'source_id' => $posting->id], [
-                    'reference' => 'manual-sourcing:'.$locked->reference.':'.$line->id, 'quantity' => $line->quantity,
-                    'unit_cost' => $line->actual_unit_cost, 'currency' => strtoupper((string) $line->purchase_currency), 'status' => 'pending',
-                    'metadata' => ['order_id' => $locked->id, 'purchase_id' => $purchase->id, 'receipt_id' => $receipt->id, 'custody_mode' => 'direct_to_customer'], 'created_by_user_id' => $actor->id,
-                ]);
                 $line->forceFill(['purchase_id' => $purchase->id, 'purchase_receipt_id' => $receipt->id, 'status' => ManualSourcingStatus::ReadyForAllocation, 'receipt_confirmed_at' => now(), 'metadata' => array_merge($line->metadata ?? [], ['direct_fulfillment' => true, 'shipment_key' => $shipmentKey])])->save();
             }
         }, 5);

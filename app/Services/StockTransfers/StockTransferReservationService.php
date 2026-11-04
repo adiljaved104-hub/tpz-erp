@@ -65,7 +65,7 @@ class StockTransferReservationService
                     'inventory_reservation_id' => $result->source->id,
                     'quantity' => $item->quantity,
                     'status' => 'active',
-                    'idempotency_key' => $idempotencyKey.'-'.$item->id,
+                    'idempotency_key' => $this->itemIdempotencyKey($idempotencyKey, (int) $item->id),
                     'created_by_user_id' => $actor->id,
                 ]);
             }
@@ -107,11 +107,16 @@ class StockTransferReservationService
                     $reservationReference,
                     $reservationMovementReference,
                 ), $actor);
-                $link->forceFill([
+                $link->forceFill(['status' => 'fulfilled', 'fulfilled_at' => now()])->save();
+                StockTransferReservation::query()->create([
+                    'stock_transfer_id' => $link->stock_transfer_id,
+                    'stock_transfer_item_id' => $link->stock_transfer_item_id,
                     'inventory_reservation_id' => $replacement->source->id,
                     'quantity' => $remaining,
+                    'status' => 'active',
                     'idempotency_key' => (string) Str::uuid(),
-                ])->save();
+                    'created_by_user_id' => $link->created_by_user_id,
+                ]);
 
                 continue;
             }
@@ -120,5 +125,14 @@ class StockTransferReservationService
             ), $actor);
             $link->forceFill(['status' => 'fulfilled', 'fulfilled_at' => now()])->save();
         }
+    }
+
+    private function itemIdempotencyKey(string $key, int $itemId): string
+    {
+        $hex = substr(hash('sha256', $key.'|'.$itemId), 0, 32);
+        $hex[12] = '5';
+        $hex[16] = dechex((hexdec($hex[16]) & 0x3) | 0x8);
+
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split($hex, 4));
     }
 }

@@ -54,7 +54,10 @@ class StockTransferAdvancedService
                 if ($quantity < 1) {
                     continue;
                 }
-                $inventory = $item->sourceInventory()->lockForUpdate()->firstOrFail();
+                $inventory = $item->sourceInventory()->lockForUpdate()->first();
+                if ($inventory === null) {
+                    $inventory = $item->product()->inventories()->where('warehouse_id', $transfer->source_warehouse_id)->lockForUpdate()->firstOrFail();
+                }
                 $reservation = $transfer->reservations()->where('stock_transfer_item_id', $item->id)->where('status', 'active')->first();
                 $refs = $reservation ? ($reservationMovementReferences[$reservation->id] ?? []) : [];
                 $this->reservations->consumeForDispatch($item, $quantity, $actor, $refs['release'] ?? null, $refs['reservation'] ?? null, $refs['reservation_movement'] ?? null);
@@ -97,7 +100,7 @@ class StockTransferAdvancedService
                 [$inventory] = $this->inventory->receiveTransferItem($item, $transfer->destination_warehouse_id, $actor, $movementReferences[$item->id], (string) Str::uuid(), $quantity);
                 $item->forceFill(['destination_product_inventory_id' => $inventory->id, 'received_quantity' => $item->received_quantity + $quantity])->save();
             }
-            $complete = ! $transfer->items()->whereColumn('received_quantity', '<', 'dispatched_quantity')->exists();
+            $complete = ! $transfer->items()->whereColumn('received_quantity', '<', 'quantity')->exists();
             $transfer->forceFill(['status' => $complete ? StockTransferStatus::Received : StockTransferStatus::Dispatched, 'receive_idempotency_key' => $complete ? $idempotencyKey : $transfer->receive_idempotency_key, 'received_by_user_id' => $actor->id, 'received_at' => $complete ? now() : $transfer->received_at])->save();
 
             return $transfer->refresh()->load('items');

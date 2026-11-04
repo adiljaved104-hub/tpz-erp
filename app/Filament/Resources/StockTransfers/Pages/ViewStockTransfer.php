@@ -20,9 +20,12 @@ use App\Services\Qc\QcStockTransferAssignmentService;
 use App\Services\Qc\QcStockTransferReadinessService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use App\Services\StockTransfers\StockTransferAdvancedService;
 use Filament\Support\Exceptions\Halt;
 use Throwable;
 
@@ -33,6 +36,12 @@ class ViewStockTransfer extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('partialShip')
+                ->label('Ship Selected Quantities')
+                ->color('warning')
+                ->schema([$this->quantityLines('ship')])
+                ->visible(fn (): bool => in_array($this->record->status, [StockTransferStatus::Draft, StockTransferStatus::Dispatched], true) && auth()->user()->can('dispatch', $this->record))
+                ->action(fn (array $data) => $this->runTransferAction('Cannot ship transfer quantities', fn () => app(StockTransferAdvancedService::class)->ship($this->record, $this->lineQuantities($data), (string) str()->uuid(), auth()->user()))),
             Action::make('dispatch')
                 ->label('Ship')
                 ->color('warning')
@@ -56,6 +65,12 @@ class ViewStockTransfer extends ViewRecord
                     'Cannot receive transfer',
                     fn () => app(ReceiveStockTransfer::class)->handle($this->record, (string) str()->uuid(), auth()->user()),
                 )),
+            Action::make('partialReceive')
+                ->label('Receive Selected Quantities')
+                ->color('success')
+                ->schema([$this->quantityLines('receive')])
+                ->visible(fn (): bool => $this->record->status === StockTransferStatus::Dispatched && auth()->user()->can('receive', $this->record))
+                ->action(fn (array $data) => $this->runTransferAction('Cannot receive transfer quantities', fn () => app(StockTransferAdvancedService::class)->receive($this->record, $this->lineQuantities($data), (string) str()->uuid(), auth()->user()))),
             Action::make('cancel')
                 ->label('Cancel Draft')
                 ->color('danger')
@@ -138,5 +153,19 @@ class ViewStockTransfer extends ViewRecord
         $readiness = app(QcStockTransferReadinessService::class)->forTransfer($this->record);
 
         return $readiness['required'] > 0 && $readiness['status'] !== 'ready';
+    }
+
+    private function quantityLines(string $mode): Repeater
+    {
+        return Repeater::make('lines')->label(ucfirst($mode).' quantities')->defaultItems(0)->schema([
+            Hidden::make('item_id')->required(),
+            TextInput::make('quantity')->numeric()->integer()->minValue(1)->required(),
+        ])->default($this->record->items()->get()->map(fn ($item): array => ['item_id' => $item->id, 'quantity' => $mode === 'ship' ? max(0, $item->quantity - $item->dispatched_quantity) : max(0, $item->inTransitQuantity())])->filter(fn (array $line): bool => $line['quantity'] > 0)->values()->all());
+    }
+
+    /** @return array<int,int> */
+    private function lineQuantities(array $data): array
+    {
+        return collect($data['lines'] ?? [])->mapWithKeys(fn (array $line): array => [(int) $line['item_id'] => (int) $line['quantity']])->all();
     }
 }

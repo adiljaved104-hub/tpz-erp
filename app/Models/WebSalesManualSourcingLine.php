@@ -15,6 +15,12 @@ class WebSalesManualSourcingLine extends Model
         return [
             'status' => ManualSourcingStatus::class,
             'selling_price_snapshot' => 'decimal:2',
+            'auto_purchase_on_ship' => 'boolean',
+            'supplier_unit_cost' => 'decimal:4',
+            'fx_rate_to_aed' => 'decimal:8',
+            'inventory_unit_cost_aed' => 'decimal:4',
+            'purchased_on' => 'date',
+            'shipment_posted_at' => 'immutable_datetime',
             'materialized_at' => 'immutable_datetime',
             'receipt_confirmed_at' => 'immutable_datetime',
             'fulfilled_at' => 'immutable_datetime',

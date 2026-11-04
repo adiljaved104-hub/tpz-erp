@@ -164,7 +164,9 @@ class ViewWebSalesOrder extends ViewRecord
 
     private function manualLines(string $mode): \Illuminate\Support\Collection
     {
-        return $this->record->manualSourcingLines()->where('source_mode', $mode)->whereNotIn('status', ['fulfilled', 'cancelled'])->get();
+        return $this->record->manualSourcingLines()->where('source_mode', $mode)
+            ->when($mode === 'supplier_direct', fn ($query) => $query->where('auto_purchase_on_ship', false))
+            ->whereNotIn('status', ['fulfilled', 'cancelled'])->get();
     }
 
     private function receiptOptions(int $lineId): array

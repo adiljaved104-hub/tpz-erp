@@ -37,6 +37,14 @@ class WebSalesService
 
             return $existing->load(['items', 'manualSourcingLines']);
         }
+        // New Web Sales must use the Owner-approved automatic purchase/GRN flow.
+        // Legacy supplier-direct and manual-receipt orders remain readable and executable as historical records only.
+        if (collect($data->items)->contains(fn ($item): bool => $item->sourceType === 'manual_sourced'
+            && (! $item->autoPurchaseOnShip || $item->sourceMode !== 'supplier_direct'))) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'items' => 'New Manual Sourcing lines must use automatic purchase and GRN posting when Shipped.',
+            ]);
+        }
         $data = $this->materializeManualLines($data, $actor);
         $isManual = collect($data->items)->contains(fn ($item): bool => $item->sourceType === 'manual_sourced');
         $order = DB::transaction(function () use ($data, $actor, $isManual): Order {

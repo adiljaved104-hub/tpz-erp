@@ -7,6 +7,7 @@ use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
 use App\Models\Product;
 use App\Models\ProductInventory;
+use App\Models\Supplier;
 use App\Models\SalesConfiguration;
 use App\Models\UpgradeRecipe;
 use App\Models\User;
@@ -17,6 +18,7 @@ use App\Services\Orders\WebSalesReadService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\Products\ProductTitleService;
 use App\Support\AedMoney;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
@@ -67,7 +69,31 @@ class WebSalesOrderForm
                     TextInput::make('manual_category')->label('Category')->maxLength(120)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     TextInput::make('manual_model')->label('Model')->maxLength(160)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     Select::make('manual_condition')->label('Condition')->options(\App\Enums\ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
-                    Select::make('source_mode')->label('Fulfilment Source')->options(['warehouse_receipt' => 'Warehouse receipt', 'supplier_direct' => 'Supplier-direct'])->default('warehouse_receipt')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    // A manual-sourced item has already been purchased on the spot.
+                    // The ERP posts the linked Purchase and non-warehouse GRN atomically when Shipped.
+                    Hidden::make('source_mode')->default('supplier_direct'),
+                    Hidden::make('auto_purchase_on_ship')->default(true),
+                    Select::make('supplier_id')->label('Purchased From Supplier')
+                        ->options(fn (): array => Supplier::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())
+                        ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')
+                        ->searchable()->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    TextInput::make('manual_purchase_unit_cost')->label('Actual Supplier Unit Cost')
+                        ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')
+                        ->rule('regex:/^\\d{1,11}(?:\\.\\d{1,4})?$/')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    Select::make('manual_purchase_currency')->label('Supplier Currency')->options([
+                        'AED' => 'AED', 'USD' => 'USD', 'EUR' => 'EUR', 'GBP' => 'GBP', 'SAR' => 'SAR',
+                    ])->default('AED')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')
+                        ->live()->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    TextInput::make('manual_fx_rate_to_aed')->label('AED per Supplier Currency Unit')
+                        ->numeric()->default('1.00000000')->minValue(0.00000001)
+                        ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && $get('manual_purchase_currency') !== 'AED')
+                        ->helperText('For AED use 1.00000000. For foreign currency enter the documented actual rate.')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    DatePicker::make('manual_purchase_date')->label('Actual Purchase Date')
+                        ->default(now()->toDateString())
+                        ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     TextInput::make('quantity')->numeric()->integer()->minValue(1)->default(1)->required()->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),
                     TextInput::make('selling_price')->label('Selling Price')->prefix('AED')->required()
                         ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),

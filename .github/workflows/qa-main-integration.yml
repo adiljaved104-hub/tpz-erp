@@ -1,0 +1,76 @@
+name: Main integration Linux QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [qa/main-integration-a5c26e5]
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    env:
+      EXPECTED_SHA: a5c26e54768141fdaa95a30970299d9915462a53
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      CACHE_STORE: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      SESSION_DRIVER: array
+      LOG_CHANNEL: stderr
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a5c26e54768141fdaa95a30970299d9915462a53
+          fetch-depth: 1
+
+      - name: Verify exact integration SHA
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, dom, fileinfo, gd, intl, mbstring, pdo_sqlite, sqlite3, xml, xmlwriter, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+
+      - name: Install locked Node dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Prepare isolated Laravel runtime
+        run: |
+          mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+          touch storage/logs/laravel.log
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan config:clear
+          php artisan package:discover --ansi
+
+      - name: Focused PHPUnit regression tests
+        run: |
+          php artisan test tests/Feature/Dashboard/ErpDashboardTest.php tests/Feature/Purchases/QuickStockPurchaseUiTest.php tests/Feature/StockTransfers/StockTransferFilamentTest.php --compact
+
+      - name: Pint
+        run: vendor/bin/pint --test app/Filament/Pages/Purchasing/QuickStockPurchase.php app/Filament/Resources/ProductInventories/ProductInventoryResource.php app/Filament/Resources/StockTransfers/Pages/CreateStockTransfer.php app/Filament/Resources/StockTransfers/Pages/ViewStockTransfer.php app/Filament/Resources/StockTransfers/Schemas/StockTransferInfolist.php app/Services/Dashboard/ErpDashboardService.php tests/Feature/Dashboard/ErpDashboardTest.php tests/Feature/Purchases/QuickStockPurchaseUiTest.php tests/Feature/StockTransfers/StockTransferFilamentTest.php
+
+      - name: Blade compilation
+        run: php artisan view:cache
+
+      - name: Upload Laravel logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-integration-qa-logs
+          path: storage/logs/
+          if-no-files-found: ignore

@@ -23,6 +23,7 @@ class StockTransferAdvancedService
         private readonly InventoryService $inventory,
         private readonly ReferenceSequenceService $references,
         private readonly QcStockTransferReadinessService $qc,
+        private readonly StockTransferReservationService $reservations,
     ) {}
 
     /** @param array<int,int> $quantitiesByItemId */
@@ -44,6 +45,7 @@ class StockTransferAdvancedService
                     continue;
                 }
                 $inventory = $item->sourceInventory()->lockForUpdate()->firstOrFail();
+                $this->reservations->consumeForDispatch($item, $actor);
                 $this->inventory->dispatchTransferItem($item, $inventory, $actor, $this->references->nextStockMovementReference(), (string) Str::uuid(), $quantity, (string) Str::uuid());
                 $item->forceFill([
                     'source_product_inventory_id' => $inventory->id,

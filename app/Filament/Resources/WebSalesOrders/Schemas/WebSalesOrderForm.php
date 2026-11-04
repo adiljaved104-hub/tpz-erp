@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WebSalesOrders\Schemas;
 
+use App\Enums\ProductCondition;
 use App\Enums\ProductMatchContext;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
@@ -65,9 +66,11 @@ class WebSalesOrderForm
                         ->helperText(fn (Get $get): string => 'Only products with available sellable Main Warehouse stock are shown.'.($get('stock_context') ? ' '.$get('stock_context') : '')),
                     TextInput::make('manual_description')->label('Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     TextInput::make('manual_brand')->label('Brand')->maxLength(120)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
-                    TextInput::make('manual_category')->label('Category')->maxLength(120)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    TextInput::make('manual_category')->label('Category')->maxLength(120)
+                        ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     TextInput::make('manual_model')->label('Model')->maxLength(160)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
-                    Select::make('manual_condition')->label('Condition')->options(\App\Enums\ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    Select::make('manual_condition')->label('Condition')->options(ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     Select::make('supplier_id')->label('Supplier')->options(fn (): array => Supplier::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     TextInput::make('actual_unit_cost')->label('Actual Purchase Cost')->prefix('AED')->numeric()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->rule('regex:/^\d{1,13}(?:\.\d{1,4})?$/'),
                     Hidden::make('purchase_currency')->default('AED')->dehydrated(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),

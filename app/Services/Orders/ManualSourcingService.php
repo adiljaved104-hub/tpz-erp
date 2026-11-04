@@ -39,8 +39,12 @@ class ManualSourcingService
             if ($item->sourceType !== 'manual_sourced') {
                 return $item;
             }
-            if (blank($item->manualDescription) || ! in_array($item->sourceMode, ['warehouse_receipt', 'supplier_direct'], true)) {
-                throw ValidationException::withMessages(['items' => 'Manual sourced lines require a description and valid fulfilment mode.']);
+            if (blank($item->manualDescription) || blank($item->manualCategory) || ! in_array($item->sourceMode, ['warehouse_receipt', 'supplier_direct'], true)) {
+                throw ValidationException::withMessages(['items' => 'Manual sourced lines require a description, category, and valid fulfilment mode.']);
+            }
+            $category = trim((string) $item->manualCategory);
+            if (mb_strlen($category) > 120) {
+                throw ValidationException::withMessages(['items' => 'Manual sourced product categories may not exceed 120 characters.']);
             }
             $condition = $item->manualCondition ?: ProductCondition::New->value;
             if (! in_array($condition, array_column(ProductCondition::cases(), 'value'), true)) {
@@ -62,7 +66,7 @@ class ManualSourcingService
                 $product->forceFill([
                     'sku' => $reservedSkus[$index], 'inventory_item_type' => InventoryItemType::Product,
                     'name' => trim($item->manualDescription), 'brand' => filled($item->manualBrand) ? trim($item->manualBrand) : null,
-                    'category' => filled($item->manualCategory) ? trim($item->manualCategory) : null,
+                    'category' => $category,
                     'model' => filled($item->manualModel) ? trim($item->manualModel) : null, 'condition' => $condition,
                     'warranty' => 0, 'cost_price' => null, 'selling_price' => $item->sellingPrice,
                     'description' => trim($item->manualDescription), 'status' => ProductStatus::Active, 'created_by_user_id' => $actor->id,
@@ -71,7 +75,7 @@ class ManualSourcingService
                 $this->activity->log('product.created', $actor, $product, ['source' => 'web_sales_manual_sourcing']);
             }
 
-            return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $item->manualCategory, $item->manualModel, $condition, $item->supplierId, $item->sourceMode, $item->actualUnitCost, $item->purchaseCurrency, $item->purchasedOn);
+            return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $category, $item->manualModel, $condition, $item->supplierId, $item->sourceMode, $item->actualUnitCost, $item->purchaseCurrency, $item->purchasedOn);
         }, $items, array_keys($items)), 5);
     }
 
@@ -116,12 +120,14 @@ class ManualSourcingService
     public function confirmReceipt(WebSalesManualSourcingLine $line, PurchaseReceipt $receipt, User $actor, ?string $idempotencyKey = null): WebSalesManualSourcingLine
     {
         $this->authorization->authorize($actor, WebSalesPermission::Update, $line->order);
+
         return DB::transaction(function () use ($line, $receipt, $actor, $idempotencyKey): WebSalesManualSourcingLine {
             $line = WebSalesManualSourcingLine::query()->lockForUpdate()->findOrFail($line->id);
             if ($idempotencyKey && ($existingEvent = WebSalesManualSourcingReceiptEvent::query()->where('idempotency_key', $idempotencyKey)->first())) {
                 if ($existingEvent->line_id !== $line->id || $existingEvent->purchase_receipt_id !== $receipt->id) {
                     throw ValidationException::withMessages(['receipt' => 'The receipt idempotency key belongs to another sourcing line.']);
                 }
+
                 return $line->refresh();
             }
             if ($line->source_mode !== 'warehouse_receipt' || in_array($line->status, [ManualSourcingStatus::Fulfilled, ManualSourcingStatus::Cancelled], true)) {
@@ -143,9 +149,9 @@ class ManualSourcingService
             $key = $idempotencyKey ?: (string) str()->uuid();
             $event = WebSalesManualSourcingReceiptEvent::query()->where('line_id', $line->id)->where('purchase_receipt_id', $receipt->id)->first()
                 ?: WebSalesManualSourcingReceiptEvent::query()->firstOrCreate(['idempotency_key' => $key], [
-                'line_id' => $line->id, 'purchase_receipt_id' => $receipt->id, 'quantity' => $quantity,
-                'confirmed_by_user_id' => $actor->id, 'confirmed_at' => now(),
-            ]);
+                    'line_id' => $line->id, 'purchase_receipt_id' => $receipt->id, 'quantity' => $quantity,
+                    'confirmed_by_user_id' => $actor->id, 'confirmed_at' => now(),
+                ]);
             if ($event->line_id !== $line->id || $event->purchase_receipt_id !== $receipt->id) {
                 throw ValidationException::withMessages(['receipt' => 'The receipt idempotency key belongs to another sourcing line.']);
             }
@@ -172,11 +178,14 @@ class ManualSourcingService
         if ($quantity < 1) {
             throw ValidationException::withMessages(['quantity' => 'Delivered quantity must be positive.']);
         }
+
         return DB::transaction(function () use ($line, $actor, $quantity, $supplierReference, $evidence, $idempotencyKey): WebSalesManualSourcingLine {
             $line = WebSalesManualSourcingLine::query()->lockForUpdate()->findOrFail($line->id);
             $already = (int) $line->supplierDirectDeliveries()->sum('quantity');
             $remaining = (int) $line->quantity - $already;
-            if ($remaining < 1) return $line->refresh();
+            if ($remaining < 1) {
+                return $line->refresh();
+            }
             $quantity = min($quantity, $remaining);
             $key = $idempotencyKey ?: (string) str()->uuid();
             $event = WebSalesSupplierDirectDelivery::query()->firstOrCreate(['idempotency_key' => $key], [
@@ -184,10 +193,13 @@ class ManualSourcingService
                 'evidence' => $evidence, 'confirmed_by_user_id' => $actor->id, 'confirmed_at' => now(),
             ]);
             $this->lineFulfillments->recordSupplierDirectDelivery($line->orderItem, $quantity, $actor, $key, $supplierReference, $evidence);
-            if ($event->line_id !== $line->id) throw ValidationException::withMessages(['delivery' => 'The delivery idempotency key belongs to another line.']);
+            if ($event->line_id !== $line->id) {
+                throw ValidationException::withMessages(['delivery' => 'The delivery idempotency key belongs to another line.']);
+            }
             $total = (int) $line->supplierDirectDeliveries()->sum('quantity');
             $line->forceFill(['status' => $total >= (int) $line->quantity ? ManualSourcingStatus::SupplierDirectFulfilled : ManualSourcingStatus::ReceiptPending, 'fulfilled_at' => $total >= (int) $line->quantity ? now() : null, 'metadata' => array_merge($line->metadata ?? [], ['supplier_direct_confirmed_by' => $actor->id, 'delivered_quantity' => $total])])->save();
             $this->activity->log('web_sales.manual_sourcing_supplier_direct_confirmed', $actor, $line, ['quantity' => $quantity, 'delivered_total' => $total, 'supplier_reference' => $supplierReference]);
+
             return $line->refresh();
         }, 5);
     }

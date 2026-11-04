@@ -36,7 +36,7 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
             deliveryType: WebSalesDeliveryType::Courier, courierName: 'Courier', trackingNumber: 'DIRECT-1',
             items: [new OrderItemData(
                 productId: 0, quantity: 1, sellingPrice: '1500.00', sourceType: 'manual_sourced',
-                manualDescription: 'Direct sourced laptop', manualBrand: 'TPZ', manualModel: 'DIRECT-1',
+                manualDescription: 'Direct sourced laptop', manualBrand: 'TPZ', manualCategory: 'Laptops', manualModel: 'DIRECT-1',
                 supplierId: $supplier->id, sourceMode: 'supplier_direct', actualUnitCost: '500.00',
                 purchaseCurrency: 'AED', purchasedOn: today()->toDateString(),
             )],

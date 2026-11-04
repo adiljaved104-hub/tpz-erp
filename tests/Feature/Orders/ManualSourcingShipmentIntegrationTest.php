@@ -2,8 +2,14 @@
 
 namespace Tests\Feature\Orders;
 
+use App\Actions\Returns\CreateCustomerReturn;
+use App\Actions\Returns\InspectCustomerReturnItem;
+use App\Actions\Returns\ReceiveCustomerReturn;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\WebSalesOrderData;
+use App\DTOs\Returns\CreateCustomerReturnData;
+use App\DTOs\Returns\InspectCustomerReturnItemData;
+use App\Enums\CustomerReturnStatus;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\ManualSourcingStatus;
@@ -59,6 +65,8 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
         $this->assertSame(0, ProductInventory::query()->sole()->reserved_quantity);
         $this->assertDatabaseCount('stock_movements', 2);
         $this->assertDatabaseCount('order_fulfillments', 1);
+        $this->assertDatabaseCount('order_fulfillment_items', 1);
+        $this->assertSame('500.0000', OrderFulfillmentItem::query()->sole()->inventory_unit_cost);
         $this->assertSame('500.0000', AccountingObligation::query()->where('source_type', 'order_line_fulfillment')->sole()->unit_cost);
         $this->assertSame('AED', AccountingObligation::query()->where('source_type', 'order_line_fulfillment')->sole()->currency);
     }
@@ -170,10 +178,46 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
         $this->assertDatabaseCount('purchases', 1);
         $this->assertDatabaseCount('purchase_receipts', 1);
         $this->assertDatabaseCount('manual_sourcing_shipment_postings', 1);
-        $this->assertSame(1, OrderFulfillmentItem::query()->count());
-        $this->assertSame('300.0000', OrderFulfillmentItem::query()->sole()->inventory_unit_cost);
+        $this->assertSame(2, OrderFulfillmentItem::query()->count());
+        $this->assertSame('300.0000', OrderFulfillmentItem::query()->where('product_id', $physical->id)->sole()->inventory_unit_cost);
+        $this->assertSame('450.0000', OrderFulfillmentItem::query()->where('product_id', $manualProductId)->sole()->inventory_unit_cost);
         $this->assertSame('450.0000', AccountingObligation::query()->where('source_type', 'order_line_fulfillment')->sole()->unit_cost);
         $this->assertTrue(StockMovement::query()->where('product_id', $manualProductId)->get()->every(fn (StockMovement $movement): bool => $movement->available_delta === 0 && $movement->reserved_delta === 0));
+    }
+
+    public function test_supplier_direct_return_enters_existing_qc_and_restores_sellable_stock_after_pass(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $order = $this->createOrder($owner, [$this->directItem(Supplier::factory()->create(), 'RETURN-1')]);
+        app(WebSalesService::class)->ship($order, (string) Str::uuid(), $owner);
+        $fulfilledItem = OrderFulfillmentItem::query()->sole();
+        $this->assertSame('500.0000', $fulfilledItem->inventory_unit_cost);
+        $warehouse = Warehouse::query()->where('code', 'MAIN')->sole();
+        $return = app(CreateCustomerReturn::class)->handle(new CreateCustomerReturnData(
+            $order->id,
+            $warehouse->id,
+            [['order_fulfillment_item_id' => $fulfilledItem->id, 'quantity' => 1, 'return_reason' => 'other']],
+            (string) Str::uuid(),
+        ), $owner);
+
+        app(ReceiveCustomerReturn::class)->handle($return, $owner);
+
+        $inventory = ProductInventory::query()->where('product_id', $fulfilledItem->product_id)->sole();
+        $this->assertSame(CustomerReturnStatus::QcPending, $return->refresh()->status);
+        $this->assertSame(0, $inventory->refresh()->available_quantity);
+        $this->assertSame(1, $inventory->qc_pending_quantity);
+        app(InspectCustomerReturnItem::class)->handle(
+            $return->items()->sole(),
+            new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()),
+            $owner,
+        );
+
+        $this->assertSame(CustomerReturnStatus::Completed, $return->refresh()->status);
+        $this->assertSame(1, $inventory->refresh()->available_quantity);
+        $this->assertSame(0, $inventory->reserved_quantity);
+        $this->assertSame(0, $inventory->qc_pending_quantity);
+        $this->assertSame('500.0000', $inventory->average_cost);
+        $this->assertSame('500.0000', $fulfilledItem->fresh()->inventory_unit_cost);
     }
 
     /** @param array<int, OrderItemData> $items */

@@ -19,6 +19,7 @@ use App\Models\InventoryReservation;
 use App\Models\MarketplacePlatform;
 use App\Models\Order;
 use App\Models\OrderFulfillment;
+use App\Models\OrderFulfillmentItem;
 use App\Models\OrderItem;
 use App\Models\OrderStatusEvent;
 use App\Models\Product;
@@ -30,6 +31,7 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcOrderDispatchAuthorization;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Inventory\InventoryBalanceService;
 use App\Services\Inventory\InventoryService;
 use App\Services\Qc\RenewedQcDispatchService;
 use App\Services\Qc\RenewedQcRequirement;
@@ -750,7 +752,29 @@ class OrderService
                 $quantity = 0;
 
                 foreach ($items as $item) {
-                    if ($manualLines->get($item->id)?->source_mode === 'supplier_direct') {
+                    $manualLine = $manualLines->get($item->id);
+                    if ($manualLine?->source_mode === 'supplier_direct') {
+                        if ($manualLine->auto_purchase_on_ship) {
+                            // Direct-fulfillment stock is never held by the warehouse.
+                            // A zero-balance inventory identity is needed for ordinary customer returns.
+                            if ($manualLine->purchase_receipt_id === null || $manualLine->inventory_unit_cost_aed === null) {
+                                throw ValidationException::withMessages(['items' => 'Automatic manual sourcing requires a linked purchase and GRN before shipment.']);
+                            }
+                            $inventoryIdentity = app(InventoryBalanceService::class)->lockOrCreate($item->product_id, $order->warehouse_id);
+                            OrderFulfillmentItem::query()->create([
+                                'order_fulfillment_id' => $fulfillment->id,
+                                'order_item_id' => $item->id,
+                                'product_inventory_id' => $inventoryIdentity->id,
+                                'product_id' => $item->product_id,
+                                'warehouse_id' => $order->warehouse_id,
+                                'quantity' => $item->ordered_quantity,
+                                'inventory_unit_cost' => $manualLine->inventory_unit_cost_aed,
+                                'cogs_total' => bcmul((string) $manualLine->inventory_unit_cost_aed, (string) $item->ordered_quantity, 4),
+                                'posting_key' => (string) Str::uuid(),
+                                'fulfillment_type' => 'supplier_customer_direct',
+                                'created_at' => now(),
+                            ]);
+                        }
                         $quantity += $item->ordered_quantity;
                         continue;
                     }

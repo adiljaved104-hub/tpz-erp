@@ -26,6 +26,7 @@ class WebSalesService
         private readonly OrderService $orders,
         private readonly ActivityLogger $activity,
         private readonly ManualSourcingService $manualSourcing,
+        private readonly ManualSourcingShipmentService $autoShipments,
     ) {}
 
     public function createConfirmed(WebSalesOrderData $data, User $actor): Order
@@ -38,11 +39,17 @@ class WebSalesService
         }
         $data = $this->materializeManualLines($data, $actor);
         $isManual = collect($data->items)->contains(fn ($item): bool => $item->sourceType === 'manual_sourced');
-        $order = $isManual ? $this->orders->saveDraft($this->orderData($data, $actor), $actor) : $this->orders->saveAndReserve($this->orderData($data, $actor), $actor);
-        if ($isManual) {
-            $order->forceFill(['status' => OrderStatus::PendingReview])->save();
-            $this->manualSourcing->recordLines($order, $data->items, $actor);
-        }
+        $order = DB::transaction(function () use ($data, $actor, $isManual): Order {
+            $created = $isManual
+                ? $this->orders->saveDraft($this->orderData($data, $actor), $actor)
+                : $this->orders->saveAndReserve($this->orderData($data, $actor), $actor);
+            if ($isManual) {
+                $created->forceFill(['status' => OrderStatus::PendingReview])->save();
+                $this->manualSourcing->recordLines($created, $data->items, $actor);
+            }
+
+            return $created;
+        }, 5);
         $this->logCreated($order, $actor, false);
 
         return $order;
@@ -76,6 +83,9 @@ class WebSalesService
     public function ship(Order $order, string $idempotencyKey, User $actor): Order
     {
         $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
+        if ($order->manualSourcingLines()->where('auto_purchase_on_ship', true)->exists()) {
+            return $this->autoShipments->ship($order, $idempotencyKey, $actor);
+        }
         if ($order->manualSourcingLines()->exists()) {
             $this->manualSourcing->assertReadyForFulfilment($order);
             $lines = $order->manualSourcingLines()->get();

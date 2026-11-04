@@ -11,6 +11,7 @@ use App\Enums\WebSalesPermission;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\PurchaseReceipt;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\WebSalesManualSourcingLine;
 use App\Models\WebSalesManualSourcingReceiptEvent;
@@ -19,6 +20,7 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class ManualSourcingService
@@ -41,6 +43,28 @@ class ManualSourcingService
             }
             if (blank($item->manualDescription) || ! in_array($item->sourceMode, ['warehouse_receipt', 'supplier_direct'], true)) {
                 throw ValidationException::withMessages(['items' => 'Manual sourced lines require a description and valid fulfilment mode.']);
+            }
+            if ($item->autoPurchaseOnShip) {
+                Validator::make([
+                    'supplier_id' => $item->supplierId,
+                    'supplier_unit_cost' => $item->manualPurchaseUnitCost,
+                    'currency' => $item->manualPurchaseCurrency,
+                    'fx_rate_to_aed' => $item->manualFxRateToAed,
+                    'purchased_on' => $item->manualPurchaseDate,
+                ], [
+                    'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
+                    'supplier_unit_cost' => ['required', 'regex:/^\\d{1,11}(?:\\.\\d{1,4})?$/'],
+                    'currency' => ['required', 'in:AED,USD,EUR,GBP,SAR'],
+                    'fx_rate_to_aed' => ['required', 'regex:/^\\d{1,6}(?:\\.\\d{1,8})?$/'],
+                    'purchased_on' => ['required', 'date', 'before_or_equal:today'],
+                ])->validate();
+                if ($item->sourceMode !== 'supplier_direct'
+                    || ! Supplier::query()->whereKey($item->supplierId)->where('status', true)->exists()
+                    || bccomp((string) $item->manualPurchaseUnitCost, '0', 4) <= 0
+                    || bccomp((string) $item->manualFxRateToAed, '0', 8) <= 0
+                    || ($item->manualPurchaseCurrency === 'AED' && bccomp((string) $item->manualFxRateToAed, '1', 8) !== 0)) {
+                    throw ValidationException::withMessages(['items' => 'Manual Sourcing requires an active supplier, positive actual purchase cost, correct currency rate and direct fulfillment mode.']);
+                }
             }
             $condition = $item->manualCondition ?: ProductCondition::New->value;
             if (! in_array($condition, array_column(ProductCondition::cases(), 'value'), true)) {
@@ -71,7 +95,7 @@ class ManualSourcingService
                 $this->activity->log('product.created', $actor, $product, ['source' => 'web_sales_manual_sourcing']);
             }
 
-            return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $item->manualCategory, $item->manualModel, $condition, $item->supplierId, $item->sourceMode);
+            return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $item->manualCategory, $item->manualModel, $condition, $item->supplierId, $item->sourceMode, $item->autoPurchaseOnShip, $item->manualPurchaseUnitCost, $item->manualPurchaseCurrency, $item->manualFxRateToAed, $item->manualPurchaseDate);
         }, $items, array_keys($items)), 5);
     }
 
@@ -89,6 +113,12 @@ class ManualSourcingService
                 'description' => $item->manualDescription ?: $orderItem->product_name, 'brand' => $item->manualBrand,
                 'category' => $item->manualCategory, 'model' => $item->manualModel, 'condition' => $item->manualCondition,
                 'selling_price_snapshot' => $item->sellingPrice, 'quantity' => $item->quantity, 'supplier_id' => $item->supplierId,
+                'auto_purchase_on_ship' => $item->autoPurchaseOnShip,
+                'supplier_unit_cost' => $item->autoPurchaseOnShip ? $item->manualPurchaseUnitCost : null,
+                'supplier_currency' => $item->autoPurchaseOnShip ? $item->manualPurchaseCurrency : null,
+                'fx_rate_to_aed' => $item->autoPurchaseOnShip ? $item->manualFxRateToAed : null,
+                'inventory_unit_cost_aed' => $item->autoPurchaseOnShip ? bcmul((string) $item->manualPurchaseUnitCost, (string) $item->manualFxRateToAed, 4) : null,
+                'purchased_on' => $item->autoPurchaseOnShip ? $item->manualPurchaseDate : null,
                 'materialized_at' => now(), 'metadata' => ['created_by_user_id' => $actor->id],
             ]);
         }
@@ -164,6 +194,9 @@ class ManualSourcingService
     public function markSupplierDirectFulfilled(WebSalesManualSourcingLine $line, User $actor, int $quantity, ?string $supplierReference = null, ?array $evidence = null, ?string $idempotencyKey = null): WebSalesManualSourcingLine
     {
         $this->authorization->authorize($actor, WebSalesPermission::Update, $line->order);
+        if ($line->auto_purchase_on_ship) {
+            throw ValidationException::withMessages(['line' => 'Automatic manual purchase lines must be shipped through Mark Shipped, not legacy delivery confirmation.']);
+        }
         if ($line->source_mode !== 'supplier_direct') {
             throw ValidationException::withMessages(['line' => 'Only supplier-direct lines can be confirmed without a warehouse receipt.']);
         }

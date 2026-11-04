@@ -12,7 +12,8 @@ return new class extends Migration {
             $table->foreignId('line_id');
             $table->foreignId('purchase_receipt_id');
             $table->unsignedInteger('quantity');
-            $table->foreignId('confirmed_by_user_id')->constrained('users')->restrictOnDelete();
+            $table->foreignId('confirmed_by_user_id');
+            $table->foreign('confirmed_by_user_id', 'wsmse_confirmed_user_fk')->references('id')->on('users')->restrictOnDelete();
             $table->uuid('idempotency_key')->unique();
             $table->timestamp('confirmed_at');
             $table->timestamps();

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - codex/manual-sourcing-linux-ci-20261104
+      - codex/manual-sourcing-atomic-ship-20261104
 
 permissions:
   contents: read

@@ -126,6 +126,7 @@ class StockTransferService
                 if (! $inventory) {
                     throw new InsufficientInventoryException("No source inventory exists for {$item->sku}.");
                 }
+                $this->transferReservations->consumeForDispatch($item, $actor);
                 $this->inventory->dispatchTransferItem($item, $inventory, $actor, $movementReferences[$index], $group);
                 $item->forceFill(['source_product_inventory_id' => $inventory->id, 'dispatched_quantity' => $item->quantity, 'dispatch_unit_cost' => $inventory->average_cost])->save();
             }

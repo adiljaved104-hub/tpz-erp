@@ -8,6 +8,7 @@ use App\Enums\StockTransferPermission;
 use App\Enums\StockTransferStatus;
 use App\Exceptions\InvalidStockTransferTransitionException;
 use App\Models\StockTransfer;
+use App\Models\StockTransferItem;
 use App\Models\StockTransferReservation;
 use App\Models\User;
 use App\Services\Authorization\StockTransferAuthorization;
@@ -69,6 +70,23 @@ class StockTransferReservationService
                 'Stock Transfer cancelled.', (string) Str::uuid(),
             ), $actor);
             $link->forceFill(['status' => 'released', 'released_at' => now()])->save();
+        }
+    }
+
+    public function consumeForDispatch(StockTransferItem $item, User $actor): void
+    {
+        $links = StockTransferReservation::query()
+            ->where('stock_transfer_item_id', $item->id)
+            ->where('status', 'active')
+            ->with('reservation')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($links as $link) {
+            $this->inventory->release($link->reservation, new ReleaseReservationData(
+                'Stock Transfer dispatched; reservation consumed.', (string) Str::uuid(),
+            ), $actor);
+            $link->forceFill(['status' => 'fulfilled', 'fulfilled_at' => now()])->save();
         }
     }
 }

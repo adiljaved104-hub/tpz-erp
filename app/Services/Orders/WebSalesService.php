@@ -81,6 +81,11 @@ class WebSalesService
         return DB::transaction(function () use ($order, $idempotencyKey, $actor): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
+            if ($order->status === OrderStatus::Fulfilled) {
+                // Delegate replay-key ownership checks to the existing fulfillment ledger.
+                // Never materialize or revalidate already fulfilled manual sourcing lines.
+                return $this->orders->fulfill($order, $idempotencyKey, $actor);
+            }
             if ($order->manualSourcingLines()->exists()) {
                 $this->manualShipment->materialize($order, $idempotencyKey, $actor);
                 $order->refresh();

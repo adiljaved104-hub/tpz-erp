@@ -65,8 +65,10 @@ jobs:
             tests/Feature/Invoices/QuotationSourcingTest.php \
             --compact
       - name: Pint
+        if: always()
         run: vendor/bin/pint --test app/Services/Orders/ManualSourcingService.php app/Services/Orders/WebSalesService.php app/Services/Inventory/InventoryService.php app/Services/StockTransfers app/Filament/Resources/StockTransfers tests/Feature/Orders/ManualSourcingMigrationTest.php tests/Feature/StockTransfers/StockTransferAdvancedWorkflowTest.php
       - name: Blade compilation
+        if: always()
         run: php artisan view:cache
       - name: Upload Laravel logs on failure
         if: failure()

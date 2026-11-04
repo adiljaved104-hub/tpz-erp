@@ -44,9 +44,15 @@ class PurchaseReceiptPostingService
         string $receiptReference,
         array $movementReferences,
         array $damageReferences = [],
+        bool $directFulfillment = false,
+        ?int $sourceOrderItemId = null,
     ): PurchaseReceipt {
         if (DB::connection()->transactionLevel() < 1) {
             throw new RuntimeException('Purchase receipt posting requires an active database transaction.');
+        }
+
+        if ($directFulfillment && $sourceOrderItemId === null) {
+            throw new RuntimeException('Direct-fulfillment GRNs require a linked sales-order item.');
         }
 
         if (! $purchase->status->isOpenForReceiving()) {
@@ -87,6 +93,8 @@ class PurchaseReceiptPostingService
             'received_by_user_id' => $actor->id,
             'idempotency_key' => $data->idempotencyKey,
             'movement_group' => $movementGroup,
+            'fulfillment_type' => $directFulfillment ? 'supplier_customer_direct' : 'warehouse',
+            'source_order_item_id' => $directFulfillment ? $sourceOrderItemId : null,
             'notes' => blank($data->notes) ? null : trim($data->notes),
             'created_at' => now(),
         ]);
@@ -96,6 +104,9 @@ class PurchaseReceiptPostingService
         foreach ($purchaseItems->sortBy([['product_id', 'asc'], ['id', 'asc']]) as $purchaseItem) {
             $request = $requested[$purchaseItem->id];
             $valuationQuantity = $request->acceptedQuantity + $request->damagedQuantity;
+            if ($directFulfillment && ($request->acceptedQuantity < 1 || $request->damagedQuantity !== 0 || $request->rejectedQuantity !== 0)) {
+                throw ValidationException::withMessages(['items' => 'Direct-fulfillment GRNs require positive purchased quantity and cannot include damaged/rejected warehouse quantities.']);
+            }
 
             if ($valuationQuantity > $purchaseItem->outstandingQuantity()) {
                 throw new OverReceiptException("Receipt quantity exceeds outstanding quantity for Purchase Item {$purchaseItem->id}.");
@@ -118,7 +129,7 @@ class PurchaseReceiptPostingService
                 'created_at' => now(),
             ]);
 
-            if ($valuationQuantity > 0) {
+            if ($valuationQuantity > 0 && ! $directFulfillment) {
                 $movementReference = $movementReferences[$purchaseItem->id] ?? null;
 
                 if ($movementReference === null) {
@@ -178,6 +189,8 @@ class PurchaseReceiptPostingService
             'rejected_quantity' => $rejected,
             'inactive_product_ids' => $inactiveProductIds,
             'to_status' => $purchase->status->value,
+            'fulfillment_type' => $directFulfillment ? 'supplier_customer_direct' : 'warehouse',
+            'source_order_item_id' => $sourceOrderItemId,
         ]);
 
         return $receipt->load('items');

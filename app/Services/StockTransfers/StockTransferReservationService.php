@@ -25,6 +25,7 @@ class StockTransferReservationService
     public function reserve(StockTransfer $transfer, string $idempotencyKey, User $actor): StockTransfer
     {
         $this->authorization->authorize($actor, StockTransferPermission::Dispatch, $transfer);
+
         return DB::transaction(function () use ($transfer, $idempotencyKey, $actor): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $this->authorization->authorize($actor, StockTransferPermission::Dispatch, $transfer);
@@ -56,6 +57,7 @@ class StockTransferReservationService
                     'created_by_user_id' => $actor->id,
                 ]);
             }
+
             return $transfer->refresh()->load('reservations');
         }, 5);
     }

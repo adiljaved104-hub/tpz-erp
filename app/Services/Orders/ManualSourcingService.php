@@ -9,9 +9,9 @@ use App\Enums\ProductCondition;
 use App\Enums\ProductStatus;
 use App\Models\Order;
 use App\Models\Product;
-use App\Models\WebSalesManualSourcingLine;
 use App\Models\PurchaseReceipt;
 use App\Models\User;
+use App\Models\WebSalesManualSourcingLine;
 use App\Services\ActivityLogger;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +25,9 @@ class ManualSourcingService
     public function materializeItems(array $items, User $actor): array
     {
         return DB::transaction(fn (): array => array_map(function (OrderItemData $item) use ($actor): OrderItemData {
-            if ($item->sourceType !== 'manual_sourced') return $item;
+            if ($item->sourceType !== 'manual_sourced') {
+                return $item;
+            }
             if (blank($item->manualDescription) || ! in_array($item->sourceMode, ['warehouse_receipt', 'supplier_direct'], true)) {
                 throw ValidationException::withMessages(['items' => 'Manual sourced lines require a description and valid fulfilment mode.']);
             }
@@ -57,6 +59,7 @@ class ManualSourcingService
                 ])->save();
                 $this->activity->log('product.created', $actor, $product, ['source' => 'web_sales_manual_sourcing']);
             }
+
             return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $item->manualCategory, $item->manualModel, $condition, $item->supplierId, $item->sourceMode);
         }, $items), 5);
     }
@@ -66,7 +69,9 @@ class ManualSourcingService
     {
         foreach ($order->items()->get()->values() as $index => $orderItem) {
             $item = $items[$index] ?? null;
-            if (! $item || $item->sourceType !== 'manual_sourced') continue;
+            if (! $item || $item->sourceType !== 'manual_sourced') {
+                continue;
+            }
             WebSalesManualSourcingLine::query()->firstOrCreate(['idempotency_key' => (string) $order->id.'-'.$orderItem->id], [
                 'order_id' => $order->id, 'order_item_id' => $orderItem->id, 'product_id' => $orderItem->product_id,
                 'source_mode' => $item->sourceMode, 'status' => ManualSourcingStatus::PendingSourcing,
@@ -86,6 +91,7 @@ class ManualSourcingService
                 if ($line->status !== ManualSourcingStatus::SupplierDirectFulfilled) {
                     throw ValidationException::withMessages(['order' => 'Supplier-direct sourcing must be confirmed before fulfilment.']);
                 }
+
                 continue;
             }
             if ($line->status !== ManualSourcingStatus::ReadyForAllocation) {
@@ -113,6 +119,7 @@ class ManualSourcingService
                 'metadata' => array_merge($line->metadata ?? [], ['receipt_confirmed_by' => $actor->id]),
             ])->save();
             $this->activity->log('web_sales.manual_sourcing_receipt_confirmed', $actor, $line, ['receipt_id' => $receipt->id, 'quantity' => $line->quantity]);
+
             return $line->refresh();
         }, 5);
     }
@@ -124,6 +131,7 @@ class ManualSourcingService
         }
         $line->forceFill(['status' => ManualSourcingStatus::SupplierDirectFulfilled, 'fulfilled_at' => now(), 'metadata' => array_merge($line->metadata ?? [], ['supplier_direct_confirmed_by' => $actor->id])])->save();
         $this->activity->log('web_sales.manual_sourcing_supplier_direct_confirmed', $actor, $line, ['quantity' => $line->quantity]);
+
         return $line->refresh();
     }
 

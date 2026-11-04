@@ -29,6 +29,7 @@ class StockTransferAdvancedService
     public function ship(StockTransfer $transfer, array $quantitiesByItemId, string $idempotencyKey, User $actor): StockTransfer
     {
         $this->authorization->authorize($actor, StockTransferPermission::Dispatch, $transfer);
+
         return DB::transaction(function () use ($transfer, $quantitiesByItemId, $idempotencyKey, $actor): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             if (! in_array($transfer->status, [StockTransferStatus::Draft, StockTransferStatus::Dispatched], true)) {
@@ -54,6 +55,7 @@ class StockTransferAdvancedService
                 throw ValidationException::withMessages(['items' => 'Shipment quantities exceed the requested transfer quantities.']);
             }
             $transfer->forceFill(['status' => StockTransferStatus::Dispatched, 'dispatch_idempotency_key' => $transfer->dispatch_idempotency_key ?? $idempotencyKey, 'dispatched_by_user_id' => $actor->id, 'dispatched_at' => $transfer->dispatched_at ?? now()])->save();
+
             return $transfer->refresh()->load('items');
         }, 5);
     }
@@ -62,6 +64,7 @@ class StockTransferAdvancedService
     public function receive(StockTransfer $transfer, array $quantitiesByItemId, string $idempotencyKey, User $actor): StockTransfer
     {
         $this->authorization->authorize($actor, StockTransferPermission::Receive, $transfer);
+
         return DB::transaction(function () use ($transfer, $quantitiesByItemId, $idempotencyKey, $actor): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             if ($transfer->status !== StockTransferStatus::Dispatched) {
@@ -77,6 +80,7 @@ class StockTransferAdvancedService
             }
             $complete = ! $transfer->items()->whereColumn('received_quantity', '<', 'dispatched_quantity')->exists();
             $transfer->forceFill(['status' => $complete ? StockTransferStatus::Received : StockTransferStatus::Dispatched, 'receive_idempotency_key' => $complete ? $idempotencyKey : $transfer->receive_idempotency_key, 'received_by_user_id' => $actor->id, 'received_at' => $complete ? now() : $transfer->received_at])->save();
+
             return $transfer->refresh()->load('items');
         }, 5);
     }
@@ -84,6 +88,7 @@ class StockTransferAdvancedService
     public function reportMarketplaceLoss(StockTransfer $transfer, int $itemId, int $quantity, string $key, User $actor, ?string $marketplaceReference = null, ?string $notes = null): StockTransferMarketplaceLoss
     {
         $this->authorization->authorize($actor, StockTransferPermission::Receive, $transfer);
+
         return StockTransferMarketplaceLoss::query()->firstOrCreate(['idempotency_key' => $key], [
             'stock_transfer_id' => $transfer->id, 'stock_transfer_item_id' => $itemId, 'quantity' => $quantity,
             'status' => 'pending', 'marketplace_reference' => $marketplaceReference, 'notes' => $notes,

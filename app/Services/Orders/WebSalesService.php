@@ -92,6 +92,9 @@ class WebSalesService
                     return $locked->refresh();
                 }, 5);
             }
+            if ($order->status === OrderStatus::PendingReview) {
+                $order = $this->orders->reserveDraft($order, $actor);
+            }
         }
         $order = $this->orders->fulfill($order, $idempotencyKey, $actor);
         if ($order->manualSourcingLines()->exists()) {

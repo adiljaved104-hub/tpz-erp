@@ -162,6 +162,9 @@ class StockTransferAdvancedService
         return DB::transaction(function () use ($loss, $actor, $claimReference, $notes, $claimAmount): StockTransferMarketplaceLoss {
             $loss = StockTransferMarketplaceLoss::query()->lockForUpdate()->findOrFail($loss->id);
             if ($loss->status !== 'investigating') throw ValidationException::withMessages(['loss' => 'Only investigated losses can be submitted.']);
+            $item = $loss->item()->with('destinationInventory')->firstOrFail();
+            if ($item->destinationInventory === null) throw ValidationException::withMessages(['loss' => 'The received destination inventory could not be resolved.']);
+            $this->inventory->reconcileMarketplaceLoss($item->destinationInventory, (int) $loss->quantity, $loss, $actor, $this->references->nextStockMovementReference(), 'marketplace-loss-'.$loss->id);
             $loss->forceFill(['status' => 'claim_submitted', 'claim_reference' => trim($claimReference), 'claim_amount' => $claimAmount, 'claim_submitted_at' => now(), 'claim_submitted_by_user_id' => $actor->id, 'notes' => $notes ?? $loss->notes])->save();
             $this->activity->log('stock_transfer.marketplace_loss_claim_submitted', $actor, $loss, ['claim_reference' => $loss->claim_reference]);
             return $loss->refresh();

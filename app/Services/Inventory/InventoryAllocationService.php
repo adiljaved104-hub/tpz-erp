@@ -725,6 +725,26 @@ class InventoryAllocationService
         $this->moveToHold('damaged', $source, $inventory, $quantity, $actor, 'damaged_allocation_hold');
     }
 
+    public function reconcileMarketplaceLoss(ProductInventory $inventory, int $quantity, Model $source, User $actor): void
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Marketplace loss reconciliation requires an active transaction.');
+        }
+        $remaining = $quantity;
+        $balances = InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->whereRaw('allocated_quantity > reserved_quantity')->orderBy('id')->lockForUpdate()->get();
+        foreach ($balances as $balance) {
+            if ($remaining < 1) break;
+            $amount = min($remaining, $balance->availableQuantity());
+            if ($amount < 1) continue;
+            $balance->decrement('allocated_quantity', $amount);
+            $this->event('marketplace_loss_reconciliation', $inventory, $amount, $actor, 'Post-receipt marketplace loss removed from allocation', $source, $balance->account);
+            $remaining -= $amount;
+        }
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('Marketplace loss exceeds unreserved allocation capacity.');
+        }
+    }
+
     private function markDamagedFromAccount(ProductInventory $inventory, int $quantity, Model $source, User $actor, int $accountId): void
     {
         $balance = InventoryAllocationBalance::query()->where('account_id', $accountId)

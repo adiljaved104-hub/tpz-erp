@@ -29,6 +29,7 @@ enum StockMovementType: string
     case MarketplaceReturnNonSellable = 'marketplace_return_non_sellable';
     case MarketplaceReturnRemovalDispatch = 'marketplace_return_removal_dispatch';
     case MarketplaceReturnCompanyReceipt = 'marketplace_return_company_receipt';
+    case MarketplaceLoss = 'marketplace_loss';
     case WarrantyRetainedDamaged = 'warranty_retained_damaged';
     case WarrantyRepairRestored = 'warranty_repair_restored';
     case RepairClassificationOut = 'repair_classification_out';
@@ -67,6 +68,7 @@ enum StockMovementType: string
             self::MarketplaceReturnNonSellable => 'Marketplace Return Non-Sellable',
             self::MarketplaceReturnRemovalDispatch => 'Marketplace Return Removal Dispatch',
             self::MarketplaceReturnCompanyReceipt => 'Marketplace Return Company Receipt',
+            self::MarketplaceLoss => 'Marketplace Post-Receipt Loss',
             self::WarrantyRetainedDamaged => 'Warranty Retained as Damaged',
             self::WarrantyRepairRestored => 'Warranty Repair Restored',
             self::RepairClassificationOut => 'Repair Classification — Damaged Source',

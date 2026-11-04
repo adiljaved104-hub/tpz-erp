@@ -53,7 +53,7 @@ class WebSalesOrderForm
             ])->columns(['default' => 1, 'md' => 2])->compact(),
             Section::make('Products')->description('Add the products and quantities to reserve for this sale.')->schema([
                 Repeater::make('items')->schema([
-                    Select::make('source_type')->label('Stock Source')->options(['existing_product' => 'Existing Product', 'manual_sourced' => 'Manual Sourced Product'])->default('existing_product')->required()->live(),
+                    Select::make('source_type')->label('Stock Source')->options(['existing_product' => 'Existing Product', 'manual_sourced' => 'Manual Sourced Product'])->default('existing_product')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->live(),
                     Select::make('product_id')->label('Product')->placeholder('Search by SKU or product name')
                         ->searchable()->searchPrompt('Type at least 2 characters to search available products.')
                         ->noSearchResultsMessage('No sellable products found in Main Warehouse.')

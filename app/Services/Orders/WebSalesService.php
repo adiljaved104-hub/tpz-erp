@@ -76,7 +76,13 @@ class WebSalesService
     public function ship(Order $order, string $idempotencyKey, User $actor): Order
     {
         $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
+        if ($order->manualSourcingLines()->exists()) {
+            $this->manualSourcing->assertReadyForFulfilment($order);
+        }
         $order = $this->orders->fulfill($order, $idempotencyKey, $actor);
+        if ($order->manualSourcingLines()->exists()) {
+            $this->manualSourcing->markFulfilled($order, $actor);
+        }
         $this->activity->log('web_sales.order_shipped', $actor, $order, ['order_reference' => $order->reference]);
 
         return $order;

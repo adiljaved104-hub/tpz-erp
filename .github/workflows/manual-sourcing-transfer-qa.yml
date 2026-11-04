@@ -77,3 +77,48 @@ jobs:
           name: manual-sourcing-transfer-qa-logs
           path: storage/logs/
           if-no-files-found: ignore
+
+  mysql-migrations:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: qa-root
+          MYSQL_DATABASE: tpz_qa
+          MYSQL_USER: qa
+          MYSQL_PASSWORD: qa-pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uqa -pqa-pass"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: tpz_qa
+      DB_USERNAME: qa
+      DB_PASSWORD: qa-pass
+      CACHE_STORE: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      SESSION_DRIVER: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, dom, fileinfo, gd, intl, mbstring, pdo_mysql, xml, xmlwriter, zip
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - run: |
+          mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+          touch storage/logs/laravel.log
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan config:clear
+          php artisan migrate --force --no-interaction
+          php artisan migrate:status --no-ansi

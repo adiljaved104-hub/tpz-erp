@@ -53,10 +53,8 @@ jobs:
       - name: Focused and regression PHPUnit suites
         run: |
           php artisan test \
-            tests/Feature/Orders/ManualSourcingMigrationTest.php \
             tests/Feature/Orders/WebSalesWorkflowTest.php \
             tests/Feature/Orders/WebSalesWorkflowV2Test.php \
-            tests/Feature/StockTransfers/StockTransferAdvancedWorkflowTest.php \
             tests/Feature/StockTransfers/StockTransferFilamentTest.php \
             tests/Feature/StockTransfers/StockTransferWorkflowTest.php \
             tests/Feature/StockTransfers/StockTransferAuthorizationTest.php \

@@ -43,8 +43,13 @@ class StockTransferReservationService
                 throw new InvalidStockTransferTransitionException('Only a Draft Transfer can be reserved.');
             }
             foreach ($transfer->items()->lockForUpdate()->get() as $item) {
+                $idempotency = $this->itemIdempotencyKey($idempotencyKey, (int) $item->id);
                 $existing = StockTransferReservation::query()->where('stock_transfer_item_id', $item->id)->where('status', 'active')->first();
                 if ($existing !== null) {
+                    continue;
+                }
+                $existingByKey = StockTransferReservation::query()->where('idempotency_key', $idempotency)->first();
+                if ($existingByKey !== null) {
                     continue;
                 }
                 $inventory = $item->sourceInventory()->first();
@@ -65,7 +70,7 @@ class StockTransferReservationService
                     'inventory_reservation_id' => $result->source->id,
                     'quantity' => $item->quantity,
                     'status' => 'active',
-                    'idempotency_key' => $this->itemIdempotencyKey($idempotencyKey, (int) $item->id),
+                    'idempotency_key' => $idempotency,
                     'created_by_user_id' => $actor->id,
                 ]);
             }

@@ -30,6 +30,12 @@ class StockTransferAdvancedService
     public function ship(StockTransfer $transfer, array $quantitiesByItemId, string $idempotencyKey, User $actor): StockTransfer
     {
         $this->authorization->authorize($actor, StockTransferPermission::Dispatch, $transfer);
+        $knownItemIds = $transfer->items()->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        foreach (array_keys($quantitiesByItemId) as $itemId) {
+            if (! in_array((int) $itemId, $knownItemIds, true)) {
+                throw ValidationException::withMessages(['items' => 'The shipment contains an invalid transfer item.']);
+            }
+        }
 
         $movementReferences = [];
         foreach (array_keys($quantitiesByItemId) as $itemId) {
@@ -81,6 +87,12 @@ class StockTransferAdvancedService
     public function receive(StockTransfer $transfer, array $quantitiesByItemId, string $idempotencyKey, User $actor): StockTransfer
     {
         $this->authorization->authorize($actor, StockTransferPermission::Receive, $transfer);
+        $knownItemIds = $transfer->items()->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        foreach (array_keys($quantitiesByItemId) as $itemId) {
+            if (! in_array((int) $itemId, $knownItemIds, true)) {
+                throw ValidationException::withMessages(['items' => 'The receipt contains an invalid transfer item.']);
+            }
+        }
 
         $movementReferences = [];
         foreach (array_keys($quantitiesByItemId) as $itemId) {

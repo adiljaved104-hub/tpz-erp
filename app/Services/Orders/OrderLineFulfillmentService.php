@@ -48,6 +48,72 @@ class OrderLineFulfillmentService
         }, 5);
     }
 
+    /**
+     * Record real supplier purchasing and physical customer-direct shipment,
+     * without inventing a warehouse movement or a duplicate AP obligation.
+     */
+    public function recordManualShipment(\App\Models\WebSalesManualSourcingLine $manual, User $actor): OrderLineFulfillment
+    {
+        if (DB::transactionLevel() < 1 || ! $manual->auto_purchase_on_ship
+            || $manual->purchase_id === null || $manual->purchase_receipt_id === null
+            || $manual->shipment_posted_at === null) {
+            throw ValidationException::withMessages(['line' => 'A posted automatic Purchase and direct GRN are required before shipment ledger posting.']);
+        }
+
+        $item = $manual->orderItem;
+        $line = OrderLineFulfillment::query()->firstOrCreate(['idempotency_key' => $this->lineKey($item->id)], [
+            'order_id' => $item->order_id,
+            'order_item_id' => $item->id,
+            'source_type' => 'manual_sourced_direct',
+            'requested_quantity' => $item->ordered_quantity,
+            'fulfilled_quantity' => $item->ordered_quantity,
+            'status' => 'fulfilled',
+            'purchase_id' => $manual->purchase_id,
+            'purchase_receipt_id' => $manual->purchase_receipt_id,
+            'supplier_id' => $manual->supplier_id,
+            'unit_cost' => $manual->inventory_unit_cost_aed,
+            'currency' => 'AED',
+            'accounting_status' => 'pending',
+        ]);
+        if ($line->source_type !== 'manual_sourced_direct'
+            || (int) $line->purchase_id !== (int) $manual->purchase_id
+            || (int) $line->fulfilled_quantity !== (int) $item->ordered_quantity) {
+            throw ValidationException::withMessages(['line' => 'An incompatible fulfillment ledger already exists for this order item.']);
+        }
+        $eventKey = $this->lineKey($item->id + 800000000);
+        $line->events()->firstOrCreate(['idempotency_key' => $eventKey], [
+            'event_type' => 'shipped',
+            'quantity' => $item->ordered_quantity,
+            'external_reference' => $manual->purchase->reference,
+            'evidence' => ['grn_id' => $manual->purchase_receipt_id, 'physical_warehouse_custody' => false],
+            'recorded_by_user_id' => $actor->id,
+            'occurred_at' => now(),
+        ]);
+        AccountingObligation::query()->firstOrCreate(
+            ['source_type' => 'purchase', 'source_id' => $manual->purchase_id],
+            [
+                'reference' => $manual->purchase->reference,
+                'quantity' => $item->ordered_quantity,
+                'unit_cost' => $manual->inventory_unit_cost_aed,
+                'currency' => 'AED',
+                'status' => 'pending',
+                'metadata' => [
+                    'order_id' => $item->order_id,
+                    'order_item_id' => $item->id,
+                    'grn_id' => $manual->purchase_receipt_id,
+                    'supplier_id' => $manual->supplier_id,
+                    'supplier_currency' => $manual->supplier_currency,
+                    'supplier_unit_cost' => $manual->supplier_unit_cost,
+                    'fx_rate_to_aed' => $manual->fx_rate_to_aed,
+                    'physical_warehouse_custody' => false,
+                ],
+                'created_by_user_id' => $actor->id,
+            ]
+        );
+
+        return $line;
+    }
+
     private function lineKey(int $itemId): string
     {
         $hex = substr(hash('sha256', 'order-line-fulfillment:'.$itemId), 0, 32);

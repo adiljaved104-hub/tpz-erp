@@ -19,6 +19,7 @@ use App\Models\InventoryReservation;
 use App\Models\MarketplacePlatform;
 use App\Models\Order;
 use App\Models\OrderFulfillment;
+use App\Models\OrderFulfillmentItem;
 use App\Models\OrderItem;
 use App\Models\OrderStatusEvent;
 use App\Models\Product;
@@ -751,6 +752,33 @@ class OrderService
 
                 foreach ($items as $item) {
                     if ($manualLines->get($item->id)?->source_mode === 'supplier_direct' && $item->reservation === null) {
+                        $sourcingLine = $manualLines->get($item->id);
+                        $receiptItem = $sourcingLine->purchaseReceipt?->items()
+                            ->where('product_id', $item->product_id)
+                            ->sole();
+                        if ($receiptItem === null || $receiptItem->accepted_quantity !== $item->ordered_quantity) {
+                            throw ValidationException::withMessages(['items' => 'Direct fulfilment requires an exact, posted supplier receipt for every sold unit.']);
+                        }
+                        $inventory = ProductInventory::query()
+                            ->where('product_id', $item->product_id)
+                            ->where('warehouse_id', $order->warehouse_id)
+                            ->lockForUpdate()
+                            ->firstOrFail();
+                        $unitCost = (string) $receiptItem->inventory_unit_cost;
+                        OrderFulfillmentItem::query()->create([
+                            'order_fulfillment_id' => $fulfillment->id,
+                            'order_item_id' => $item->id,
+                            'product_inventory_id' => $inventory->id,
+                            'product_id' => $item->product_id,
+                            'warehouse_id' => $order->warehouse_id,
+                            'quantity' => $item->ordered_quantity,
+                            'inventory_unit_cost' => $unitCost,
+                            'cogs_total' => bcmul($unitCost, (string) $item->ordered_quantity, 4),
+                            'posting_key' => $postingKeys[$item->id],
+                            'created_at' => now(),
+                        ]);
+                        // Supplier-direct units never pass through physical warehouse custody.
+                        // Their original receipt cost is snapshotted for COGS and Customer Returns.
                         $quantity += $item->ordered_quantity;
 
                         continue;

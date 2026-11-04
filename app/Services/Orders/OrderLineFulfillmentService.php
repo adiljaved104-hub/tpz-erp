@@ -2,10 +2,10 @@
 
 namespace App\Services\Orders;
 
+use App\Models\AccountingObligation;
+use App\Models\OrderItem;
 use App\Models\OrderLineFulfillment;
 use App\Models\OrderLineFulfillmentEvent;
-use App\Models\OrderItem;
-use App\Models\AccountingObligation;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -14,7 +14,9 @@ class OrderLineFulfillmentService
 {
     public function recordSupplierDirectDelivery(OrderItem $item, int $quantity, User $actor, string $idempotencyKey, ?string $externalReference = null, ?array $evidence = null, ?string $unitCost = null, ?string $currency = null, ?array $metadata = null): OrderLineFulfillment
     {
-        if ($quantity < 1) throw ValidationException::withMessages(['quantity' => 'Delivery quantity must be positive.']);
+        if ($quantity < 1) {
+            throw ValidationException::withMessages(['quantity' => 'Delivery quantity must be positive.']);
+        }
 
         return DB::transaction(function () use ($item, $quantity, $actor, $idempotencyKey, $externalReference, $evidence, $unitCost, $currency, $metadata): OrderLineFulfillment {
             $item = OrderItem::query()->lockForUpdate()->findOrFail($item->id);
@@ -24,9 +26,13 @@ class OrderLineFulfillmentService
                 'requested_quantity' => $item->ordered_quantity, 'status' => 'pending', 'accounting_status' => 'pending',
             ]);
             $existing = $line->events()->where('idempotency_key', $idempotencyKey)->first();
-            if ($existing) return $line->refresh();
+            if ($existing) {
+                return $line->refresh();
+            }
             $remaining = (int) $line->requested_quantity - (int) $line->fulfilled_quantity;
-            if ($remaining < 1) return $line->refresh();
+            if ($remaining < 1) {
+                return $line->refresh();
+            }
             $quantity = min($quantity, $remaining);
             OrderLineFulfillmentEvent::query()->create([
                 'fulfillment_id' => $line->id, 'event_type' => 'delivered', 'quantity' => $quantity,
@@ -47,6 +53,7 @@ class OrderLineFulfillmentService
             if ($unitCost !== null || $currency !== null || $metadata !== null) {
                 $obligation->forceFill(['quantity' => $total, 'unit_cost' => $unitCost, 'currency' => $currency, 'metadata' => array_merge((array) $obligation->metadata, $metadata ?? [])])->save();
             }
+
             return $line->refresh();
         }, 5);
     }

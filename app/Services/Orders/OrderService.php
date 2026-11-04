@@ -752,6 +752,7 @@ class OrderService
                 foreach ($items as $item) {
                     if ($manualLines->get($item->id)?->source_mode === 'supplier_direct' && $item->reservation === null) {
                         $quantity += $item->ordered_quantity;
+
                         continue;
                     }
                     $fulfillmentItem = $this->inventory->fulfillOrderItem(
@@ -972,6 +973,7 @@ class OrderService
                     if (! in_array($manualLine->status?->value, ['supplier_direct_fulfilled', 'ready_for_allocation'], true)) {
                         throw ValidationException::withMessages(['items' => 'Supplier-direct lines require verified delivery before reservation.']);
                     }
+
                     continue;
                 }
                 if ($manualLine !== null && $manualLine->status?->value !== 'ready_for_allocation') {

@@ -40,12 +40,22 @@ class ManualSourcingShipmentService
         DB::transaction(function () use ($order, $shipmentKey, $actor): void {
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
             foreach ($locked->manualSourcingLines()->lockForUpdate()->get() as $line) {
-                if ($line->status === ManualSourcingStatus::Fulfilled) continue;
+                if ($line->status === ManualSourcingStatus::Fulfilled) {
+                    continue;
+                }
                 $postingKey = $this->postingKey($shipmentKey, (int) $line->id);
-                if (ManualSourcingShipmentPosting::query()->where('idempotency_key', $postingKey)->lockForUpdate()->exists()) continue;
-                if ($line->source_mode !== 'supplier_direct') throw ValidationException::withMessages(['items' => 'Only supplier-to-customer manual sourcing is materialized during shipment.']);
-                if ($line->supplier_id === null || $line->actual_unit_cost === null || blank($line->purchase_currency) || $line->purchased_on === null) throw ValidationException::withMessages(['items' => 'Manual sourced lines require supplier, actual purchase cost, currency, and purchase date before shipment.']);
-                if (strtoupper((string) $line->purchase_currency) !== 'AED') throw ValidationException::withMessages(['items' => 'The current purchasing ledger supports AED only.']);
+                if (ManualSourcingShipmentPosting::query()->where('idempotency_key', $postingKey)->lockForUpdate()->exists()) {
+                    continue;
+                }
+                if ($line->source_mode !== 'supplier_direct') {
+                    throw ValidationException::withMessages(['items' => 'Only supplier-to-customer manual sourcing is materialized during shipment.']);
+                }
+                if ($line->supplier_id === null || $line->actual_unit_cost === null || blank($line->purchase_currency) || $line->purchased_on === null) {
+                    throw ValidationException::withMessages(['items' => 'Manual sourced lines require supplier, actual purchase cost, currency, and purchase date before shipment.']);
+                }
+                if (strtoupper((string) $line->purchase_currency) !== 'AED') {
+                    throw ValidationException::withMessages(['items' => 'The current purchasing ledger supports AED only.']);
+                }
                 $this->purchases->authorize($actor, PurchasePermission::QuickReceive);
                 $purchase = $this->createPurchase($locked, $line, $postingKey, $actor);
                 $receipt = $this->createDirectReceipt($purchase, $locked, $postingKey, $actor);
@@ -87,6 +97,7 @@ class ManualSourcingShipmentService
         ]));
         $purchase->items()->createMany($prepared['lines']);
         $this->activity->log('purchase.created', $actor, $purchase, ['entry_type' => PurchaseEntryType::QuickStock->value, 'direct_fulfillment' => true]);
+
         return $purchase->load('items');
     }
 
@@ -106,6 +117,7 @@ class ManualSourcingShipmentService
         ]);
         $item->forceFill(['received_quantity' => $item->ordered_quantity])->save();
         $purchase->forceFill(['status' => PurchaseStatus::FullyReceived])->save();
+
         return $receipt->load('items');
     }
 
@@ -116,7 +128,7 @@ class ManualSourcingShipmentService
         $before = ['available' => $inventory->available_quantity, 'reserved' => $inventory->reserved_quantity, 'damaged' => $inventory->damaged_quantity, 'average' => $inventory->average_cost];
         foreach ([StockMovementType::PurchaseReceipt, StockMovementType::OrderFulfillment] as $index => $type) {
             StockMovement::query()->create([
-                'reference' => $this->references->nextStockMovementReference(), 'movement_group' => $receipt->movement_group, 'idempotency_key' => $idempotencyKey.'-'.$index,
+                'reference' => $this->references->nextStockMovementReference(), 'movement_group' => $receipt->movement_group, 'idempotency_key' => $this->movementKey($idempotencyKey, $index),
                 'product_inventory_id' => $inventory->id, 'product_id' => $inventory->product_id, 'warehouse_id' => $inventory->warehouse_id, 'movement_type' => $type,
                 'quantity' => $receiptItem->accepted_quantity, 'available_delta' => 0, 'reserved_delta' => 0, 'damaged_delta' => 0,
                 'available_before' => $before['available'], 'available_after' => $before['available'], 'reserved_before' => $before['reserved'], 'reserved_after' => $before['reserved'],
@@ -131,7 +143,18 @@ class ManualSourcingShipmentService
     private function postingKey(string $shipmentKey, int $lineId): string
     {
         $hex = substr(hash('sha256', 'manual-sourcing-shipment:'.$shipmentKey.':'.$lineId), 0, 32);
-        $hex[12] = '5'; $hex[16] = dechex((hexdec($hex[16]) & 0x3) | 0x8);
+        $hex[12] = '5';
+        $hex[16] = dechex((hexdec($hex[16]) & 0x3) | 0x8);
+
+        return sprintf('%s-%s-%s-%s-%s', substr($hex, 0, 8), substr($hex, 8, 4), substr($hex, 12, 4), substr($hex, 16, 4), substr($hex, 20, 12));
+    }
+
+    private function movementKey(string $postingKey, int $index): string
+    {
+        $hex = substr(hash('sha256', 'manual-sourcing-movement:'.$postingKey.':'.$index), 0, 32);
+        $hex[12] = '5';
+        $hex[16] = dechex((hexdec($hex[16]) & 0x3) | 0x8);
+
         return sprintf('%s-%s-%s-%s-%s', substr($hex, 0, 8), substr($hex, 8, 4), substr($hex, 12, 4), substr($hex, 16, 4), substr($hex, 20, 12));
     }
 }

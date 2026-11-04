@@ -77,21 +77,26 @@ class WebSalesService
     public function ship(Order $order, string $idempotencyKey, User $actor): Order
     {
         $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
-        if ($order->manualSourcingLines()->exists()) {
-            $this->manualShipment->materialize($order, $idempotencyKey, $actor);
-            $order->refresh();
-            $this->manualSourcing->assertReadyForFulfilment($order);
-            if ($order->status === OrderStatus::PendingReview) {
-                $order = $this->orders->reserveDraft($order, $actor);
-            }
-        }
-        $order = $this->orders->fulfill($order, $idempotencyKey, $actor);
-        if ($order->manualSourcingLines()->exists()) {
-            $this->manualSourcing->markFulfilled($order, $actor);
-        }
-        $this->activity->log('web_sales.order_shipped', $actor, $order, ['order_reference' => $order->reference]);
 
-        return $order;
+        return DB::transaction(function () use ($order, $idempotencyKey, $actor): Order {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
+            if ($order->manualSourcingLines()->exists()) {
+                $this->manualShipment->materialize($order, $idempotencyKey, $actor);
+                $order->refresh();
+                $this->manualSourcing->assertReadyForFulfilment($order);
+                if ($order->status === OrderStatus::PendingReview) {
+                    $order = $this->orders->reserveDraft($order, $actor);
+                }
+            }
+            $order = $this->orders->fulfill($order, $idempotencyKey, $actor);
+            if ($order->manualSourcingLines()->exists()) {
+                $this->manualSourcing->markFulfilled($order, $actor);
+            }
+            $this->activity->log('web_sales.order_shipped', $actor, $order, ['order_reference' => $order->reference]);
+
+            return $order;
+        }, 5);
     }
 
     public function deliver(Order $order, User $actor): Order

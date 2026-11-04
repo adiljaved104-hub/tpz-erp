@@ -16,11 +16,12 @@ use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\CustomerReturn;
 use App\Models\PurchaseReceipt;
-use App\Models\WebSalesManualSourcingLine;
 use App\Models\User;
+use App\Models\WebSalesManualSourcingLine;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
+use App\Services\Orders\ManualSourcingService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
 use Filament\Actions\Action;
@@ -31,6 +32,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -52,18 +54,7 @@ class ViewWebSalesOrder extends ViewRecord
                     Select::make('purchase_receipt_id')->label('Posted GRN')->options(fn (Get $get): array => $this->receiptOptions((int) $get('line_id')))->required(),
                 ])
                 ->visible(fn (): bool => $this->allowed(WebSalesPermission::Update) && $this->manualLines('warehouse_receipt')->isNotEmpty())
-                ->action(fn (array $data) => $this->run('Could not confirm receipt', fn () => app(\App\Services\Orders\ManualSourcingService::class)->confirmReceipt(WebSalesManualSourcingLine::query()->findOrFail((int) $data['line_id']), PurchaseReceipt::query()->findOrFail((int) $data['purchase_receipt_id']), auth()->user()))),
-            Action::make('confirmSupplierDelivery')
-                ->label('Confirm Supplier-Direct Delivery')
-                ->icon('heroicon-o-truck')
-                ->schema([
-                    Select::make('line_id')->label('Sourcing line')->options(fn (): array => $this->manualLines('supplier_direct')->mapWithKeys(fn (WebSalesManualSourcingLine $line): array => [$line->id => "{$line->description} ({$line->quantity})"])->all())->required(),
-                    TextInput::make('quantity')->numeric()->minValue(1)->required(),
-                    TextInput::make('supplier_reference')->label('Supplier / delivery reference')->maxLength(255),
-                    Textarea::make('evidence')->label('Delivery evidence reference')->maxLength(2000)->required(),
-                ])
-                ->visible(fn (): bool => $this->allowed(WebSalesPermission::Update) && $this->manualLines('supplier_direct')->isNotEmpty())
-                ->action(fn (array $data) => $this->run('Could not confirm supplier delivery', fn () => app(\App\Services\Orders\ManualSourcingService::class)->markSupplierDirectFulfilled(WebSalesManualSourcingLine::query()->findOrFail((int) $data['line_id']), auth()->user(), (int) $data['quantity'], $data['supplier_reference'] ?? null, ['reference' => $data['evidence'] ?? null]))),
+                ->action(fn (array $data) => $this->run('Could not confirm receipt', fn () => app(ManualSourcingService::class)->confirmReceipt(WebSalesManualSourcingLine::query()->findOrFail((int) $data['line_id']), PurchaseReceipt::query()->findOrFail((int) $data['purchase_receipt_id']), auth()->user()))),
             Action::make('taxInvoice')
                 ->label(fn (): string => $this->record->taxInvoices()->exists() ? 'View Tax Invoice' : 'Generate Tax Invoice')
                 ->icon('heroicon-o-document-currency-dollar')
@@ -162,7 +153,7 @@ class ViewWebSalesOrder extends ViewRecord
         return $value instanceof WebSalesDeliveryType ? $value->value : $value;
     }
 
-    private function manualLines(string $mode): \Illuminate\Support\Collection
+    private function manualLines(string $mode): Collection
     {
         return $this->record->manualSourcingLines()->where('source_mode', $mode)->whereNotIn('status', ['fulfilled', 'cancelled'])->get();
     }
@@ -170,7 +161,9 @@ class ViewWebSalesOrder extends ViewRecord
     private function receiptOptions(int $lineId): array
     {
         $line = WebSalesManualSourcingLine::query()->find($lineId);
-        if (! $line) return [];
+        if (! $line) {
+            return [];
+        }
 
         return PurchaseReceipt::query()->whereHas('items', fn ($query) => $query->where('product_id', $line->product_id)->where('accepted_quantity', '>', 0))
             ->latest('received_at')->limit(100)->get()->mapWithKeys(fn (PurchaseReceipt $receipt): array => [$receipt->id => "{$receipt->reference} — {$receipt->received_at?->format('d M Y H:i')}"])->all();

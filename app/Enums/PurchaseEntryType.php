@@ -9,17 +9,19 @@ enum PurchaseEntryType: string implements HasColor, HasLabel
 {
     case Standard = 'standard';
     case QuickStock = 'quick_stock';
+    case ManualDirect = 'manual_direct';
 
     public function getLabel(): string
     {
         return match ($this) {
             self::Standard => 'Standard',
             self::QuickStock => 'Quick Stock',
+            self::ManualDirect => 'Manual Purchase / Direct Shipment',
         };
     }
 
     public function getColor(): string
     {
-        return $this === self::QuickStock ? 'success' : 'gray';
+        return $this === self::QuickStock || $this === self::ManualDirect ? 'success' : 'gray';
     }
 }

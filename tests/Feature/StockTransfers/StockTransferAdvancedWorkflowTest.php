@@ -2,12 +2,15 @@
 
 namespace Tests\Feature\StockTransfers;
 
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class StockTransferAdvancedWorkflowTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_transfer_reservation_and_marketplace_loss_records_are_additive_and_idempotent(): void
     {
         $this->assertTrue(Schema::hasColumns('stock_transfer_reservations', [

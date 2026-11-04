@@ -7,19 +7,23 @@ use App\Enums\InventoryItemType;
 use App\Enums\ManualSourcingStatus;
 use App\Enums\ProductCondition;
 use App\Enums\ProductStatus;
+use App\Enums\WebSalesPermission;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\PurchaseReceipt;
 use App\Models\User;
 use App\Models\WebSalesManualSourcingLine;
+use App\Models\WebSalesManualSourcingReceiptEvent;
+use App\Models\WebSalesSupplierDirectDelivery;
 use App\Services\ActivityLogger;
+use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ManualSourcingService
 {
-    public function __construct(private readonly ReferenceSequenceService $references, private readonly ActivityLogger $activity) {}
+    public function __construct(private readonly ReferenceSequenceService $references, private readonly ActivityLogger $activity, private readonly WebSalesAuthorization $authorization) {}
 
     /** @param array<int, OrderItemData> $items */
     public function materializeItems(array $items, User $actor): array
@@ -107,39 +111,82 @@ class ManualSourcingService
         }
     }
 
-    public function confirmReceipt(WebSalesManualSourcingLine $line, PurchaseReceipt $receipt, User $actor): WebSalesManualSourcingLine
+    public function confirmReceipt(WebSalesManualSourcingLine $line, PurchaseReceipt $receipt, User $actor, ?string $idempotencyKey = null): WebSalesManualSourcingLine
     {
-        return DB::transaction(function () use ($line, $receipt, $actor): WebSalesManualSourcingLine {
+        $this->authorization->authorize($actor, WebSalesPermission::Update, $line->order);
+        return DB::transaction(function () use ($line, $receipt, $actor, $idempotencyKey): WebSalesManualSourcingLine {
             $line = WebSalesManualSourcingLine::query()->lockForUpdate()->findOrFail($line->id);
-            if ($line->source_mode !== 'warehouse_receipt' || $line->status === ManualSourcingStatus::Fulfilled) {
+            if ($idempotencyKey && ($existingEvent = WebSalesManualSourcingReceiptEvent::query()->where('idempotency_key', $idempotencyKey)->first())) {
+                if ($existingEvent->line_id !== $line->id || $existingEvent->purchase_receipt_id !== $receipt->id) {
+                    throw ValidationException::withMessages(['receipt' => 'The receipt idempotency key belongs to another sourcing line.']);
+                }
+                return $line->refresh();
+            }
+            if ($line->source_mode !== 'warehouse_receipt' || in_array($line->status, [ManualSourcingStatus::Fulfilled, ManualSourcingStatus::Cancelled], true)) {
                 throw ValidationException::withMessages(['line' => 'This sourcing line cannot accept another receipt.']);
             }
-            $received = $receipt->items()->where('product_id', $line->product_id)->sum('accepted_quantity');
-            if ((int) $received < (int) $line->quantity) {
-                throw ValidationException::withMessages(['receipt' => 'The confirmed GRN does not contain the full sourced quantity.']);
+            if ($line->purchase_id !== null && (int) $line->purchase_id !== (int) $receipt->purchase_id) {
+                throw ValidationException::withMessages(['receipt' => 'The GRN is not linked to this sourcing line purchase.']);
             }
+            $received = $receipt->items()->where('product_id', $line->product_id)->sum('accepted_quantity');
+            $alreadyLinked = (int) $line->receiptEvents()->sum('quantity');
+            $available = (int) $received - $alreadyLinked;
+            if ($available < 1) {
+                throw ValidationException::withMessages(['receipt' => 'This GRN has no new accepted quantity for the sourcing line.']);
+            }
+            $quantity = min($available, (int) $line->quantity - $alreadyLinked);
+            if ($quantity < 1) {
+                return $line->refresh();
+            }
+            $key = $idempotencyKey ?: (string) str()->uuid();
+            $event = WebSalesManualSourcingReceiptEvent::query()->where('line_id', $line->id)->where('purchase_receipt_id', $receipt->id)->first()
+                ?: WebSalesManualSourcingReceiptEvent::query()->firstOrCreate(['idempotency_key' => $key], [
+                'line_id' => $line->id, 'purchase_receipt_id' => $receipt->id, 'quantity' => $quantity,
+                'confirmed_by_user_id' => $actor->id, 'confirmed_at' => now(),
+            ]);
+            if ($event->line_id !== $line->id || $event->purchase_receipt_id !== $receipt->id) {
+                throw ValidationException::withMessages(['receipt' => 'The receipt idempotency key belongs to another sourcing line.']);
+            }
+            $total = (int) $line->receiptEvents()->sum('quantity');
             $line->forceFill([
                 'purchase_id' => $receipt->purchase_id,
                 'purchase_receipt_id' => $receipt->id,
-                'status' => ManualSourcingStatus::ReadyForAllocation,
-                'receipt_confirmed_at' => now(),
-                'metadata' => array_merge($line->metadata ?? [], ['receipt_confirmed_by' => $actor->id]),
+                'status' => $total >= (int) $line->quantity ? ManualSourcingStatus::ReadyForAllocation : ManualSourcingStatus::ReceiptPending,
+                'receipt_confirmed_at' => $total >= (int) $line->quantity ? now() : $line->receipt_confirmed_at,
+                'metadata' => array_merge($line->metadata ?? [], ['receipt_confirmed_by' => $actor->id, 'received_quantity' => $total]),
             ])->save();
-            $this->activity->log('web_sales.manual_sourcing_receipt_confirmed', $actor, $line, ['receipt_id' => $receipt->id, 'quantity' => $line->quantity]);
+            $this->activity->log('web_sales.manual_sourcing_receipt_confirmed', $actor, $line, ['receipt_id' => $receipt->id, 'quantity' => $quantity, 'received_total' => $total]);
 
             return $line->refresh();
         }, 5);
     }
 
-    public function markSupplierDirectFulfilled(WebSalesManualSourcingLine $line, User $actor): WebSalesManualSourcingLine
+    public function markSupplierDirectFulfilled(WebSalesManualSourcingLine $line, User $actor, int $quantity, ?string $supplierReference = null, ?array $evidence = null, ?string $idempotencyKey = null): WebSalesManualSourcingLine
     {
+        $this->authorization->authorize($actor, WebSalesPermission::Update, $line->order);
         if ($line->source_mode !== 'supplier_direct') {
             throw ValidationException::withMessages(['line' => 'Only supplier-direct lines can be confirmed without a warehouse receipt.']);
         }
-        $line->forceFill(['status' => ManualSourcingStatus::SupplierDirectFulfilled, 'fulfilled_at' => now(), 'metadata' => array_merge($line->metadata ?? [], ['supplier_direct_confirmed_by' => $actor->id])])->save();
-        $this->activity->log('web_sales.manual_sourcing_supplier_direct_confirmed', $actor, $line, ['quantity' => $line->quantity]);
-
-        return $line->refresh();
+        if ($quantity < 1) {
+            throw ValidationException::withMessages(['quantity' => 'Delivered quantity must be positive.']);
+        }
+        return DB::transaction(function () use ($line, $actor, $quantity, $supplierReference, $evidence, $idempotencyKey): WebSalesManualSourcingLine {
+            $line = WebSalesManualSourcingLine::query()->lockForUpdate()->findOrFail($line->id);
+            $already = (int) $line->supplierDirectDeliveries()->sum('quantity');
+            $remaining = (int) $line->quantity - $already;
+            if ($remaining < 1) return $line->refresh();
+            $quantity = min($quantity, $remaining);
+            $key = $idempotencyKey ?: (string) str()->uuid();
+            $event = WebSalesSupplierDirectDelivery::query()->firstOrCreate(['idempotency_key' => $key], [
+                'line_id' => $line->id, 'quantity' => $quantity, 'supplier_reference' => $supplierReference,
+                'evidence' => $evidence, 'confirmed_by_user_id' => $actor->id, 'confirmed_at' => now(),
+            ]);
+            if ($event->line_id !== $line->id) throw ValidationException::withMessages(['delivery' => 'The delivery idempotency key belongs to another line.']);
+            $total = (int) $line->supplierDirectDeliveries()->sum('quantity');
+            $line->forceFill(['status' => $total >= (int) $line->quantity ? ManualSourcingStatus::SupplierDirectFulfilled : ManualSourcingStatus::ReceiptPending, 'fulfilled_at' => $total >= (int) $line->quantity ? now() : null, 'metadata' => array_merge($line->metadata ?? [], ['supplier_direct_confirmed_by' => $actor->id, 'delivered_quantity' => $total])])->save();
+            $this->activity->log('web_sales.manual_sourcing_supplier_direct_confirmed', $actor, $line, ['quantity' => $quantity, 'delivered_total' => $total, 'supplier_reference' => $supplierReference]);
+            return $line->refresh();
+        }, 5);
     }
 
     public function markFulfilled(Order $order, User $actor): void

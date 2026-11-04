@@ -15,6 +15,8 @@ use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\CustomerReturn;
+use App\Models\PurchaseReceipt;
+use App\Models\WebSalesManualSourcingLine;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Authorization\OrderAuthorization;
@@ -42,6 +44,26 @@ class ViewWebSalesOrder extends ViewRecord
     {
         return [
             ...$this->qcOrderActions(),
+            Action::make('confirmManualReceipt')
+                ->label('Confirm Manual Sourcing Receipt')
+                ->icon('heroicon-o-clipboard-document-check')
+                ->schema([
+                    Select::make('line_id')->label('Sourcing line')->options(fn (): array => $this->manualLines('warehouse_receipt')->mapWithKeys(fn (WebSalesManualSourcingLine $line): array => [$line->id => "{$line->description} ({$line->quantity})"])->all())->required()->live(),
+                    Select::make('purchase_receipt_id')->label('Posted GRN')->options(fn (Get $get): array => $this->receiptOptions((int) $get('line_id')))->required(),
+                ])
+                ->visible(fn (): bool => $this->allowed(WebSalesPermission::Update) && $this->manualLines('warehouse_receipt')->isNotEmpty())
+                ->action(fn (array $data) => $this->run('Could not confirm receipt', fn () => app(\App\Services\Orders\ManualSourcingService::class)->confirmReceipt(WebSalesManualSourcingLine::query()->findOrFail((int) $data['line_id']), PurchaseReceipt::query()->findOrFail((int) $data['purchase_receipt_id']), auth()->user()))),
+            Action::make('confirmSupplierDelivery')
+                ->label('Confirm Supplier-Direct Delivery')
+                ->icon('heroicon-o-truck')
+                ->schema([
+                    Select::make('line_id')->label('Sourcing line')->options(fn (): array => $this->manualLines('supplier_direct')->mapWithKeys(fn (WebSalesManualSourcingLine $line): array => [$line->id => "{$line->description} ({$line->quantity})"])->all())->required(),
+                    TextInput::make('quantity')->numeric()->minValue(1)->required(),
+                    TextInput::make('supplier_reference')->label('Supplier / delivery reference')->maxLength(255),
+                    Textarea::make('evidence')->label('Delivery evidence reference')->maxLength(2000)->required(),
+                ])
+                ->visible(fn (): bool => $this->allowed(WebSalesPermission::Update) && $this->manualLines('supplier_direct')->isNotEmpty())
+                ->action(fn (array $data) => $this->run('Could not confirm supplier delivery', fn () => app(\App\Services\Orders\ManualSourcingService::class)->markSupplierDirectFulfilled(WebSalesManualSourcingLine::query()->findOrFail((int) $data['line_id']), auth()->user(), (int) $data['quantity'], $data['supplier_reference'] ?? null, ['reference' => $data['evidence'] ?? null]))),
             Action::make('taxInvoice')
                 ->label(fn (): string => $this->record->taxInvoices()->exists() ? 'View Tax Invoice' : 'Generate Tax Invoice')
                 ->icon('heroicon-o-document-currency-dollar')
@@ -82,7 +104,7 @@ class ViewWebSalesOrder extends ViewRecord
             Action::make('ship')->label('Mark Shipped')->color('success')->requiresConfirmation()
                 ->disabled(fn (): bool => ! $this->qcDispatchReady())
                 ->tooltip('Renewed lines require current QC devices and QC Dispatch Ship permission.')
-                ->visible(fn (): bool => $this->record->status === OrderStatus::Reserved && $this->canFulfill())
+                ->visible(fn (): bool => in_array($this->record->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true) && $this->canFulfill())
                 ->action(fn () => $this->run('Cannot ship Web Sale', fn () => app(WebSalesService::class)->ship($this->record, (string) str()->uuid(), auth()->user()))),
             Action::make('deliver')->label('Mark Delivered')->color('success')->requiresConfirmation()
                 ->visible(fn (): bool => $this->record->status === OrderStatus::Fulfilled && $this->record->delivered_at === null && $this->allowed(WebSalesPermission::Update))
@@ -138,5 +160,19 @@ class ViewWebSalesOrder extends ViewRecord
     private function deliveryValue(mixed $value): mixed
     {
         return $value instanceof WebSalesDeliveryType ? $value->value : $value;
+    }
+
+    private function manualLines(string $mode): \Illuminate\Support\Collection
+    {
+        return $this->record->manualSourcingLines()->where('source_mode', $mode)->whereNotIn('status', ['fulfilled', 'cancelled'])->get();
+    }
+
+    private function receiptOptions(int $lineId): array
+    {
+        $line = WebSalesManualSourcingLine::query()->find($lineId);
+        if (! $line) return [];
+
+        return PurchaseReceipt::query()->whereHas('items', fn ($query) => $query->where('product_id', $line->product_id)->where('accepted_quantity', '>', 0))
+            ->latest('received_at')->limit(100)->get()->mapWithKeys(fn (PurchaseReceipt $receipt): array => [$receipt->id => "{$receipt->reference} — {$receipt->received_at?->format('d M Y H:i')}"])->all();
     }
 }

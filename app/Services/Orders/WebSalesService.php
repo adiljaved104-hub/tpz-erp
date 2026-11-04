@@ -78,6 +78,20 @@ class WebSalesService
         $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
         if ($order->manualSourcingLines()->exists()) {
             $this->manualSourcing->assertReadyForFulfilment($order);
+            $lines = $order->manualSourcingLines()->get();
+            if ($lines->every(fn ($line): bool => $line->source_mode === 'supplier_direct')) {
+                return DB::transaction(function () use ($order, $actor): Order {
+                    $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+                    if ($locked->status === OrderStatus::Fulfilled) return $locked;
+                    if ($locked->status !== OrderStatus::PendingReview) {
+                        throw new InvalidOrderTransitionException('Supplier-direct orders must be pending review before fulfilment.');
+                    }
+                    $locked->forceFill(['status' => OrderStatus::Fulfilled, 'fulfilled_at' => now(), 'fulfilled_by_user_id' => $actor->id])->save();
+                    $this->manualSourcing->markFulfilled($locked, $actor);
+                    $this->activity->log('web_sales.order_shipped_supplier_direct', $actor, $locked, ['order_reference' => $locked->reference]);
+                    return $locked->refresh();
+                }, 5);
+            }
         }
         $order = $this->orders->fulfill($order, $idempotencyKey, $actor);
         if ($order->manualSourcingLines()->exists()) {

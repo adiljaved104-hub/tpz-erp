@@ -28,4 +28,6 @@ class WebSalesManualSourcingLine extends Model
     public function supplier(): BelongsTo { return $this->belongsTo(Supplier::class); }
     public function purchase(): BelongsTo { return $this->belongsTo(Purchase::class); }
     public function purchaseReceipt(): BelongsTo { return $this->belongsTo(PurchaseReceipt::class); }
+    public function receiptEvents(): \Illuminate\Database\Eloquent\Relations\HasMany { return $this->hasMany(WebSalesManualSourcingReceiptEvent::class, 'line_id'); }
+    public function supplierDirectDeliveries(): \Illuminate\Database\Eloquent\Relations\HasMany { return $this->hasMany(WebSalesSupplierDirectDelivery::class, 'line_id'); }
 }

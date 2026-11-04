@@ -4,6 +4,11 @@ namespace Tests\Feature\Orders;
 
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\WebSalesOrderData;
+use App\DTOs\Returns\CreateCustomerReturnData;
+use App\DTOs\Returns\InspectCustomerReturnItemData;
+use App\Actions\Returns\CreateCustomerReturn;
+use App\Actions\Returns\ReceiveCustomerReturn;
+use App\Actions\Returns\InspectCustomerReturnItem;
 use App\Enums\EmployeeRole;
 use App\Enums\OrderStatus;
 use App\Enums\WebSalesChannel;
@@ -102,6 +107,37 @@ class ManualSourcingAtomicShipmentTest extends TestCase
             $this->assertSame(OrderStatus::PendingReview, $order->refresh()->status);
             $this->assertNull($order->manualSourcingLines()->sole()->purchase_id);
         }
+    }
+
+    public function test_direct_purchased_order_uses_existing_company_return_and_qc_pass_flow(): void
+    {
+        $owner = $this->owner();
+        $order = app(WebSalesService::class)->createConfirmed($this->orderData(Supplier::factory()->create()), $owner);
+        $shipped = app(WebSalesService::class)->ship($order, (string) Str::uuid(), $owner);
+        $manual = $shipped->manualSourcingLines()->sole();
+        $item = OrderFulfillmentItem::query()->where('order_item_id', $manual->order_item_id)->sole();
+
+        $return = app(CreateCustomerReturn::class)->handle(new CreateCustomerReturnData(
+            orderId: $shipped->id,
+            receivingWarehouseId: $shipped->warehouse_id,
+            items: [[
+                'order_fulfillment_item_id' => $item->id,
+                'quantity' => 1,
+                'return_reason' => 'other',
+            ]],
+            idempotencyKey: (string) Str::uuid(),
+        ), $owner);
+        app(ReceiveCustomerReturn::class)->handle($return, $owner);
+        app(InspectCustomerReturnItem::class)->handle(
+            $return->items()->sole(),
+            new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()),
+            $owner,
+        );
+
+        $inventory = ProductInventory::query()->where('product_id', $manual->product_id)->where('warehouse_id', $shipped->warehouse_id)->sole();
+        $this->assertSame(1, $inventory->available_quantity);
+        $this->assertSame(0, DB::table('direct_fulfillment_stock_events')->where('order_item_id', $manual->order_item_id)->sum('quantity_delta'));
+        $this->assertSame('250.0000', $item->refresh()->inventory_unit_cost);
     }
 
     private function owner(): User

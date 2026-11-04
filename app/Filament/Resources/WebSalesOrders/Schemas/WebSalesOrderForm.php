@@ -8,6 +8,7 @@ use App\Enums\WebSalesDeliveryType;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\SalesConfiguration;
+use App\Models\Supplier;
 use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Services\DefaultWarehouseService;
@@ -67,7 +68,11 @@ class WebSalesOrderForm
                     TextInput::make('manual_category')->label('Category')->maxLength(120)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     TextInput::make('manual_model')->label('Model')->maxLength(160)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     Select::make('manual_condition')->label('Condition')->options(\App\Enums\ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
-                    Select::make('source_mode')->label('Fulfilment Source')->options(['warehouse_receipt' => 'Warehouse receipt', 'supplier_direct' => 'Supplier-direct'])->default('warehouse_receipt')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    Select::make('supplier_id')->label('Supplier')->options(fn (): array => Supplier::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    TextInput::make('actual_unit_cost')->label('Actual Purchase Cost')->prefix('AED')->numeric()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->rule('regex:/^\d{1,13}(?:\.\d{1,4})?$/'),
+                    Hidden::make('purchase_currency')->default('AED')->dehydrated(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    TextInput::make('purchased_on')->label('Purchase Date')->type('date')->default(now()->toDateString())->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
+                    Hidden::make('source_mode')->default('supplier_direct')->dehydrated(),
                     TextInput::make('quantity')->numeric()->integer()->minValue(1)->default(1)->required()->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),
                     TextInput::make('selling_price')->label('Selling Price')->prefix('AED')->required()
                         ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 2, 'lg' => 2]),

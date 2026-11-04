@@ -23,5 +23,8 @@ final readonly class OrderItemData
         public ?string $manualCondition = null,
         public ?int $supplierId = null,
         public string $sourceMode = 'warehouse_receipt',
+        public ?string $actualUnitCost = null,
+        public ?string $purchaseCurrency = null,
+        public ?string $purchasedOn = null,
     ) {}
 }

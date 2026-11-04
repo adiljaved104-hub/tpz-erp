@@ -71,7 +71,7 @@ class ManualSourcingService
                 $this->activity->log('product.created', $actor, $product, ['source' => 'web_sales_manual_sourcing']);
             }
 
-            return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $item->manualCategory, $item->manualModel, $condition, $item->supplierId, $item->sourceMode);
+            return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $item->manualCategory, $item->manualModel, $condition, $item->supplierId, $item->sourceMode, $item->actualUnitCost, $item->purchaseCurrency, $item->purchasedOn);
         }, $items, array_keys($items)), 5);
     }
 
@@ -89,6 +89,8 @@ class ManualSourcingService
                 'description' => $item->manualDescription ?: $orderItem->product_name, 'brand' => $item->manualBrand,
                 'category' => $item->manualCategory, 'model' => $item->manualModel, 'condition' => $item->manualCondition,
                 'selling_price_snapshot' => $item->sellingPrice, 'quantity' => $item->quantity, 'supplier_id' => $item->supplierId,
+                'actual_unit_cost' => $item->actualUnitCost, 'purchase_currency' => $item->purchaseCurrency,
+                'purchased_on' => $item->purchasedOn,
                 'materialized_at' => now(), 'metadata' => ['created_by_user_id' => $actor->id],
             ]);
         }
@@ -99,7 +101,7 @@ class ManualSourcingService
         $lines = $order->manualSourcingLines()->lockForUpdate()->get();
         foreach ($lines as $line) {
             if ($line->source_mode === 'supplier_direct') {
-                if ($line->status !== ManualSourcingStatus::SupplierDirectFulfilled) {
+                if (! in_array($line->status, [ManualSourcingStatus::SupplierDirectFulfilled, ManualSourcingStatus::ReadyForAllocation], true)) {
                     throw ValidationException::withMessages(['order' => 'Supplier-direct sourcing must be confirmed before fulfilment.']);
                 }
 

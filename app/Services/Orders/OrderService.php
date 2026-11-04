@@ -728,7 +728,7 @@ class OrderService
                 }
 
                 foreach ($items as $item) {
-                    if ($manualLines->get($item->id)?->source_mode === 'supplier_direct') {
+                    if ($manualLines->get($item->id)?->source_mode === 'supplier_direct' && $item->reservation === null) {
                         continue;
                     }
                     if (! $this->responsibilities->canAccessProduct($actor, $item->product_id, $platform?->id, $warehouse->id)) {
@@ -750,7 +750,7 @@ class OrderService
                 $quantity = 0;
 
                 foreach ($items as $item) {
-                    if ($manualLines->get($item->id)?->source_mode === 'supplier_direct') {
+                    if ($manualLines->get($item->id)?->source_mode === 'supplier_direct' && $item->reservation === null) {
                         $quantity += $item->ordered_quantity;
                         continue;
                     }
@@ -944,7 +944,8 @@ class OrderService
 
             $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->lockForUpdate()->get();
             $manualLines = $order->manualSourcingLines()->lockForUpdate()->get()->keyBy('order_item_id');
-            $physicalItems = $items->reject(fn (OrderItem $item): bool => $manualLines->get($item->id)?->source_mode === 'supplier_direct');
+            $physicalItems = $items->reject(fn (OrderItem $item): bool => $manualLines->get($item->id)?->source_mode === 'supplier_direct'
+                && $manualLines->get($item->id)?->status?->value !== 'ready_for_allocation');
 
             if ($items->isEmpty()) {
                 throw ValidationException::withMessages(['items' => 'Add at least one Product before reserving.']);
@@ -967,7 +968,7 @@ class OrderService
             foreach ($items as $item) {
                 $manualLine = $manualLines->get($item->id);
                 if ($manualLine?->source_mode === 'supplier_direct') {
-                    if ($manualLine->status?->value !== 'supplier_direct_fulfilled') {
+                    if (! in_array($manualLine->status?->value, ['supplier_direct_fulfilled', 'ready_for_allocation'], true)) {
                         throw ValidationException::withMessages(['items' => 'Supplier-direct lines require verified delivery before reservation.']);
                     }
                     continue;

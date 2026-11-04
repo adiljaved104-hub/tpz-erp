@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: manual-sourcing-qa-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   phpunit:
     name: PHP 8.3 PHPUnit (SQLite suite)
@@ -55,7 +59,10 @@ jobs:
         run: npm ci
       - name: Build Vite assets before UI tests
         run: npm run build
+      - name: Run targeted automatic manual-sourcing shipment tests
+        run: php artisan test --filter=ManualSourcingAtomicShipmentTest --no-ansi
       - name: Run complete PHPUnit suite
+        if: always()
         run: php artisan test --no-ansi
 
   mysql-migrations:

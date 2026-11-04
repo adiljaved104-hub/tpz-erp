@@ -23,7 +23,7 @@ use Illuminate\Validation\ValidationException;
 
 class ManualSourcingService
 {
-    public function __construct(private readonly ReferenceSequenceService $references, private readonly ActivityLogger $activity, private readonly WebSalesAuthorization $authorization) {}
+    public function __construct(private readonly ReferenceSequenceService $references, private readonly ActivityLogger $activity, private readonly WebSalesAuthorization $authorization, private readonly OrderLineFulfillmentService $lineFulfillments) {}
 
     /** @param array<int, OrderItemData> $items */
     public function materializeItems(array $items, User $actor): array
@@ -181,6 +181,7 @@ class ManualSourcingService
                 'line_id' => $line->id, 'quantity' => $quantity, 'supplier_reference' => $supplierReference,
                 'evidence' => $evidence, 'confirmed_by_user_id' => $actor->id, 'confirmed_at' => now(),
             ]);
+            $this->lineFulfillments->recordSupplierDirectDelivery($line->orderItem, $quantity, $actor, $key, $supplierReference, $evidence);
             if ($event->line_id !== $line->id) throw ValidationException::withMessages(['delivery' => 'The delivery idempotency key belongs to another line.']);
             $total = (int) $line->supplierDirectDeliveries()->sum('quantity');
             $line->forceFill(['status' => $total >= (int) $line->quantity ? ManualSourcingStatus::SupplierDirectFulfilled : ManualSourcingStatus::ReceiptPending, 'fulfilled_at' => $total >= (int) $line->quantity ? now() : null, 'metadata' => array_merge($line->metadata ?? [], ['supplier_direct_confirmed_by' => $actor->id, 'delivered_quantity' => $total])])->save();

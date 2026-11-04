@@ -134,6 +134,11 @@ class StockTransferAdvancedService
         if ($quantity < 1 || ! $transfer->items()->whereKey($itemId)->exists()) {
             throw ValidationException::withMessages(['loss' => 'Select a valid positive quantity for a transfer item.']);
         }
+        $item = $transfer->items()->findOrFail($itemId);
+        $alreadyReported = (int) $item->marketplaceLosses()->whereIn('status', ['pending', 'investigating', 'claim_submitted', 'reimbursed', 'rejected', 'resolved'])->sum('quantity');
+        if ($quantity + $alreadyReported > (int) $item->received_quantity) {
+            throw ValidationException::withMessages(['loss' => 'Marketplace loss cannot exceed the quantity physically received at destination.']);
+        }
         return StockTransferMarketplaceLoss::query()->firstOrCreate(['idempotency_key' => $key], [
             'stock_transfer_id' => $transfer->id, 'stock_transfer_item_id' => $itemId, 'quantity' => $quantity,
             'status' => 'pending', 'marketplace_reference' => $marketplaceReference, 'notes' => $notes,

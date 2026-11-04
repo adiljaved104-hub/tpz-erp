@@ -72,6 +72,40 @@ class ViewStockTransfer extends ViewRecord
                 ->schema([$this->quantityLines('receive')])
                 ->visible(fn (): bool => $this->record->status === StockTransferStatus::Dispatched && auth()->user()->can('receive', $this->record))
                 ->action(fn (array $data) => $this->runTransferAction('Cannot receive transfer quantities', fn () => app(StockTransferAdvancedService::class)->receive($this->record, $this->lineQuantities($data), (string) str()->uuid(), auth()->user()))),
+            Action::make('reportMarketplaceLoss')
+                ->label('Report Marketplace Loss')->color('danger')
+                ->schema([
+                    Select::make('item_id')->label('Received item')->options(fn (): array => $this->record->items()->where('received_quantity', '>', 0)->get()->mapWithKeys(fn ($item): array => [$item->id => "{$item->sku} — received {$item->received_quantity}"])->all())->required(),
+                    TextInput::make('quantity')->numeric()->integer()->minValue(1)->required(),
+                    TextInput::make('marketplace_reference')->label('Marketplace reference')->maxLength(255),
+                    Textarea::make('notes')->maxLength(2000),
+                ])
+                ->visible(fn (): bool => $this->record->status === StockTransferStatus::Received && auth()->user()->can('receive', $this->record))
+                ->action(fn (array $data) => $this->runTransferAction('Cannot report marketplace loss', fn () => app(StockTransferAdvancedService::class)->reportMarketplaceLoss($this->record, (int) $data['item_id'], (int) $data['quantity'], (string) str()->uuid(), auth()->user(), $data['marketplace_reference'] ?? null, $data['notes'] ?? null))),
+            Action::make('investigateMarketplaceLoss')
+                ->label('Start Loss Investigation')->color('warning')
+                ->schema([Textarea::make('notes')->maxLength(2000)])
+                ->visible(fn (): bool => auth()->user()->can('receive', $this->record) && $this->record->marketplaceLosses()->where('status', 'pending')->exists())
+                ->action(fn (array $data) => $this->runTransferAction('Cannot start loss investigation', function () use ($data) {
+                    $loss = $this->record->marketplaceLosses()->where('status', 'pending')->oldest('id')->firstOrFail();
+                    return app(StockTransferAdvancedService::class)->investigateMarketplaceLoss($loss, auth()->user(), $data['notes'] ?? null);
+                })),
+            Action::make('submitMarketplaceClaim')
+                ->label('Submit Marketplace Claim')->color('primary')
+                ->schema([TextInput::make('claim_reference')->required()->maxLength(255), TextInput::make('claim_amount')->numeric()->minValue(0), Textarea::make('notes')->maxLength(2000)])
+                ->visible(fn (): bool => auth()->user()->can('receive', $this->record) && $this->record->marketplaceLosses()->where('status', 'investigating')->exists())
+                ->action(fn (array $data) => $this->runTransferAction('Cannot submit marketplace claim', function () use ($data) {
+                    $loss = $this->record->marketplaceLosses()->where('status', 'investigating')->oldest('id')->firstOrFail();
+                    return app(StockTransferAdvancedService::class)->submitMarketplaceClaim($loss, auth()->user(), $data['claim_reference'], $data['notes'] ?? null, $data['claim_amount'] ?? null);
+                })),
+            Action::make('closeMarketplaceClaim')
+                ->label('Close Marketplace Claim')->color('success')
+                ->schema([Select::make('outcome')->options(['reimbursed' => 'Reimbursed', 'rejected' => 'Rejected', 'resolved' => 'Resolved'])->required(), TextInput::make('reimbursed_amount')->numeric()->minValue(0), Textarea::make('notes')->maxLength(2000)])
+                ->visible(fn (): bool => auth()->user()->can('receive', $this->record) && $this->record->marketplaceLosses()->where('status', 'claim_submitted')->exists())
+                ->action(fn (array $data) => $this->runTransferAction('Cannot close marketplace claim', function () use ($data) {
+                    $loss = $this->record->marketplaceLosses()->where('status', 'claim_submitted')->oldest('id')->firstOrFail();
+                    return app(StockTransferAdvancedService::class)->closeMarketplaceClaim($loss, auth()->user(), $data['outcome'], $data['notes'] ?? null, $data['reimbursed_amount'] ?? null);
+                })),
             Action::make('cancel')
                 ->label('Cancel Draft')
                 ->color('danger')

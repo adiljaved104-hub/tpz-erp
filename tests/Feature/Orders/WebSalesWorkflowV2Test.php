@@ -96,6 +96,74 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertSame(12, $description->getColumnSpan('lg'));
     }
 
+    public function test_manual_sourcing_reuses_existing_catalog_sku_without_touching_zero_stock(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        $inventory->forceFill(['available_quantity' => 0, 'reserved_quantity' => 0])->save();
+        $initialProducts = Product::query()->count();
+
+        $this->actingAs($owner);
+        $page = Livewire::test(CreateWebSalesOrder::class)->fillForm(['items' => [[
+            'source_type' => 'manual_sourced',
+            'product_id' => $product->id,
+            'quantity' => 2,
+            'selling_price' => '1700.00',
+        ]]])->assertOk();
+        $fields = collect($page->instance()->form->getFlatFields(withHidden: true));
+        $productField = $fields->first(fn ($field): bool => $field->getName() === 'product_id');
+        $this->assertArrayHasKey($product->id, $productField->getSearchResults($product->sku));
+
+        $data = new WebSalesOrderData(
+            customerName: 'Manual sourcing catalog reuse',
+            customerPhone: '+971501112233',
+            channel: WebSalesChannel::WhatsApp,
+            deliveryType: WebSalesDeliveryType::Courier,
+            courierName: 'UAT courier',
+            trackingNumber: 'UAT-123',
+            items: [new OrderItemData(
+                $product->id, 2, '1700.00',
+                sourceType: 'manual_sourced',
+                supplierId: null,
+                sourceMode: 'supplier_direct',
+                actualUnitCost: '1200.0000',
+                purchaseCurrency: 'AED',
+                purchasedOn: today()->toDateString(),
+            )],
+            idempotencyKey: (string) Str::uuid(),
+        );
+
+        $order = app(WebSalesService::class)->createConfirmed($data, $owner);
+        $line = $order->manualSourcingLines()->sole();
+        $orderItem = $order->items()->sole();
+
+        $this->assertSame($initialProducts, Product::query()->count());
+        $this->assertSame($product->id, (int) $line->product_id);
+        $this->assertSame($product->sku, $orderItem->sku);
+        $this->assertSame($product->name, $line->description);
+        $this->assertSame(2, (int) $line->quantity);
+        $this->assertSame('1200.0000', (string) $line->actual_unit_cost);
+        $this->assertSame(0, (int) $inventory->refresh()->available_quantity);
+        $this->assertSame(0, (int) $inventory->reserved_quantity);
+    }
+
+    public function test_manual_sourcing_does_not_accept_an_unknown_existing_product_id(): void
+    {
+        [$owner] = $this->foundation();
+        $data = new WebSalesOrderData(
+            customerName: 'Invalid catalog reuse',
+            customerPhone: '+971501112233',
+            channel: WebSalesChannel::WhatsApp,
+            deliveryType: WebSalesDeliveryType::Courier,
+            courierName: 'UAT courier',
+            trackingNumber: 'UAT-124',
+            items: [new OrderItemData(99999999, 1, '1500.00', sourceType: 'manual_sourced')],
+            idempotencyKey: (string) Str::uuid(),
+        );
+
+        $this->expectException(ValidationException::class);
+        app(WebSalesService::class)->createConfirmed($data, $owner);
+    }
+
     public function test_web_sale_can_be_created_with_blank_address_and_detail_renders(): void
     {
         [$owner, , $product, $inventory] = $this->foundation();

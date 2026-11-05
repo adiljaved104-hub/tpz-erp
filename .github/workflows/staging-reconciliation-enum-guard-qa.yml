@@ -1,0 +1,37 @@
+name: Staging marketplace removal reconciliation guard QA (non-deploying)
+
+on:
+  push:
+    branches:
+      - codex/staging-reconcile-enum-guard-hotfix-20261105
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run-guard-source-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Guard isolated Staging patch
+        run: |
+          git merge-base --is-ancestor f8e6262a6de70dc81a9e4f4b2de062c7fbf4ec8d HEAD
+          git diff --name-only f8e6262a6de70dc81a9e4f4b2de062c7fbf4ec8d HEAD | sort > /tmp/paths
+          cat /tmp/paths
+          test "$(wc -l < /tmp/paths)" -eq 2
+          grep -qx 'scripts/deployment/Reconcile-Staging-MarketplaceRemoval-20261105.php' /tmp/paths
+          grep -qx '.github/workflows/staging-reconciliation-enum-guard-qa.yml' /tmp/paths
+          test -z "$(git diff --name-only f8e6262a6de70dc81a9e4f4b2de062c7fbf4ec8d HEAD -- app database composer.json composer.lock)"
+      - name: Verify PHP syntax and canonical enum guard
+        run: |
+          php -l scripts/deployment/Reconcile-Staging-MarketplaceRemoval-20261105.php
+          grep -Fq 'MarketplaceRemovalSourceStockType::Sellable->value' scripts/deployment/Reconcile-Staging-MarketplaceRemoval-20261105.php
+          ! grep -Fq "source_stock_type !== 'sellable'" scripts/deployment/Reconcile-Staging-MarketplaceRemoval-20261105.php
+          echo 'RECONCILIATION_ENUM_GUARD_QA=PASS'

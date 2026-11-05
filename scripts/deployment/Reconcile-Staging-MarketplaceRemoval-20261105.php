@@ -153,7 +153,7 @@ $report = DB::transaction(function () use ($apply, $caseEvent, $caseMarker): arr
         || $originalAllocation->event_type !== 'warehouse_transfer_receipt'
         || (int) $originalAllocation->quantity !== 5 || (int) $originalAllocation->to_account_id !== 1
         || (int) $removalItem->source_product_inventory_id !== 77
-        || $removalItem->source_stock_type !== 'sellable'
+        || $removalItem->source_stock_type !== \App\Enums\MarketplaceRemovalSourceStockType::Sellable->value
         || (int) $removalItem->quantity !== 5 || (int) $removalItem->dispatched_quantity !== 5) {
         throw new RuntimeException('Historical movement and removal provenance mismatch. STOP.');
     }

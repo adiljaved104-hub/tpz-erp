@@ -548,6 +548,40 @@ class InventoryAdjustmentTest extends TestCase
         $this->assertSame(1, $other->refresh()->available_quantity);
     }
 
+    public function test_adjustment_grid_filters_column_visibility_and_top_save_all_do_not_post_inventory(): void
+    {
+        [$owner] = $this->receivedPurchase();
+        $inventory = ProductInventory::query()->sole();
+        $quantity = (int) $inventory->available_quantity;
+        $this->actingAs($owner);
+
+        $page = Livewire::test(StockAdjustments::class)
+            ->assertSee('Show / Hide Columns')
+            ->assertSee('Clear filters')
+            ->assertSee('Sort by')
+            ->assertSee('Save All')
+            ->set('search', 'unknown-sku-no-match')
+            ->set('stockFilter', 'zero')
+            ->call('resetFilters')
+            ->assertSet('search', '')
+            ->assertSet('stockFilter', '')
+            ->set('visibleColumns', ['brand', 'warehouse'])
+            ->assertSee('Adjustment Type')
+            ->assertSee('New Purchase?')
+            ->assertSee('Status')
+            ->set('sortBy', 'low_stock')
+            ->assertSet('sortBy', 'low_stock');
+        $this->assertSame(9, $page->instance()->visibleColumnCount());
+
+        $page->set("drafts.{$inventory->id}.type", 'saleable_decrease')
+            ->assertSet("drafts.{$inventory->id}.selected", true);
+        $this->assertTrue($page->instance()->columnVisible('holder'),
+            'Holder selector must remain accessible while an adjustment is drafted.');
+        $page->call('resetFilters');
+        $this->assertSame($quantity, (int) $inventory->refresh()->available_quantity);
+        $this->assertDatabaseCount('inventory_adjustments', 0);
+    }
+
     public function test_grid_loads_scoped_rows_and_true_stock_and_holder_values(): void
     {
         [$owner] = $this->receivedPurchase();

@@ -21,14 +21,17 @@ use App\Services\Qc\QcStockTransferReadinessService;
 use App\Services\StockTransfers\StockTransferAdvancedService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Support\Exceptions\Halt;
 use Throwable;
+use Illuminate\Validation\ValidationException;
 
 class ViewStockTransfer extends ViewRecord
 {
@@ -195,15 +198,73 @@ class ViewStockTransfer extends ViewRecord
 
     private function quantityLines(string $mode): Repeater
     {
-        return Repeater::make('lines')->label(ucfirst($mode).' quantities')->defaultItems(0)->schema([
-            Hidden::make('item_id')->required(),
-            TextInput::make('quantity')->numeric()->integer()->minValue(1)->required(),
-        ])->default($this->record->items()->get()->map(fn ($item): array => ['item_id' => $item->id, 'quantity' => $mode === 'ship' ? max(0, $item->quantity - $item->dispatched_quantity) : max(0, $item->inTransitQuantity())])->filter(fn (array $line): bool => $line['quantity'] > 0)->values()->all());
+        return Repeater::make('lines')
+            ->label($mode === 'ship' ? 'Ship quantities by product' : 'Receive quantities by product')
+            ->schema([
+                Hidden::make('item_id')->required(),
+                Placeholder::make('product_identity')
+                    ->label('Product / SKU')
+                    ->content(function (Get $get): string {
+                        $item = $this->record->items()->find((int) $get('item_id'));
+
+                        return $item === null ? 'Unknown transfer line' : "{$item->sku} · {$item->product_name}";
+                    })->columnSpanFull(),
+                Placeholder::make('quantity_context')
+                    ->label('Transfer quantities')
+                    ->content(function (Get $get) use ($mode): string {
+                        $item = $this->record->items()->find((int) $get('item_id'));
+                        if ($item === null) {
+                            return 'Transfer line is not available.';
+                        }
+                        $eligible = $mode === 'ship'
+                            ? max(0, (int) $item->quantity - (int) $item->dispatched_quantity)
+                            : max(0, $item->inTransitQuantity());
+
+                        return "Requested: {$item->quantity} · Shipped: {$item->dispatched_quantity} · Received: {$item->received_quantity} · Eligible now: {$eligible}";
+                    })->columnSpanFull(),
+                TextInput::make('quantity')
+                    ->label($mode === 'ship' ? 'Ship Now' : 'Receive Now')
+                    ->numeric()->integer()->minValue(0)->required()
+                    ->maxValue(function (Get $get) use ($mode): int {
+                        $item = $this->record->items()->find((int) $get('item_id'));
+
+                        return $item === null ? 0 : ($mode === 'ship'
+                            ? max(0, (int) $item->quantity - (int) $item->dispatched_quantity)
+                            : max(0, $item->inTransitQuantity()));
+                    }),
+            ])->columns(1)
+            ->default($this->record->items()->get()->map(function ($item) use ($mode): array {
+                $eligible = $mode === 'ship'
+                    ? max(0, $item->quantity - $item->dispatched_quantity)
+                    : max(0, $item->inTransitQuantity());
+
+                return ['item_id' => $item->id, 'quantity' => $eligible];
+            })->filter(fn (array $line): bool => $line['quantity'] > 0)->values()->all())
+            ->addable(false)->deletable(false)->reorderable(false);
     }
 
     /** @return array<int,int> */
     private function lineQuantities(array $data): array
     {
-        return collect($data['lines'] ?? [])->mapWithKeys(fn (array $line): array => [(int) $line['item_id'] => (int) $line['quantity']])->all();
+        $items = $this->record->items()->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        $quantities = [];
+
+        foreach ((array) ($data['lines'] ?? []) as $line) {
+            $id = (int) ($line['item_id'] ?? 0);
+            $qty = (int) ($line['quantity'] ?? 0);
+
+            if (! in_array($id, $items, true) || array_key_exists($id, $quantities) || $qty < 0) {
+                throw ValidationException::withMessages(['lines' => 'Transfer quantities contain an invalid or duplicate product line.']);
+            }
+            if ($qty > 0) {
+                $quantities[$id] = $qty;
+            }
+        }
+
+        if ($quantities === []) {
+            throw ValidationException::withMessages(['lines' => 'Enter a positive quantity for at least one product.']);
+        }
+
+        return $quantities;
     }
 }

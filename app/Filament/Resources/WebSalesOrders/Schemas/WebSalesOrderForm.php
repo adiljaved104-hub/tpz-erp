@@ -73,7 +73,7 @@ class WebSalesOrderForm
                         ->getOptionLabelUsing(fn ($value): ?string => self::productLabel((int) $value))
                         ->required(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->live()->visible(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->columnSpanFull()
                         ->afterStateUpdated(fn ($state, Set $set) => self::productChanged($state, $set))
-                        ->helperText(fn (Get $get): string => 'Only products with available sellable Main Warehouse stock are shown.'.($get('stock_context') ? ' '.$get('stock_context') : '')),
+                        ->helperText(fn (Get $get): string => 'Catalog search shows current Main Warehouse sellable stock, including zero-stock items. Stock shortages cannot be shipped from existing inventory.'.($get('stock_context') ? ' '.$get('stock_context') : '')),
                     TextInput::make('manual_description')->label('Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpanFull(),
                     Select::make('manual_brand')->label('Brand')->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3]),
                     Select::make('manual_category')->label('Category')->options(fn (): array => ProductCategory::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()
@@ -196,7 +196,9 @@ class WebSalesOrderForm
         $warehouse = app(DefaultWarehouseService::class)->operationalDefault();
         $inventory = ProductInventory::query()->where('warehouse_id', $warehouse->id)->where('product_id', $product->id)->first();
         $sellable = $inventory?->sellableQuantity() ?? 0;
-        $set('stock_context', "Available: {$sellable}");
+        $set('stock_context', $sellable > 0
+            ? "Available: {$sellable} at Main Warehouse."
+            : 'Available: 0 at Main Warehouse. This catalog item cannot be reserved; source it through the Manual Sourced Product workflow.');
         $set('sales_configuration_id', null);
         $set('upgrade_recipe_id', null);
         $set('allocation_sources', []);

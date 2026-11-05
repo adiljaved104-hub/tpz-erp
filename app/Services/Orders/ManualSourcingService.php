@@ -43,6 +43,14 @@ class ManualSourcingService
                 return $item;
             }
 
+            // The sales employee may select a registered Supplier, provide
+            // an informal name, or leave both blank (Quick Purchase parity).
+            // Never turn a free-text name into a master Supplier without the
+            // separate Supplier Manage permission and explicit creation.
+            if (filled($item->supplierName) && ($item->supplierId !== null || mb_strlen(trim($item->supplierName)) > 255)) {
+                throw ValidationException::withMessages(['supplier_name' => 'Enter either an existing Supplier or a supplier name of at most 255 characters.']);
+            }
+
             if ($item->productId > 0) {
                 // Manual sourcing may purchase a catalog product with no
                 // sellable stock. Reuse its actual SKU and immutable identity
@@ -71,6 +79,7 @@ class ManualSourcingService
                     $product->model, $condition, $item->supplierId,
                     $item->sourceMode, $item->actualUnitCost,
                     $item->purchaseCurrency, $item->purchasedOn,
+                    filled($item->supplierName) ? trim($item->supplierName) : null,
                 );
             }
 
@@ -110,7 +119,7 @@ class ManualSourcingService
                 $this->activity->log('product.created', $actor, $product, ['source' => 'web_sales_manual_sourcing']);
             }
 
-            return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $category, $item->manualModel, $condition, $item->supplierId, $item->sourceMode, $item->actualUnitCost, $item->purchaseCurrency, $item->purchasedOn);
+            return new OrderItemData($product->id, $item->quantity, $item->sellingPrice, $item->discountTotal, $item->vatRate, $item->notes, $item->salesConfigurationId, $item->upgradeRecipeId, $item->allocationSources, 'manual_sourced', $item->manualDescription, $item->manualBrand, $category, $item->manualModel, $condition, $item->supplierId, $item->sourceMode, $item->actualUnitCost, $item->purchaseCurrency, $item->purchasedOn, filled($item->supplierName) ? trim($item->supplierName) : null);
         }, $items, array_keys($items)), 5);
     }
 
@@ -130,7 +139,10 @@ class ManualSourcingService
                 'selling_price_snapshot' => $item->sellingPrice, 'quantity' => $item->quantity, 'supplier_id' => $item->supplierId,
                 'actual_unit_cost' => $item->actualUnitCost, 'purchase_currency' => $item->purchaseCurrency,
                 'purchased_on' => $item->purchasedOn,
-                'materialized_at' => now(), 'metadata' => ['created_by_user_id' => $actor->id],
+                'materialized_at' => now(), 'metadata' => [
+                    'created_by_user_id' => $actor->id,
+                    'supplier_name' => filled($item->supplierName) ? trim($item->supplierName) : null,
+                ],
             ]);
         }
     }

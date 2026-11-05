@@ -45,17 +45,17 @@
             <details class="relative text-sm">
                 <summary class="cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-medium dark:border-white/20">Show / Hide Columns</summary>
                 <div class="absolute right-0 z-20 mt-2 grid w-56 gap-2 rounded-lg border border-gray-200 bg-white p-3 shadow-lg dark:border-white/20 dark:bg-gray-900">
-                    @foreach (['brand' => 'Brand', 'warehouse' => 'Warehouse', 'saleable' => 'Saleable', 'damaged' => 'Damaged', 'reserved' => 'Reserved', 'holder' => 'Stock Holders', 'new_purchase' => 'New Purchase?', 'status' => 'Status'] as $key => $label)
+                    @foreach (['brand' => 'Brand', 'warehouse' => 'Warehouse', 'saleable' => 'Saleable', 'damaged' => 'Damaged', 'reserved' => 'Reserved', 'holder' => 'Stock Holders'] as $key => $label)
                         <label class="flex items-center gap-2"><input type="checkbox" wire:model.live="visibleColumns" value="{{ $key }}" class="rounded border-gray-300" />{{ $label }}</label>
                     @endforeach
-                    <p class="text-xs text-gray-500">Product, selection and adjustment inputs stay visible for safe posting.</p>
+                    <p class="text-xs text-gray-500">Product, adjustment fields, purchase choice and status always remain visible.</p>
                 </div>
             </details>
         </div>
 
         <form wire:submit="saveAll" class="space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
-                <p class="text-xs text-gray-500">Edits remain in this grid until saved. Filtering or changing pages does not submit stock.</p>
+                <p class="text-xs text-gray-500">Current stock holders reflect existing allocation; changing Adjustment Type does not reassign ownership. Save All posts selected drafts.</p>
                 <x-filament::button type="submit" :disabled="! $mayAdjust" wire:loading.attr="disabled" wire:target="saveAll">Save All</x-filament::button>
             </div>
             <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
@@ -105,8 +105,9 @@
                                 @endif
                                 @if ($this->columnVisible('holder'))
                                 <td class="px-2 py-3 text-xs">
+                                    <div class="mb-2 text-xs text-gray-500">Current allocation: @forelse ($row->holder_labels as $holderLabel)<span class="mr-1 inline-block">{{ $holderLabel }}</span>@empty No recorded holder @endforelse</div>
                                     @if ($this->shouldSelectAdjustmentHolder($row, $draft['type'] ?? null))
-                                        <label class="mb-1 block text-xs font-medium">Original stock holder</label>
+                                        <label class="mb-1 block text-xs font-medium">{{ $increase ? 'Credit stock to' : 'Adjust stock from' }}</label>
                                         <x-filament::input.wrapper>
                                             <x-filament::input.select wire:model.live="drafts.{{ $row->id }}.allocation_account_id" :disabled="! $mayAdjust">
                                                 <option value="">Select holder</option>
@@ -118,8 +119,6 @@
                                         @if ($this->requiresScopedHolderTarget($row) && $this->stockAdjustmentHolderOptions($row, $draft['type'] ?? null) === [])
                                             <span class="mt-1 block text-danger-600">Holder access must be enabled on this warehouse grant.</span>
                                         @endif
-                                    @else
-                                        @forelse ($row->holder_labels as $holderLabel)<span class="mr-1 inline-block">{{ $holderLabel }}</span>@empty<span class="text-gray-500">No allocation holder</span>@endforelse
                                     @endif
                                 </td>
                                 @endif
@@ -134,7 +133,7 @@
                                 @endif
                             </tr>
                         @empty
-                            <tr><td colspan="13" class="px-4 py-8 text-center text-gray-500">No stock rows match your Responsibility scope and filters.</td></tr>
+                            <tr><td colspan="{{ $this->visibleColumnCount() }}" class="px-4 py-8 text-center text-gray-500">No stock rows match your Responsibility scope and filters.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

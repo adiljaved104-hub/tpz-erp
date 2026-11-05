@@ -24,10 +24,14 @@ use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Orders\ManualSourcingService;
+use App\Services\Orders\OrderAmendmentService;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -35,6 +39,7 @@ use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -48,6 +53,77 @@ class ViewWebSalesOrder extends ViewRecord
     {
         return [
             ...$this->qcOrderActions(),
+            Action::make('editWebSale')
+                ->label('Edit Web Sale')
+                ->icon('heroicon-o-pencil-square')
+                ->color('primary')
+                ->modalHeading('Edit Web Sale')
+                ->modalDescription('Update customer information before shipment. Existing product, stock allocation, purchase and invoice records are preserved.')
+                ->fillForm(fn (): array => $this->record->only(['customer_name', 'customer_phone', 'customer_address', 'notes']))
+                ->schema([
+                    TextInput::make('customer_name')->label('Customer Name')->required()->maxLength(255),
+                    TextInput::make('customer_phone')->label('WhatsApp / Phone')->tel()->required()->maxLength(50),
+                    Textarea::make('customer_address')->label('Customer Address')->maxLength(2000),
+                    Textarea::make('notes')->label('Internal Notes')->maxLength(2000),
+                ])
+                ->visible(fn (): bool => $this->canEditWebSale())
+                ->action(fn (array $data) => $this->run('Could not edit Web Sale',
+                    fn () => app(WebSalesService::class)->updateDetails($this->record, $data, auth()->user()))),
+            Action::make('amendWebSaleItems')
+                ->label('Amend Products / Prices')
+                ->icon('heroicon-o-pencil')
+                ->modalHeading('Controlled Web Sale Amendment')
+                ->modalDescription('Change quantities or selling prices while the stock-reserved Web Sale remains unshipped. Quantity increases must include additional allocation sources. Every change is audited.')
+                ->visible(fn (): bool => $this->allowed(WebSalesPermission::Update)
+                    && ! $this->record->taxInvoices()->exists()
+                    && ! $this->record->manualSourcingLines()->exists()
+                    && auth()->user() instanceof User
+                    && app(OrderAmendmentService::class)->canAmend($this->record, auth()->user()))
+                ->fillForm(function (): array {
+                    $canPrice = app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $this->record)
+                        && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $this->record);
+
+                    return [
+                        'items' => $this->record->items()->orderBy('line_number')->get()->map(fn ($item): array => [
+                            'id' => $item->id,
+                            'product' => $item->sku.' · '.$item->product_name,
+                            'product_id' => $item->product_id,
+                            'quantity' => $item->ordered_quantity,
+                            'allocation_sources' => [],
+                            ...($canPrice ? ['selling_price' => $item->selling_price] : []),
+                        ])->all(),
+                        'idempotency_key' => (string) Str::uuid(),
+                    ];
+                })
+                ->schema([
+                    Hidden::make('idempotency_key'),
+                    Repeater::make('items')->label('Existing Products')->schema([
+                        Hidden::make('id'),
+                        Hidden::make('product_id'),
+                        TextInput::make('product')->label('Product')->disabled()->dehydrated(false),
+                        TextInput::make('quantity')->label('Quantity')->numeric()->integer()->minValue(1)->required(),
+                        TextInput::make('selling_price')->label('Selling Price (AED)')->numeric()->minValue(0)
+                            ->visible(fn (): bool => app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $this->record)
+                                && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $this->record)),
+                        Repeater::make('allocation_sources')->label('Additional Stock Sources')
+                            ->visible(fn (): bool => app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
+                            ->dehydrated(fn (): bool => app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
+                            ->helperText('When increasing quantity, the additional source quantities must match the increase.')
+                            ->schema([
+                                Select::make('account_id')->label('Consume From')
+                                    ->options(fn (Get $get): array => app(InventoryAllocationService::class)->orderSourceOptions(
+                                        (int) $get('../../product_id'), (int) $this->record->warehouse_id, auth()->user()))
+                                    ->required()->searchable()->disableOptionsWhenSelectedInSiblingRepeaterItems(),
+                                TextInput::make('quantity')->label('Additional Quantity')->numeric()->integer()->minValue(1)->required(),
+                            ])->columns(2)->defaultItems(0)->addActionLabel('Add Stock Source'),
+                    ])->addable(false)->deletable(false)->reorderable(false),
+                    Textarea::make('reason')->label('Reason for amendment')->required()->minLength(5)->maxLength(2000),
+                ])
+                ->action(fn (array $data) => $this->run('Could not amend Web Sale', function () use ($data) {
+                    app(OrderAmendmentService::class)->amend($this->record, $data, auth()->user());
+
+                    return $this->record->refresh();
+                })),
             Action::make('assignManualSourcingSupplier')
                 ->label('Set Manual Sourcing Supplier')
                 ->icon('heroicon-o-user-circle')
@@ -146,6 +222,16 @@ class ViewWebSalesOrder extends ViewRecord
             Notification::make()->danger()->title($title)->body($exception instanceof ValidationException ? collect($exception->errors())->flatten()->join(' ') : $exception->getMessage())->send();
             throw new Halt;
         }
+    }
+
+    private function canEditWebSale(): bool
+    {
+        return $this->allowed(WebSalesPermission::Update)
+            && in_array($this->record->status, [
+                OrderStatus::Draft, OrderStatus::Reserved, OrderStatus::PendingReview, OrderStatus::Confirmed,
+            ], true)
+            && ! $this->record->fulfillment()->exists()
+            && ! $this->record->taxInvoices()->exists();
     }
 
     private function allowed(WebSalesPermission $permission): bool

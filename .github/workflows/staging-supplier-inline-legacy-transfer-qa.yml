@@ -55,7 +55,7 @@ jobs:
           git merge-base --is-ancestor 25a0fafa65e3325825b84f606a8264f5c3a5622d HEAD
           git diff --name-only 25a0fafa65e3325825b84f606a8264f5c3a5622d HEAD > /tmp/paths
           cat /tmp/paths
-          test "$(wc -l < /tmp/paths)" -eq 10
+          test "$(wc -l < /tmp/paths)" -eq 11
           grep -qx 'app/DTOs/Orders/OrderItemData.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Pages/CreateWebSalesOrder.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderForm.php' /tmp/paths
@@ -64,6 +64,7 @@ jobs:
           grep -qx 'app/Filament/Resources/StockTransfers/Pages/ViewStockTransfer.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Pages/ViewWebSalesOrder.php' /tmp/paths
           grep -qx 'tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php' /tmp/paths
+          grep -qx 'tests/Feature/Orders/WebSalesWorkflowV2Test.php' /tmp/paths
           grep -qx 'tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php' /tmp/paths
           grep -qx '.github/workflows/staging-supplier-inline-legacy-transfer-qa.yml' /tmp/paths
           test -z "$(git diff --name-only 25a0fafa65e3325825b84f606a8264f5c3a5622d HEAD -- database/migrations composer.json composer.lock)"

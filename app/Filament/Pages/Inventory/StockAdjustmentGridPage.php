@@ -118,6 +118,40 @@ abstract class StockAdjustmentGridPage extends Page
         $this->resetPage();
     }
 
+    public function updatedPerPage(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedSortBy(): void
+    {
+        $this->resetPage();
+    }
+
+    public function resetFilters(): void
+    {
+        $this->search = '';
+        $this->brand = '';
+        $this->warehouse = '';
+        $this->holder = '';
+        $this->stockFilter = '';
+        $this->sortBy = 'sku';
+        $this->resetPage();
+    }
+
+    public function columnVisible(string $column): bool
+    {
+        return in_array($column, $this->visibleColumns, true);
+    }
+
+    public function visibleColumnCount(): int
+    {
+        return 5 + count(array_intersect(
+            $this->visibleColumns,
+            ['brand', 'warehouse', 'saleable', 'damaged', 'reserved', 'holder', 'new_purchase', 'status'],
+        ));
+    }
+
     public function updatedDrafts(mixed $value, string $key): void
     {
         $id = (int) explode('.', $key)[0];

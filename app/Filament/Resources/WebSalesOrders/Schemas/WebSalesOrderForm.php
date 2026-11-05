@@ -75,21 +75,21 @@ class WebSalesOrderForm
                         ->afterStateUpdated(fn ($state, Set $set) => self::productChanged($state, $set))
                         ->helperText(fn (Get $get): string => 'Catalog search shows current Main Warehouse sellable stock, including zero-stock items. Stock shortages cannot be shipped from existing inventory.'.($get('stock_context') ? ' '.$get('stock_context') : '')),
                     TextInput::make('manual_description')->label('Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12]),
-                    Select::make('manual_brand')->label('Brand')->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3]),
+                    Select::make('manual_brand')->label('Brand')->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
                     Select::make('manual_category')->label('Category')->options(fn (): array => ProductCategory::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()
                         ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')
-                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3]),
-                    TextInput::make('manual_model')->label('Model')->maxLength(160)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3]),
-                    Select::make('manual_condition')->label('Condition')->options(ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3]),
-                    Select::make('supplier_id')->label('Supplier')->options(fn (): array => Supplier::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4]),
-                    TextInput::make('actual_unit_cost')->label('Actual Purchase Cost')->prefix('AED')->numeric()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4])->rule('regex:/^\d{1,13}(?:\.\d{1,4})?$/'),
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
+                    TextInput::make('manual_model')->label('Model')->maxLength(160)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
+                    Select::make('manual_condition')->label('Condition')->options(ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
+                    Select::make('supplier_id')->label('Supplier')->options(fn (): array => Supplier::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
+                    TextInput::make('actual_unit_cost')->label('Actual Purchase Cost')->prefix('AED')->numeric()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4])->rule('regex:/^\d{1,13}(?:\.\d{1,4})?$/'),
                     Hidden::make('purchase_currency')->default('AED')->dehydrated(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
-                    TextInput::make('purchased_on')->label('Purchase Date')->type('date')->default(now()->toDateString())->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4]),
+                    TextInput::make('purchased_on')->label('Purchase Date')->type('date')->default(now()->toDateString())->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
                     Hidden::make('source_mode')->default('supplier_direct')->dehydrated(),
-                    TextInput::make('quantity')->numeric()->integer()->minValue(1)->default(1)->required()->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 4]),
+                    TextInput::make('quantity')->numeric()->integer()->minValue(1)->default(1)->required()->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
                     TextInput::make('selling_price')->label('Selling Price')->prefix('AED')->required()
-                        ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 4]),
-                    Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get))->columnSpan(['default' => 1, 'md' => 4]),
+                        ->rule('regex:/^\d{1,13}(?:\.\d{1,2})?$/')->live(onBlur: true)->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
+                    Placeholder::make('line_total')->label('Line Total')->content(fn (Get $get): string => self::lineTotal($get))->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
                     Repeater::make('allocation_sources')->label('Stock Source / Consume From')
                         ->visible(fn (Get $get): bool => $get('source_type') !== 'manual_sourced' && auth()->user() instanceof User && app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
                         ->dehydrated(fn (Get $get): bool => $get('source_type') !== 'manual_sourced' && auth()->user() instanceof User && app(InventoryAllocationService::class)->canSelectOrderSources(auth()->user()))
@@ -147,7 +147,7 @@ class WebSalesOrderForm
                 Placeholder::make('summary_items')->label('Product Lines')->content(fn (Get $get): int => count((array) $get('items'))),
                 Placeholder::make('summary_quantity')->label('Total Quantity')->content(fn (Get $get): int => self::totalQuantity((array) $get('items'))),
                 Placeholder::make('summary_total')->label('Sale Total')->content(fn (Get $get): string => AedMoney::format(self::saleTotal((array) $get('items')))),
-            ])->columns(['default' => 1, 'md' => 3])->compact(),
+            ])->columns(['default' => 1, 'md' => 3, 'lg' => 3])->compact(),
         ]);
     }
 

@@ -56,11 +56,21 @@ jobs:
           git merge-base --is-ancestor 1944afac8832716869f409f5b32cecd97063d7de HEAD
           git diff --name-only 1944afac8832716869f409f5b32cecd97063d7de HEAD > /tmp/hotfix-files
           cat /tmp/hotfix-files
-          test "$(wc -l < /tmp/hotfix-files)" -eq 4
-          grep -qx 'app/Providers/AppServiceProvider.php' /tmp/hotfix-files
-          grep -qx 'app/Services/StockTransfers/StockTransferAdvancedService.php' /tmp/hotfix-files
-          grep -qx 'tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php' /tmp/hotfix-files
-          grep -qx '.github/workflows/staging-transfer-runtime-hotfix-qa.yml' /tmp/hotfix-files
+          test "$(wc -l < /tmp/hotfix-files)" -eq 11
+          for path in \
+            '.github/workflows/staging-transfer-runtime-hotfix-qa.yml' \
+            'app/Enums/ProductMatchContext.php' \
+            'app/Filament/Resources/StockTransfers/Pages/ViewStockTransfer.php' \
+            'app/Filament/Resources/StockTransfers/Schemas/StockTransferInfolist.php' \
+            'app/Filament/Resources/StockTransfers/Tables/StockTransfersTable.php' \
+            'app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderForm.php' \
+            'app/Providers/AppServiceProvider.php' \
+            'app/Services/StockTransfers/StockTransferAdvancedService.php' \
+            'database/migrations/2026_11_09_090000_allow_pending_marketplace_loss_without_investigation_actors.php' \
+            'tests/Feature/Orders/WebSalesWorkflowV2Test.php' \
+            'tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php'; do
+            grep -qx "$path" /tmp/hotfix-files
+          done
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
@@ -84,5 +94,12 @@ jobs:
           php -l app/Providers/AppServiceProvider.php
           php -l app/Services/StockTransfers/StockTransferAdvancedService.php
           php -l tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php
-      - name: Run focused crash regression tests
-        run: php artisan test --no-ansi tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php
+          php -l app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderForm.php
+          php -l app/Filament/Resources/StockTransfers/Pages/ViewStockTransfer.php
+          php -l app/Filament/Resources/StockTransfers/Tables/StockTransfersTable.php
+          php -l app/Filament/Resources/StockTransfers/Schemas/StockTransferInfolist.php
+          php -l database/migrations/2026_11_09_090000_allow_pending_marketplace_loss_without_investigation_actors.php
+      - name: Rehearse all additive migrations on disposable MySQL 8.4
+        run: php artisan migrate --force --no-ansi
+      - name: Run focused UAT regression tests
+        run: php artisan test --no-ansi tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php tests/Feature/Orders/WebSalesWorkflowV2Test.php

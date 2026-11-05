@@ -69,6 +69,25 @@ class StockTransferUatRuntimeHotfixTest extends TestCase
         $this->assertSame(0, StockMovement::query()->count());
     }
 
+    public function test_pending_marketplace_loss_allows_missing_investigation_and_claim_actor(): void
+    {
+        [$owner, $source, $destination, $product] = $this->foundation();
+        $transfer = $this->draft($owner, $source, $destination, $product, 1);
+        $item = $transfer->items()->firstOrFail();
+
+        $loss = StockTransferMarketplaceLoss::query()->create([
+            'stock_transfer_id' => $transfer->id,
+            'stock_transfer_item_id' => $item->id,
+            'quantity' => 1,
+            'status' => 'pending',
+            'idempotency_key' => (string) Str::uuid(),
+            'reported_by_user_id' => $owner->id,
+        ]);
+
+        $this->assertNull($loss->fresh()->investigating_by_user_id);
+        $this->assertNull($loss->fresh()->claim_submitted_by_user_id);
+    }
+
     public function test_marketplace_loss_has_an_explicit_morph_alias_for_activity_logging(): void
     {
         $this->assertSame('stock_transfer_marketplace_loss', (new StockTransferMarketplaceLoss)->getMorphClass());

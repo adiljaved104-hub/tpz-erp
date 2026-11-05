@@ -558,7 +558,7 @@ class InventoryAdjustmentTest extends TestCase
         $page = Livewire::test(StockAdjustments::class)
             ->assertSee('Show / Hide Columns')
             ->assertSee('Clear filters')
-            ->assertSee('Sort by')
+            ->assertSee('Sort By')
             ->assertSee('Save All')
             ->set('search', 'unknown-sku-no-match')
             ->set('stockFilter', 'zero')

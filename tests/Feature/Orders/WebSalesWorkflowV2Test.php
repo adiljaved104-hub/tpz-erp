@@ -148,6 +148,42 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertSame($supplier->id, (int) $line->refresh()->supplier_id);
     }
 
+    public function test_manual_supplier_name_can_be_entered_on_web_sale_without_creating_a_supplier_master(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        $inventory->forceFill(['available_quantity' => 0, 'reserved_quantity' => 0])->save();
+        $supplierCount = Supplier::query()->count();
+
+        $this->actingAs($owner);
+        $page = Livewire::test(CreateWebSalesOrder::class)->fillForm([
+            'customer_name' => 'Quick supplier name entry test',
+            'customer_phone' => '+971501112233',
+            'web_sales_channel' => 'whatsapp',
+            'delivery_type' => 'shop_pickup',
+            'items' => [[
+                'source_type' => 'manual_sourced',
+                'product_id' => $product->id,
+                'quantity' => 1,
+                'selling_price' => '1500.00',
+                'supplier_id' => null,
+                'supplier_name' => 'Counter supplier, no master record',
+                'actual_unit_cost' => '1000.00',
+                'purchased_on' => today()->toDateString(),
+            ]],
+        ]);
+
+        $fields = collect($page->instance()->form->getFlatFields(withHidden: true));
+        $this->assertNotNull($fields->first(fn ($field): bool => $field->getName() === 'supplier_name'));
+
+        $page->call('create')->assertHasNoFormErrors();
+
+        $line = Order::query()->webSales()->sole()->manualSourcingLines()->sole();
+        $this->assertNull($line->supplier_id);
+        $this->assertSame('Counter supplier, no master record', $line->metadata['supplier_name']);
+        $this->assertSame($supplierCount, Supplier::query()->count());
+        $this->assertSame(0, (int) $inventory->refresh()->available_quantity);
+    }
+
     public function test_manual_sourcing_reuses_existing_catalog_sku_without_touching_zero_stock(): void
     {
         [$owner, , $product, $inventory] = $this->foundation();

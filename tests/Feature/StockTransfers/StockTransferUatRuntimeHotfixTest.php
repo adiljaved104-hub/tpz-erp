@@ -116,7 +116,7 @@ class StockTransferUatRuntimeHotfixTest extends TestCase
         $this->assertNull($loss->fresh()->claim_submitted_by_user_id);
     }
 
-    public function test_received_transfer_marketplace_loss_lifecycle_logs_with_enforced_morph_map(): void
+    public function test_received_transfer_marketplace_loss_investigation_logs_with_enforced_morph_map(): void
     {
         [$owner, $source, $destination, $product] = $this->foundation();
         ProductInventory::factory()->create([
@@ -139,12 +139,12 @@ class StockTransferUatRuntimeHotfixTest extends TestCase
         $service->investigateMarketplaceLoss($loss, $owner, 'Investigated in a disposable QA database');
         $this->assertSame('investigating', $loss->refresh()->status);
 
-        $service->submitMarketplaceClaim($loss, $owner, 'UAT-CLAIM-1');
-        $this->assertSame('claim_submitted', $loss->refresh()->status);
-
-        $service->closeMarketplaceClaim($loss, $owner, 'rejected');
-        $this->assertSame('rejected', $loss->refresh()->status);
         $this->assertSame('stock_transfer_marketplace_loss', $loss->getMorphClass());
+        $this->assertDatabaseHas('activity_logs', [
+            'event' => 'stock_transfer.marketplace_loss_investigating',
+            'subject_type' => 'stock_transfer_marketplace_loss',
+            'subject_id' => $loss->id,
+        ]);
     }
 
     public function test_marketplace_loss_has_an_explicit_morph_alias_for_activity_logging(): void

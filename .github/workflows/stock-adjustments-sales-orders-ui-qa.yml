@@ -75,16 +75,17 @@ jobs:
         run: php artisan view:cache --ansi
       - name: Focused PHPUnit suites (bounded)
         run: |
-          cp phpunit.xml /tmp/phpunit.mysql.xml
-          sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' /tmp/phpunit.mysql.xml
-          sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_ui_qa"\/>/' /tmp/phpunit.mysql.xml
-          timeout --signal=TERM 12m vendor/bin/phpunit -c /tmp/phpunit.mysql.xml --testdox \
+          cp phpunit.xml phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_ui_qa"\/>/' phpunit.mysql.ci.xml
+          timeout --signal=TERM 12m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox \
             tests/Feature/Inventory/InventoryAdjustmentTest.php \
             tests/Feature/Inventory/StockRequestGridTest.php \
             tests/Feature/Orders/WebSalesWorkflowTest.php \
             tests/Feature/Orders/WebSalesWorkflowV2Test.php \
             2>&1 | tee /tmp/tpz-ui-phpunit.log
           test ${PIPESTATUS[0]} -eq 0
+          rm -f phpunit.mysql.ci.xml
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4

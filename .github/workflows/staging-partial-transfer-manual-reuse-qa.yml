@@ -1,0 +1,97 @@
+name: Partial receipt and Web Sales catalog reuse QA (non-deploying)
+
+on:
+  push:
+    branches:
+      - codex/staging-uat-partial-receive-reuse-existing-product-20261105
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: PHP 8.3 MySQL 8.4 partial transfer and sourcing regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_qa
+          MYSQL_USER: tpz_qa
+          MYSQL_PASSWORD: qa_disposable_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_qa
+      DB_USERNAME: tpz_qa
+      DB_PASSWORD: qa_disposable_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify Staging baseline and exactly approved files
+        run: |
+          git merge-base --is-ancestor 54c797a47a99966a1e4d11c015ef7600a49171d1 HEAD
+          git diff --name-only 54c797a47a99966a1e4d11c015ef7600a49171d1 HEAD > /tmp/modified-paths
+          cat /tmp/modified-paths
+          test "$(wc -l < /tmp/modified-paths)" -eq 7
+          grep -qx 'app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderForm.php' /tmp/modified-paths
+          grep -qx 'app/Services/Inventory/InventoryAllocationService.php' /tmp/modified-paths
+          grep -qx 'app/Services/Inventory/InventoryService.php' /tmp/modified-paths
+          grep -qx 'app/Services/Orders/ManualSourcingService.php' /tmp/modified-paths
+          grep -qx 'tests/Feature/Orders/WebSalesWorkflowV2Test.php' /tmp/modified-paths
+          grep -qx 'tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php' /tmp/modified-paths
+          grep -qx '.github/workflows/staging-partial-transfer-manual-reuse-qa.yml' /tmp/modified-paths
+          test -z "$(git diff --name-only 54c797a47a99966a1e4d11c015ef7600a49171d1 HEAD -- database/migrations composer.json composer.lock)"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Prepare isolated test environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Validate changed PHP syntax
+        run: |
+          php -l app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderForm.php
+          php -l app/Services/Inventory/InventoryAllocationService.php
+          php -l app/Services/Inventory/InventoryService.php
+          php -l app/Services/Orders/ManualSourcingService.php
+          php -l tests/Feature/Orders/WebSalesWorkflowV2Test.php
+          php -l tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php
+      - name: Rehearse schema on disposable MySQL 8.4
+        run: php artisan migrate --force --no-ansi
+      - name: Run affected integration and Livewire tests
+        run: php artisan test --no-ansi tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php tests/Feature/StockTransfers/StockTransferWorkflowTest.php tests/Feature/StockTransfers/StockTransferFilamentTest.php tests/Feature/Orders/WebSalesWorkflowV2Test.php tests/Feature/Inventory/InventoryAllocationLedgerTest.php

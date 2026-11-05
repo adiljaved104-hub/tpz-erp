@@ -14,6 +14,7 @@ use App\Models\InventoryAllocationEvent;
 use App\Models\InventoryAllocationReservationLine;
 use App\Models\InventoryAllocationTransitionLine;
 use App\Models\InventoryReservation;
+use App\Models\MarketplaceReturnRemovalItem;
 use App\Models\OrderItem;
 use App\Models\ProductInventory;
 use App\Models\PurchaseReceiptAllocationLine;
@@ -723,6 +724,65 @@ class InventoryAllocationService
     public function markDamaged(ProductInventory $inventory, int $quantity, Model $source, User $actor): void
     {
         $this->moveToHold('damaged', $source, $inventory, $quantity, $actor, 'damaged_allocation_hold');
+    }
+
+    /**
+     * Marketplace sellable removals leave the original fulfilment location.
+     * Physical stock and its unreserved holder allocation must leave together
+     * in the same transaction; incoming transfers then restore only the
+     * physically received allocation without duplicating stale holdings.
+     */
+    public function dispatchMarketplaceSellableRemoval(ProductInventory $inventory, int $quantity, MarketplaceReturnRemovalItem $source, User $actor): void
+    {
+        if (DB::transactionLevel() === 0 || $quantity < 1) {
+            throw new InventoryInvariantException('Marketplace sellable allocation removal requires an active transaction and positive quantity.');
+        }
+
+        $totalAllocated = (int) InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->sum('allocated_quantity');
+        // MarketplaceReturnService already applied the physical movement.
+        // If its source ledger was over-allocated before dispatch, fail closed.
+        if ($totalAllocated > $inventory->available_quantity + $quantity) {
+            throw new InventoryInvariantException('Marketplace source allocation already exceeds its pre-dispatch physical stock.');
+        }
+
+        $remaining = $quantity;
+        $balances = InventoryAllocationBalance::query()
+            ->with('account')
+            ->where('product_inventory_id', $inventory->id)
+            ->whereRaw('allocated_quantity > reserved_quantity')
+            ->orderBy('id')->lockForUpdate()->get();
+
+        foreach ($balances as $balance) {
+            if ($remaining === 0) {
+                break;
+            }
+
+            $amount = min($remaining, $balance->availableQuantity());
+            if ($amount < 1) {
+                continue;
+            }
+
+            $balance->decrement('allocated_quantity', $amount);
+            $this->event(
+                'marketplace_sellable_removal_dispatch',
+                $inventory,
+                $amount,
+                $actor,
+                'Marketplace sellable stock dispatched for return to company; source allocation removed',
+                $source,
+                $balance->account,
+            );
+            $remaining -= $amount;
+        }
+
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('Marketplace sellable removal exceeds unreserved allocation available at source.');
+        }
+
+        $totalAfter = (int) InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->sum('allocated_quantity');
+        if ($totalAfter > $inventory->available_quantity) {
+            throw new InventoryInvariantException('Marketplace remaining allocation exceeds physical stock after removal.');
+        }
     }
 
     public function reconcileMarketplaceLoss(ProductInventory $inventory, int $quantity, Model $source, User $actor): void

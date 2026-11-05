@@ -79,6 +79,35 @@ class StockTransferUatRuntimeHotfixTest extends TestCase
         $this->assertSame(4, $inventory->refresh()->available_quantity);
     }
 
+    public function test_fully_shipped_transfer_hides_ship_selected_quantities_action(): void
+    {
+        [$owner, $source, $destination, $product] = $this->foundation();
+        ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $source->id,
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+            'average_cost' => '100.0000',
+        ]);
+        $transfer = $this->draft($owner, $source, $destination, $product, 5);
+        $item = $transfer->items()->firstOrFail();
+
+        app(StockTransferAdvancedService::class)->ship(
+            $transfer,
+            [$item->id => 5],
+            (string) Str::uuid(),
+            $owner,
+        );
+
+        Livewire::actingAs($owner)
+            ->test(ViewStockTransfer::class, ['record' => $transfer->getRouteKey()])
+            ->assertActionHidden('partialShip')
+            ->assertActionVisible('partialReceive');
+
+        $this->assertSame(5, (int) $item->refresh()->dispatched_quantity);
+        $this->assertSame(0, (int) $item->received_quantity);
+    }
+
     public function test_missing_source_inventory_returns_a_business_error_without_stock_movement(): void
     {
         [$owner, $source, $destination, $product] = $this->foundation();

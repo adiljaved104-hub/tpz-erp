@@ -144,4 +144,9 @@ class Order extends Model
     {
         return $this->hasMany(TaxInvoice::class, 'source_order_id');
     }
+
+    public function manualSourcingLines(): HasMany
+    {
+        return $this->hasMany(WebSalesManualSourcingLine::class);
+    }
 }

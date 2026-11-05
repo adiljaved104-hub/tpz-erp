@@ -220,16 +220,26 @@ class MobilePurchasingWorkTest extends TestCase
 
         $inbox = $this->as($participant)->getJson('/api/mobile/v1/chat?filter=direct')->assertOk();
         $this->assertContains($conversation->id, collect($inbox->json('data'))->pluck('id'));
+        $inboxConversation = collect($inbox->json('data'))->firstWhere('id', $conversation->id);
+        $this->assertSame('direct', $inboxConversation['type']);
+        $this->assertCount(2, $inboxConversation['participants']);
+        $this->assertSame('Supplier delivery is ready.', $inboxConversation['latest_message']['body']);
+        $this->assertSame($owner->employee->name, $inboxConversation['latest_message']['sender']);
         $detail = $this->as($participant)->getJson('/api/mobile/v1/chat/'.$conversation->id)->assertOk();
         $this->assertCount(2, $detail->json('data.participants'));
+        $this->assertSame('direct', $detail->json('data.type'));
         $this->assertSame($first->id, $detail->json('data.latest_message.id'));
+        $this->assertSame('Supplier delivery is ready.', $detail->json('data.latest_message.body'));
 
         $messages = $this->as($participant)->getJson('/api/mobile/v1/chat/'.$conversation->id.'/messages')->assertOk();
         $this->assertSame($first->id, $messages->json('data.0.id'));
         $this->as($participant)->postJson('/api/mobile/v1/chat/'.$conversation->id.'/read', ['message_id' => $first->id])
             ->assertOk()->assertJsonPath('data.unread_count', 0);
-        $this->as($participant)->postJson('/api/mobile/v1/chat/'.$conversation->id.'/messages', ['body' => 'Received, thank you.'])
+        $sent = $this->as($participant)->postJson('/api/mobile/v1/chat/'.$conversation->id.'/messages', ['body' => 'Received, thank you.'])
             ->assertCreated();
+        $this->assertSame('Received, thank you.', $sent->json('data.body'));
+        $this->assertTrue($sent->json('data.mine'));
+        $this->assertSame($participant->employee->name, $sent->json('data.sender'));
 
         $this->as($outsider)->getJson('/api/mobile/v1/chat/'.$conversation->id)->assertForbidden();
         $this->as($outsider)->getJson('/api/mobile/v1/chat/'.$conversation->id.'/messages')->assertForbidden();

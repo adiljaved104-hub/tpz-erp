@@ -19,12 +19,18 @@ class UserUiPreferenceService
 
     public const INVENTORY_ALERTS = 'notifications.inventory_alerts';
 
+    public const STOCK_ADJUSTMENTS_COLUMNS = 'stock_adjustments.columns';
+
+    public const STOCK_REQUESTS_COLUMNS = 'stock_requests.columns';
+
     private const ALLOWED_KEYS = [
         self::MY_INVENTORY_COLUMNS,
         self::MY_INVENTORY_COLLAPSED_SECTIONS,
         self::NAVIGATION_HIDDEN_ITEMS,
         self::NAVIGATION_GROUP_ORDER,
         self::INVENTORY_ALERTS,
+        self::STOCK_ADJUSTMENTS_COLUMNS,
+        self::STOCK_REQUESTS_COLUMNS,
     ];
 
     /** @return array<int, string> */

@@ -21,6 +21,7 @@ final class EnsureTechnicianQcOnlyMobile
         if ($method === 'GET' && in_array($path, [
             'api/mobile/v1/workspace/modules',
             'api/mobile/v1/workspace/manifest',
+            'api/mobile/v1/workspace/search',
         ], true)) {
             return $next($request);
         }

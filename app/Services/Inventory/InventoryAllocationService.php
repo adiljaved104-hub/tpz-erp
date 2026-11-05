@@ -14,6 +14,7 @@ use App\Models\InventoryAllocationEvent;
 use App\Models\InventoryAllocationReservationLine;
 use App\Models\InventoryAllocationTransitionLine;
 use App\Models\InventoryReservation;
+use App\Models\MarketplaceReturnRemovalItem;
 use App\Models\OrderItem;
 use App\Models\ProductInventory;
 use App\Models\PurchaseReceiptAllocationLine;
@@ -725,6 +726,89 @@ class InventoryAllocationService
         $this->moveToHold('damaged', $source, $inventory, $quantity, $actor, 'damaged_allocation_hold');
     }
 
+    /**
+     * Marketplace sellable removals leave the original fulfilment location.
+     * Physical stock and its unreserved holder allocation must leave together
+     * in the same transaction; incoming transfers then restore only the
+     * physically received allocation without duplicating stale holdings.
+     */
+    public function dispatchMarketplaceSellableRemoval(ProductInventory $inventory, int $quantity, MarketplaceReturnRemovalItem $source, User $actor): void
+    {
+        if (DB::transactionLevel() === 0 || $quantity < 1) {
+            throw new InventoryInvariantException('Marketplace sellable allocation removal requires an active transaction and positive quantity.');
+        }
+
+        $totalAllocated = (int) InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->sum('allocated_quantity');
+        // MarketplaceReturnService already applied the physical movement.
+        // If its source ledger was over-allocated before dispatch, fail closed.
+        if ($totalAllocated > $inventory->available_quantity + $quantity) {
+            throw new InventoryInvariantException('Marketplace source allocation already exceeds its pre-dispatch physical stock.');
+        }
+
+        $remaining = $quantity;
+        $balances = InventoryAllocationBalance::query()
+            ->with('account')
+            ->where('product_inventory_id', $inventory->id)
+            ->whereRaw('allocated_quantity > reserved_quantity')
+            ->orderBy('id')->lockForUpdate()->get();
+
+        foreach ($balances as $balance) {
+            if ($remaining === 0) {
+                break;
+            }
+
+            $amount = min($remaining, $balance->availableQuantity());
+            if ($amount < 1) {
+                continue;
+            }
+
+            $balance->decrement('allocated_quantity', $amount);
+            $this->event(
+                'marketplace_sellable_removal_dispatch',
+                $inventory,
+                $amount,
+                $actor,
+                'Marketplace sellable stock dispatched for return to company; source allocation removed',
+                $source,
+                $balance->account,
+            );
+            $remaining -= $amount;
+        }
+
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('Marketplace sellable removal exceeds unreserved allocation available at source.');
+        }
+
+        $totalAfter = (int) InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->sum('allocated_quantity');
+        if ($totalAfter > $inventory->available_quantity) {
+            throw new InventoryInvariantException('Marketplace remaining allocation exceeds physical stock after removal.');
+        }
+    }
+
+    public function reconcileMarketplaceLoss(ProductInventory $inventory, int $quantity, Model $source, User $actor): void
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new InventoryInvariantException('Marketplace loss reconciliation requires an active transaction.');
+        }
+        $remaining = $quantity;
+        $balances = InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->whereRaw('allocated_quantity > reserved_quantity')->orderBy('id')->lockForUpdate()->get();
+        foreach ($balances as $balance) {
+            if ($remaining < 1) {
+                break;
+            }
+            $amount = min($remaining, $balance->availableQuantity());
+            if ($amount < 1) {
+                continue;
+            }
+            $balance->decrement('allocated_quantity', $amount);
+            $this->event('marketplace_loss_reconciliation', $inventory, $amount, $actor, 'Post-receipt marketplace loss removed from allocation', $source, $balance->account);
+            $remaining -= $amount;
+        }
+        if ($remaining > 0) {
+            throw new InventoryInvariantException('Marketplace loss exceeds unreserved allocation capacity.');
+        }
+    }
+
     private function markDamagedFromAccount(ProductInventory $inventory, int $quantity, Model $source, User $actor, int $accountId): void
     {
         $balance = InventoryAllocationBalance::query()->where('account_id', $accountId)
@@ -845,14 +929,41 @@ class InventoryAllocationService
         $this->moveToHold('transfer', $item, $inventory, $quantity, $actor, 'warehouse_transfer_dispatch');
     }
 
-    public function completeTransfer(Model $item, ProductInventory $destination, User $actor, bool $returned): void
+    public function completeTransfer(Model $item, ProductInventory $destination, User $actor, bool $returned, ?int $quantity = null): void
     {
+        // Receive only the quantity physically posted by this transaction. A
+        // partial receipt must retain the unreceived portion in the in-transit
+        // allocation ledger for the next receipt, rather than restoring it now.
         $lines = InventoryAllocationTransitionLine::query()->where('context_type', 'transfer')->where('context_id', $item->getKey())
             ->where('remaining_quantity', '>', 0)->orderBy('id')->lockForUpdate()->get();
+
+        // Preserve the pre-existing behavior for historical transfers without
+        // allocation provenance. Do not invent an owner for legacy stock.
+        if ($lines->isEmpty()) {
+            return;
+        }
+
+        $held = (int) $lines->sum('remaining_quantity');
+        $remaining = $quantity ?? $held;
+        if ($remaining < 1 || $remaining > $held) {
+            throw new InventoryInvariantException('Received transfer allocation exceeds the outstanding in-transit allocation.');
+        }
+
         foreach ($lines as $line) {
+            if ($remaining === 0) {
+                break;
+            }
+
+            $amount = min($remaining, (int) $line->remaining_quantity);
             $account = InventoryAllocationAccount::query()->findOrFail($line->account_id);
-            $this->increase($account, $destination, $line->remaining_quantity, $returned ? 'warehouse_transfer_return' : 'warehouse_transfer_receipt', $actor, $item, $returned ? 'Transferred stock returned to source holder' : 'Transferred stock received for original holder');
-            $line->forceFill(['destination_product_inventory_id' => $destination->id, 'remaining_quantity' => 0, 'status' => $returned ? 'returned' : 'received'])->save();
+            $this->increase($account, $destination, $amount, $returned ? 'warehouse_transfer_return' : 'warehouse_transfer_receipt', $actor, $item, $returned ? 'Transferred stock returned to source holder' : 'Transferred stock received for original holder');
+            $unreceived = (int) $line->remaining_quantity - $amount;
+            $line->forceFill([
+                'destination_product_inventory_id' => $destination->id,
+                'remaining_quantity' => $unreceived,
+                'status' => $unreceived === 0 ? ($returned ? 'returned' : 'received') : 'dispatched',
+            ])->save();
+            $remaining -= $amount;
         }
     }
 
@@ -962,7 +1073,29 @@ class InventoryAllocationService
                 continue;
             }
             $balance->decrement('allocated_quantity', $amount);
-            InventoryAllocationTransitionLine::query()->create(['context_type' => $context, 'context_id' => $source->getKey(), 'account_id' => $balance->account_id, 'source_product_inventory_id' => $inventory->id, 'quantity' => $amount, 'remaining_quantity' => $amount, 'status' => $context === 'damaged' ? 'held' : 'dispatched']);
+
+            // One unique transfer/holder/source row represents cumulative
+            // dispatches. A second partial shipment must add its held units
+            // to that row, not insert a duplicate under the existing unique
+            // index. The immutable allocation events still record each move.
+            $transition = $context === 'transfer'
+                ? InventoryAllocationTransitionLine::query()
+                    ->where('context_type', 'transfer')
+                    ->where('context_id', $source->getKey())
+                    ->where('account_id', $balance->account_id)
+                    ->where('source_product_inventory_id', $inventory->id)
+                    ->lockForUpdate()
+                    ->first()
+                : null;
+            if ($transition !== null) {
+                $transition->forceFill([
+                    'quantity' => (int) $transition->quantity + $amount,
+                    'remaining_quantity' => (int) $transition->remaining_quantity + $amount,
+                    'status' => 'dispatched',
+                ])->save();
+            } else {
+                InventoryAllocationTransitionLine::query()->create(['context_type' => $context, 'context_id' => $source->getKey(), 'account_id' => $balance->account_id, 'source_product_inventory_id' => $inventory->id, 'quantity' => $amount, 'remaining_quantity' => $amount, 'status' => $context === 'damaged' ? 'held' : 'dispatched']);
+            }
             $this->event($eventType, $inventory, $amount, $actor, $context === 'damaged' ? 'Sellable allocation held while stock is damaged' : 'Allocation dispatched with physical warehouse transfer', $source, $balance->account);
             $remaining -= $amount;
         }

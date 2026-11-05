@@ -3,6 +3,7 @@
 namespace Tests\Feature\Returns;
 
 use App\Actions\Orders\SaveAsShippedOrder;
+use App\Actions\StockTransfers\CreateStockTransfer;
 use App\Actions\Returns\CreateCustomerReturn;
 use App\Actions\Returns\InspectCustomerReturnItem;
 use App\DTOs\Orders\OrderItemData;
@@ -11,6 +12,8 @@ use App\DTOs\Returns\CreateCustomerReturnData;
 use App\DTOs\Returns\CreateMarketplaceReturnRemovalData;
 use App\DTOs\Returns\InspectCustomerReturnItemData;
 use App\DTOs\Returns\MarketplaceRemovalItemData;
+use App\DTOs\StockTransfers\CreateStockTransferData;
+use App\DTOs\StockTransfers\StockTransferItemData;
 use App\Enums\CustomerReturnStatus;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
@@ -27,6 +30,8 @@ use App\Filament\Resources\MarketplaceReturnRemovals\Pages\CreateMarketplaceRetu
 use App\Filament\Resources\MarketplaceReturnRemovals\Pages\ListMarketplaceReturnRemovals;
 use App\Models\DamagedStockEvent;
 use App\Models\Employee;
+use App\Models\InventoryAllocationBalance;
+use App\Models\InventoryAllocationEvent;
 use App\Models\EmployeePermissionOverride;
 use App\Models\MarketplacePlatform;
 use App\Models\MarketplaceReturnRemoval;
@@ -45,6 +50,7 @@ use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Returns\CustomerReturnEvidenceService;
 use App\Services\Returns\MarketplaceReturnService;
+use App\Services\StockTransfers\StockTransferAdvancedService;
 use App\Services\Returns\QcPendingQueueService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -356,6 +362,153 @@ class MarketplaceReturnWorkflowTest extends TestCase
             ->assertSuccessful()
             ->assertSee($removal->reference)
             ->assertSee(MarketplaceReturnRemovalResource::getUrl('view', ['record' => $removal]), escape: false);
+    }
+
+    public function test_sellable_removal_dispatch_consumes_source_allocation_atomically_with_physical_stock(): void
+    {
+        [$owner, , $marketplace, $company] = $this->marketplaceOrder();
+        $product = Product::factory()->create(['cost_price' => '200.0000']);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $marketplace->id,
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+            'average_cost' => '200.0000',
+        ]);
+        $service = app(MarketplaceReturnService::class);
+        $removal = $service->requestBulkRemoval(new CreateMarketplaceReturnRemovalData(
+            $marketplace->marketplace_platform_id,
+            $marketplace->id,
+            $company->id,
+            [new MarketplaceRemovalItemData($product->id, MarketplaceRemovalSourceStockType::Sellable, 5)],
+            (string) Str::uuid(),
+        ), $owner);
+        $line = $removal->items()->sole();
+        $key = (string) Str::uuid();
+
+        $service->dispatch($removal, $key, $owner);
+
+        $this->assertSame(0, (int) $inventory->refresh()->available_quantity);
+        $this->assertSame(0, (int) InventoryAllocationBalance::query()
+            ->where('product_inventory_id', $inventory->id)->sum('allocated_quantity'));
+        $this->assertSame(5, (int) InventoryAllocationEvent::query()
+            ->where('product_inventory_id', $inventory->id)
+            ->where('event_type', 'marketplace_sellable_removal_dispatch')
+            ->where('source_type', 'marketplace_return_removal_item')
+            ->where('source_id', $line->id)->sum('quantity'));
+        $this->assertDatabaseHas('stock_movements', [
+            'source_type' => 'marketplace_return_removal_item',
+            'source_id' => $line->id,
+            'available_delta' => -5,
+            'movement_type' => StockMovementType::MarketplaceReturnRemovalDispatch->value,
+        ]);
+
+        $eventCount = InventoryAllocationEvent::query()->count();
+        $service->dispatch($removal->fresh(), $key, $owner);
+        $this->assertSame($eventCount, InventoryAllocationEvent::query()->count());
+    }
+
+    public function test_sellable_removal_after_transfer_receipt_allows_later_transfer_receipt_without_overallocation(): void
+    {
+        $owner = User::factory()->create();
+        Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
+        $owner->refresh();
+        $source = Warehouse::query()->where('code', 'MAIN')->sole();
+        $platform = MarketplacePlatform::factory()->create([
+            'return_handling_mode' => MarketplaceReturnHandlingMode::HoldNonSellableAtMarketplace,
+            'default_return_receiving_warehouse_id' => $source->id,
+        ]);
+        $destination = Warehouse::factory()->create([
+            'location_type' => InventoryLocationType::MarketplaceFulfilment,
+            'marketplace_platform_id' => $platform->id,
+            'fulfillment_tag' => 'FBA',
+        ]);
+        $product = Product::factory()->create(['cost_price' => '100.0000']);
+        ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $source->id,
+            'available_quantity' => 10,
+            'reserved_quantity' => 0,
+            'average_cost' => '100.0000',
+        ]);
+
+        $transferService = app(StockTransferAdvancedService::class);
+        $create = fn () => app(CreateStockTransfer::class)->handle(new CreateStockTransferData(
+            $source->id, $destination->id, today()->toDateString(),
+            [new StockTransferItemData($product->id, 5)],
+            (string) Str::uuid(),
+        ), $owner);
+
+        $first = $create();
+        $firstItem = $first->items()->sole();
+        $transferService->ship($first, [$firstItem->id => 5], (string) Str::uuid(), $owner);
+        $transferService->receive($first, [$firstItem->id => 5], (string) Str::uuid(), $owner);
+
+        $destinationInventory = ProductInventory::query()->where('product_id', $product->id)
+            ->where('warehouse_id', $destination->id)->sole();
+        $allocated = fn (): int => (int) InventoryAllocationBalance::query()
+            ->where('product_inventory_id', $destinationInventory->id)->sum('allocated_quantity');
+        $this->assertSame(5, (int) $destinationInventory->refresh()->available_quantity);
+        $this->assertSame(5, $allocated());
+
+        $marketplace = app(MarketplaceReturnService::class);
+        $removal = $marketplace->requestBulkRemoval(new CreateMarketplaceReturnRemovalData(
+            $platform->id, $destination->id, $source->id,
+            [new MarketplaceRemovalItemData($product->id, MarketplaceRemovalSourceStockType::Sellable, 5)],
+            (string) Str::uuid(),
+        ), $owner);
+        $marketplace->dispatch($removal, (string) Str::uuid(), $owner);
+        $this->assertSame(0, (int) $destinationInventory->refresh()->available_quantity);
+        $this->assertSame(0, $allocated());
+
+        $second = $create();
+        $secondItem = $second->items()->sole();
+        $transferService->ship($second, [$secondItem->id => 5], (string) Str::uuid(), $owner);
+        $transferService->receive($second, [$secondItem->id => 3], (string) Str::uuid(), $owner);
+        $this->assertSame(3, (int) $destinationInventory->refresh()->available_quantity);
+        $this->assertSame(3, $allocated());
+        $transferService->receive($second, [$secondItem->id => 2], (string) Str::uuid(), $owner);
+        $this->assertSame(5, (int) $destinationInventory->refresh()->available_quantity);
+        $this->assertSame(5, $allocated());
+        $this->assertSame(5, (int) $secondItem->refresh()->received_quantity);
+    }
+
+    public function test_sellable_removal_refuses_pre_existing_overallocation_without_any_new_movements(): void
+    {
+        [$owner, , $marketplace, $company] = $this->marketplaceOrder();
+        $product = Product::factory()->create(['cost_price' => '200.0000']);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $marketplace->id,
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+            'average_cost' => '200.0000',
+        ]);
+        app(\App\Services\Inventory\InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
+        InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->firstOrFail()->increment('allocated_quantity', 1);
+
+        $service = app(MarketplaceReturnService::class);
+        $removal = $service->requestBulkRemoval(new CreateMarketplaceReturnRemovalData(
+            $marketplace->marketplace_platform_id,
+            $marketplace->id,
+            $company->id,
+            [new MarketplaceRemovalItemData($product->id, MarketplaceRemovalSourceStockType::Sellable, 5)],
+            (string) Str::uuid(),
+        ), $owner);
+        $movements = StockMovement::query()->count();
+        $events = InventoryAllocationEvent::query()->count();
+
+        $this->expectException(\App\Exceptions\InventoryInvariantException::class);
+        try {
+            $service->dispatch($removal, (string) Str::uuid(), $owner);
+        } finally {
+            $this->assertSame(MarketplaceReturnRemovalStatus::Requested, $removal->refresh()->status);
+            $this->assertSame(5, (int) $inventory->refresh()->available_quantity);
+            $this->assertSame(6, (int) InventoryAllocationBalance::query()
+                ->where('product_inventory_id', $inventory->id)->sum('allocated_quantity'));
+            $this->assertSame($movements, StockMovement::query()->count());
+            $this->assertSame($events, InventoryAllocationEvent::query()->count());
+        }
     }
 
     public function test_bulk_dispatch_reserves_one_movement_reference_per_line_before_transaction(): void

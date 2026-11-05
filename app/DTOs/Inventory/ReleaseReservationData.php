@@ -7,5 +7,6 @@ final readonly class ReleaseReservationData
     public function __construct(
         public string $reason,
         public string $idempotencyKey,
+        public ?string $movementReference = null,
     ) {}
 }

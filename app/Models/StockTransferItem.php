@@ -46,6 +46,16 @@ class StockTransferItem extends Model
         return $this->hasMany(QcStockTransferAssignment::class, 'stock_transfer_item_id');
     }
 
+    public function reservations(): HasMany
+    {
+        return $this->hasMany(StockTransferReservation::class, 'stock_transfer_item_id');
+    }
+
+    public function marketplaceLosses(): HasMany
+    {
+        return $this->hasMany(StockTransferMarketplaceLoss::class, 'stock_transfer_item_id');
+    }
+
     public function inTransitQuantity(): int
     {
         return $this->dispatched_quantity - $this->received_quantity - $this->returned_quantity - $this->lost_quantity;

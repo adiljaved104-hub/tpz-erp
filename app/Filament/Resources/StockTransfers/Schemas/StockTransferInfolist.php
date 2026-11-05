@@ -28,6 +28,12 @@ class StockTransferInfolist
         $relation = $cost ? 'costedDisplayItems' : 'displayItems';
         $entries = [TextEntry::make('sku')->label('SKU'), TextEntry::make('product_name')->label('Product'), TextEntry::make('quantity')->label('Requested'), TextEntry::make('dispatched_quantity')->label('Shipped'), TextEntry::make('received_quantity')->label('Previously Received'), TextEntry::make('inTransitQuantity')->label('Remaining')->state(fn ($record): int => max(0, (int) $record->inTransitQuantity())), TextEntry::make('shortage_quantity')->label('Shortage')->state(fn ($record): int => max(0, (int) $record->quantity - (int) $record->received_quantity - (int) $record->returned_quantity - (int) $record->lost_quantity))];
         $columns = collect(['SKU', 'Product', 'Requested', 'Shipped', 'Previously Received', 'Remaining', 'Shortage'])->map(fn (string $label) => TableColumn::make($label))->all();
+        $entries[] = TextEntry::make('unshipped_quantity')->label('Not Shipped')->state(fn ($record): int => max(0, (int) $record->quantity - (int) $record->dispatched_quantity));
+        $entries[] = TextEntry::make('returned_quantity')->label('Returned');
+        $entries[] = TextEntry::make('lost_quantity')->label('Confirmed Lost');
+        $columns[] = TableColumn::make('Not Shipped');
+        $columns[] = TableColumn::make('Returned');
+        $columns[] = TableColumn::make('Confirmed Lost');
         if ($cost) {
             $entries[] = TextEntry::make('dispatch_unit_cost')->label('Dispatch Cost')->money('AED', decimalPlaces: 2);
             $columns[] = TableColumn::make('Dispatch Cost');

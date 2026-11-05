@@ -14,6 +14,8 @@ use App\Services\Authorization\EmployeeDirectoryScopeService;
 use App\Services\Authorization\HrRecordAuthorization;
 use App\Services\Hr\EmployeeWarningService;
 use App\Services\Hr\HrNoticeService;
+use App\Services\Hr\HrScopeService;
+use App\Services\Mobile\MobileHrSectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -21,22 +23,7 @@ class HrController extends MobileController
 {
     private function sections(Request $request): array
     {
-        $user = $request->user();
-        $auth = app(HrRecordAuthorization::class);
-
-        return array_values(array_filter([
-            $user->can('viewAny', Employee::class) || $user->can('view', $user->employee)
-                ? ['key' => 'employees', 'title' => 'Employees'] : null,
-            $user->can('viewAny', Team::class) ? ['key' => 'teams', 'title' => 'Teams'] : null,
-            $auth->allows($user, HrPermission::NoticeView) || $auth->allows($user, HrPermission::NoticeManage)
-                || $auth->allows($user, HrPermission::NoticePublish)
-                || $auth->allows($user, HrPermission::AnnouncementView) || $auth->allows($user, HrPermission::AnnouncementManage)
-                || $auth->allows($user, HrPermission::AnnouncementPublish)
-                ? ['key' => 'notices', 'title' => 'Official Notices & Announcements'] : null,
-            $auth->allows($user, HrPermission::WarningViewOwn) || $auth->allows($user, HrPermission::WarningViewTeam)
-                || $auth->allows($user, HrPermission::WarningViewAll)
-                ? ['key' => 'warnings', 'title' => 'Employee Warnings'] : null,
-        ]));
+        return app(MobileHrSectionService::class)->sections($request->user());
     }
 
     public function home(Request $request): JsonResponse
@@ -92,6 +79,10 @@ class HrController extends MobileController
                 'communication_type', 'priority', 'published_at', 'expires_at', 'status', 'acknowledgment_required', 'team_id']), $user),
             'warnings' => $auth->scopeWarnings(EmployeeWarning::query()->select(['id', 'reference', 'employee_id',
                 'title', 'description', 'warning_level', 'issued_date', 'status', 'acknowledgment_required']), $user),
+            'leave-requests' => app(HrScopeService::class)->leaveQuery($user)
+                ->with(['employee:id,name,employee_id,team_id', 'type:id,name'])
+                ->select(['id', 'reference', 'employee_id', 'leave_type_id', 'from_date', 'to_date',
+                    'requested_working_days', 'status', 'reason', 'submitted_at', 'decided_at', 'decision_reason']),
             default => abort(404),
         };
     }
@@ -101,6 +92,9 @@ class HrController extends MobileController
         abort_unless(collect($this->sections($request))->contains('key', $section), 403);
         $query = $this->query($request, $section)->orderByDesc('id');
         $search = in_array($section, ['notices', 'warnings'], true) ? ['reference', 'title'] : ['name'];
+        if ($section === 'leave-requests') {
+            $search = ['reference', 'reason'];
+        }
         if ($section === 'teams') {
             $search = ['name'];
         }
@@ -142,6 +136,10 @@ class HrController extends MobileController
                     : ($recipientAcknowledgment?->acknowledged_at !== null ? 'acknowledged' : 'pending')],
             'warnings' => ['id' => $row->id, 'title' => $row->title, 'subtitle' => $row->reference,
                 'meta' => $row->issued_date?->format('Y-m-d'), 'status' => $row->status],
+            'leave-requests' => ['id' => $row->id, 'title' => $row->reference,
+                'subtitle' => collect([$row->employee?->name, $row->type?->name])->filter()->implode(' · '),
+                'meta' => $row->from_date?->format('Y-m-d').' → '.$row->to_date?->format('Y-m-d'),
+                'status' => $row->status],
         };
         if (! $detail) {
             return $data;
@@ -158,6 +156,11 @@ class HrController extends MobileController
                 'acknowledged_at' => $recipientAcknowledgment?->acknowledged_at?->format('Y-m-d H:i')],
             'warnings' => ['description' => $row->description, 'level' => $row->warning_level->value,
                 'issued_date' => $row->issued_date?->format('Y-m-d')],
+            'leave-requests' => ['employee' => $row->employee?->name, 'employee_reference' => $row->employee?->employee_id,
+                'leave_type' => $row->type?->name, 'from_date' => $row->from_date?->format('Y-m-d'),
+                'to_date' => $row->to_date?->format('Y-m-d'), 'working_days' => $row->requested_working_days,
+                'reason' => $row->reason, 'submitted_at' => $row->submitted_at?->toIso8601String(),
+                'decided_at' => $row->decided_at?->toIso8601String(), 'decision_reason' => $row->decision_reason],
         };
         $actions = [];
         if (in_array($section, ['notices', 'warnings'], true) && $row->acknowledgment_required && $request->user()->employee) {

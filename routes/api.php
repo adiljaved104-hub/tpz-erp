@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\Mobile\V1\HrController;
 use App\Http\Controllers\Api\Mobile\V1\InventoryLocationController;
 use App\Http\Controllers\Api\Mobile\V1\InventoryReservationController;
 use App\Http\Controllers\Api\Mobile\V1\InvoiceController;
+use App\Http\Controllers\Api\Mobile\V1\MarketplaceController;
 use App\Http\Controllers\Api\Mobile\V1\NotificationController;
 use App\Http\Controllers\Api\Mobile\V1\OrderController;
 use App\Http\Controllers\Api\Mobile\V1\PasswordResetController;
@@ -110,6 +111,7 @@ Route::prefix('mobile/v1')
             Route::post('/qc/bulk-ship', [QcDispatchController::class, 'bulkShip'])->middleware('throttle:10,1');
             Route::get('/search', SearchController::class);
             Route::get('/inventory', 'inventory');
+            Route::get('/inventory/{inventory}', 'inventoryRecord')->whereNumber('inventory');
             Route::get('/products', [ProductController::class, 'index']);
             Route::get('/products/{product}', [ProductController::class, 'show'])->whereNumber('product');
             Route::post('/products/{product}/update', [ProductController::class, 'update'])->whereNumber('product');
@@ -168,6 +170,8 @@ Route::prefix('mobile/v1')
             Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
             Route::post('/notifications/{notification}/read', [NotificationController::class, 'read']);
             Route::post('/notifications/{notification}/acknowledge', [NotificationController::class, 'acknowledge']);
+            Route::get('/marketplace-operations/incidents/{incident}', [MarketplaceController::class, 'incident'])->whereNumber('incident');
+            Route::get('/marketplace-operations/orders/{event}', [MarketplaceController::class, 'order'])->whereNumber('event');
             Route::get('/returns', [ReturnController::class, 'index']);
             Route::get('/returns/options', [ReturnController::class, 'options']);
             Route::get('/returns/eligible-orders', [ReturnController::class, 'eligibleOrders']);

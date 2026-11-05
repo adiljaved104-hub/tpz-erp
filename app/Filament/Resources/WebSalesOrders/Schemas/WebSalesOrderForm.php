@@ -57,7 +57,7 @@ class WebSalesOrderForm
             ])->columns(['default' => 1, 'md' => 2])->compact(),
             Section::make('Products')->description('Select Main Warehouse stock or source a new item for this sale.')->schema([
                 Repeater::make('items')->schema([
-                    Select::make('source_type')->label('Stock Source')->options(['existing_product' => 'Existing Product', 'manual_sourced' => 'Manual Sourced Product'])->default('existing_product')->required()->live()
+                    Select::make('source_type')->label('Stock Source')->options(['existing_product' => 'Existing Product', 'manual_sourced' => 'Manual Sourced Product'])->default('existing_product')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->live()
                         ->afterStateUpdated(function ($state, Set $set): void {
                             $set('product_id', null);
                             $set('stock_context', null);
@@ -65,16 +65,16 @@ class WebSalesOrderForm
                             $set('upgraded_configuration', false);
                             $set('sales_configuration_id', null);
                             $set('upgrade_recipe_id', null);
-                        })->columnSpanFull(),
+                        })->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12]),
                     Select::make('product_id')->label('Product')->placeholder('Search by SKU or product name')
                         ->searchable()->searchPrompt('Type at least 2 characters to search available products.')
-                        ->noSearchResultsMessage('No sellable products found in Main Warehouse.')
+                        ->noSearchResultsMessage('No authorized matching catalog products found. Choose Manual Sourced Product for a new item.')
                         ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
                         ->getOptionLabelUsing(fn ($value): ?string => self::productLabel((int) $value))
-                        ->required(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->live()->visible(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->columnSpanFull()
+                        ->required(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->live()->visible(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12])
                         ->afterStateUpdated(fn ($state, Set $set) => self::productChanged($state, $set))
                         ->helperText(fn (Get $get): string => 'Catalog search shows current Main Warehouse sellable stock, including zero-stock items. Stock shortages cannot be shipped from existing inventory.'.($get('stock_context') ? ' '.$get('stock_context') : '')),
-                    TextInput::make('manual_description')->label('Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpanFull(),
+                    TextInput::make('manual_description')->label('Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12]),
                     Select::make('manual_brand')->label('Brand')->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3]),
                     Select::make('manual_category')->label('Category')->options(fn (): array => ProductCategory::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()
                         ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')

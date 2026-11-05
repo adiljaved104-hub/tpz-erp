@@ -869,14 +869,41 @@ class InventoryAllocationService
         $this->moveToHold('transfer', $item, $inventory, $quantity, $actor, 'warehouse_transfer_dispatch');
     }
 
-    public function completeTransfer(Model $item, ProductInventory $destination, User $actor, bool $returned): void
+    public function completeTransfer(Model $item, ProductInventory $destination, User $actor, bool $returned, ?int $quantity = null): void
     {
+        // Receive only the quantity physically posted by this transaction. A
+        // partial receipt must retain the unreceived portion in the in-transit
+        // allocation ledger for the next receipt, rather than restoring it now.
         $lines = InventoryAllocationTransitionLine::query()->where('context_type', 'transfer')->where('context_id', $item->getKey())
             ->where('remaining_quantity', '>', 0)->orderBy('id')->lockForUpdate()->get();
+
+        // Preserve the pre-existing behavior for historical transfers without
+        // allocation provenance. Do not invent an owner for legacy stock.
+        if ($lines->isEmpty()) {
+            return;
+        }
+
+        $held = (int) $lines->sum('remaining_quantity');
+        $remaining = $quantity ?? $held;
+        if ($remaining < 1 || $remaining > $held) {
+            throw new InventoryInvariantException('Received transfer allocation exceeds the outstanding in-transit allocation.');
+        }
+
         foreach ($lines as $line) {
+            if ($remaining === 0) {
+                break;
+            }
+
+            $amount = min($remaining, (int) $line->remaining_quantity);
             $account = InventoryAllocationAccount::query()->findOrFail($line->account_id);
-            $this->increase($account, $destination, $line->remaining_quantity, $returned ? 'warehouse_transfer_return' : 'warehouse_transfer_receipt', $actor, $item, $returned ? 'Transferred stock returned to source holder' : 'Transferred stock received for original holder');
-            $line->forceFill(['destination_product_inventory_id' => $destination->id, 'remaining_quantity' => 0, 'status' => $returned ? 'returned' : 'received'])->save();
+            $this->increase($account, $destination, $amount, $returned ? 'warehouse_transfer_return' : 'warehouse_transfer_receipt', $actor, $item, $returned ? 'Transferred stock returned to source holder' : 'Transferred stock received for original holder');
+            $unreceived = (int) $line->remaining_quantity - $amount;
+            $line->forceFill([
+                'destination_product_inventory_id' => $destination->id,
+                'remaining_quantity' => $unreceived,
+                'status' => $unreceived === 0 ? ($returned ? 'returned' : 'received') : 'dispatched',
+            ])->save();
+            $remaining -= $amount;
         }
     }
 

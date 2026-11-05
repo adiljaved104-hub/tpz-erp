@@ -42,7 +42,13 @@ class ViewStockTransfer extends ViewRecord
                 ->label('Ship Selected Quantities')
                 ->color('warning')
                 ->schema(fn (): array => $this->quantityFields('ship'))
-                ->visible(fn (): bool => in_array($this->record->status, [StockTransferStatus::Draft, StockTransferStatus::Dispatched], true) && auth()->user()->can('dispatch', $this->record))
+                ->visible(fn (): bool => in_array($this->record->status, [StockTransferStatus::Draft, StockTransferStatus::Dispatched], true)
+                    && auth()->user()->can('dispatch', $this->record)
+                    && $this->record->items()->whereColumn('dispatched_quantity', '<', 'quantity')->exists())
+                ->disabled(fn (): bool => $this->record->status === StockTransferStatus::Draft && $this->qcDispatchBlocked())
+                ->tooltip(fn (): ?string => $this->record->status === StockTransferStatus::Draft && $this->qcDispatchBlocked()
+                    ? 'Ship Selected Quantities is blocked until Renewed units have valid QC assignments.'
+                    : null)
                 ->action(fn (array $data) => $this->runTransferAction('Cannot ship transfer quantities', fn () => app(StockTransferAdvancedService::class)->ship($this->record, $this->lineQuantities($data, 'ship'), (string) str()->uuid(), auth()->user()))),
             Action::make('dispatch')
                 ->label('Ship')

@@ -1013,7 +1013,29 @@ class InventoryAllocationService
                 continue;
             }
             $balance->decrement('allocated_quantity', $amount);
-            InventoryAllocationTransitionLine::query()->create(['context_type' => $context, 'context_id' => $source->getKey(), 'account_id' => $balance->account_id, 'source_product_inventory_id' => $inventory->id, 'quantity' => $amount, 'remaining_quantity' => $amount, 'status' => $context === 'damaged' ? 'held' : 'dispatched']);
+
+            // One unique transfer/holder/source row represents cumulative
+            // dispatches. A second partial shipment must add its held units
+            // to that row, not insert a duplicate under the existing unique
+            // index. The immutable allocation events still record each move.
+            $transition = $context === 'transfer'
+                ? InventoryAllocationTransitionLine::query()
+                    ->where('context_type', 'transfer')
+                    ->where('context_id', $source->getKey())
+                    ->where('account_id', $balance->account_id)
+                    ->where('source_product_inventory_id', $inventory->id)
+                    ->lockForUpdate()
+                    ->first()
+                : null;
+            if ($transition !== null) {
+                $transition->forceFill([
+                    'quantity' => (int) $transition->quantity + $amount,
+                    'remaining_quantity' => (int) $transition->remaining_quantity + $amount,
+                    'status' => 'dispatched',
+                ])->save();
+            } else {
+                InventoryAllocationTransitionLine::query()->create(['context_type' => $context, 'context_id' => $source->getKey(), 'account_id' => $balance->account_id, 'source_product_inventory_id' => $inventory->id, 'quantity' => $amount, 'remaining_quantity' => $amount, 'status' => $context === 'damaged' ? 'held' : 'dispatched']);
+            }
             $this->event($eventType, $inventory, $amount, $actor, $context === 'damaged' ? 'Sellable allocation held while stock is damaged' : 'Allocation dispatched with physical warehouse transfer', $source, $balance->account);
             $remaining -= $amount;
         }

@@ -88,6 +88,37 @@ class StockTransferUatRuntimeHotfixTest extends TestCase
         $this->assertNull($loss->fresh()->claim_submitted_by_user_id);
     }
 
+    public function test_received_transfer_marketplace_loss_lifecycle_logs_with_enforced_morph_map(): void
+    {
+        [$owner, $source, $destination, $product] = $this->foundation();
+        ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $source->id,
+            'available_quantity' => 3,
+            'reserved_quantity' => 0,
+            'average_cost' => '100.0000',
+        ]);
+        $transfer = $this->draft($owner, $source, $destination, $product, 1);
+        $item = $transfer->items()->firstOrFail();
+        $service = app(StockTransferAdvancedService::class);
+
+        $service->ship($transfer, [$item->id => 1], (string) Str::uuid(), $owner);
+        $service->receive($transfer->refresh(), [$item->id => 1], (string) Str::uuid(), $owner);
+
+        $loss = $service->reportMarketplaceLoss($transfer->refresh(), $item->id, 1, (string) Str::uuid(), $owner, 'UAT-LOSS-1');
+        $this->assertSame('pending', $loss->status);
+
+        $service->investigateMarketplaceLoss($loss, $owner, 'Investigated in a disposable QA database');
+        $this->assertSame('investigating', $loss->refresh()->status);
+
+        $service->submitMarketplaceClaim($loss, $owner, 'UAT-CLAIM-1');
+        $this->assertSame('claim_submitted', $loss->refresh()->status);
+
+        $service->closeMarketplaceClaim($loss, $owner, 'rejected');
+        $this->assertSame('rejected', $loss->refresh()->status);
+        $this->assertSame('stock_transfer_marketplace_loss', $loss->getMorphClass());
+    }
+
     public function test_marketplace_loss_has_an_explicit_morph_alias_for_activity_logging(): void
     {
         $this->assertSame('stock_transfer_marketplace_loss', (new StockTransferMarketplaceLoss)->getMorphClass());

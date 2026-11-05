@@ -148,7 +148,7 @@ class ManualSourcingService
             $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
 
             if ($order->status !== OrderStatus::PendingReview
-                || $line->source_mode !== 'supplier_direct'
+                || ! in_array($line->source_mode, ['supplier_direct', 'warehouse_receipt'], true)
                 || $line->status !== ManualSourcingStatus::PendingSourcing
                 || $line->purchase_id !== null
                 || $line->purchase_receipt_id !== null

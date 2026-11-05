@@ -17,6 +17,7 @@ use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\DefaultWarehouseService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class WebSalesService
 {
@@ -131,6 +132,63 @@ class WebSalesService
         $this->authorization->authorize($actor, WebSalesPermission::Cancel, $order);
 
         return $this->orders->cancel($order, new CancelOrderData($reason, $idempotencyKey), $actor);
+    }
+
+    /**
+     * Edit Web Sale customer snapshots before dispatch, without rewriting
+     * reservations, sourcing purchases, invoices or fulfillment history.
+     *
+     * @param array{customer_name:string,customer_phone:string,customer_address?:?string,notes?:?string} $data
+     */
+    public function updateDetails(Order $order, array $data, User $actor): Order
+    {
+        $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
+
+        $validated = Validator::make($data, [
+            'customer_name' => ['required', 'string', 'max:255'],
+            'customer_phone' => ['required', 'string', 'max:50'],
+            'customer_address' => ['nullable', 'string', 'max:2000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ])->validate();
+
+        return DB::transaction(function () use ($order, $validated, $actor): Order {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
+
+            if (! in_array($order->status, [
+                OrderStatus::Draft, OrderStatus::Reserved, OrderStatus::PendingReview, OrderStatus::Confirmed,
+            ], true) || $order->fulfillment()->exists() || $order->taxInvoices()->exists()) {
+                throw ValidationException::withMessages([
+                    'order' => 'Web Sale details are locked after shipment, cancellation or Tax Invoice generation.',
+                ]);
+            }
+
+            $next = [
+                'customer_name' => trim($validated['customer_name']),
+                'customer_phone' => $this->normalizePhone($validated['customer_phone']),
+                'customer_address' => filled($validated['customer_address'] ?? null)
+                    ? trim((string) $validated['customer_address']) : null,
+                'notes' => filled($validated['notes'] ?? null) ? trim((string) $validated['notes']) : null,
+            ];
+            if ($next['customer_name'] === '' || mb_strlen(preg_replace('/\\D+/', '', $next['customer_phone'])) < 7) {
+                throw ValidationException::withMessages(['customer_phone' => 'Enter a valid customer name and phone number.']);
+            }
+
+            $before = $order->only(array_keys($next));
+            if ($before === $next) {
+                return $order;
+            }
+
+            $order->forceFill($next)->save();
+            $this->activity->log('web_sales.details_updated', $actor, $order, [
+                'order_reference' => $order->reference,
+                'fields_changed' => array_keys(array_diff_assoc($next, $before)),
+                'before' => $before,
+                'after' => $next,
+            ]);
+
+            return $order->refresh();
+        }, 5);
     }
 
     /** @param array{delivery_type: string, courier_name?: string|null, tracking_number?: string|null} $data */

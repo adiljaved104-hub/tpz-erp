@@ -252,6 +252,63 @@ class WebSalesWorkflowV2Test extends TestCase
         app(WebSalesService::class)->createConfirmed($data, $owner);
     }
 
+    public function test_web_sale_details_can_be_edited_before_shipping_without_moving_inventory(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        app(InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
+        $sale = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
+        $beforeAvailable = (int) $inventory->refresh()->available_quantity;
+        $beforeReserved = (int) $inventory->reserved_quantity;
+        $beforeLineTotal = (string) $sale->items()->sole()->line_total;
+
+        $this->actingAs($owner);
+        Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])
+            ->assertActionVisible('editWebSale');
+        $updated = app(WebSalesService::class)->updateDetails($sale, [
+            'customer_name' => 'Corrected Customer',
+            'customer_phone' => '+971 50 111 2233',
+            'customer_address' => 'New Office, Dubai',
+            'notes' => 'Customer confirmed updated delivery details',
+        ], $owner);
+
+        $this->assertSame('Corrected Customer', $updated->customer_name);
+        $this->assertSame('+971501112233', $updated->customer_phone);
+        $this->assertSame('New Office, Dubai', $updated->customer_address);
+        $this->assertSame($beforeAvailable, (int) $inventory->refresh()->available_quantity);
+        $this->assertSame($beforeReserved, (int) $inventory->reserved_quantity);
+        $this->assertSame($beforeLineTotal, (string) $updated->items()->sole()->line_total);
+        $this->assertDatabaseCount('tax_invoices', 0);
+
+        Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])
+            ->assertSee('Corrected Customer')
+            ->assertActionVisible('amendWebSaleItems');
+    }
+
+    public function test_web_sale_edit_is_locked_after_shipment_and_does_not_change_customer_snapshot(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        app(InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
+        $sale = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
+        $originalName = $sale->customer_name;
+        $sale->forceFill(['status' => \App\Enums\OrderStatus::Fulfilled])->save();
+
+        $this->actingAs($owner);
+        Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])
+            ->assertActionHidden('editWebSale')
+            ->assertActionHidden('amendWebSaleItems');
+
+        try {
+            app(WebSalesService::class)->updateDetails($sale, [
+                'customer_name' => 'Should Never Save',
+                'customer_phone' => '+971501112233',
+            ], $owner);
+            $this->fail('Shipped Web Sale customer snapshot must be locked.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('order', $exception->errors());
+        }
+        $this->assertSame($originalName, $sale->refresh()->customer_name);
+    }
+
     public function test_web_sale_can_be_created_with_blank_address_and_detail_renders(): void
     {
         [$owner, , $product, $inventory] = $this->foundation();

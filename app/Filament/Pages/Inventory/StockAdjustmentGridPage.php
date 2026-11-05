@@ -216,12 +216,26 @@ abstract class StockAdjustmentGridPage extends Page
             'saleable' => $query->where('available_quantity', '>', 0),
             'damaged' => $query->where('damaged_quantity', '>', 0),
             'reserved' => $query->where('reserved_quantity', '>', 0),
+            'zero' => $query->where('available_quantity', 0),
             default => null,
         };
         if ($this->linkedInventoryId !== null) {
             $query->orderByRaw('CASE WHEN product_inventories.id = ? THEN 0 ELSE 1 END', [$this->linkedInventoryId]);
         }
-        $rows = $query->orderBy('product_id')->orderBy('warehouse_id')->paginate(min(50, max(10, $this->perPage)));
+        switch ($this->sortBy) {
+            case 'low_stock':
+                $query->orderBy('available_quantity')->orderBy('product_id');
+                break;
+            case 'highest_stock':
+                $query->orderByDesc('available_quantity')->orderBy('product_id');
+                break;
+            case 'recent':
+                $query->orderByDesc('product_inventories.updated_at')->orderByDesc('product_inventories.id');
+                break;
+            default:
+                $query->orderBy('product_id');
+        }
+        $rows = $query->orderBy('warehouse_id')->paginate(min(50, max(10, $this->perPage)));
         $rows->getCollection()->each(function (ProductInventory $row): void {
             $maySeeHolders = app(EmployeeOwnedInventoryReadService::class)
                 ->canViewWarehouseStockHolders(auth()->user(), $row->id);

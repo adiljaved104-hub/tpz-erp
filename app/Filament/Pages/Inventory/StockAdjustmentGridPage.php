@@ -18,6 +18,7 @@ use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAdjustmentService;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryReadService;
+use App\Services\Inventory\StockAdjustmentColumnRegistry;
 use App\Services\Responsibilities\WarehouseStockActionScopeService;
 use App\Services\Search\SearchQuery;
 use Filament\Notifications\Notification;
@@ -50,6 +51,18 @@ abstract class StockAdjustmentGridPage extends Page
 
     public int $perPage = 20;
 
+    public string $historyFrom = '';
+
+    public string $historyTo = '';
+
+    public string $historyType = '';
+
+    public string $historyEmployee = '';
+
+    public string $historyStatus = '';
+
+    public string $historyProduct = '';
+
     public string $sortBy = 'sku';
 
     public array $visibleColumns = ['brand', 'warehouse', 'saleable', 'damaged', 'reserved', 'holder'];
@@ -74,6 +87,7 @@ abstract class StockAdjustmentGridPage extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+        $this->visibleColumns = app(StockAdjustmentColumnRegistry::class)->resolve(auth()->user());
         $receiptItemId = (int) request()->query('receipt_item_id', 0);
         if ($receiptItemId < 1) {
             return;
@@ -170,6 +184,34 @@ abstract class StockAdjustmentGridPage extends Page
         }
         $this->savedRows[$id] = '';
         $this->resetErrorBag();
+    }
+
+    public function toggleColumn(string $column): void
+    {
+        $registry = app(StockAdjustmentColumnRegistry::class);
+        abort_unless(array_key_exists($column, $registry->columns()), 422);
+        $this->visibleColumns = in_array($column, $this->visibleColumns, true)
+            ? array_values(array_diff($this->visibleColumns, [$column]))
+            : [...$this->visibleColumns, $column];
+        $registry->save(auth()->user(), $this->visibleColumns);
+        $this->visibleColumns = $registry->resolve(auth()->user());
+    }
+
+    public function resetColumns(): void
+    {
+        $registry = app(StockAdjustmentColumnRegistry::class);
+        $registry->reset(auth()->user());
+        $this->visibleColumns = $registry->defaults();
+    }
+
+    public function resetHistoryFilters(): void
+    {
+        $this->reset('historyFrom', 'historyTo', 'historyType', 'historyEmployee', 'historyStatus', 'historyProduct');
+    }
+
+    public function updatedVisibleColumns(): void
+    {
+        app(StockAdjustmentColumnRegistry::class)->save(auth()->user(), $this->visibleColumns);
     }
 
     public function canAdjust(): bool
@@ -499,6 +541,21 @@ abstract class StockAdjustmentGridPage extends Page
         $ids = app(InventoryReadService::class)->adjustmentGridInventories(auth()->user())->select('product_inventories.id');
 
         return InventoryAdjustment::query()->with(['product:id,sku,name', 'warehouse:id,name', 'performedBy:id,name'])
-            ->whereIn('product_inventory_id', $ids)->orderByDesc('performed_at')->orderByDesc('id')->limit(25)->get();
+            ->whereIn('product_inventory_id', $ids)
+            ->when($this->historyFrom !== '', fn (Builder $query): Builder => $query->whereDate('performed_at', '>=', $this->historyFrom))
+            ->when($this->historyTo !== '', fn (Builder $query): Builder => $query->whereDate('performed_at', '<=', $this->historyTo))
+            ->when($this->historyType !== '', fn (Builder $query): Builder => $query->where('type', $this->historyType))
+            ->when($this->historyEmployee !== '', fn (Builder $query): Builder => $query->where('performed_by_user_id', (int) $this->historyEmployee))
+            ->when($this->historyProduct !== '', fn (Builder $query): Builder => $query->whereHas('product', fn (Builder $product): Builder => $product->where('sku', 'like', '%'.$this->historyProduct.'%')->orWhere('name', 'like', '%'.$this->historyProduct.'%')))
+            ->orderByDesc('performed_at')->orderByDesc('id')->limit(25)->get();
+    }
+
+    /** @return array<string, mixed> */
+    public function historyFilterOptions(): array
+    {
+        return [
+            'types' => InventoryAdjustment::query()->whereNotNull('type')->distinct()->orderBy('type')->pluck('type')->all(),
+            'employees' => User::query()->whereIn('id', InventoryAdjustment::query()->whereNotNull('performed_by_user_id')->distinct()->pluck('performed_by_user_id'))->orderBy('name')->pluck('name', 'id')->all(),
+        ];
     }
 }

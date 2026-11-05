@@ -22,6 +22,8 @@
     @php
         $rows = $this->rows();
         $filters = $this->filterOptions();
+        $historyFilters = $this->historyFilterOptions();
+        $columnDefinitions = app(\App\Services\Inventory\StockAdjustmentColumnRegistry::class)->columns();
         $mayAdjust = $this->canAdjust();
     @endphp
 
@@ -29,6 +31,28 @@
         @if ($linkedReceiptItemId)
             <div class="mb-4 rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-900 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-100">GRN item #{{ $linkedReceiptItemId }} is linked to the highlighted stock row. The GRN itself remains unchanged.</div>
         @endif
+        <div class="mb-4 flex flex-wrap items-center gap-2">
+            <details class="relative">
+                <summary class="fi-btn fi-btn-size-sm fi-btn-color-gray cursor-pointer list-none">Filters</summary>
+                <div class="absolute z-20 mt-2 grid w-[min(90vw,48rem)] gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-gray-900 md:grid-cols-3">
+                    <label><span class="mb-1 block text-sm font-medium">Date From</span><x-filament::input.wrapper><x-filament::input wire:model.live="historyFrom" type="date" /></x-filament::input.wrapper></label>
+                    <label><span class="mb-1 block text-sm font-medium">Date To</span><x-filament::input.wrapper><x-filament::input wire:model.live="historyTo" type="date" /></x-filament::input.wrapper></label>
+                    <label><span class="mb-1 block text-sm font-medium">Adjustment Type</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="historyType"><option value="">All types</option>@foreach ($historyFilters['types'] as $type)<option value="{{ $type }}">{{ str($type)->headline() }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                    <label><span class="mb-1 block text-sm font-medium">Employee</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="historyEmployee"><option value="">All employees</option>@foreach ($historyFilters['employees'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                    <label><span class="mb-1 block text-sm font-medium">Product / SKU</span><x-filament::input.wrapper><x-filament::input wire:model.live.debounce.300ms="historyProduct" type="search" /></x-filament::input.wrapper></label>
+                    <div class="flex items-end"><x-filament::button color="gray" wire:click="resetHistoryFilters">Reset</x-filament::button></div>
+                </div>
+            </details>
+            <details class="relative">
+                <summary class="fi-btn fi-btn-size-sm fi-btn-color-gray cursor-pointer list-none">Columns</summary>
+                <div class="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-gray-900">
+                    @foreach ($columnDefinitions as $column => $label)
+                        <label class="flex items-center gap-2 py-1 text-sm"><input type="checkbox" wire:click="toggleColumn('{{ $column }}')" @checked(in_array($column, $visibleColumns, true)) />{{ $label }}</label>
+                    @endforeach
+                    <x-filament::button size="sm" color="gray" class="mt-2" wire:click="resetColumns">Reset columns</x-filament::button>
+                </div>
+            </details>
+        </div>
         <div class="mb-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             <label><span class="mb-1 block text-sm font-medium">Search SKU / Product</span><x-filament::input.wrapper><x-filament::input wire:model.live.debounce.300ms="search" type="search" placeholder="Search stock" /></x-filament::input.wrapper></label>
             <label><span class="mb-1 block text-sm font-medium">Brand</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="brand"><option value="">All brands</option>@foreach ($filters['brands'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
@@ -48,6 +72,7 @@
                     @foreach (['brand' => 'Brand', 'warehouse' => 'Warehouse', 'saleable' => 'Saleable', 'damaged' => 'Damaged', 'reserved' => 'Reserved', 'holder' => 'Stock Holders'] as $key => $label)
                         <label class="flex items-center gap-2"><input type="checkbox" wire:model.live="visibleColumns" value="{{ $key }}" class="rounded border-gray-300" />{{ $label }}</label>
                     @endforeach
+                    <x-filament::button size="sm" color="gray" wire:click="resetColumns">Reset</x-filament::button>
                     <p class="text-xs text-gray-500">Product, adjustment fields, purchase choice and status always remain visible.</p>
                 </div>
             </details>

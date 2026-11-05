@@ -13,6 +13,8 @@ use App\Exceptions\InsufficientInventoryException;
 use App\Models\Employee;
 use App\Models\Product;
 use App\Models\ProductInventory;
+use App\Models\InventoryAllocationBalance;
+use App\Models\InventoryAllocationTransitionLine;
 use App\Models\StockMovement;
 use App\Models\StockTransferMarketplaceLoss;
 use App\Models\User;
@@ -148,6 +150,90 @@ class StockTransferUatRuntimeHotfixTest extends TestCase
     public function test_marketplace_loss_has_an_explicit_morph_alias_for_activity_logging(): void
     {
         $this->assertSame('stock_transfer_marketplace_loss', (new StockTransferMarketplaceLoss)->getMorphClass());
+    }
+
+    public function test_partial_receipts_restore_only_physically_received_allocation_and_preserve_in_transit_balance(): void
+    {
+        [$owner, $source, $destination, $product] = $this->foundation();
+        $sourceInventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $source->id,
+            'available_quantity' => 6,
+            'reserved_quantity' => 0,
+            'damaged_quantity' => 0,
+            'average_cost' => '100.0000',
+        ]);
+        $transfer = $this->draft($owner, $source, $destination, $product, 6);
+        $item = $transfer->items()->firstOrFail();
+        $service = app(StockTransferAdvancedService::class);
+
+        $service->ship($transfer, [$item->id => 4], (string) Str::uuid(), $owner);
+
+        $held = fn (): int => (int) InventoryAllocationTransitionLine::query()
+            ->where('context_type', 'transfer')->where('context_id', $item->id)
+            ->sum('remaining_quantity');
+        $destinationInventory = fn (): ProductInventory => ProductInventory::query()
+            ->where('warehouse_id', $destination->id)->where('product_id', $product->id)->firstOrFail();
+        $allocatedAtDestination = fn (): int => (int) InventoryAllocationBalance::query()
+            ->where('product_inventory_id', $destinationInventory()->id)->sum('allocated_quantity');
+
+        $this->assertSame(4, $held());
+        $this->assertSame(2, (int) $sourceInventory->refresh()->available_quantity);
+
+        $service->receive($transfer, [$item->id => 3], (string) Str::uuid(), $owner);
+        $this->assertSame(StockTransferStatus::Dispatched, $transfer->refresh()->status);
+        $this->assertSame(3, (int) $item->refresh()->received_quantity);
+        $this->assertSame(3, (int) $destinationInventory()->available_quantity);
+        $this->assertSame(3, $allocatedAtDestination());
+        $this->assertSame(1, $held());
+
+        $service->receive($transfer, [$item->id => 1], (string) Str::uuid(), $owner);
+        $this->assertSame(4, (int) $item->refresh()->received_quantity);
+        $this->assertSame(4, (int) $destinationInventory()->available_quantity);
+        $this->assertSame(4, $allocatedAtDestination());
+        $this->assertSame(0, $held());
+
+        $service->ship($transfer, [$item->id => 2], (string) Str::uuid(), $owner);
+        $this->assertSame(2, $held());
+
+        $service->receive($transfer, [$item->id => 2], (string) Str::uuid(), $owner);
+        $this->assertSame(StockTransferStatus::Received, $transfer->refresh()->status);
+        $this->assertSame(6, (int) $item->refresh()->received_quantity);
+        $this->assertSame(6, (int) $destinationInventory()->available_quantity);
+        $this->assertSame(6, $allocatedAtDestination());
+        $this->assertSame(0, $held());
+        $this->assertSame(5, StockMovement::query()->count());
+    }
+
+    public function test_over_receipt_rejects_without_inventory_or_allocation_postings(): void
+    {
+        [$owner, $source, $destination, $product] = $this->foundation();
+        ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $source->id,
+            'available_quantity' => 4,
+            'reserved_quantity' => 0,
+            'damaged_quantity' => 0,
+            'average_cost' => '100.0000',
+        ]);
+        $transfer = $this->draft($owner, $source, $destination, $product, 4);
+        $item = $transfer->items()->firstOrFail();
+        $service = app(StockTransferAdvancedService::class);
+
+        $service->ship($transfer, [$item->id => 4], (string) Str::uuid(), $owner);
+        $movementCount = StockMovement::query()->count();
+
+        try {
+            $service->receive($transfer, [$item->id => 5], (string) Str::uuid(), $owner);
+            $this->fail('An over-receipt must be rejected.');
+        } catch (\App\Exceptions\InventoryInvariantException $exception) {
+            $this->assertStringContainsString('in-transit', $exception->getMessage());
+        }
+
+        $this->assertSame(0, (int) $item->refresh()->received_quantity);
+        $this->assertSame(StockTransferStatus::Dispatched, $transfer->refresh()->status);
+        $this->assertSame($movementCount, StockMovement::query()->count());
+        $this->assertFalse(ProductInventory::query()->where('warehouse_id', $destination->id)->where('product_id', $product->id)->exists());
     }
 
     /** @return array{User, Warehouse, Warehouse, Product} */

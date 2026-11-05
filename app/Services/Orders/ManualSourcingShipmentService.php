@@ -50,8 +50,8 @@ class ManualSourcingShipmentService
                 if ($line->source_mode !== 'supplier_direct') {
                     throw ValidationException::withMessages(['items' => 'Only supplier-to-customer manual sourcing is materialized during shipment.']);
                 }
-                if ($line->supplier_id === null || $line->actual_unit_cost === null || blank($line->purchase_currency) || $line->purchased_on === null) {
-                    throw ValidationException::withMessages(['items' => 'Manual sourced lines require supplier, actual purchase cost, currency, and purchase date before shipment.']);
+                if ($line->actual_unit_cost === null || blank($line->purchase_currency) || $line->purchased_on === null) {
+                    throw ValidationException::withMessages(['items' => 'Manual sourced lines require actual purchase cost, currency, and purchase date before shipment.']);
                 }
                 if (strtoupper((string) $line->purchase_currency) !== 'AED') {
                     throw ValidationException::withMessages(['items' => 'The current purchasing ledger supports AED only.']);
@@ -84,9 +84,15 @@ class ManualSourcingShipmentService
     private function createPurchase(Order $order, object $line, string $idempotencyKey, User $actor): Purchase
     {
         $data = new CreatePurchaseData(
-            supplierId: (int) $line->supplier_id, warehouseId: (int) $order->warehouse_id, purchaseDate: $line->purchased_on->toDateString(),
+            supplierId: $line->supplier_id === null ? null : (int) $line->supplier_id, warehouseId: (int) $order->warehouse_id, purchaseDate: $line->purchased_on->toDateString(),
             items: [new PurchaseItemData((int) $line->product_id, (int) $line->quantity, (string) $line->actual_unit_cost)],
-            notes: 'Direct fulfilment for Web Sales order '.$order->reference, handledByEmployeeId: $actor->employee?->id,
+            notes: 'Direct fulfilment for Web Sales order '.$order->reference
+                .($line->supplier_id === null
+                    ? (filled($line->metadata['supplier_name'] ?? null)
+                        ? '. Supplier name provided at sale: '.(string) $line->metadata['supplier_name']
+                        : '. Supplier not specified at sale.')
+                    : ''),
+            handledByEmployeeId: $actor->employee?->id,
         );
         $prepared = $this->documents->prepare($data, actor: $actor, receivingScope: true);
         $purchase = Purchase::query()->create(array_merge($prepared['header'], [
@@ -96,7 +102,11 @@ class ManualSourcingShipmentService
             'self_approved' => true, 'external_accounting_reference' => 'manual-sourcing:'.$idempotencyKey,
         ]));
         $purchase->items()->createMany($prepared['lines']);
-        $this->activity->log('purchase.created', $actor, $purchase, ['entry_type' => PurchaseEntryType::QuickStock->value, 'direct_fulfillment' => true]);
+        $this->activity->log('purchase.created', $actor, $purchase, [
+            'entry_type' => PurchaseEntryType::QuickStock->value,
+            'direct_fulfillment' => true,
+            'supplier_master_linked' => $purchase->supplier_id !== null,
+        ]);
 
         return $purchase->load('items');
     }

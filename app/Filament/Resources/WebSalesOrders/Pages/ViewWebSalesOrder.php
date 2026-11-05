@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WebSalesOrders\Pages;
 
 use App\Enums\InvoicePermission;
+use App\Enums\ManualSourcingStatus;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\ProductTitleMode;
@@ -16,6 +17,7 @@ use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\CustomerReturn;
 use App\Models\PurchaseReceipt;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\WebSalesManualSourcingLine;
 use App\Services\Authorization\InvoiceAuthorization;
@@ -46,6 +48,32 @@ class ViewWebSalesOrder extends ViewRecord
     {
         return [
             ...$this->qcOrderActions(),
+            Action::make('assignManualSourcingSupplier')
+                ->label('Set Manual Sourcing Supplier')
+                ->icon('heroicon-o-user-circle')
+                ->schema([
+                    Select::make('line_id')->label('Manual Sourcing Product')
+                        ->options(fn (): array => $this->assignableSupplierLines()
+                            ->mapWithKeys(fn (WebSalesManualSourcingLine $line): array => [$line->id => "{$line->description} ({$line->quantity})"])->all())
+                        ->required()->searchable(),
+                    Select::make('supplier_id')->label('Supplier')
+                        ->options(fn (): array => Supplier::query()->active()->orderBy('name')->pluck('name', 'id')->all())
+                        ->searchable()->required(),
+                ])
+                ->modalDescription('Supplier is optional when creating a Web Sale but must be recorded before a supplier-direct purchase is posted at shipment.')
+                ->visible(fn (): bool => $this->record->status === OrderStatus::PendingReview
+                    && $this->allowed(WebSalesPermission::Update)
+                    && $this->assignableSupplierLines()->isNotEmpty())
+                ->action(function (array $data): void {
+                    $this->run('Cannot update manual sourcing supplier', function () use ($data) {
+                        $line = WebSalesManualSourcingLine::query()
+                            ->where('order_id', $this->record->id)
+                            ->findOrFail((int) $data['line_id']);
+                        app(ManualSourcingService::class)->assignSupplier($line, (int) $data['supplier_id'], auth()->user());
+
+                        return $this->record->refresh();
+                    });
+                }),
             Action::make('confirmManualReceipt')
                 ->label('Confirm Manual Sourcing Receipt')
                 ->icon('heroicon-o-clipboard-document-check')
@@ -151,6 +179,17 @@ class ViewWebSalesOrder extends ViewRecord
     private function deliveryValue(mixed $value): mixed
     {
         return $value instanceof WebSalesDeliveryType ? $value->value : $value;
+    }
+
+    private function assignableSupplierLines(): Collection
+    {
+        return $this->record->manualSourcingLines()
+            ->where('source_mode', 'supplier_direct')
+            ->where('status', ManualSourcingStatus::PendingSourcing->value)
+            ->whereNull('purchase_id')
+            ->whereNull('purchase_receipt_id')
+            ->whereDoesntHave('supplierDirectDeliveries')
+            ->get();
     }
 
     private function manualLines(string $mode): Collection

@@ -57,9 +57,9 @@ class WebSalesWorkflowV2Test extends TestCase
         foreach ($products as $field) {
             $this->assertSame($product->sku.' · Lenovo Demo Book 14 16GB/512GB', $field->getOptionLabel());
             $this->assertArrayHasKey($product->id, $field->getSearchResults('LongTitleSearchMarker'));
-            $this->assertSame('full', $field->getColumnSpan('lg'));
-            $this->assertSame('full', $field->getColumnSpan('md'));
-            $this->assertSame('full', $field->getColumnSpan('default'));
+            $this->assertSame(12, $field->getColumnSpan('lg'));
+            $this->assertSame(6, $field->getColumnSpan('md'));
+            $this->assertSame(1, $field->getColumnSpan('default'));
         }
         $items = $fields->first(fn ($field): bool => $field->getName() === 'items');
         $this->assertSame(12, $items->getColumns('lg'));
@@ -92,7 +92,8 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertInstanceOf(Select::class, $categoryField);
         $this->assertSame($brand->name, $brandField->getOptions()[$brand->name]);
         $this->assertSame($category->name, $categoryField->getOptions()[$category->name]);
-        $this->assertSame('full', $description->getColumnSpan('md'));
+        $this->assertSame(6, $description->getColumnSpan('md'));
+        $this->assertSame(12, $description->getColumnSpan('lg'));
     }
 
     public function test_web_sale_can_be_created_with_blank_address_and_detail_renders(): void

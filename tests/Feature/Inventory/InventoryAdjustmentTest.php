@@ -26,6 +26,8 @@ use App\Models\InventoryAdjustment;
 use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryAllocationReservationLine;
 use App\Models\InventoryReservation;
+use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductInventory;
@@ -133,10 +135,36 @@ class InventoryAdjustmentTest extends TestCase
         [$owner, , $item] = $this->receivedPurchase();
         $inventory = ProductInventory::query()->sole();
         $balance = InventoryAllocationBalance::query()->sole();
+        $order = Order::query()->create([
+            'reference' => 'SO-'.Str::upper(Str::random(10)),
+            'source' => 'manual',
+            'status' => 'draft',
+            'warehouse_id' => $inventory->warehouse_id,
+            'order_date' => today(),
+            'subtotal' => 100,
+            'discount_total' => 0,
+            'vat_total' => 0,
+            'grand_total' => 100,
+            'idempotency_key' => (string) Str::uuid(),
+            'created_by_user_id' => $owner->id,
+        ]);
+        $orderItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'product_id' => $inventory->product_id,
+            'product_name' => $inventory->product->name,
+            'sku' => $inventory->product->sku,
+            'ordered_quantity' => 4,
+            'selling_price' => 25,
+            'discount_total' => 0,
+            'vat_rate' => 0,
+            'vat_amount' => 0,
+            'line_total' => 100,
+        ]);
         $reservation = InventoryReservation::factory()->create([
             'product_inventory_id' => $inventory->id,
             'product_id' => $inventory->product_id,
             'warehouse_id' => $inventory->warehouse_id,
+            'order_item_id' => $orderItem->id,
             'quantity' => 4,
             'reserved_by_user_id' => $owner->id,
         ]);

@@ -1,0 +1,88 @@
+name: Stock Transfer UAT runtime hotfix QA (non-deploying)
+
+on:
+  push:
+    branches:
+      - codex/staging-uat-transfer-runtime-hotfix-20261105
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-hotfix:
+    name: PHP 8.3 focused Stock Transfer crash regression (MySQL 8.4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_qa
+          MYSQL_USER: tpz_qa
+          MYSQL_PASSWORD: qa_disposable_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_qa
+      DB_USERNAME: tpz_qa
+      DB_PASSWORD: qa_disposable_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Confirm isolated Staging hotfix ancestry and paths
+        run: |
+          git merge-base --is-ancestor 1944afac8832716869f409f5b32cecd97063d7de HEAD
+          git diff --name-only 1944afac8832716869f409f5b32cecd97063d7de HEAD > /tmp/hotfix-files
+          cat /tmp/hotfix-files
+          test "$(wc -l < /tmp/hotfix-files)" -eq 4
+          grep -qx 'app/Providers/AppServiceProvider.php' /tmp/hotfix-files
+          grep -qx 'app/Services/StockTransfers/StockTransferAdvancedService.php' /tmp/hotfix-files
+          grep -qx 'tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php' /tmp/hotfix-files
+          grep -qx '.github/workflows/staging-transfer-runtime-hotfix-qa.yml' /tmp/hotfix-files
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Prepare isolated test environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Validate PHP syntax
+        run: |
+          php -l app/Providers/AppServiceProvider.php
+          php -l app/Services/StockTransfers/StockTransferAdvancedService.php
+          php -l tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php
+      - name: Run focused crash regression tests
+        run: php artisan test --no-ansi tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php

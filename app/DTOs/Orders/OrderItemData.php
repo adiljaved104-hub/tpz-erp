@@ -26,5 +26,6 @@ final readonly class OrderItemData
         public ?string $actualUnitCost = null,
         public ?string $purchaseCurrency = null,
         public ?string $purchasedOn = null,
+        public ?string $supplierName = null,
     ) {}
 }

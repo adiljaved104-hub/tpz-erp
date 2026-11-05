@@ -59,28 +59,33 @@ class WebSalesOrderForm
                 Repeater::make('items')->schema([
                     Select::make('source_type')->label('Stock Source')->options(['existing_product' => 'Existing Product', 'manual_sourced' => 'Manual Sourced Product'])->default('existing_product')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->live()
                         ->afterStateUpdated(function ($state, Set $set): void {
-                            $set('product_id', null);
+                            if ($state !== 'manual_sourced') {
+                                $set('product_id', null);
+                            }
                             $set('stock_context', null);
                             $set('allocation_sources', []);
                             $set('upgraded_configuration', false);
                             $set('sales_configuration_id', null);
                             $set('upgrade_recipe_id', null);
                         })->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12]),
-                    Select::make('product_id')->label('Product')->placeholder('Search by SKU or product name')
-                        ->searchable()->searchPrompt('Type at least 2 characters to search available products.')
-                        ->noSearchResultsMessage('No authorized matching catalog products found. Choose Manual Sourced Product for a new item.')
+                    Select::make('product_id')->label(fn (Get $get): string => $get('source_type') === 'manual_sourced' ? 'Find Existing Catalog Product (Optional)' : 'Product')->placeholder('Search by SKU or product name')
+                        ->searchable()->searchPrompt('Search the catalog, including products with zero stock.')
+                        ->noSearchResultsMessage('No matching catalog products found. Enter a new product below in Manual Sourcing.')
                         ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
                         ->getOptionLabelUsing(fn ($value): ?string => self::productLabel((int) $value))
-                        ->required(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->live()->visible(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12])
+                        ->required(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->live()->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12])
                         ->afterStateUpdated(fn ($state, Set $set) => self::productChanged($state, $set))
-                        ->helperText(fn (Get $get): string => 'Catalog search shows current Main Warehouse sellable stock, including zero-stock items. Stock shortages cannot be shipped from existing inventory.'.($get('stock_context') ? ' '.$get('stock_context') : '')),
-                    TextInput::make('manual_description')->label('Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12]),
-                    Select::make('manual_brand')->label('Brand')->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
+                        ->helperText(fn (Get $get): string => ($get('source_type') === 'manual_sourced'
+                            ? 'Search and reuse an existing SKU, including zero-stock items. If not found, leave blank to create a new product. Manual sourcing does not consume existing warehouse stock.'
+                            : 'Catalog search shows Main Warehouse sellable stock, including zero-stock items. Use Manual Sourced Product if the required quantity is unavailable.').($get('stock_context') ? ' '.$get('stock_context') : '')),
+                    Placeholder::make('manual_catalog_reuse_note')->label('Existing Product / SKU')->content('The selected catalog product will be reused for this purchase. No duplicate SKU will be created or existing warehouse stock consumed.')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && filled($get('product_id')))->columnSpanFull(),
+                    TextInput::make('manual_description')->label('New Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12]),
+                    Select::make('manual_brand')->label('Brand')->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
                     Select::make('manual_category')->label('Category')->options(fn (): array => ProductCategory::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()
-                        ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')
-                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
-                    TextInput::make('manual_model')->label('Model')->maxLength(160)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
-                    Select::make('manual_condition')->label('Condition')->options(ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
+                        ->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
+                    TextInput::make('manual_model')->label('Model')->maxLength(160)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
+                    Select::make('manual_condition')->label('Condition')->options(ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
                     Select::make('supplier_id')->label('Supplier')->options(fn (): array => Supplier::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
                     TextInput::make('actual_unit_cost')->label('Actual Purchase Cost')->prefix('AED')->numeric()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4])->rule('regex:/^\d{1,13}(?:\.\d{1,4})?$/'),
                     Hidden::make('purchase_currency')->default('AED')->dehydrated(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),

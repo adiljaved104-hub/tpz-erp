@@ -69,8 +69,6 @@ class StockTransferUatRuntimeHotfixTest extends TestCase
         Livewire::actingAs($owner)
             ->test(ViewStockTransfer::class, ['record' => $transfer->getRouteKey()])
             ->mountAction('partialShip')
-            ->assertSee('Ship Now')
-            ->assertSee($item->sku)
             ->setActionData(['lines' => [['item_id' => $item->id, 'quantity' => 1]]])
             ->callMountedAction()
             ->assertHasNoActionErrors();

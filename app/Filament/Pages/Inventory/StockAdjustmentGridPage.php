@@ -52,7 +52,7 @@ abstract class StockAdjustmentGridPage extends Page
 
     public string $sortBy = 'sku';
 
-    public array $visibleColumns = ['brand', 'warehouse', 'saleable', 'damaged', 'reserved', 'holder', 'new_purchase', 'status'];
+    public array $visibleColumns = ['brand', 'warehouse', 'saleable', 'damaged', 'reserved', 'holder'];
 
     public ?int $linkedInventoryId = null;
 
@@ -141,14 +141,24 @@ abstract class StockAdjustmentGridPage extends Page
 
     public function columnVisible(string $column): bool
     {
+        // Never hide posting controls, purchase classification or row errors.
+        if (in_array($column, ['new_purchase', 'status'], true)) {
+            return true;
+        }
+        // A holder source must remain selectable while any adjustment is drafted.
+        if ($column === 'holder' && collect($this->drafts)
+            ->contains(fn (array $draft): bool => filled($draft['type'] ?? null))) {
+            return true;
+        }
+
         return in_array($column, $this->visibleColumns, true);
     }
 
     public function visibleColumnCount(): int
     {
-        return 5 + count(array_intersect(
-            $this->visibleColumns,
-            ['brand', 'warehouse', 'saleable', 'damaged', 'reserved', 'holder', 'new_purchase', 'status'],
+        return 7 + count(array_filter(
+            ['brand', 'warehouse', 'saleable', 'damaged', 'reserved', 'holder'],
+            fn (string $column): bool => $this->columnVisible($column),
         ));
     }
 

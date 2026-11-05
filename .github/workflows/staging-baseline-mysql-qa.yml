@@ -51,10 +51,13 @@ jobs:
       MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Verify exact baseline code
         run: |
-          test "$(git rev-parse HEAD^)" = "c714fdff6bb77b7c4721338c8e8b9db9d381a9c9"
-          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/staging-baseline-mysql-qa.yml"
+          git cat-file -e "c714fdff6bb77b7c4721338c8e8b9db9d381a9c9^{commit}"
+          test "$(git merge-base c714fdff6bb77b7c4721338c8e8b9db9d381a9c9 HEAD)" = "c714fdff6bb77b7c4721338c8e8b9db9d381a9c9"
+          test "$(git diff --name-only c714fdff6bb77b7c4721338c8e8b9db9d381a9c9 HEAD)" = ".github/workflows/staging-baseline-mysql-qa.yml"
           echo BASELINE_SOURCE=c714fdff6bb77b7c4721338c8e8b9db9d381a9c9
       - name: Configure PHP 8.3
         uses: shivammathur/setup-php@v2

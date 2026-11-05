@@ -60,7 +60,7 @@ class ViewWebSalesOrder extends ViewRecord
                         ->options(fn (): array => Supplier::query()->active()->orderBy('name')->pluck('name', 'id')->all())
                         ->searchable()->required(),
                 ])
-                ->modalDescription('Supplier is optional at Web Sale creation. Add it before recording the actual purchase or completing a supplier-direct shipment.')
+                ->modalDescription('Optional supplier master association. You can select one now or retain the supplier name provided with the original sale. Quick Purchase-style direct fulfillment can proceed without a Supplier master.')
                 ->visible(fn (): bool => $this->record->status === OrderStatus::PendingReview
                     && $this->allowed(WebSalesPermission::Update)
                     && $this->assignableSupplierLines()->isNotEmpty())

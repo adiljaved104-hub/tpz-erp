@@ -50,6 +50,10 @@ abstract class StockAdjustmentGridPage extends Page
 
     public int $perPage = 20;
 
+    public string $sortBy = 'sku';
+
+    public array $visibleColumns = ['brand', 'warehouse', 'saleable', 'damaged', 'reserved', 'holder', 'new_purchase', 'status'];
+
     public ?int $linkedInventoryId = null;
 
     public ?int $linkedReceiptItemId = null;

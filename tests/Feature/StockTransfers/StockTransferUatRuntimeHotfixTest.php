@@ -8,6 +8,7 @@ use App\DTOs\StockTransfers\StockTransferItemData;
 use App\Enums\EmployeeRole;
 use App\Enums\InventoryLocationType;
 use App\Enums\StockTransferStatus;
+use App\Filament\Resources\StockTransfers\Pages\ViewStockTransfer;
 use App\Exceptions\InsufficientInventoryException;
 use App\Models\Employee;
 use App\Models\Product;
@@ -19,6 +20,7 @@ use App\Models\Warehouse;
 use App\Services\StockTransfers\StockTransferAdvancedService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class StockTransferUatRuntimeHotfixTest extends TestCase
@@ -49,6 +51,32 @@ class StockTransferUatRuntimeHotfixTest extends TestCase
         $this->assertSame(3, (int) $item->quantity);
         $this->assertSame($inventory->id, (int) $item->source_product_inventory_id);
         $this->assertSame(1, StockMovement::query()->count());
+    }
+
+    public function test_filament_partial_ship_modal_shows_product_and_processes_selected_quantity(): void
+    {
+        [$owner, $source, $destination, $product] = $this->foundation();
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'warehouse_id' => $source->id,
+            'available_quantity' => 5,
+            'reserved_quantity' => 0,
+            'average_cost' => '100.0000',
+        ]);
+        $transfer = $this->draft($owner, $source, $destination, $product, 3);
+        $item = $transfer->items()->firstOrFail();
+
+        Livewire::actingAs($owner)
+            ->test(ViewStockTransfer::class, ['record' => $transfer->getRouteKey()])
+            ->mountAction('partialShip')
+            ->assertSee('Ship Now')
+            ->assertSee($item->sku)
+            ->setActionData(['lines' => [['item_id' => $item->id, 'quantity' => 1]]])
+            ->callMountedAction()
+            ->assertHasNoActionErrors();
+
+        $this->assertSame(1, (int) $item->refresh()->dispatched_quantity);
+        $this->assertSame(4, $inventory->refresh()->available_quantity);
     }
 
     public function test_missing_source_inventory_returns_a_business_error_without_stock_movement(): void

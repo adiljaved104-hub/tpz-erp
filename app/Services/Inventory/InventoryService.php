@@ -1205,7 +1205,7 @@ class InventoryService
         $newAverage = $this->costs->weightedAverage($inventory->totalOnHand(), $inventory->average_cost, $quantity, (string) $item->dispatch_unit_cost);
         $inventory->forceFill(['available_quantity' => $inventory->available_quantity + $quantity, 'average_cost' => $newAverage])->save();
         $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferReceipt, $quantity, $quantity, 0, 0, $before, $item, 'Stock Transfer receipt', null, (string) $item->dispatch_unit_cost);
-        $this->allocationLedger->completeTransfer($item, $inventory, $actor, false);
+        $this->allocationLedger->completeTransfer($item, $inventory, $actor, false, $quantity);
         $this->activity->log('inventory.transfer_in', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'destination_warehouse_id' => $destinationWarehouseId, 'quantity' => $quantity]);
 
         return [$inventory, $movement];

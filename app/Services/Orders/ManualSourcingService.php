@@ -17,6 +17,7 @@ use App\Models\WebSalesManualSourcingReceiptEvent;
 use App\Models\WebSalesSupplierDirectDelivery;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\WebSalesAuthorization;
+use App\Services\DefaultWarehouseService;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -30,7 +31,7 @@ class ManualSourcingService
     {
         $reservedSkus = [];
         foreach ($items as $index => $item) {
-            if ($item->sourceType === 'manual_sourced') {
+            if ($item->sourceType === 'manual_sourced' && $item->productId < 1) {
                 $reservedSkus[$index] = $this->references->nextProductSku();
             }
         }
@@ -39,6 +40,38 @@ class ManualSourcingService
             if ($item->sourceType !== 'manual_sourced') {
                 return $item;
             }
+
+            if ($item->productId > 0) {
+                // Manual sourcing may purchase a catalog product with no
+                // sellable stock. Reuse its actual SKU and immutable identity
+                // rather than creating a near-duplicate Product record.
+                $product = Product::query()->products()->whereKey($item->productId)
+                    ->where('status', ProductStatus::Active->value)->first();
+                if ($product === null) {
+                    throw ValidationException::withMessages(['items' => 'Select an active catalog product for manual sourcing.']);
+                }
+
+                $warehouse = app(DefaultWarehouseService::class)->operationalDefault();
+                if ($warehouse->code !== 'MAIN' || ! app(OrderResponsibilityScopeService::class)->canAccessProduct($actor, $product->id, null, $warehouse->id)) {
+                    throw ValidationException::withMessages(['items' => 'This catalog product is outside your authorized Web Sales responsibility.']);
+                }
+
+                $condition = $product->condition instanceof ProductCondition
+                    ? $product->condition->value : (string) $product->condition;
+
+                return new OrderItemData(
+                    $product->id, $item->quantity, $item->sellingPrice,
+                    $item->discountTotal, $item->vatRate, $item->notes,
+                    null, null, null,
+                    'manual_sourced', $product->name,
+                    (string) $product->displayBrandName(),
+                    (string) $product->displayCategoryName(),
+                    $product->model, $condition, $item->supplierId,
+                    $item->sourceMode, $item->actualUnitCost,
+                    $item->purchaseCurrency, $item->purchasedOn,
+                );
+            }
+
             if (blank($item->manualDescription) || blank($item->manualCategory) || ! in_array($item->sourceMode, ['warehouse_receipt', 'supplier_direct'], true)) {
                 throw ValidationException::withMessages(['items' => 'Manual sourced lines require a description, category, and valid fulfilment mode.']);
             }

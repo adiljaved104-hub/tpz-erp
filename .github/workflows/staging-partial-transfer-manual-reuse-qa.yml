@@ -94,4 +94,6 @@ jobs:
       - name: Rehearse schema on disposable MySQL 8.4
         run: php artisan migrate --force --no-ansi
       - name: Run affected integration and Livewire tests
-        run: php artisan test --no-ansi tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php tests/Feature/StockTransfers/StockTransferWorkflowTest.php tests/Feature/StockTransfers/StockTransferFilamentTest.php tests/Feature/Orders/WebSalesWorkflowV2Test.php tests/Feature/Inventory/InventoryAllocationLedgerTest.php
+        run: php artisan test --no-ansi tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php tests/Feature/StockTransfers/StockTransferWorkflowTest.php tests/Feature/StockTransfers/StockTransferFilamentTest.php tests/Feature/Orders/WebSalesWorkflowV2Test.php
+      - name: Run relevant legacy allocation regression (exclude pre-existing MySQL rollback fixture)
+        run: php artisan test --no-ansi tests/Feature/Inventory/InventoryAllocationLedgerTest.php --filter=test_damage_restore_and_transfer_preserve_exact_allocation_holders

@@ -153,6 +153,17 @@ abstract class StockAdjustmentGridPage extends Page
         $this->resetPage();
     }
 
+    public function applyFilters(): void
+    {
+        $this->resetPage();
+    }
+
+    public function activeFilterCount(): int
+    {
+        return collect([$this->search, $this->brand, $this->warehouse, $this->holder, $this->stockFilter, $this->sortBy !== 'sku' ? $this->sortBy : ''])
+            ->filter(fn (mixed $value): bool => filled($value))->count();
+    }
+
     public function columnVisible(string $column): bool
     {
         // Never hide posting controls, purchase classification or row errors.

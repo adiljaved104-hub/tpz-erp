@@ -5,29 +5,27 @@
     @endphp
 
     <x-filament::section heading="Stock available to request" description="Browse authorized stock and request quantities. Requests never move inventory until approved and executed.">
-        <div class="mb-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <label><span class="mb-1 block text-sm font-medium">Search SKU, product, brand, warehouse or holder</span><x-filament::input.wrapper><x-filament::input wire:model.live.debounce.300ms="search" type="search" placeholder="Search stock" /></x-filament::input.wrapper></label>
-            <label><span class="mb-1 block text-sm font-medium">Brand</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="brand"><option value="">All brands</option>@foreach ($filters['brands'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
-            <label><span class="mb-1 block text-sm font-medium">Warehouse</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="warehouse"><option value="">All warehouses</option>@foreach ($filters['warehouses'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
-            <label><span class="mb-1 block text-sm font-medium">Stock Holder</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="holder"><option value="">All holders</option>@foreach ($filters['holders'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
-            <label><span class="mb-1 block text-sm font-medium">Stock Availability</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="stockFilter"><option value="">All stock</option><option value="saleable">Saleable &gt; 0</option><option value="reserved">Reserved &gt; 0</option><option value="damaged">Damaged &gt; 0</option><option value="zero">Zero saleable</option></x-filament::input.select></x-filament::input.wrapper></label>
-            <label><span class="mb-1 block text-sm font-medium">Rows per page</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="perPage"><option value="10">10</option><option value="20">20</option><option value="50">50</option></x-filament::input.select></x-filament::input.wrapper></label>
-        </div>
-
-        <div class="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 dark:border-white/10 dark:bg-white/5">
-            <div class="flex flex-wrap items-end gap-3">
-                <label><span class="mb-1 block text-xs font-medium">Sort by</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="sortBy"><option value="sku">SKU / Product</option><option value="low_stock">Lowest saleable</option><option value="highest_stock">Highest saleable</option><option value="recent">Recently updated</option></x-filament::input.select></x-filament::input.wrapper></label>
-                <button type="button" wire:click="resetFilters" class="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-white dark:border-white/20 dark:hover:bg-white/10">Clear filters</button>
-            </div>
-            <details class="relative text-sm">
-                <summary class="cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-medium dark:border-white/20">Show / Hide Columns</summary>
-                <div class="absolute right-0 z-20 mt-2 grid w-56 gap-2 rounded-lg border border-gray-200 bg-white p-3 shadow-lg dark:border-white/20 dark:bg-gray-900">
-                    @foreach (['warehouse' => 'Warehouse', 'mine' => 'My Stock', 'reserved' => 'Reserved', 'others' => 'Available From Others', 'holder' => 'Stock Holders', 'request_status' => 'Request Status'] as $key => $label)
-                        <label class="flex items-center gap-2"><input type="checkbox" wire:model.live="visibleColumns" value="{{ $key }}" class="rounded border-gray-300" />{{ $label }}</label>
-                    @endforeach
-                    <p class="text-xs text-gray-500">Product, selection and Request Qty remain visible.</p>
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label class="min-w-0 flex-1"><span class="sr-only">Search stock</span><x-filament::input.wrapper prefix-icon="heroicon-m-magnifying-glass"><x-filament::input wire:model.live.debounce.300ms="search" type="search" placeholder="Search SKU, product, brand, warehouse or holder" /></x-filament::input.wrapper></label>
+            <x-filament::dropdown placement="bottom-start" teleport>
+                <x-slot name="trigger"><x-filament::button color="gray" icon="heroicon-m-funnel">Filters @if ($this->activeFilterCount() > 0)<x-filament::badge size="sm">{{ $this->activeFilterCount() }}</x-filament::badge>@endif</x-filament::button></x-slot>
+                <div class="w-80 space-y-3 p-4">
+                    <label class="block text-sm">Brand<x-filament::input.select wire:model="brand"><option value="">All brands</option>@foreach ($filters['brands'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></label>
+                    <label class="block text-sm">Warehouse<x-filament::input.select wire:model="warehouse"><option value="">All warehouses</option>@foreach ($filters['warehouses'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></label>
+                    <label class="block text-sm">Stock Holder<x-filament::input.select wire:model="holder"><option value="">All holders</option>@foreach ($filters['holders'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></label>
+                    <label class="block text-sm">Stock Availability<x-filament::input.select wire:model="stockFilter"><option value="">All stock</option><option value="saleable">Saleable &gt; 0</option><option value="reserved">Reserved &gt; 0</option><option value="damaged">Damaged &gt; 0</option><option value="zero">Zero saleable</option></x-filament::input.select></label>
+                    <label class="block text-sm">Sort By<x-filament::input.select wire:model="sortBy"><option value="sku">SKU / Product</option><option value="low_stock">Lowest saleable</option><option value="highest_stock">Highest saleable</option><option value="recent">Recently updated</option></x-filament::input.select></label>
+                    <div class="flex gap-2"><x-filament::button size="sm" wire:click="applyFilters">Apply Filters</x-filament::button><x-filament::button size="sm" color="gray" wire:click="resetFilters">Reset <span class="sr-only">Clear filters</span></x-filament::button></div>
                 </div>
-            </details>
+            </x-filament::dropdown>
+            <x-filament::dropdown placement="bottom-end" teleport>
+                <x-slot name="trigger"><x-filament::button color="gray" icon="heroicon-m-view-columns" title="Show / Hide Columns">Columns <span class="sr-only">Show / Hide Columns</span></x-filament::button></x-slot>
+                <x-filament::dropdown.list>
+                    @foreach (['warehouse' => 'Warehouse', 'mine' => 'My Stock', 'reserved' => 'Reserved', 'others' => 'Available From Others', 'holder' => 'Stock Holders', 'request_status' => 'Request Status'] as $key => $label)<x-filament::dropdown.list.item wire:click="toggleColumn('{{ $key }}')" :icon="$this->columnVisible($key) ? 'heroicon-m-check' : 'heroicon-m-minus'">{{ $label }}</x-filament::dropdown.list.item>@endforeach
+                    <x-filament::dropdown.list.item wire:click="resetColumns" icon="heroicon-m-arrow-path">Reset to Default</x-filament::dropdown.list.item>
+                </x-filament::dropdown.list>
+            </x-filament::dropdown>
+            <label class="w-28"><span class="mb-1 block text-xs font-medium">Rows</span><x-filament::input.select wire:model.live="perPage"><option value="10">10</option><option value="20">20</option><option value="50">50</option></x-filament::input.select></label>
         </div>
 
         <form wire:submit="submit" class="space-y-4">

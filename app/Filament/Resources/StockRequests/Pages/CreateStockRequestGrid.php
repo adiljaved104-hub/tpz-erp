@@ -11,6 +11,7 @@ use App\Models\InventoryAllocationBalance;
 use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Inventory\StockRequestColumnRegistry;
 use App\Services\Inventory\StockRequestService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Search\SearchQuery;
@@ -63,6 +64,7 @@ class CreateStockRequestGrid extends Page
     public function mount(): void
     {
         $this->authorizeAccess();
+        $this->visibleColumns = app(StockRequestColumnRegistry::class)->resolve(auth()->user());
         $this->idempotencyKey = (string) Str::uuid();
     }
 
@@ -122,9 +124,37 @@ class CreateStockRequestGrid extends Page
         $this->resetPage();
     }
 
+    public function applyFilters(): void
+    {
+        $this->resetPage();
+    }
+
+    public function activeFilterCount(): int
+    {
+        return collect([$this->search, $this->brand, $this->warehouse, $this->holder, $this->stockFilter, $this->sortBy !== 'sku' ? $this->sortBy : ''])
+            ->filter(fn (mixed $value): bool => filled($value))->count();
+    }
+
     public function columnVisible(string $name): bool
     {
         return in_array($name, $this->visibleColumns, true);
+    }
+
+    public function toggleColumn(string $column): void
+    {
+        $allowed = ['warehouse', 'mine', 'reserved', 'others', 'holder', 'request_status'];
+        abort_unless(in_array($column, $allowed, true), 422);
+        $this->visibleColumns = $this->columnVisible($column)
+            ? array_values(array_diff($this->visibleColumns, [$column]))
+            : [...$this->visibleColumns, $column];
+        app(StockRequestColumnRegistry::class)->save(auth()->user(), $this->visibleColumns);
+        $this->visibleColumns = app(StockRequestColumnRegistry::class)->resolve(auth()->user());
+    }
+
+    public function resetColumns(): void
+    {
+        app(StockRequestColumnRegistry::class)->reset(auth()->user());
+        $this->visibleColumns = app(StockRequestColumnRegistry::class)->defaults();
     }
 
     public function visibleColumnCount(): int

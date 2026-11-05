@@ -4,45 +4,78 @@
         $filters = $this->filterOptions();
     @endphp
 
-    <x-filament::section heading="Stock available to request" description="Products in your Responsibility scope appear automatically. The holder column shows who controls the stock. Submitting a request does not move inventory.">
-        <div class="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+    <x-filament::section heading="Stock available to request" description="Browse authorized stock and request quantities. Requests never move inventory until approved and executed.">
+        <div class="mb-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             <label><span class="mb-1 block text-sm font-medium">Search SKU, product, brand, warehouse or holder</span><x-filament::input.wrapper><x-filament::input wire:model.live.debounce.300ms="search" type="search" placeholder="Search stock" /></x-filament::input.wrapper></label>
             <label><span class="mb-1 block text-sm font-medium">Brand</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="brand"><option value="">All brands</option>@foreach ($filters['brands'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
             <label><span class="mb-1 block text-sm font-medium">Warehouse</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="warehouse"><option value="">All warehouses</option>@foreach ($filters['warehouses'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
-            <label><span class="mb-1 block text-sm font-medium">Holder</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="holder"><option value="">All holders</option>@foreach ($filters['holders'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+            <label><span class="mb-1 block text-sm font-medium">Stock Holder</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="holder"><option value="">All holders</option>@foreach ($filters['holders'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+            <label><span class="mb-1 block text-sm font-medium">Stock Availability</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="stockFilter"><option value="">All stock</option><option value="saleable">Saleable &gt; 0</option><option value="reserved">Reserved &gt; 0</option><option value="damaged">Damaged &gt; 0</option><option value="zero">Zero saleable</option></x-filament::input.select></x-filament::input.wrapper></label>
             <label><span class="mb-1 block text-sm font-medium">Rows per page</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="perPage"><option value="10">10</option><option value="20">20</option><option value="50">50</option></x-filament::input.select></x-filament::input.wrapper></label>
+        </div>
+
+        <div class="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 dark:border-white/10 dark:bg-white/5">
+            <div class="flex flex-wrap items-end gap-3">
+                <label><span class="mb-1 block text-xs font-medium">Sort by</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="sortBy"><option value="sku">SKU / Product</option><option value="low_stock">Lowest saleable</option><option value="highest_stock">Highest saleable</option><option value="recent">Recently updated</option></x-filament::input.select></x-filament::input.wrapper></label>
+                <button type="button" wire:click="resetFilters" class="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-white dark:border-white/20 dark:hover:bg-white/10">Clear filters</button>
+            </div>
+            <details class="relative text-sm">
+                <summary class="cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-medium dark:border-white/20">Show / Hide Columns</summary>
+                <div class="absolute right-0 z-20 mt-2 grid w-56 gap-2 rounded-lg border border-gray-200 bg-white p-3 shadow-lg dark:border-white/20 dark:bg-gray-900">
+                    @foreach (['warehouse' => 'Warehouse', 'mine' => 'My Stock', 'reserved' => 'Reserved', 'others' => 'Available From Others', 'holder' => 'Stock Holders', 'request_status' => 'Request Status'] as $key => $label)
+                        <label class="flex items-center gap-2"><input type="checkbox" wire:model.live="visibleColumns" value="{{ $key }}" class="rounded border-gray-300" />{{ $label }}</label>
+                    @endforeach
+                    <p class="text-xs text-gray-500">Product, selection and Request Qty remain visible.</p>
+                </div>
+            </details>
         </div>
 
         <form wire:submit="submit" class="space-y-4">
             <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
-                <table class="w-full min-w-[640px] divide-y divide-gray-200 text-sm dark:divide-white/10">
+                <table class="w-full min-w-[900px] divide-y divide-gray-200 text-sm dark:divide-white/10">
                     <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-white/5 dark:text-gray-300">
-                        <tr><th class="px-3 py-2">Select</th><th class="px-3 py-2">Product / SKU</th><th class="px-3 py-2">Warehouse</th><th class="px-3 py-2">Request Qty</th></tr>
+                        <tr>
+                            <th class="w-12 px-3 py-2">Select</th>
+                            <th class="min-w-72 px-3 py-2">Product / SKU</th>
+                            @if ($this->columnVisible('warehouse'))<th class="min-w-32 px-3 py-2">Warehouse</th>@endif
+                            @if ($this->columnVisible('mine'))<th class="px-3 py-2">My Stock</th>@endif
+                            @if ($this->columnVisible('reserved'))<th class="px-3 py-2">Reserved</th>@endif
+                            @if ($this->columnVisible('others'))<th class="px-3 py-2">From Others</th>@endif
+                            @if ($this->columnVisible('holder'))<th class="min-w-44 px-3 py-2">Stock Holders</th>@endif
+                            @if ($this->columnVisible('request_status'))<th class="min-w-36 px-3 py-2">Request Status</th>@endif
+                            <th class="min-w-32 px-3 py-2">Request Qty</th>
+                        </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                         @forelse ($rows as $row)
                             <tr wire:key="request-stock-{{ $row->id }}" class="align-top">
                                 <td class="px-3 py-3"><input type="checkbox" wire:model.live="selected.{{ $row->id }}" aria-label="Select {{ $row->product->sku }}" class="rounded border-gray-300" /></td>
                                 <td class="min-w-72 px-3 py-3"><div class="whitespace-normal break-words font-semibold">{{ $row->product->name }}</div><div class="text-xs text-gray-500">{{ $row->product->sku }} · {{ $row->product->brandRelation?->name ?? 'No brand' }}</div></td>
-                                <td class="px-3 py-3">{{ $row->warehouse?->name }}</td>
+                                @if ($this->columnVisible('warehouse'))<td class="px-3 py-3">{{ $row->warehouse?->name }}</td>@endif
+                                @if ($this->columnVisible('mine'))<td class="px-3 py-3 font-medium">{{ $row->my_stock }}</td>@endif
+                                @if ($this->columnVisible('reserved'))<td class="px-3 py-3">{{ $row->reserved_quantity }}</td>@endif
+                                @if ($this->columnVisible('others'))<td class="px-3 py-3">{{ $row->available_from_others }}</td>@endif
+                                @if ($this->columnVisible('holder'))<td class="px-3 py-3 text-xs">@forelse ($row->holder_labels as $holderLabel)<div>{{ $holderLabel }}</div>@empty<span class="text-gray-500">No allocation holder</span>@endforelse</td>@endif
+                                @if ($this->columnVisible('request_status'))<td class="px-3 py-3 text-xs">@if ($row->request_status)<a class="text-primary-600 hover:underline" href="{{ \App\Filament\Resources\StockRequests\StockRequestResource::getUrl('view', ['record' => $row->request_status->request_id]) }}">{{ $row->request_status->reference }} · {{ str_replace('_', ' ', $row->request_status->status) }}</a>@else<span class="text-gray-500">No request</span>@endif</td>@endif
                                 <td class="px-3 py-3"><x-filament::input.wrapper><x-filament::input type="number" min="0" max="{{ $row->requestable }}" step="1" wire:model.blur="quantities.{{ $row->id }}" aria-label="Request quantity for {{ $row->product->sku }}" /></x-filament::input.wrapper>@error('quantities.'.$row->id)<div class="mt-1 text-xs text-danger-600">{{ $message }}</div>@enderror</td>
                             </tr>
                             <tr wire:key="request-stock-sources-{{ $row->id }}" data-stock-request-sources>
-                                <td colspan="4" class="px-3 pb-4">
-                                    <x-filament::section heading="Available Sources / Approval Status" compact>
-                                        <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                                            <div><dt class="text-xs text-gray-500">My Stock</dt><dd>{{ $row->my_stock }}</dd></div>
-                                            <div><dt class="text-xs text-gray-500">Reserved</dt><dd>{{ $row->reserved_quantity }}</dd></div>
-                                            <div><dt class="text-xs text-gray-500">Available From Others</dt><dd>{{ $row->available_from_others }}</dd></div>
-                                            <div><dt class="text-xs text-gray-500">Stock Holder / Handled By</dt><dd>@forelse ($row->holder_labels as $holderLabel)<div>{{ $holderLabel }}</div>@empty No allocation holder @endforelse</dd></div>
-                                            <div><dt class="text-xs text-gray-500">Request Status</dt><dd>@if ($row->request_status)<a class="text-primary-600 hover:underline" href="{{ \App\Filament\Resources\StockRequests\StockRequestResource::getUrl('view', ['record' => $row->request_status->request_id]) }}">{{ $row->request_status->reference }} · {{ str_replace('_', ' ', $row->request_status->status) }}</a>@else No request @endif</dd></div>
-                                            <div><dt class="text-xs text-gray-500">Approval Route</dt><dd>Allocation Holder; System / Unassigned requires Owner/Admin</dd></div>
+                                <td colspan="{{ $this->visibleColumnCount() }}" class="px-3 pb-3 pt-0">
+                                    <details class="rounded-lg border border-gray-200 bg-gray-50/70 dark:border-white/10 dark:bg-white/5">
+                                        <summary class="cursor-pointer px-3 py-2 text-xs font-medium">Available Sources / Approval Status · Expand details</summary>
+                                        <dl class="grid gap-3 border-t border-gray-200 px-3 py-3 text-xs dark:border-white/10 sm:grid-cols-2 lg:grid-cols-3">
+                                            <div><dt class="text-gray-500">My Stock</dt><dd>{{ $row->my_stock }}</dd></div>
+                                            <div><dt class="text-gray-500">Reserved</dt><dd>{{ $row->reserved_quantity }}</dd></div>
+                                            <div><dt class="text-gray-500">Available From Others</dt><dd>{{ $row->available_from_others }}</dd></div>
+                                            <div><dt class="text-gray-500">Stock Holder / Handled By</dt><dd>@forelse ($row->holder_labels as $holderLabel)<div>{{ $holderLabel }}</div>@empty No allocation holder @endforelse</dd></div>
+                                            <div><dt class="text-gray-500">Request Status</dt><dd>@if ($row->request_status)<a class="text-primary-600 hover:underline" href="{{ \App\Filament\Resources\StockRequests\StockRequestResource::getUrl('view', ['record' => $row->request_status->request_id]) }}">{{ $row->request_status->reference }} · {{ str_replace('_', ' ', $row->request_status->status) }}</a>@else No request @endif</dd></div>
+                                            <div><dt class="text-gray-500">Approval Route</dt><dd>Allocation Holder; System / Unassigned requires Owner/Admin</dd></div>
                                         </dl>
-                                    </x-filament::section>
+                                    </details>
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">No stock rows match your Responsibility scope and filters.</td></tr>
+                            <tr><td colspan="{{ $this->visibleColumnCount() }}" class="px-4 py-8 text-center text-gray-500">No stock rows match your Responsibility scope and filters.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -50,7 +83,7 @@
             <div>{{ $rows->onEachSide(1)->links() }}</div>
             <label class="block"><span class="mb-1 block text-sm font-medium">Reason for request</span><x-filament::input.wrapper><x-filament::input type="text" wire:model="reason" maxlength="2000" placeholder="Why is this stock needed?" /></x-filament::input.wrapper>@error('reason')<div class="mt-1 text-xs text-danger-600">{{ $message }}</div>@enderror</label>
             @error('quantities')<div class="text-sm text-danger-600">{{ $message }}</div>@enderror
-            <div class="flex justify-end"><x-filament::button type="submit">Submit Stock Request</x-filament::button></div>
+            <div class="flex justify-end"><x-filament::button type="submit" wire:loading.attr="disabled" wire:target="submit">Submit Stock Request</x-filament::button></div>
         </form>
     </x-filament::section>
 </x-filament-panels::page>

@@ -86,7 +86,16 @@ class WebSalesOrderForm
                         ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
                     TextInput::make('manual_model')->label('Model')->maxLength(160)->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
                     Select::make('manual_condition')->label('Condition')->options(ProductCondition::class)->default('new')->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
-                    Select::make('supplier_id')->label('Supplier (Optional)')->options(fn (): array => Supplier::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->helperText('You may select a supplier later from the Web Sale details before shipment. A supplier is required when posting the actual purchase.')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
+                    Select::make('supplier_id')->label('Supplier (Optional)')->options(fn (): array => Supplier::query()->active()->orderBy('name')->pluck('name', 'id')->all())
+                        ->searchable()->placeholder('No Supplier')->live()
+                        ->afterStateUpdated(fn ($state, Set $set) => filled($state) ? $set('supplier_name', null) : null)
+                        ->helperText('Select an existing supplier, enter a supplier name below, or leave both blank like Quick Purchase.')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
+                    TextInput::make('supplier_name')->label('Supplier Name (Optional)')->maxLength(255)
+                        ->placeholder('Type supplier name if not in the list')
+                        ->helperText('Recorded on the sale and purchase notes. Does not create a Supplier master record.')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('supplier_id')))
+                        ->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),
                     TextInput::make('actual_unit_cost')->label('Actual Purchase Cost')->prefix('AED')->numeric()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4])->rule('regex:/^\d{1,13}(?:\.\d{1,4})?$/'),
                     Hidden::make('purchase_currency')->default('AED')->dehydrated(fn (Get $get): bool => $get('source_type') === 'manual_sourced'),
                     TextInput::make('purchased_on')->label('Purchase Date')->type('date')->default(now()->toDateString())->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced')->columnSpan(['default' => 1, 'md' => 4, 'lg' => 4]),

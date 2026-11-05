@@ -144,6 +144,7 @@ use App\Models\StockMovement;
 use App\Models\StockRequest;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
+use App\Models\StockTransferMarketplaceLoss;
 use App\Models\StockTransferStatusEvent;
 use App\Models\Supplier;
 use App\Models\Task;
@@ -578,6 +579,7 @@ class AppServiceProvider extends ServiceProvider
             'warehouse_stock_visibility_grant' => WarehouseStockVisibilityGrant::class,
             'stock_transfer' => StockTransfer::class,
             'stock_transfer_item' => StockTransferItem::class,
+            'stock_transfer_marketplace_loss' => StockTransferMarketplaceLoss::class,
             'stock_transfer_status_event' => StockTransferStatusEvent::class,
             'customer_return' => CustomerReturn::class,
             'customer_return_exception_case' => CustomerReturnExceptionCase::class,

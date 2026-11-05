@@ -25,6 +25,7 @@ use App\Models\Order;
 use App\Models\OrderFulfillmentItem;
 use App\Models\Product;
 use App\Models\ProductInventory;
+use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
 use App\Models\StockMovement;
 use App\Models\Supplier;
@@ -67,6 +68,67 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
         $this->assertSame('500.0000', OrderFulfillmentItem::query()->sole()->inventory_unit_cost);
         $this->assertSame('500.0000', AccountingObligation::query()->where('source_type', 'order_line_fulfillment')->sole()->unit_cost);
         $this->assertSame('AED', AccountingObligation::query()->where('source_type', 'order_line_fulfillment')->sole()->currency);
+    }
+
+    public function test_supplier_direct_shipping_accepts_an_on_spot_supplier_name_without_a_supplier_master(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $originalSupplierCount = Supplier::query()->count();
+        $order = $this->createOrder($owner, [new OrderItemData(
+            productId: 0,
+            quantity: 1,
+            sellingPrice: '1500.00',
+            sourceType: 'manual_sourced',
+            manualDescription: 'Demo direct sourced laptop with informal supplier',
+            manualBrand: 'TPZ',
+            manualCategory: 'Laptops',
+            manualModel: 'DIRECT-FREE-NAME',
+            sourceMode: 'supplier_direct',
+            actualUnitCost: '500.00',
+            purchaseCurrency: 'AED',
+            purchasedOn: today()->toDateString(),
+            supplierName: 'Example walk-in counter supplier',
+        )]);
+        $line = $order->manualSourcingLines()->sole();
+
+        $this->assertNull($line->supplier_id);
+        $this->assertSame('Example walk-in counter supplier', $line->metadata['supplier_name']);
+        $this->assertSame($originalSupplierCount, Supplier::query()->count());
+
+        $shipped = app(WebSalesService::class)->ship($order, (string) Str::uuid(), $owner);
+
+        $this->assertSame(OrderStatus::Fulfilled, $shipped->refresh()->status);
+        $this->assertNull(Purchase::query()->sole()->supplier_id);
+        $this->assertStringContainsString('Example walk-in counter supplier', Purchase::query()->sole()->notes);
+        $this->assertSame($originalSupplierCount, Supplier::query()->count());
+        $this->assertSame(0, ProductInventory::query()->sole()->available_quantity);
+        $this->assertSame(1, ManualSourcingShipmentPosting::query()->count());
+    }
+
+    public function test_supplier_direct_shipping_accepts_no_supplier_like_quick_purchase(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $order = $this->createOrder($owner, [new OrderItemData(
+            productId: 0,
+            quantity: 1,
+            sellingPrice: '1500.00',
+            sourceType: 'manual_sourced',
+            manualDescription: 'Demo direct sourced laptop with no supplier',
+            manualBrand: 'TPZ',
+            manualCategory: 'Laptops',
+            manualModel: 'DIRECT-NONE',
+            sourceMode: 'supplier_direct',
+            actualUnitCost: '500.00',
+            purchaseCurrency: 'AED',
+            purchasedOn: today()->toDateString(),
+        )]);
+
+        $shipped = app(WebSalesService::class)->ship($order, (string) Str::uuid(), $owner);
+
+        $this->assertSame(OrderStatus::Fulfilled, $shipped->refresh()->status);
+        $this->assertNull(Purchase::query()->sole()->supplier_id);
+        $this->assertStringContainsString('Supplier not specified', Purchase::query()->sole()->notes);
+        $this->assertSame(1, ManualSourcingShipmentPosting::query()->count());
     }
 
     public function test_failure_after_direct_receipt_rolls_back_every_shipment_record(): void

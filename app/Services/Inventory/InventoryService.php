@@ -49,8 +49,8 @@ use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Qc\RenewedQcExceptionSalesService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -475,16 +475,23 @@ class InventoryService
 
     public function reconcileMarketplaceLoss(ProductInventory $inventory, int $quantity, Model $source, User $actor, string $movementReference, string $idempotencyKey): StockMovement
     {
-        if (DB::transactionLevel() === 0 || $quantity < 1) throw new InventoryInvariantException('Marketplace loss reconciliation requires an active transaction and positive quantity.');
+        if (DB::transactionLevel() === 0 || $quantity < 1) {
+            throw new InventoryInvariantException('Marketplace loss reconciliation requires an active transaction and positive quantity.');
+        }
         $inventory = ProductInventory::query()->lockForUpdate()->findOrFail($inventory->id);
-        if ($quantity > $inventory->marketplace_non_sellable_quantity) throw new InventoryInvariantException('Marketplace loss exceeds marketplace non-sellable stock.');
-        if (StockMovement::query()->where('idempotency_key', $idempotencyKey)->exists()) return StockMovement::query()->where('idempotency_key', $idempotencyKey)->firstOrFail();
+        if ($quantity > $inventory->marketplace_non_sellable_quantity) {
+            throw new InventoryInvariantException('Marketplace loss exceeds marketplace non-sellable stock.');
+        }
+        if (StockMovement::query()->where('idempotency_key', $idempotencyKey)->exists()) {
+            return StockMovement::query()->where('idempotency_key', $idempotencyKey)->firstOrFail();
+        }
         $before = $this->snapshot($inventory);
         $value = bcmul((string) ($inventory->average_cost ?? '0'), (string) $quantity, 4);
         $inventory->forceFill(['marketplace_non_sellable_quantity' => $inventory->marketplace_non_sellable_quantity - $quantity, 'marketplace_non_sellable_value' => bcsub((string) $inventory->marketplace_non_sellable_value, $value, 4)])->save();
         $movement = $this->createMovement($inventory, $actor, $movementReference, (string) Str::uuid(), StockMovementType::MarketplaceLoss, $quantity, 0, 0, 0, $before, $source, 'Authorized marketplace post-receipt loss', $idempotencyKey, (string) ($inventory->average_cost ?? '0'));
         StockMovementBucketChange::query()->create(['stock_movement_id' => $movement->id, 'bucket' => StockMovementBucket::MarketplaceNonSellable, 'quantity_delta' => -$quantity, 'quantity_before' => $before['marketplace_non_sellable'] ?? 0, 'quantity_after' => $inventory->marketplace_non_sellable_quantity, 'value_delta' => '-'.$value, 'value_before' => $before['marketplace_non_sellable_value'] ?? '0', 'value_after' => $inventory->marketplace_non_sellable_value]);
         $this->allocationLedger->reconcileMarketplaceLoss($inventory, $quantity, $source, $actor);
+
         return $movement;
     }
 

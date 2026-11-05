@@ -88,6 +88,7 @@ class ViewStockTransfer extends ViewRecord
                 ->visible(fn (): bool => auth()->user()->can('receive', $this->record) && $this->record->marketplaceLosses()->where('status', 'pending')->exists())
                 ->action(fn (array $data) => $this->runTransferAction('Cannot start loss investigation', function () use ($data) {
                     $loss = $this->record->marketplaceLosses()->where('status', 'pending')->oldest('id')->firstOrFail();
+
                     return app(StockTransferAdvancedService::class)->investigateMarketplaceLoss($loss, auth()->user(), $data['notes'] ?? null);
                 })),
             Action::make('submitMarketplaceClaim')
@@ -96,6 +97,7 @@ class ViewStockTransfer extends ViewRecord
                 ->visible(fn (): bool => auth()->user()->can('receive', $this->record) && $this->record->marketplaceLosses()->where('status', 'investigating')->exists())
                 ->action(fn (array $data) => $this->runTransferAction('Cannot submit marketplace claim', function () use ($data) {
                     $loss = $this->record->marketplaceLosses()->where('status', 'investigating')->oldest('id')->firstOrFail();
+
                     return app(StockTransferAdvancedService::class)->submitMarketplaceClaim($loss, auth()->user(), $data['claim_reference'], $data['notes'] ?? null, $data['claim_amount'] ?? null);
                 })),
             Action::make('closeMarketplaceClaim')
@@ -104,6 +106,7 @@ class ViewStockTransfer extends ViewRecord
                 ->visible(fn (): bool => auth()->user()->can('receive', $this->record) && $this->record->marketplaceLosses()->where('status', 'claim_submitted')->exists())
                 ->action(fn (array $data) => $this->runTransferAction('Cannot close marketplace claim', function () use ($data) {
                     $loss = $this->record->marketplaceLosses()->where('status', 'claim_submitted')->oldest('id')->firstOrFail();
+
                     return app(StockTransferAdvancedService::class)->closeMarketplaceClaim($loss, auth()->user(), $data['outcome'], $data['notes'] ?? null, $data['reimbursed_amount'] ?? null);
                 })),
             Action::make('cancel')

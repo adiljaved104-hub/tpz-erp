@@ -15,7 +15,18 @@ class OrderLineFulfillment extends Model
         return ['unit_cost' => 'decimal:4'];
     }
 
-    public function order(): BelongsTo { return $this->belongsTo(Order::class); }
-    public function orderItem(): BelongsTo { return $this->belongsTo(OrderItem::class); }
-    public function events(): HasMany { return $this->hasMany(OrderLineFulfillmentEvent::class, 'fulfillment_id'); }
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
+    }
+
+    public function orderItem(): BelongsTo
+    {
+        return $this->belongsTo(OrderItem::class);
+    }
+
+    public function events(): HasMany
+    {
+        return $this->hasMany(OrderLineFulfillmentEvent::class, 'fulfillment_id');
+    }
 }

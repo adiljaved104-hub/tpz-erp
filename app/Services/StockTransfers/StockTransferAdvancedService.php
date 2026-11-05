@@ -8,8 +8,8 @@ use App\Exceptions\InvalidStockTransferTransitionException;
 use App\Models\StockTransfer;
 use App\Models\StockTransferMarketplaceLoss;
 use App\Models\User;
-use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\ActivityLogger;
+use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Inventory\InventoryService;
 use App\Services\Qc\QcStockTransferReadinessService;
 use App\Services\ReferenceSequenceService;
@@ -139,6 +139,7 @@ class StockTransferAdvancedService
         if ($quantity + $alreadyReported > (int) $item->received_quantity) {
             throw ValidationException::withMessages(['loss' => 'Marketplace loss cannot exceed the quantity physically received at destination.']);
         }
+
         return StockTransferMarketplaceLoss::query()->firstOrCreate(['idempotency_key' => $key], [
             'stock_transfer_id' => $transfer->id, 'stock_transfer_item_id' => $itemId, 'quantity' => $quantity,
             'status' => 'pending', 'marketplace_reference' => $marketplaceReference, 'notes' => $notes,
@@ -150,9 +151,12 @@ class StockTransferAdvancedService
     {
         return DB::transaction(function () use ($loss, $actor, $notes): StockTransferMarketplaceLoss {
             $loss = StockTransferMarketplaceLoss::query()->lockForUpdate()->findOrFail($loss->id);
-            if ($loss->status !== 'pending') throw ValidationException::withMessages(['loss' => 'Only reported losses can enter investigation.']);
+            if ($loss->status !== 'pending') {
+                throw ValidationException::withMessages(['loss' => 'Only reported losses can enter investigation.']);
+            }
             $loss->forceFill(['status' => 'investigating', 'investigating_at' => now(), 'investigating_by_user_id' => $actor->id, 'notes' => $notes ?? $loss->notes])->save();
             $this->activity->log('stock_transfer.marketplace_loss_investigating', $actor, $loss, ['transfer_id' => $loss->stock_transfer_id, 'quantity' => $loss->quantity]);
+
             return $loss->refresh();
         });
     }
@@ -161,24 +165,35 @@ class StockTransferAdvancedService
     {
         return DB::transaction(function () use ($loss, $actor, $claimReference, $notes, $claimAmount): StockTransferMarketplaceLoss {
             $loss = StockTransferMarketplaceLoss::query()->lockForUpdate()->findOrFail($loss->id);
-            if ($loss->status !== 'investigating') throw ValidationException::withMessages(['loss' => 'Only investigated losses can be submitted.']);
+            if ($loss->status !== 'investigating') {
+                throw ValidationException::withMessages(['loss' => 'Only investigated losses can be submitted.']);
+            }
             $item = $loss->item()->with('destinationInventory')->firstOrFail();
-            if ($item->destinationInventory === null) throw ValidationException::withMessages(['loss' => 'The received destination inventory could not be resolved.']);
+            if ($item->destinationInventory === null) {
+                throw ValidationException::withMessages(['loss' => 'The received destination inventory could not be resolved.']);
+            }
             $this->inventory->reconcileMarketplaceLoss($item->destinationInventory, (int) $loss->quantity, $loss, $actor, $this->references->nextStockMovementReference(), 'marketplace-loss-'.$loss->id);
             $loss->forceFill(['status' => 'claim_submitted', 'claim_reference' => trim($claimReference), 'claim_amount' => $claimAmount, 'claim_submitted_at' => now(), 'claim_submitted_by_user_id' => $actor->id, 'notes' => $notes ?? $loss->notes])->save();
             $this->activity->log('stock_transfer.marketplace_loss_claim_submitted', $actor, $loss, ['claim_reference' => $loss->claim_reference]);
+
             return $loss->refresh();
         });
     }
 
     public function closeMarketplaceClaim(StockTransferMarketplaceLoss $loss, User $actor, string $outcome, ?string $notes = null, ?string $reimbursedAmount = null): StockTransferMarketplaceLoss
     {
-        if (! in_array($outcome, ['reimbursed', 'rejected', 'resolved'], true)) throw ValidationException::withMessages(['outcome' => 'Invalid marketplace claim outcome.']);
+        if (! in_array($outcome, ['reimbursed', 'rejected', 'resolved'], true)) {
+            throw ValidationException::withMessages(['outcome' => 'Invalid marketplace claim outcome.']);
+        }
+
         return DB::transaction(function () use ($loss, $actor, $outcome, $notes, $reimbursedAmount): StockTransferMarketplaceLoss {
             $loss = StockTransferMarketplaceLoss::query()->lockForUpdate()->findOrFail($loss->id);
-            if ($loss->status !== 'claim_submitted') throw ValidationException::withMessages(['loss' => 'Only submitted claims can be closed.']);
+            if ($loss->status !== 'claim_submitted') {
+                throw ValidationException::withMessages(['loss' => 'Only submitted claims can be closed.']);
+            }
             $loss->forceFill(['status' => $outcome, 'resolved_by_user_id' => $actor->id, 'resolved_at' => now(), 'closed_at' => now(), 'reimbursed_amount' => $reimbursedAmount, 'notes' => $notes ?? $loss->notes])->save();
             $this->activity->log('stock_transfer.marketplace_loss_closed', $actor, $loss, ['outcome' => $outcome, 'reimbursed_amount' => $reimbursedAmount]);
+
             return $loss->refresh();
         });
     }

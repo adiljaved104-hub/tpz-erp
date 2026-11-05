@@ -733,9 +733,13 @@ class InventoryAllocationService
         $remaining = $quantity;
         $balances = InventoryAllocationBalance::query()->where('product_inventory_id', $inventory->id)->whereRaw('allocated_quantity > reserved_quantity')->orderBy('id')->lockForUpdate()->get();
         foreach ($balances as $balance) {
-            if ($remaining < 1) break;
+            if ($remaining < 1) {
+                break;
+            }
             $amount = min($remaining, $balance->availableQuantity());
-            if ($amount < 1) continue;
+            if ($amount < 1) {
+                continue;
+            }
             $balance->decrement('allocated_quantity', $amount);
             $this->event('marketplace_loss_reconciliation', $inventory, $amount, $actor, 'Post-receipt marketplace loss removed from allocation', $source, $balance->account);
             $remaining -= $amount;

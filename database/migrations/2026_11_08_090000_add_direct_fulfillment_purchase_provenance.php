@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -63,7 +64,7 @@ return new class extends Migration
         // Preserve audit trail and purchase provenance: this migration is
         // intentionally forward-only once any shipment posting exists.
         if (Schema::hasTable('manual_sourcing_shipment_postings')
-            && \Illuminate\Support\Facades\DB::table('manual_sourcing_shipment_postings')->exists()) {
+            && DB::table('manual_sourcing_shipment_postings')->exists()) {
             throw new RuntimeException('Rollback refused: manual sourcing shipment postings contain history.');
         }
 

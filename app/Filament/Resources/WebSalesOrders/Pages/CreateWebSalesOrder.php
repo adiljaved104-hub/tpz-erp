@@ -53,6 +53,7 @@ class CreateWebSalesOrder extends CreateRecord
                     manualModel: $item['manual_model'] ?? null,
                     manualCondition: $item['manual_condition'] ?? null,
                     supplierId: filled($item['supplier_id'] ?? null) ? (int) $item['supplier_id'] : null,
+                    supplierName: filled($item['supplier_name'] ?? null) ? trim((string) $item['supplier_name']) : null,
                     sourceMode: (string) ($item['source_mode'] ?? 'warehouse_receipt'),
                     actualUnitCost: $item['actual_unit_cost'] ?? null,
                     purchaseCurrency: $item['purchase_currency'] ?? null,

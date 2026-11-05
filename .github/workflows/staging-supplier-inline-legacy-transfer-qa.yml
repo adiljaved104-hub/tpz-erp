@@ -55,12 +55,15 @@ jobs:
           git merge-base --is-ancestor 25a0fafa65e3325825b84f606a8264f5c3a5622d HEAD
           git diff --name-only 25a0fafa65e3325825b84f606a8264f5c3a5622d HEAD > /tmp/paths
           cat /tmp/paths
-          test "$(wc -l < /tmp/paths)" -eq 11
+          test "$(wc -l < /tmp/paths)" -eq 14
           grep -qx 'app/DTOs/Orders/OrderItemData.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Pages/CreateWebSalesOrder.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderForm.php' /tmp/paths
           grep -qx 'app/Services/Orders/ManualSourcingService.php' /tmp/paths
           grep -qx 'app/Services/Orders/ManualSourcingShipmentService.php' /tmp/paths
+          grep -qx 'app/Services/Inventory/InventoryAllocationService.php' /tmp/paths
+          grep -qx 'app/Services/Returns/MarketplaceReturnService.php' /tmp/paths
+          grep -qx 'tests/Feature/Returns/MarketplaceReturnWorkflowTest.php' /tmp/paths
           grep -qx 'app/Filament/Resources/StockTransfers/Pages/ViewStockTransfer.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Pages/ViewWebSalesOrder.php' /tmp/paths
           grep -qx 'tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php' /tmp/paths
@@ -93,6 +96,9 @@ jobs:
           php -l app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderForm.php
           php -l app/Services/Orders/ManualSourcingService.php
           php -l app/Services/Orders/ManualSourcingShipmentService.php
+          php -l app/Services/Inventory/InventoryAllocationService.php
+          php -l app/Services/Returns/MarketplaceReturnService.php
+          php -l tests/Feature/Returns/MarketplaceReturnWorkflowTest.php
           php -l app/Filament/Resources/StockTransfers/Pages/ViewStockTransfer.php
           php -l app/Filament/Resources/WebSalesOrders/Pages/ViewWebSalesOrder.php
           php -l tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php
@@ -105,3 +111,5 @@ jobs:
         run: php artisan test --no-ansi tests/Feature/Orders/WebSalesWorkflowV2Test.php
       - name: Transfer actions and allocation regression
         run: php artisan test --no-ansi tests/Feature/StockTransfers/StockTransferUatRuntimeHotfixTest.php
+      - name: Marketplace sellable removal allocation regression
+        run: php artisan test --no-ansi tests/Feature/Returns/MarketplaceReturnWorkflowTest.php

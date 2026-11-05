@@ -1,0 +1,93 @@
+﻿name: TPZ ERP Consolidated Main Integration QA
+
+on:
+  push:
+    branches:
+      - integration/business-operations-main-20261105
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: Focused UI regression (PHP 8.3 / MySQL 8.4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_ui_qa
+          MYSQL_USER: tpz_ui_qa
+          MYSQL_PASSWORD: qa_disposable_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_ui_qa
+      DB_USERNAME: tpz_ui_qa
+      DB_PASSWORD: qa_disposable_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - run: cp .env.example .env && php artisan key:generate --force && php artisan package:discover --ansi
+      - name: Verify disposable MySQL configuration
+        run: |
+          php artisan config:clear --ansi
+          test "$(php artisan tinker --execute="echo config('database.default');")" = "mysql"
+          test "$(php artisan tinker --execute="echo config('database.connections.mysql.database');")" = "tpz_ui_qa"
+      - name: Migration rehearsal
+        run: php artisan migrate --force --no-interaction --ansi
+      - name: PHP syntax and formatter checks
+        run: |
+          php -l app/Filament/Pages/Inventory/StockAdjustmentGridPage.php
+          php -l app/Filament/Resources/StockRequests/Pages/CreateStockRequestGrid.php
+          php -l app/Services/Inventory/StockRequestColumnRegistry.php
+          vendor/bin/pint --test app/Filament/Pages/Inventory/StockAdjustmentGridPage.php app/Filament/Resources/StockRequests/Pages/CreateStockRequestGrid.php app/Services/Inventory/StockRequestColumnRegistry.php
+      - name: Blade compilation
+        run: php artisan view:cache --ansi
+      - name: Focused PHPUnit suites (bounded)
+        run: |
+          cp phpunit.xml phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_ui_qa"\/>/' phpunit.mysql.ci.xml
+          timeout --signal=TERM 35m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox tests 2>&1 | tee /tmp/tpz-ui-phpunit.log
+          test ${PIPESTATUS[0]} -eq 0
+          rm -f phpunit.mysql.ci.xml
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-adjustments-sales-orders-ui-qa-logs
+          path: |
+            /tmp/tpz-ui-phpunit.log
+            storage/logs/*.log
+          if-no-files-found: ignore
+

@@ -55,7 +55,7 @@ jobs:
           git merge-base --is-ancestor 25a0fafa65e3325825b84f606a8264f5c3a5622d HEAD
           git diff --name-only 25a0fafa65e3325825b84f606a8264f5c3a5622d HEAD > /tmp/paths
           cat /tmp/paths
-          test "$(wc -l < /tmp/paths)" -eq 14
+          test "$(wc -l < /tmp/paths)" -eq 15
           grep -qx 'app/DTOs/Orders/OrderItemData.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Pages/CreateWebSalesOrder.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderForm.php' /tmp/paths
@@ -64,6 +64,7 @@ jobs:
           grep -qx 'app/Services/Inventory/InventoryAllocationService.php' /tmp/paths
           grep -qx 'app/Services/Returns/MarketplaceReturnService.php' /tmp/paths
           grep -qx 'tests/Feature/Returns/MarketplaceReturnWorkflowTest.php' /tmp/paths
+          grep -qx 'scripts/deployment/Reconcile-Staging-MarketplaceRemoval-20261105.php' /tmp/paths
           grep -qx 'app/Filament/Resources/StockTransfers/Pages/ViewStockTransfer.php' /tmp/paths
           grep -qx 'app/Filament/Resources/WebSalesOrders/Pages/ViewWebSalesOrder.php' /tmp/paths
           grep -qx 'tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php' /tmp/paths
@@ -99,6 +100,7 @@ jobs:
           php -l app/Services/Inventory/InventoryAllocationService.php
           php -l app/Services/Returns/MarketplaceReturnService.php
           php -l tests/Feature/Returns/MarketplaceReturnWorkflowTest.php
+          php -l scripts/deployment/Reconcile-Staging-MarketplaceRemoval-20261105.php
           php -l app/Filament/Resources/StockTransfers/Pages/ViewStockTransfer.php
           php -l app/Filament/Resources/WebSalesOrders/Pages/ViewWebSalesOrder.php
           php -l tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php

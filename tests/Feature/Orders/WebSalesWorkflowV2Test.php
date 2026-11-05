@@ -18,12 +18,14 @@ use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductCategory;
 use App\Models\ProductInventory;
+use App\Models\Supplier;
 use App\Models\ResponsibilityAssignment;
 use App\Models\ResponsibilityAssignmentProduct;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\WebSalesCustomerLookupService;
+use App\Services\Orders\ManualSourcingService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -94,6 +96,56 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertSame($category->name, $categoryField->getOptions()[$category->name]);
         $this->assertSame(6, $description->getColumnSpan('md'));
         $this->assertSame(12, $description->getColumnSpan('lg'));
+    }
+
+    public function test_manual_sourcing_supplier_is_optional_in_form_and_can_be_set_before_purchase_posting(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        $inventory->forceFill(['available_quantity' => 0, 'reserved_quantity' => 0])->save();
+        $supplier = Supplier::factory()->create(['status' => true]);
+
+        $this->actingAs($owner);
+        $page = Livewire::test(CreateWebSalesOrder::class)->fillForm([
+            'customer_name' => 'Manual sourcing supplier optional',
+            'customer_phone' => '+971501112233',
+            'web_sales_channel' => 'whatsapp',
+            'delivery_type' => 'shop_pickup',
+            'items' => [[
+                'source_type' => 'manual_sourced',
+                'product_id' => $product->id,
+                'quantity' => 1,
+                'selling_price' => '1800.00',
+                'supplier_id' => null,
+                'actual_unit_cost' => '1000.00',
+                'purchased_on' => today()->toDateString(),
+            ]],
+        ]);
+        $fields = collect($page->instance()->form->getFlatFields(withHidden: true));
+        $supplierField = $fields->first(fn ($field): bool => $field->getName() === 'supplier_id');
+        $this->assertNotNull($supplierField);
+        $this->assertFalse($supplierField->isRequired());
+
+        $page->call('create')->assertHasNoFormErrors();
+        $order = Order::query()->webSales()->sole();
+        $line = $order->manualSourcingLines()->sole();
+        $this->assertNull($line->supplier_id);
+        $this->assertSame('pending_review', $order->status->value);
+        $this->assertSame(0, (int) $inventory->refresh()->available_quantity);
+
+        $updated = app(ManualSourcingService::class)->assignSupplier($line, $supplier->id, $owner);
+        $this->assertSame($supplier->id, (int) $updated->supplier_id);
+        $this->assertSame($supplier->id, (int) $line->refresh()->supplier_id);
+
+        // Once sourcing has started, the recorded purchase provenance must
+        // not be silently changed from the Web Sale.
+        $line->forceFill(['status' => 'ready_for_allocation'])->save();
+        try {
+            app(ManualSourcingService::class)->assignSupplier($line, $supplier->id, $owner);
+            $this->fail('An already-posted sourcing line must be immutable.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('supplier_id', $exception->errors());
+        }
+        $this->assertSame($supplier->id, (int) $line->refresh()->supplier_id);
     }
 
     public function test_manual_sourcing_reuses_existing_catalog_sku_without_touching_zero_stock(): void

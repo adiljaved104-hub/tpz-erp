@@ -60,7 +60,7 @@ class ViewWebSalesOrder extends ViewRecord
                         ->options(fn (): array => Supplier::query()->active()->orderBy('name')->pluck('name', 'id')->all())
                         ->searchable()->required(),
                 ])
-                ->modalDescription('Supplier is optional when creating a Web Sale but must be recorded before a supplier-direct purchase is posted at shipment.')
+                ->modalDescription('Supplier is optional at Web Sale creation. Add it before recording the actual purchase or completing a supplier-direct shipment.')
                 ->visible(fn (): bool => $this->record->status === OrderStatus::PendingReview
                     && $this->allowed(WebSalesPermission::Update)
                     && $this->assignableSupplierLines()->isNotEmpty())
@@ -184,7 +184,7 @@ class ViewWebSalesOrder extends ViewRecord
     private function assignableSupplierLines(): Collection
     {
         return $this->record->manualSourcingLines()
-            ->where('source_mode', 'supplier_direct')
+            ->whereIn('source_mode', ['supplier_direct', 'warehouse_receipt'])
             ->where('status', ManualSourcingStatus::PendingSourcing->value)
             ->whereNull('purchase_id')
             ->whereNull('purchase_receipt_id')

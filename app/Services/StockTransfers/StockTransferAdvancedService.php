@@ -4,6 +4,7 @@ namespace App\Services\StockTransfers;
 
 use App\Enums\StockTransferPermission;
 use App\Enums\StockTransferStatus;
+use App\Exceptions\InsufficientInventoryException;
 use App\Exceptions\InvalidStockTransferTransitionException;
 use App\Models\StockTransfer;
 use App\Models\StockTransferMarketplaceLoss;
@@ -67,7 +68,15 @@ class StockTransferAdvancedService
                 }
                 $inventory = $item->sourceInventory()->lockForUpdate()->first();
                 if ($inventory === null) {
-                    $inventory = $item->product()->inventories()->where('warehouse_id', $transfer->source_warehouse_id)->lockForUpdate()->firstOrFail();
+                    $inventory = $item->product()->firstOrFail()
+                        ->inventories()
+                        ->where('warehouse_id', $transfer->source_warehouse_id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($inventory === null) {
+                        throw new InsufficientInventoryException("No source inventory exists for {$item->sku} at the transfer source warehouse.");
+                    }
                 }
                 $reservation = $transfer->reservations()->where('stock_transfer_item_id', $item->id)->where('status', 'active')->first();
                 $refs = $reservation ? ($reservationMovementReferences[$reservation->id] ?? []) : [];

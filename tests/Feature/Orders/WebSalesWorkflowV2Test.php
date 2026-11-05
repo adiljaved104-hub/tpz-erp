@@ -15,6 +15,8 @@ use App\Models\Employee;
 use App\Models\InventoryAllocationReservationLine;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\ProductBrand;
+use App\Models\ProductCategory;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\ResponsibilityAssignmentProduct;
@@ -29,6 +31,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Filament\Forms\Components\Select;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -54,20 +57,42 @@ class WebSalesWorkflowV2Test extends TestCase
         foreach ($products as $field) {
             $this->assertSame($product->sku.' · Lenovo Demo Book 14 16GB/512GB', $field->getOptionLabel());
             $this->assertArrayHasKey($product->id, $field->getSearchResults('LongTitleSearchMarker'));
-            $this->assertSame(6, $field->getColumnSpan('lg'));
-            $this->assertSame(6, $field->getColumnSpan('md'));
-            $this->assertSame(1, $field->getColumnSpan('default'));
+            $this->assertSame('full', $field->getColumnSpan('lg'));
+            $this->assertSame('full', $field->getColumnSpan('md'));
+            $this->assertSame('full', $field->getColumnSpan('default'));
         }
         $items = $fields->first(fn ($field): bool => $field->getName() === 'items');
         $this->assertSame(12, $items->getColumns('lg'));
         $this->assertSame(6, $items->getColumns('md'));
         $this->assertSame(1, $items->getColumns('default'));
         $price = $fields->first(fn ($field): bool => $field->getName() === 'selling_price');
-        $this->assertSame(2, $price->getColumnSpan('lg'));
+        $this->assertSame(4, $price->getColumnSpan('lg'));
         $source = $fields->first(fn ($field): bool => $field->getName() === 'allocation_sources');
         $this->assertSame('full', $source->getColumnSpan('default'));
         $this->assertSame(1, $source->getColumns('default'));
         $page->assertSee('AED 1,500.00')->assertSee('AED 3,000.00');
+    }
+
+    public function test_manual_sourcing_uses_master_brand_category_options_and_full_width_fields(): void
+    {
+        [$owner] = $this->foundation();
+        $brand = ProductBrand::factory()->create(['name' => 'UAT Brand', 'status' => true]);
+        $category = ProductCategory::factory()->create(['name' => 'UAT Laptops', 'status' => true]);
+
+        $this->actingAs($owner);
+        $page = Livewire::test(CreateWebSalesOrder::class)->fillForm(['items' => [
+            ['source_type' => 'manual_sourced', 'manual_description' => 'UAT new laptop', 'manual_brand' => $brand->name, 'manual_category' => $category->name],
+        ]])->assertOk();
+        $fields = collect($page->instance()->form->getFlatFields(withHidden: true));
+        $brandField = $fields->first(fn ($field): bool => $field->getName() === 'manual_brand');
+        $categoryField = $fields->first(fn ($field): bool => $field->getName() === 'manual_category');
+        $description = $fields->first(fn ($field): bool => $field->getName() === 'manual_description');
+
+        $this->assertInstanceOf(Select::class, $brandField);
+        $this->assertInstanceOf(Select::class, $categoryField);
+        $this->assertSame($brand->name, $brandField->getOptions()[$brand->name]);
+        $this->assertSame($category->name, $categoryField->getOptions()[$category->name]);
+        $this->assertSame('full', $description->getColumnSpan('md'));
     }
 
     public function test_web_sale_can_be_created_with_blank_address_and_detail_renders(): void

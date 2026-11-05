@@ -5,12 +5,14 @@ namespace App\Services\Orders;
 use App\DTOs\Orders\OrderItemData;
 use App\Enums\InventoryItemType;
 use App\Enums\ManualSourcingStatus;
+use App\Enums\OrderStatus;
 use App\Enums\ProductCondition;
 use App\Enums\ProductStatus;
 use App\Enums\WebSalesPermission;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\PurchaseReceipt;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\WebSalesManualSourcingLine;
 use App\Models\WebSalesManualSourcingReceiptEvent;
@@ -131,6 +133,51 @@ class ManualSourcingService
                 'materialized_at' => now(), 'metadata' => ['created_by_user_id' => $actor->id],
             ]);
         }
+    }
+
+    /**
+     * Supplier selection is optional while creating a Web Sale. Allow the
+     * authorized user to provide it later, before a sourcing purchase or
+     * shipment has been posted. Posted purchase provenance is immutable.
+     */
+    public function assignSupplier(WebSalesManualSourcingLine $line, int $supplierId, User $actor): WebSalesManualSourcingLine
+    {
+        return DB::transaction(function () use ($line, $supplierId, $actor): WebSalesManualSourcingLine {
+            $line = WebSalesManualSourcingLine::query()->lockForUpdate()->findOrFail($line->id);
+            $order = Order::query()->lockForUpdate()->findOrFail($line->order_id);
+            $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
+
+            if ($order->status !== OrderStatus::PendingReview
+                || $line->source_mode !== 'supplier_direct'
+                || $line->status !== ManualSourcingStatus::PendingSourcing
+                || $line->purchase_id !== null
+                || $line->purchase_receipt_id !== null
+                || $line->supplierDirectDeliveries()->exists()) {
+                throw ValidationException::withMessages([
+                    'supplier_id' => 'The supplier cannot be changed after sourcing or shipment has started.',
+                ]);
+            }
+
+            if (! Supplier::query()->active()->whereKey($supplierId)->exists()) {
+                throw ValidationException::withMessages([
+                    'supplier_id' => 'Choose an active supplier.',
+                ]);
+            }
+
+            $previousSupplierId = $line->supplier_id;
+            if ((int) $previousSupplierId === $supplierId) {
+                return $line;
+            }
+
+            $line->forceFill(['supplier_id' => $supplierId])->save();
+            $this->activity->log('web_sales.manual_sourcing_supplier_updated', $actor, $line, [
+                'order_id' => $order->id,
+                'previous_supplier_id' => $previousSupplierId,
+                'supplier_id' => $supplierId,
+            ]);
+
+            return $line->refresh();
+        }, 5);
     }
 
     public function assertReadyForFulfilment(Order $order): void

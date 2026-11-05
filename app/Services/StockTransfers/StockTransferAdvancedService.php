@@ -160,6 +160,7 @@ class StockTransferAdvancedService
     {
         return DB::transaction(function () use ($loss, $actor, $notes): StockTransferMarketplaceLoss {
             $loss = StockTransferMarketplaceLoss::query()->lockForUpdate()->findOrFail($loss->id);
+            $this->authorization->authorize($actor, StockTransferPermission::Receive, $loss->transfer);
             if ($loss->status !== 'pending') {
                 throw ValidationException::withMessages(['loss' => 'Only reported losses can enter investigation.']);
             }
@@ -174,6 +175,7 @@ class StockTransferAdvancedService
     {
         return DB::transaction(function () use ($loss, $actor, $claimReference, $notes, $claimAmount): StockTransferMarketplaceLoss {
             $loss = StockTransferMarketplaceLoss::query()->lockForUpdate()->findOrFail($loss->id);
+            $this->authorization->authorize($actor, StockTransferPermission::Receive, $loss->transfer);
             if ($loss->status !== 'investigating') {
                 throw ValidationException::withMessages(['loss' => 'Only investigated losses can be submitted.']);
             }
@@ -197,6 +199,7 @@ class StockTransferAdvancedService
 
         return DB::transaction(function () use ($loss, $actor, $outcome, $notes, $reimbursedAmount): StockTransferMarketplaceLoss {
             $loss = StockTransferMarketplaceLoss::query()->lockForUpdate()->findOrFail($loss->id);
+            $this->authorization->authorize($actor, StockTransferPermission::Receive, $loss->transfer);
             if ($loss->status !== 'claim_submitted') {
                 throw ValidationException::withMessages(['loss' => 'Only submitted claims can be closed.']);
             }

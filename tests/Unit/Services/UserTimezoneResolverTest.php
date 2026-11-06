@@ -43,6 +43,13 @@ class UserTimezoneResolverTest extends TestCase
         $this->assertSame(config('business.timezone'), app(UserTimezoneResolver::class)->resolve($user, $request));
     }
 
+    public function test_business_timezone_formatter_parses_technical_timestamps_as_utc(): void
+    {
+        $user = User::factory()->create(['display_timezone' => 'Asia/Karachi']);
+
+        $this->assertSame('07 Nov 2026 04:00 PKT', app(\\App\\Services\\BusinessTimezone::class)->format('2026-11-06 23:00:00'));
+    }
+
     public function test_date_ranges_use_exclusive_utc_end_for_pakistan(): void
     {
         $user = User::factory()->create(['display_timezone' => 'Asia/Karachi']);

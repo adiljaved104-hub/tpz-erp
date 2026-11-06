@@ -218,9 +218,10 @@ class WebSalesWorkflowV2Test extends TestCase
             'updated_by_user_id' => $owner->id,
         ]);
         $order = app(WebSalesService::class)->createConfirmed($this->data($product, null, address: 'Dubai, UAE'), $owner);
-        $guardedReferences = new class(DB::connection()->transactionLevel()) extends ReferenceSequenceService
-        {
-            public function __construct(private readonly int $testTransactionLevel) {}
+        $guardedReferences = new class(DB::connection()->transactionLevel()) extends ReferenceSequenceService {
+            public function __construct(private readonly int $testTransactionLevel)
+            {
+            }
 
             public function nextTaxInvoiceNumber(string $prefix, int $startingNumber = 1): string
             {

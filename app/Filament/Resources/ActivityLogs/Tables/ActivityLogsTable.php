@@ -3,8 +3,8 @@
 namespace App\Filament\Resources\ActivityLogs\Tables;
 
 use App\Models\ActivityLog;
-use App\Support\ActivityLogPresenter;
 use App\Services\UserTimezoneResolver;
+use App\Support\ActivityLogPresenter;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;

@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   mysql-integration:
-    name: MySQL integration regression (PHP 8.3 / MySQL 8.4)
+    name: MySQL critical transactional smoke (PHP 8.3 / MySQL 8.4)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
@@ -83,21 +83,37 @@ jobs:
         run: npm run build
       - name: Blade compilation
         run: php artisan view:cache --ansi
-      - name: MySQL integration PHPUnit cohort (bounded)
+      - name: MySQL critical transactional PHPUnit cohort (bounded)
         run: |
           cp phpunit.xml phpunit.mysql.ci.xml
           sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
           sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_ui_qa"\/>/' phpunit.mysql.ci.xml
-          mapfile -t MYSQL_TESTS < <(
-            while IFS= read -r file; do
-              if ! rg -q "PRAGMA|sqlite_master|sqlite::|DB_CONNECTION.*sqlite|SQLiteConnection|new PDO\('sqlite" "$file"; then
-                printf '%s\n' "$file"
-              fi
-            done < <(find tests/Feature tests/Unit -type f -name '*Test.php' -print | sort)
+          # This is a targeted MySQL smoke cohort, not the repository's full suite.
+          # Full SQLite regression remains mandatory in the parallel job.
+          # Do not use positional PHPUnit paths: PHPUnit may silently discover all tests.
+          MYSQL_TESTS=(
+            tests/Feature/Inventory/DefaultResponsibilityAllocationTest.php
+            tests/Feature/Inventory/InventoryAllocationLedgerTest.php
+            tests/Feature/Inventory/InventoryAdjustmentTest.php
+            tests/Feature/Inventory/StockRequestApprovalTest.php
+            tests/Feature/Inventory/StockRequestExecutionTest.php
+            tests/Feature/Inventory/StockRequestFoundationTest.php
+            tests/Feature/Inventory/StockRequestGridTest.php
+            tests/Feature/Orders/OrderAmendmentTest.php
+            tests/Feature/Orders/OrderStockSourceAccessTest.php
+            tests/Feature/Orders/WebSalesWorkflowV2Test.php
+            tests/Feature/Finance/PakistanOfficeFinanceWorkflowTest.php
+            tests/Feature/Responsibilities/ResponsibilityAllocationEnforcementTest.php
           )
-          test "${#MYSQL_TESTS[@]}" -gt 0
-          printf 'MySQL cohort files: %s\n' "${#MYSQL_TESTS[@]}"
-          printf '%s\n' "${MYSQL_TESTS[@]}" > /tmp/tpz-mysql-cohort-files.txt
+          for file in "${MYSQL_TESTS[@]}"; do
+            test -f "$file" || { echo "::error::Missing MySQL cohort test: $file"; exit 1; }
+            if rg -q "PRAGMA|sqlite_master|sqlite::|DB_CONNECTION.*sqlite|SQLiteConnection|new PDO\\('sqlite" "$file"; then
+              echo "::error::MySQL cohort test directly references SQLite internals: $file"
+              exit 1
+            fi
+          done
+          printf '%s\\n' "${MYSQL_TESTS[@]}" > /tmp/tpz-mysql-cohort-files.txt
+          echo "Explicit critical MySQL cohort: ${#MYSQL_TESTS[@]} test files; NOT full MySQL regression"
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
           config = "phpunit.mysql.ci.xml"
@@ -126,6 +142,7 @@ jobs:
           name: consolidated-mysql-qa-logs
           path: |
             /tmp/tpz-mysql-phpunit.log
+            /tmp/tpz-mysql-cohort-files.txt
             storage/logs/*.log
           if-no-files-found: ignore
 

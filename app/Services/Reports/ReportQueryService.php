@@ -33,6 +33,7 @@ use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Returns\CustomerReturnReadService;
 use App\Services\Tasks\TaskQueryService;
+use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
@@ -68,7 +69,7 @@ class ReportQueryService
     public function run(User $user, string $key, array $filters, int $limit = self::PREVIEW_LIMIT): ReportResult
     {
         $definition = $this->catalog->resolve($user, $key);
-        $filters = $this->normalizeFilters($filters);
+        $filters = $this->normalizeFilters($filters, $user);
 
         if ($definition->handler !== self::class) {
             $handler = app($definition->handler);
@@ -247,7 +248,7 @@ class ReportQueryService
             ->whereIn('ms.product_inventory_id', $this->productScope->inventoryIds($user))
             ->when($f['warehouse_id'], fn (Builder $x) => $x->where('mw.id', $f['warehouse_id']))->when($f['product_id'], fn (Builder $x) => $x->where('mp.id', $f['product_id']))
             ->when($f['status'], fn (Builder $x) => $x->where('ms.movement_type', $f['status']))
-            ->whereBetween('ms.occurred_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])
+            ->whereBetween('ms.occurred_at', [$f['from_utc'], $f['until_utc']])
             ->select(['ms.reference', 'ms.occurred_at', 'mp.sku', 'mp.name as product', 'mw.name as location', 'ms.movement_type', 'ms.quantity', 'ms.available_delta', 'ms.reserved_delta', 'ms.damaged_delta', 'ms.reason', 'mu.name as actor'])->orderByDesc('ms.occurred_at');
         $columns = $this->columns(['reference' => 'Movement Reference', 'occurred_at' => 'Occurred At', 'sku' => 'SKU', 'product' => 'Product', 'location' => 'Location', 'movement_type' => 'Movement Type', 'quantity' => 'Quantity', 'available_delta' => 'Available Δ', 'reserved_delta' => 'Reserved Δ', 'damaged_delta' => 'Damaged Δ', 'reason' => 'Reason', 'actor' => 'Actor'], ['quantity', 'available_delta', 'reserved_delta', 'damaged_delta']);
 
@@ -518,9 +519,9 @@ class ReportQueryService
         });
     }
 
-    private function normalizeFilters(array $filters): array
+    private function normalizeFilters(array $filters, User $user): array
     {
-        $today = CarbonImmutable::today(config('app.timezone'));
+        $today = CarbonImmutable::today(app(UserTimezoneResolver::class)->resolve($user));
         $from = CarbonImmutable::parse($filters['from'] ?? $today->startOfMonth()->toDateString());
         $to = CarbonImmutable::parse($filters['to'] ?? $today->toDateString());
         if ($to->lt($from) || $from->diffInDays($to) > 366) {
@@ -529,6 +530,8 @@ class ReportQueryService
 
         return [
             'from' => $from->toDateString(), 'to' => $to->toDateString(),
+            'from_utc' => app(UserTimezoneResolver::class)->utcDateRange($from->toDateString(), $to->toDateString(), $user)['from']->toDateTimeString(),
+            'until_utc' => app(UserTimezoneResolver::class)->utcDateRange($from->toDateString(), $to->toDateString(), $user)['until']->toDateTimeString(),
             'status' => filled($filters['status'] ?? null) ? (string) $filters['status'] : null,
             'employee_id' => filled($filters['employee_id'] ?? null) ? (int) $filters['employee_id'] : null,
             'team_id' => filled($filters['team_id'] ?? null) ? (int) $filters['team_id'] : null,

@@ -74,13 +74,13 @@ class LeaveWorkflowTest extends TestCase
 
     public function test_comp_off_leave_type_never_consumes_annual_entitlement(): void
     {
-        [, $staff] = $this->people();
+        [$owner, $staff] = $this->people();
         $comp = LeaveType::query()->where('code', 'compensatory_off')->firstOrFail();
         $request = LeaveRequest::query()->create([
             'reference' => 'LVR-2026-009999', 'employee_id' => $staff->employee->id,
             'leave_type_id' => $comp->id, 'leave_policy_id' => 1, 'from_date' => '2026-09-07', 'to_date' => '2026-09-07',
             'requested_working_days' => '1.00', 'status' => 'approved', 'reason' => 'Approved Comp Off',
-            'submitted_at' => now(), 'decided_by_user_id' => 1, 'decided_at' => now(), 'idempotency_key' => fake()->uuid(),
+            'submitted_at' => now(), 'decided_by_user_id' => $owner->id, 'decided_at' => now(), 'idempotency_key' => fake()->uuid(),
         ]);
         LeaveRequestDay::query()->create(['leave_request_id' => $request->id, 'leave_date' => '2026-09-07', 'classification' => 'working_leave', 'counts_as_leave' => true, 'leave_units' => '1.00']);
 

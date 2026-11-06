@@ -23,7 +23,7 @@
         <div>
             <div class="text-sm text-gray-500 dark:text-gray-400">Latest Receipt Date</div>
             <div class="font-semibold text-gray-950 dark:text-white">
-                {{ $history->latestReceiptDate?->format('d M Y, h:i A') ?? '—' }}
+                {{ app(\App\Services\UserTimezoneResolver::class)->format($history->latestReceiptDate, 'd M Y, h:i A T') ?? '—' }}
             </div>
         </div>
         <div>
@@ -57,7 +57,7 @@
                     @forelse ($history->recentEntries as $entry)
                         <tr>
                             <td class="whitespace-nowrap px-4 py-3">{{ $entry['purchase_date']->format('d M Y') }}</td>
-                            <td class="whitespace-nowrap px-4 py-3">{{ $entry['received_at']->format('d M Y, h:i A') }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ app(\App\Services\UserTimezoneResolver::class)->format($entry['received_at'], 'd M Y, h:i A T') }}</td>
                             <td class="whitespace-nowrap px-4 py-3 text-right">{{ $entry['quantity'] }}</td>
                             <td class="whitespace-nowrap px-4 py-3 text-right">{{ \App\Support\AedMoney::format($entry['unit_cost']) }}</td>
                             <td class="whitespace-nowrap px-4 py-3">{{ $entry['purchase_reference'] }}</td>

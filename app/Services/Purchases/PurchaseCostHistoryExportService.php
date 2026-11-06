@@ -5,13 +5,14 @@ namespace App\Services\Purchases;
 use App\DTOs\Purchases\PurchaseCostHistoryFilterData;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Services\UserTimezoneResolver;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PurchaseCostHistoryExportService
 {
     private const FIELDS = ['product', 'sku', 'warehouse', 'purchase_date', 'received_at', 'supplier', 'purchase_reference', 'grn_reference', 'accepted_quantity', 'damaged_quantity', 'valuation_quantity', 'inventory_unit_cost'];
 
-    public function __construct(private readonly PurchaseCostHistoryService $history, private readonly ActivityLogger $activity) {}
+    public function __construct(private readonly PurchaseCostHistoryService $history, private readonly ActivityLogger $activity, private readonly UserTimezoneResolver $timezone) {}
 
     public function stream(PurchaseCostHistoryFilterData $filters, User $actor): StreamedResponse
     {
@@ -23,7 +24,9 @@ class PurchaseCostHistoryExportService
             throw_if($output === false, \RuntimeException::class, 'Unable to open Purchase cost-history export stream.');
             fputcsv($output, self::FIELDS);
             foreach ($query->cursor() as $row) {
-                fputcsv($output, array_map(fn (string $field): mixed => $row->{$field}, self::FIELDS));
+                fputcsv($output, array_map(fn (string $field): mixed => $field === 'received_at'
+                    ? $this->timezone->format($row->{$field}, 'd M Y, H:i:s T', $actor)
+                    : $row->{$field}, self::FIELDS));
             }
             fclose($output);
             $this->activity->log('purchase.cost_history_exported', $actor, properties: [

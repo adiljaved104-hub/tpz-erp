@@ -7,6 +7,7 @@ use App\Models\InventoryAdjustment;
 use App\Models\PurchaseReceipt;
 use App\Models\User;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -50,7 +51,7 @@ class PurchaseReceiptInfolist
                 TextEntry::make('warehouse.name')->label('Warehouse'),
                 TextEntry::make('supplier_delivery_note')->label('Supplier Delivery Note'),
                 TextEntry::make('purchase.purchase_date')->label('Purchase Date')->date('d M Y'),
-                TextEntry::make('received_at')->label('Received At')->dateTime('d M Y, h:i A', config('app.timezone')),
+                TextEntry::make('received_at')->label('Received At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A T')),
                 TextEntry::make('receivedBy.name')->label('Received By'),
                 RepeatableEntry::make('receipt_items')
                     ->label('Receipt Items')

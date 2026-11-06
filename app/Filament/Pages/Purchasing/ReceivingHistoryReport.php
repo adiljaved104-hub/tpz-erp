@@ -6,7 +6,7 @@ use App\Filament\Resources\PurchaseReceipts\PurchaseReceiptResource;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\Warehouse;
-use Carbon\CarbonImmutable;
+use App\Services\UserTimezoneResolver;
 use Illuminate\Support\Facades\DB;
 
 class ReceivingHistoryReport extends BasePurchaseReport
@@ -56,7 +56,7 @@ class ReceivingHistoryReport extends BasePurchaseReport
                 'purchase' => $row->purchase,
                 'supplier' => $row->supplier,
                 'warehouse' => $row->warehouse,
-                'received_at' => CarbonImmutable::parse($row->received_at)->timezone(config('app.timezone'))->format('d M Y, h:i A'),
+                'received_at' => app(UserTimezoneResolver::class)->format($row->received_at, 'd M Y, h:i A T'),
                 'received_by' => $row->received_by,
                 'accepted_quantity' => (int) $row->accepted_quantity,
                 'damaged_quantity' => (int) $row->damaged_quantity,

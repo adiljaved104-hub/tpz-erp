@@ -25,16 +25,10 @@ class UserTimezoneResolver
             }
         }
 
-        $scheduleTimezone = $user?->employee?->workScheduleAssignments()
-            ->with('schedule:id,timezone')
-            ->whereDate('effective_from', '<=', now()->toDateString())
-            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', now()->toDateString()))
-            ->latest('effective_from')
-            ->first()?->schedule?->timezone;
-
-        return $this->valid($scheduleTimezone)
-            ? $scheduleTimezone
-            : $this->businessTimezone();
+        // Attendance work schedules intentionally do not determine display timezone.
+        // A verified employee/company regional setting can be added here when such
+        // a source exists; otherwise use the configured business timezone.
+        return $this->businessTimezone();
     }
 
     public function date(DateTimeInterface|string|null $value, ?User $user = null, ?Request $request = null): ?CarbonImmutable

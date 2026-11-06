@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Dashboard\DashboardPreferenceService;
 use App\Services\Dashboard\DashboardWidgetRegistry;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Widgets\Widget;
@@ -62,7 +63,7 @@ class ErpDashboardOverview extends Widget
         $this->period = in_array($period, ['today', 'week', 'month', 'custom'], true) ? $period : 'today';
 
         if ($this->period === 'custom' && ($this->customFrom === null || $this->customTo === null)) {
-            $today = CarbonImmutable::today(config('app.timezone'));
+            $today = CarbonImmutable::today(app(UserTimezoneResolver::class)->resolve(auth()->user()));
             $this->customFrom = $today->subDays(29)->toDateString();
             $this->customTo = $today->toDateString();
             $this->appliedCustomFrom = $this->customFrom;
@@ -80,8 +81,9 @@ class ErpDashboardOverview extends Widget
             'customTo.after_or_equal' => 'The To Date must be on or after the From Date.',
         ]);
 
-        $from = CarbonImmutable::createFromFormat('Y-m-d', $validated['customFrom'], config('app.timezone'));
-        $to = CarbonImmutable::createFromFormat('Y-m-d', $validated['customTo'], config('app.timezone'));
+        $timezone = app(UserTimezoneResolver::class)->resolve(auth()->user());
+        $from = CarbonImmutable::createFromFormat('Y-m-d', $validated['customFrom'], $timezone);
+        $to = CarbonImmutable::createFromFormat('Y-m-d', $validated['customTo'], $timezone);
         if ($from->diffInDays($to) > 366) {
             $this->addError('customTo', 'The custom Dashboard range cannot exceed 366 days.');
 

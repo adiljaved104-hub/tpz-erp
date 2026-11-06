@@ -6,6 +6,8 @@ use App\Enums\ProductCondition;
 use App\Enums\ProductMatchContext;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
+use App\Enums\WebSalesPermission;
+use App\Exceptions\DefaultWarehouseException;
 use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductCategory;
@@ -14,8 +16,10 @@ use App\Models\SalesConfiguration;
 use App\Models\Supplier;
 use App\Models\UpgradeRecipe;
 use App\Models\User;
+use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\DefaultWarehouseService;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\WebSalesReadService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
@@ -73,6 +77,7 @@ class WebSalesOrderForm
                         ->noSearchResultsMessage('No matching catalog products found. Enter a new product below in Manual Sourcing.')
                         ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
                         ->getOptionLabelUsing(fn ($value): ?string => self::productLabel((int) $value))
+                        ->validationMessages(['in' => 'Select an active Product authorized for your Main Warehouse responsibilities.'])
                         ->required(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->live()->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12])
                         ->afterStateUpdated(fn ($state, Set $set) => self::productChanged($state, $set))
                         ->helperText(fn (Get $get): string => ($get('source_type') === 'manual_sourced'
@@ -187,12 +192,27 @@ class WebSalesOrderForm
 
     private static function productLabel(int $id): ?string
     {
-        $product = Product::query()->products()->find($id, [
+        $user = auth()->user();
+        if (! $user instanceof User || ! app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Create)) {
+            return null;
+        }
+
+        try {
+            $warehouse = app(DefaultWarehouseService::class)->operationalDefault();
+        } catch (DefaultWarehouseException) {
+            return null;
+        }
+
+        if ($warehouse->code !== 'MAIN') {
+            return null;
+        }
+
+        $product = Product::query()->active()->products()->find($id, [
             'id', 'sku', 'name', 'accounting_title_override', 'brand', 'brand_id', 'category', 'category_id',
             'model', 'processor_class', 'processor', 'processor_model', 'processor_generation',
             'ram', 'storage', 'graphics', 'touch_screen', 'is_convertible_360', 'color',
         ]);
-        if ($product === null || ! array_key_exists($id, self::productOptions($product->sku))) {
+        if ($product === null || ! app(OrderResponsibilityScopeService::class)->canAccessProduct($user, $product->id, null, $warehouse->id)) {
             return null;
         }
 

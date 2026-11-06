@@ -5,6 +5,8 @@ namespace Tests\Feature\Orders;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\WebSalesOrderData;
 use App\Enums\EmployeeRole;
+use App\Enums\OrderStatus;
+use App\Enums\ProductMatchContext;
 use App\Enums\ProductTitleMode;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
@@ -18,25 +20,26 @@ use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductCategory;
 use App\Models\ProductInventory;
-use App\Models\Supplier;
 use App\Models\ResponsibilityAssignment;
 use App\Models\ResponsibilityAssignmentProduct;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Invoices\InvoiceSettingsService;
-use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\ManualSourcingService;
+use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
+use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\ReferenceSequenceService;
+use Filament\Forms\Components\Select;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Filament\Forms\Components\Select;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -76,6 +79,105 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertSame('full', $source->getColumnSpan('default'));
         $this->assertSame(1, $source->getColumns('default'));
         $page->assertSee('AED 1,500.00')->assertSee('AED 3,000.00');
+    }
+
+    public function test_selected_web_sales_product_remains_valid_when_sku_search_candidate_limit_is_exhausted(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $warehouse = Warehouse::query()->where('code', 'MAIN')->sole();
+        $warehouse->forceFill(['is_default' => true, 'status' => true])->save();
+        $brand = ProductBrand::factory()->create(['name' => 'MSI', 'normalized_name' => 'msi', 'status' => true]);
+        Product::factory()->count(150)->sequence(fn ($sequence): array => [
+            'sku' => 'TPZ-FILLER-'.str_pad((string) ($sequence->index + 1), 3, '0', STR_PAD_LEFT),
+            'name' => 'Filler Product '.$sequence->index,
+            'brand' => 'Lenovo',
+        ])->create();
+        $product = Product::factory()->create([
+            'sku' => 'TPZ-000316', 'name' => 'MSI Cyborg 15', 'brand' => 'MSI', 'brand_id' => $brand->id, 'model' => 'Cyborg 15',
+            'selling_price' => '4599.00',
+        ]);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id, 'warehouse_id' => $warehouse->id,
+            'available_quantity' => 3, 'reserved_quantity' => 0, 'average_cost' => '3000.0000',
+        ]);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($inventory, $owner);
+        $holder = $allocations->employeeAccount($owner->employee->id);
+        $allocations->reconcile($inventory, $holder, 3, $owner, 'Web Sales selected-product regression');
+        $this->actingAs($owner);
+
+        $page = Livewire::test(CreateWebSalesOrder::class);
+        $field = collect($page->instance()->form->getFlatFields(withHidden: true))
+            ->first(fn ($field): bool => $field->getName() === 'product_id');
+        $nameResults = $field->getSearchResults('MSI Cyborg');
+        $this->assertArrayHasKey($product->id, $nameResults);
+        $this->assertSame(150, config('product_matching.candidate_limit'));
+        $this->assertArrayNotHasKey($product->id, app(ProductSearchOptions::class)->search(
+            $product->sku, ProductMatchContext::WebSales, $owner, $warehouse->id,
+        ));
+        $idempotencyKey = (string) Str::uuid();
+
+        $page->fillForm([
+            'idempotency_key' => $idempotencyKey,
+            'customer_name' => 'MSI Cyborg UAT Customer',
+            'customer_phone' => '+971501234567',
+            'web_sales_channel' => 'whatsapp',
+            'delivery_type' => 'courier',
+            'courier_name' => 'Aramex',
+            'items' => [[
+                'product_id' => $product->id,
+                'quantity' => 1,
+                'selling_price' => '4599.00',
+                'allocation_sources' => [['account_id' => $holder->id, 'quantity' => 1]],
+            ]],
+        ]);
+        $selectedField = collect($page->instance()->form->getFlatFields(withHidden: true))
+            ->first(fn ($field): bool => $field->getName() === 'product_id');
+        $this->assertSame($product->sku.' · MSI Cyborg 15', $selectedField->getOptionLabel());
+        $page->call('create')->assertHasNoFormErrors();
+
+        $order = Order::query()->webSales()->sole();
+        $retry = app(WebSalesService::class)->createConfirmed(new WebSalesOrderData(
+            customerName: 'MSI Cyborg UAT Customer',
+            customerPhone: '+971501234567',
+            channel: WebSalesChannel::WhatsApp,
+            deliveryType: WebSalesDeliveryType::Courier,
+            courierName: 'Aramex',
+            trackingNumber: null,
+            items: [new OrderItemData($product->id, 1, '4599.00', allocationSources: [$holder->id => 1])],
+            idempotencyKey: $idempotencyKey,
+        ), $owner);
+
+        $this->assertSame($order->id, $retry->id);
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertSame(1, (int) $holder->balances()->where('product_inventory_id', $inventory->id)->value('reserved_quantity'));
+    }
+
+    public function test_selected_web_sales_product_outside_employee_responsibility_is_rejected_without_inventory_changes(): void
+    {
+        [, $warehouse, $product, $inventory] = $this->foundation();
+        $warehouse->forceFill(['is_default' => true, 'status' => true])->save();
+        $staff = $this->user(EmployeeRole::Staff);
+        $this->actingAs($staff);
+
+        Livewire::test(CreateWebSalesOrder::class)->fillForm([
+            'customer_name' => 'Unauthorized Product Customer',
+            'customer_phone' => '+971501234567',
+            'web_sales_channel' => 'whatsapp',
+            'delivery_type' => 'courier',
+            'courier_name' => 'Aramex',
+            'items' => [[
+                'product_id' => $product->id,
+                'quantity' => 1,
+                'selling_price' => '1500.00',
+            ]],
+        ])->call('create')->assertHasFormErrors([
+            'items.0.product_id' => 'Select an active Product authorized for your Main Warehouse responsibilities.',
+        ]);
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertSame(10, (int) $inventory->refresh()->available_quantity);
+        $this->assertSame(0, (int) $inventory->reserved_quantity);
     }
 
     public function test_manual_sourcing_uses_master_brand_category_options_and_full_width_fields(): void
@@ -293,7 +395,7 @@ class WebSalesWorkflowV2Test extends TestCase
         app(InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
         $sale = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
         $originalName = $sale->customer_name;
-        $sale->forceFill(['status' => \App\Enums\OrderStatus::Fulfilled])->save();
+        $sale->forceFill(['status' => OrderStatus::Fulfilled])->save();
 
         $this->actingAs($owner);
         Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])

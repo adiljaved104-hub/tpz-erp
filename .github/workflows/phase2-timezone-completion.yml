@@ -43,6 +43,8 @@ jobs:
       ERP_BACKUP_SCHEDULE_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: shivammathur/setup-php@v2
         with:

@@ -189,10 +189,14 @@ class WebSalesWorkflowV2Test extends TestCase
         $order = app(WebSalesService::class)->createConfirmed($this->data($product, null, address: 'Business Bay, Dubai'), $owner);
         $service = app(WebSalesTaxInvoiceService::class);
 
+        $nextBefore = app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber();
         $invoice = $service->generateOrFind($order, $owner, ProductTitleMode::Website);
+        $nextAfterFirst = app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber();
         $retry = $service->generateOrFind($order, $owner, ProductTitleMode::Accounting);
 
         $this->assertSame($invoice->id, $retry->id);
+        $this->assertSame($nextBefore + 1, $nextAfterFirst);
+        $this->assertSame($nextAfterFirst, app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber());
         $this->assertSame($order->id, $invoice->source_order_id);
         $this->assertSame(ProductTitleMode::Website, $invoice->title_mode);
         $this->assertSame('Business Bay, Dubai', $invoice->customer_address);

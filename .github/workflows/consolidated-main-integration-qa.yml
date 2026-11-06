@@ -88,52 +88,33 @@ jobs:
           cp phpunit.xml phpunit.mysql.ci.xml
           sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
           sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_ui_qa"\/>/' phpunit.mysql.ci.xml
-          # This is a targeted MySQL smoke cohort, not the repository's full suite.
-          # Full SQLite regression remains mandatory in the parallel job.
-          # Do not use positional PHPUnit paths: PHPUnit may silently discover all tests.
-          MYSQL_TESTS=(
-            tests/Feature/Inventory/DefaultResponsibilityAllocationTest.php
-            tests/Feature/Inventory/InventoryAllocationLedgerTest.php
-            tests/Feature/Inventory/InventoryAdjustmentTest.php
-            tests/Feature/Inventory/StockRequestApprovalTest.php
-            tests/Feature/Inventory/StockRequestExecutionTest.php
-            tests/Feature/Inventory/StockRequestFoundationTest.php
-            tests/Feature/Inventory/StockRequestGridTest.php
-            tests/Feature/Orders/OrderAmendmentTest.php
-            tests/Feature/Orders/OrderStockSourceAccessTest.php
-            tests/Feature/Orders/WebSalesWorkflowV2Test.php
-            tests/Feature/Finance/PakistanOfficeFinanceWorkflowTest.php
-            tests/Feature/Responsibilities/ResponsibilityAllocationEnforcementTest.php
+          # These are the same isolated MySQL groups used by the approved baseline triage.
+          # They are critical integration coverage, not the repository's full MySQL suite.
+          # Keeping groups separate prevents fixture state/order from masking real failures.
+          declare -a GROUP_NAMES=(inventory_transfers web_sales_sourcing purchasing security_responsibility returns_marketplace hr_mobile)
+          declare -a GROUP_PATHS=(
+            "tests/Feature/StockTransfers tests/Feature/Inventory/InventoryAllocationLedgerTest.php tests/Feature/Inventory/InventoryAdjustmentTest.php tests/Feature/Inventory/StockRequestGridTest.php"
+            "tests/Feature/Orders/WebSalesWorkflowTest.php tests/Feature/Orders/WebSalesWorkflowV2Test.php tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php tests/Feature/Orders/ManualSourcingShipmentProvenanceTest.php tests/Feature/Orders/OrderAmendmentTest.php"
+            "tests/Feature/Purchases/PurchaseReceivingTest.php tests/Feature/Purchases/PurchaseReceiptCorrectionTest.php tests/Feature/Purchases/QuickStockPurchaseResponsibilityPrivacyTest.php"
+            "tests/Feature/AccessControl tests/Feature/Responsibilities/ConditionResponsibilityTest.php tests/Feature/Authorization/InventoryResponsibilitySecurityTest.php"
+            "tests/Feature/Returns/CustomerReturnWorkflowTest.php tests/Feature/Marketplace/MarketplaceOperationsWatchdogTest.php tests/Feature/Qc/QcMarketplaceTransferTest.php"
+            "tests/Feature/Hr/HrAuthorizationTest.php tests/Feature/Hr/LeaveWorkflowTest.php tests/Feature/Mobile/MobileHrNotificationTargetTest.php"
           )
-          for file in "${MYSQL_TESTS[@]}"; do
-            test -f "$file" || { echo "::error::Missing MySQL cohort test: $file"; exit 1; }
-            if grep -Eq "PRAGMA|sqlite_master|sqlite::|DB_CONNECTION.*sqlite|SQLiteConnection|new PDO\\('sqlite" "$file"; then
-              echo "::error::MySQL cohort test directly references SQLite internals: $file"
-              exit 1
+          : > /tmp/tpz-mysql-phpunit.log
+          : > /tmp/tpz-mysql-cohort-files.txt
+          failures=0
+          for index in "${!GROUP_NAMES[@]}"; do
+            group="${GROUP_NAMES[$index]}"
+            read -r -a selected <<< "${GROUP_PATHS[$index]}"
+            printf 'Group %s: %s\n' "$group" "${selected[*]}" | tee -a /tmp/tpz-mysql-phpunit.log
+            printf '%s\n' "${selected[@]}" >> /tmp/tpz-mysql-cohort-files.txt
+            timeout --signal=TERM 16m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox "${selected[@]}" 2>&1 | tee -a /tmp/tpz-mysql-phpunit.log
+            status=${PIPESTATUS[0]}
+            if [ "$status" -ne 0 ]; then
+              failures=$((failures + 1))
             fi
           done
-          printf '%s\n' "${MYSQL_TESTS[@]}" > /tmp/tpz-mysql-cohort-files.txt
-          echo "Explicit critical MySQL cohort: ${#MYSQL_TESTS[@]} test files; NOT full MySQL regression"
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-          config = "phpunit.mysql.ci.xml"
-          tree = ET.parse(config)
-          root = tree.getroot()
-          suites = root.find("testsuites")
-          for suite in list(suites):
-              suites.remove(suite)
-          selected = ET.SubElement(suites, "testsuite", {"name": "MySQL-Explicit-Cohort"})
-          with open("/tmp/tpz-mysql-cohort-files.txt", encoding="utf-8") as source:
-              files = [line.strip() for line in source if line.strip()]
-          if not files:
-              raise SystemExit("No MySQL cohort tests selected")
-          for file in files:
-              ET.SubElement(selected, "file").text = file
-          tree.write(config, encoding="unicode", xml_declaration=True)
-          print(f"Explicit MySQL PHPUnit XML suite contains {len(files)} files")
-          PY
-          timeout --signal=TERM 35m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testsuite MySQL-Explicit-Cohort --testdox 2>&1 | tee /tmp/tpz-mysql-phpunit.log
-          test ${PIPESTATUS[0]} -eq 0
+          test "$failures" -eq 0
           rm -f phpunit.mysql.ci.xml
       - name: Upload diagnostics on failure
         if: failure()

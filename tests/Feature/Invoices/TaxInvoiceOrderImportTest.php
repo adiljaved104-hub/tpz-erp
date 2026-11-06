@@ -154,7 +154,7 @@ class TaxInvoiceOrderImportTest extends TestCase
         });
         $prefill = app(TaxInvoiceOrderImportService::class)->prefill($owner, $order->id);
         $this->assertSame($item->product_name."\n16GB RAM / 512GB SSD", $prefill['items'][0]['description']);
-        $itemQuery = collect($queries)->first(fn (string $sql): bool => str_contains($sql, 'from "order_items"'));
+        $itemQuery = collect($queries)->first(fn (string $sql): bool => str_contains($sql, 'from "order_items"') || str_contains($sql, 'from `order_items`'));
         $this->assertNotNull($itemQuery);
         $this->assertStringNotContainsString('cost_price', $itemQuery);
         $this->assertStringNotContainsString('average_cost', $itemQuery);
@@ -253,7 +253,9 @@ class TaxInvoiceOrderImportTest extends TestCase
         $this->assertSame($invoice->id, TaxInvoice::query()->sole()->id);
         $this->assertNull(TaxInvoice::query()->sole()->source_order_id);
         $this->assertNull(TaxInvoice::query()->sole()->items->sole()->source_order_item_id);
-        $this->assertSame([], DB::select('PRAGMA foreign_key_check'));
+        if (DB::getDriverName() === 'sqlite') {
+            $this->assertSame([], DB::select('PRAGMA foreign_key_check'));
+        }
     }
 
     public function test_invoice_settings_remain_owner_authorized(): void

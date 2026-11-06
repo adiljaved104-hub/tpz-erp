@@ -21,10 +21,10 @@ use App\Models\ResponsibilityAssignmentProduct;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
-use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -218,10 +218,9 @@ class WebSalesWorkflowV2Test extends TestCase
             'updated_by_user_id' => $owner->id,
         ]);
         $order = app(WebSalesService::class)->createConfirmed($this->data($product, null, address: 'Dubai, UAE'), $owner);
-        $guardedReferences = new class(DB::connection()->transactionLevel()) extends ReferenceSequenceService {
-            public function __construct(private readonly int $testTransactionLevel)
-            {
-            }
+        $guardedReferences = new class(DB::connection()->transactionLevel()) extends ReferenceSequenceService
+        {
+            public function __construct(private readonly int $testTransactionLevel) {}
 
             public function nextTaxInvoiceNumber(string $prefix, int $startingNumber = 1): string
             {

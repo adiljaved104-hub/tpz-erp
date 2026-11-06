@@ -7,7 +7,6 @@ use App\Services\Dashboard\DashboardPreferenceService;
 use App\Services\Dashboard\DashboardWidgetRegistry;
 use App\Services\Dashboard\ErpDashboardService;
 use App\Services\UserTimezoneResolver;
-use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Widgets\Widget;

@@ -47,7 +47,7 @@
             </div>
         </x-filament::section>
 
-        <x-filament::section heading="Retention" description="Retention is applied only after a successful backup. The newest valid backup is always preserved.">
+        <x-filament::section heading="Retention" description="Automatic retention applies only to scheduled backups; manual, deployment and legacy recovery points are protected.">
             <div class="grid gap-4 sm:grid-cols-3">
                 @foreach([['dailyRetention','Daily copies',1,365],['weeklyRetention','Weekly copies',0,104],['monthlyRetention','Monthly copies',0,60]] as [$property,$label,$min,$max])
                     <div><label class="mb-1 block text-sm font-medium">{{ $label }}</label><x-filament::input.wrapper :valid="!$errors->has($property)"><x-filament::input type="number" :min="$min" :max="$max" wire:model="{{ $property }}" :disabled="!$canManage" /></x-filament::input.wrapper>@error($property)<p class="mt-1 text-sm text-danger-600">{{ $message }}</p>@enderror</div>
@@ -77,7 +77,7 @@
         <div class="mb-3 flex justify-end"><x-filament::button size="sm" color="gray" wire:click="refreshHistory" wire:loading.attr="disabled" wire:target="refreshHistory" icon="heroicon-o-arrow-path">Refresh History</x-filament::button></div>
         <div class="overflow-x-auto">
             <table class="w-full min-w-[900px] text-left text-sm">
-                <thead class="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-white/10"><tr><th class="px-3 py-2">Date / Time</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Database</th><th class="px-3 py-2">Storage</th><th class="px-3 py-2">Size</th><th class="px-3 py-2">Checksum</th><th class="px-3 py-2">Driver</th><th class="px-3 py-2">Age</th><th class="px-3 py-2"></th></tr></thead>
+                <thead class="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-white/10"><tr><th class="px-3 py-2">Date / Time</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Database</th><th class="px-3 py-2">Storage</th><th class="px-3 py-2">Purpose</th><th class="px-3 py-2">Retention</th><th class="px-3 py-2">Size</th><th class="px-3 py-2">Checksum</th><th class="px-3 py-2">Driver</th><th class="px-3 py-2">Age</th><th class="px-3 py-2"></th></tr></thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                     @forelse($history as $backup)
                         <tr>
@@ -85,6 +85,8 @@
                             <td class="px-3 py-3"><x-filament::badge :color="$backup['status'] === 'successful' ? 'success' : 'danger'">{{ ucfirst($backup['status']) }}</x-filament::badge></td>
                             <td class="px-3 py-3">{{ $backup['database'] ? 'Included' : '—' }}</td>
                             <td class="px-3 py-3">{{ $backup['storage'] ? 'Included' : '—' }}</td>
+                            <td class="px-3 py-3">{{ str($backup['purpose'])->replace('_', ' ')->headline() }}</td>
+                            <td class="px-3 py-3">{{ $backup['retention_protected'] ? 'Protected' : 'Scheduled rotation' }}</td>
                             <td class="px-3 py-3">{{ number_format($backup['bytes'] / 1048576, 2) }} MB</td>
                             <td class="px-3 py-3">{{ $backup['status'] === 'successful' ? 'Recorded' : 'Unavailable' }}</td>
                             <td class="px-3 py-3">{{ strtoupper($backup['driver']) }}</td>
@@ -92,7 +94,7 @@
                             <td class="px-3 py-3">@if($canVerify && $backup['status'] === 'successful')<x-filament::button size="sm" color="gray" wire:click="verifyBackup('{{ $backup['id'] }}')" wire:confirm="Verify this backup's manifest, checksums, and supported database integrity checks?" wire:loading.attr="disabled" wire:target="verifyBackup('{{ $backup['id'] }}')">Verify</x-filament::button>@endif</td>
                         </tr>
                     @empty
-                        <tr><td colspan="9" class="px-3 py-8 text-center text-gray-500">No backup history is available yet.</td></tr>
+                        <tr><td colspan="11" class="px-3 py-8 text-center text-gray-500">No backup history is available yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>

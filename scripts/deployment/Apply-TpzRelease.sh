@@ -259,7 +259,7 @@ printf 'DATABASE_IDENTITY=VERIFIED\nMIGRATIONS_EXPECTED=%s\nMIGRATION_PREFLIGHT=
 
 if (( ${#pending[@]} > 0 )) || [[ "$data_change" == true ]]; then
     step=single_verified_backup
-    php artisan erp:backup --database-only --retention-dry-run --no-interaction >"$run/backup.log" 2>&1
+    php artisan erp:backup --full --purpose=deployment --retention-dry-run --no-interaction >"$run/backup.log" 2>&1
     backup_path=$(sed -n 's/^Location: //p' "$run/backup.log" | head -n 1)
     [[ -n "$backup_path" && -d "$backup_path" && ! -L "$backup_path" ]]
     backup_path=$(realpath "$backup_path")

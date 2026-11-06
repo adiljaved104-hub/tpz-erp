@@ -55,7 +55,7 @@ class EmployeeWarningResource extends Resource
                 Select::make('warning_level')->label('Warning Type')->options(WarningLevel::class)->required(),
                 Select::make('warning_category_id')->label('Category')->options(fn (): array => WarningCategory::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable()->live()->required()
                     ->afterStateUpdated(function ($state, $get, $set): void {
-                        if (filled($get('warning_template_id')) && ! WarningTemplate::query()->whereKey($get('warning_template_id'))->where('warning_category_id', $state)->exists()) {
+                        if (filled($get('warning_template_id')) && !WarningTemplate::query()->whereKey($get('warning_template_id'))->where('warning_category_id', $state)->exists()) {
                             $set('warning_template_id', null);
                         }
                     }),
@@ -200,7 +200,7 @@ class EmployeeWarningResource extends Resource
             return [];
         }
         $query = Employee::query()->where('status', true);
-        if (! in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
+        if (!in_array($user->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
             $query->where('team_id', $user->employee?->team_id);
         }
 

@@ -99,7 +99,7 @@ class HrNoticeResource extends Resource
                     ->searchable()->disabled(fn (Get $get): bool => blank($get('notice_category_id')))->live()
                     ->helperText('A Template fills the four fields on a new, untouched form. Changing Templates after editing preserves your current values.')
                     ->afterStateUpdated(function ($state, Get $get, Set $set): void {
-                        if (blank($state) || !($template = NoticeTemplate::query()->whereKey($state)->where('communication_type', static::communicationType()->value)->where('status', true)->first())) {
+                        if (blank($state) || ! ($template = NoticeTemplate::query()->whereKey($state)->where('communication_type', static::communicationType()->value)->where('status', true)->first())) {
                             return;
                         }
                         $newFormDefaults = blank($get('title'))

@@ -24,12 +24,15 @@ use App\Models\ResponsibilityAssignmentProduct;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\ManualSourcingService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
+use App\Services\ReferenceSequenceService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -426,10 +429,14 @@ class WebSalesWorkflowV2Test extends TestCase
         $order = app(WebSalesService::class)->createConfirmed($this->data($product, null, address: 'Business Bay, Dubai'), $owner);
         $service = app(WebSalesTaxInvoiceService::class);
 
+        $nextBefore = app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber((int) app(InvoiceSettingsService::class)->settings()->starting_number);
         $invoice = $service->generateOrFind($order, $owner, ProductTitleMode::Website);
+        $nextAfterFirst = app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber();
         $retry = $service->generateOrFind($order, $owner, ProductTitleMode::Accounting);
 
         $this->assertSame($invoice->id, $retry->id);
+        $this->assertSame($nextBefore + 1, $nextAfterFirst);
+        $this->assertSame($nextAfterFirst, app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber());
         $this->assertSame($order->id, $invoice->source_order_id);
         $this->assertSame(ProductTitleMode::Website, $invoice->title_mode);
         $this->assertSame('Business Bay, Dubai', $invoice->customer_address);
@@ -438,6 +445,39 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertDatabaseCount('tax_invoices', 1);
         $this->actingAs($owner);
         Livewire::test(ViewWebSalesOrder::class, ['record' => $order->id])->assertSee('View Tax Invoice');
+    }
+
+    public function test_web_sale_invoice_reserves_reference_before_business_transaction(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        app(InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
+        CompanyProfile::query()->create([
+            'id' => 1, 'company_name_en' => 'Tech Point Zone', 'company_name_ar' => 'Tech Point Zone',
+            'trn' => '100000000000001', 'address_en' => 'Dubai UAE', 'legal_statement_en' => 'Registered company.',
+            'updated_by_user_id' => $owner->id,
+        ]);
+        $order = app(WebSalesService::class)->createConfirmed($this->data($product, null, address: 'Dubai, UAE'), $owner);
+        $guardedReferences = new class(DB::connection()->transactionLevel()) extends ReferenceSequenceService
+        {
+            public function __construct(private readonly int $testTransactionLevel) {}
+
+            public function nextTaxInvoiceNumber(string $prefix, int $startingNumber = 1): string
+            {
+                if (DB::connection()->transactionLevel() > $this->testTransactionLevel) {
+                    throw new \RuntimeException('Tax invoice references must be reserved outside the business transaction.');
+                }
+
+                return parent::nextTaxInvoiceNumber($prefix, $startingNumber);
+            }
+        };
+        $this->app->instance(ReferenceSequenceService::class, $guardedReferences);
+        $nextBefore = $guardedReferences->currentTaxInvoiceNextNumber((int) app(InvoiceSettingsService::class)->settings()->starting_number);
+
+        $invoice = app(WebSalesTaxInvoiceService::class)->generateOrFind($order, $owner);
+
+        $this->assertStringStartsWith(app(InvoiceSettingsService::class)->settings()->invoice_prefix.' ', $invoice->invoice_number);
+        $this->assertDatabaseCount('tax_invoices', 1);
+        $this->assertSame($nextBefore + 1, (int) DB::table('reference_sequences')->where('key', 'tax_invoice')->value('next_value'));
     }
 
     public function test_form_and_detail_render_new_customer_source_and_invoice_workflow(): void

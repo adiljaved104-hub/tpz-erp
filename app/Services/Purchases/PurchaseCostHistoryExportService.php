@@ -9,7 +9,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PurchaseCostHistoryExportService
 {
-    private const FIELDS = ['product', 'sku', 'warehouse', 'received_at', 'supplier', 'purchase_reference', 'grn_reference', 'accepted_quantity', 'damaged_quantity', 'valuation_quantity', 'inventory_unit_cost'];
+    private const FIELDS = ['product', 'sku', 'warehouse', 'purchase_date', 'received_at', 'supplier', 'purchase_reference', 'grn_reference', 'accepted_quantity', 'damaged_quantity', 'valuation_quantity', 'inventory_unit_cost'];
 
     public function __construct(private readonly PurchaseCostHistoryService $history, private readonly ActivityLogger $activity) {}
 

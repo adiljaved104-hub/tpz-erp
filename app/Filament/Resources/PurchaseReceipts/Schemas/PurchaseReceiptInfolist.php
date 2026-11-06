@@ -49,6 +49,7 @@ class PurchaseReceiptInfolist
                 TextEntry::make('purchase.supplier.name')->label('Supplier')->placeholder('No Supplier'),
                 TextEntry::make('warehouse.name')->label('Warehouse'),
                 TextEntry::make('supplier_delivery_note')->label('Supplier Delivery Note'),
+                TextEntry::make('purchase.purchase_date')->label('Purchase Date')->date('d M Y'),
                 TextEntry::make('received_at')->label('Received At')->dateTime('d M Y, h:i A', config('app.timezone')),
                 TextEntry::make('receivedBy.name')->label('Received By'),
                 RepeatableEntry::make('receipt_items')

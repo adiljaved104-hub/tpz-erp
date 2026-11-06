@@ -15,6 +15,12 @@
             </div>
         </div>
         <div>
+            <div class="text-sm text-gray-500 dark:text-gray-400">Latest Purchase Date</div>
+            <div class="font-semibold text-gray-950 dark:text-white">
+                {{ $history->latestPurchaseDate?->format('d M Y') ?? '—' }}
+            </div>
+        </div>
+        <div>
             <div class="text-sm text-gray-500 dark:text-gray-400">Latest Receipt Date</div>
             <div class="font-semibold text-gray-950 dark:text-white">
                 {{ $history->latestReceiptDate?->format('d M Y, h:i A') ?? '—' }}
@@ -39,7 +45,8 @@
             <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-white/10">
                 <thead class="bg-gray-50 dark:bg-white/5">
                     <tr>
-                        <th class="whitespace-nowrap px-4 py-3 text-left font-semibold">Date</th>
+                        <th class="whitespace-nowrap px-4 py-3 text-left font-semibold">Purchase Date</th>
+                        <th class="whitespace-nowrap px-4 py-3 text-left font-semibold">Goods Receipt Date</th>
                         <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Quantity Received</th>
                         <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Unit Cost</th>
                         <th class="whitespace-nowrap px-4 py-3 text-left font-semibold">Purchase</th>
@@ -49,7 +56,8 @@
                 <tbody class="divide-y divide-gray-200 dark:divide-white/10">
                     @forelse ($history->recentEntries as $entry)
                         <tr>
-                            <td class="whitespace-nowrap px-4 py-3">{{ $entry['date']->format('d M Y, h:i A') }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ $entry['purchase_date']->format('d M Y') }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ $entry['received_at']->format('d M Y, h:i A') }}</td>
                             <td class="whitespace-nowrap px-4 py-3 text-right">{{ $entry['quantity'] }}</td>
                             <td class="whitespace-nowrap px-4 py-3 text-right">{{ \App\Support\AedMoney::format($entry['unit_cost']) }}</td>
                             <td class="whitespace-nowrap px-4 py-3">{{ $entry['purchase_reference'] }}</td>
@@ -57,7 +65,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                            <td colspan="6" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                                 No posted Purchase receipt costs are available.
                             </td>
                         </tr>

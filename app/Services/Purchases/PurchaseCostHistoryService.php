@@ -34,7 +34,7 @@ class PurchaseCostHistoryService
             ->join('products as product', 'product.id', '=', 'pri.product_id')
             ->join('warehouses as w', 'w.id', '=', 'p.warehouse_id')
             ->select([
-                'product.name as product', 'product.sku', 'w.name as warehouse', 'pr.received_at',
+                'product.name as product', 'product.sku', 'w.name as warehouse', 'p.purchase_date', 'pr.received_at',
                 DB::raw("COALESCE(s.name, 'No Supplier') as supplier"), 'p.reference as purchase_reference', 'pr.reference as grn_reference',
                 'pri.accepted_quantity', 'pri.damaged_quantity', 'pri.inventory_unit_cost',
             ])->selectRaw('(pri.accepted_quantity + pri.damaged_quantity) AS valuation_quantity')
@@ -83,7 +83,7 @@ class PurchaseCostHistoryService
         $product = $productQuery->firstOrFail();
         $rows = $this->query(new PurchaseCostHistoryFilterData(productId: $productId), $actor)
             ->select([
-                'pr.received_at', 'pr.id as receipt_id', 'pri.id as receipt_item_id',
+                'p.purchase_date', 'pr.received_at', 'pr.id as receipt_id', 'pri.id as receipt_item_id',
                 'pri.inventory_unit_cost', 'p.reference as purchase_reference', 'pr.reference as grn_reference',
             ])
             ->selectRaw('(pri.accepted_quantity + pri.damaged_quantity) AS valuation_quantity')
@@ -94,10 +94,13 @@ class PurchaseCostHistoryService
             productId: $product->id,
             productName: $product->name,
             sku: $product->sku,
+            latestPurchaseDate: $latest === null ? null : CarbonImmutable::parse($latest->purchase_date),
             latestReceivedCost: $latest === null ? null : $this->normalizeCost((string) $latest->inventory_unit_cost),
             latestReceiptDate: $latest === null ? null : CarbonImmutable::parse($latest->received_at),
             latestReceivedQuantity: $latest === null ? null : (int) $latest->valuation_quantity,
             recentEntries: $rows->take(5)->map(fn ($row): array => [
+                'purchase_date' => CarbonImmutable::parse($row->purchase_date),
+                'received_at' => CarbonImmutable::parse($row->received_at),
                 'date' => CarbonImmutable::parse($row->received_at),
                 'quantity' => (int) $row->valuation_quantity,
                 'unit_cost' => $this->normalizeCost((string) $row->inventory_unit_cost),

@@ -1,0 +1,114 @@
+name: Consolidated integration isolated regression triage (non-deploying)
+
+# Diagnostic coverage only. The separate full-suite workflow remains a required release gate.
+on:
+  push:
+    branches:
+      - integration/business-operations-main-20261105
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-feature-suites:
+    name: ${{ matrix.group }} — isolated PHP 8.3 / MySQL 8.4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: inventory_transfers
+            test_paths: "tests/Feature/StockTransfers tests/Feature/Inventory/InventoryAllocationLedgerTest.php tests/Feature/Inventory/InventoryAdjustmentTest.php tests/Feature/Inventory/StockRequestGridTest.php"
+          - group: web_sales_sourcing
+            test_paths: "tests/Feature/Orders/WebSalesWorkflowTest.php tests/Feature/Orders/WebSalesWorkflowV2Test.php tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php tests/Feature/Orders/ManualSourcingShipmentProvenanceTest.php tests/Feature/Orders/OrderAmendmentTest.php"
+          - group: purchasing
+            test_paths: "tests/Feature/Purchases/PurchaseReceivingTest.php tests/Feature/Purchases/PurchaseReceiptCorrectionTest.php tests/Feature/Purchases/QuickStockPurchaseResponsibilityPrivacyTest.php"
+          - group: security_responsibility
+            test_paths: "tests/Feature/AccessControl tests/Feature/Responsibilities/ConditionResponsibilityTest.php tests/Feature/Authorization/InventoryResponsibilitySecurityTest.php"
+          - group: returns_marketplace
+            test_paths: "tests/Feature/Returns/CustomerReturnWorkflowTest.php tests/Feature/Marketplace/MarketplaceOperationsWatchdogTest.php tests/Feature/Qc/QcMarketplaceTransferTest.php"
+          - group: hr_mobile
+            test_paths: "tests/Feature/Hr/HrAuthorizationTest.php tests/Feature/Hr/LeaveWorkflowTest.php tests/Feature/Mobile/MobileHrNotificationTargetTest.php"
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_integration_triage
+          MYSQL_USER: tpz_triage
+          MYSQL_PASSWORD: qa_disposable_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_integration_triage
+      DB_USERNAME: tpz_triage
+      DB_PASSWORD: qa_disposable_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - name: Install locked PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Bootstrap isolated application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+          php artisan config:clear --ansi
+      - name: Verify disposable database and rehearse migrations
+        run: |
+          test "$(php artisan tinker --execute="echo config('database.default');")" = "mysql"
+          test "$(php artisan tinker --execute="echo config('database.connections.mysql.database');")" = "tpz_integration_triage"
+          php artisan migrate --force --no-interaction --ansi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build application assets
+        run: |
+          npm ci
+          npm run build
+          php artisan view:cache --ansi
+      - name: Run isolated focused regression group
+        shell: bash
+        run: |
+          set -o pipefail
+          cp phpunit.xml phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_integration_triage"\/>/' phpunit.mysql.ci.xml
+          read -r -a selected <<< "${{ matrix.test_paths }}"
+          timeout --signal=TERM 16m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox "${selected[@]}" 2>&1 | tee /tmp/tpz-triage-phpunit.log
+      - name: Upload suite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-triage-${{ matrix.group }}
+          path: |
+            /tmp/tpz-triage-phpunit.log
+            storage/logs/*.log
+          if-no-files-found: ignore

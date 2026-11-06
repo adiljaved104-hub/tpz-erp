@@ -20,7 +20,7 @@ class TaxInvoiceService
 {
     public function __construct(private readonly InvoiceAuthorization $authorization, private readonly ReferenceSequenceService $references, private readonly CompanyProfileService $company, private readonly InvoiceSettingsService $settings, private readonly ActivityLogger $activity, private readonly TaxInvoiceOrderImportService $orderImport) {}
 
-    public function create(array $data, User $actor): TaxInvoice
+    public function create(array $data, User $actor, ?string $reservedInvoiceNumber = null): TaxInvoice
     {
         $this->authorization->authorize($actor, InvoicePermission::Create);
         $data['title_mode'] ??= ProductTitleMode::Auto->value;
@@ -62,7 +62,7 @@ class TaxInvoiceService
         $includesStandardTerms = ! $includesRenewedTerms;
         $settings = $this->settings->settings();
         $profile = $this->company->snapshot();
-        $number = $this->references->nextTaxInvoiceNumber($settings->invoice_prefix, (int) $settings->starting_number);
+        $number = $reservedInvoiceNumber ?? $this->references->nextTaxInvoiceNumber($settings->invoice_prefix, (int) $settings->starting_number);
         $totals = $this->calculateTotals($validated['items'], (string) $settings->vat_rate);
         ['vat_rate' => $vatRate, 'divisor' => $divisor, 'grand_total' => $gross, 'subtotal' => $net, 'vat' => $vat] = $totals;
 

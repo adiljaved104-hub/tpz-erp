@@ -85,7 +85,7 @@ class OrderAmendmentService
 
     public function canCorrectShipped(Order $order, User $actor): bool
     {
-        if ($order->status !== OrderStatus::Fulfilled || $order->marketplace_platform_id === null
+        if ($order->status !== OrderStatus::Fulfilled || (! $this->isWebSalesOrder($order) && $order->marketplace_platform_id === null)
             || ! $order->fulfillment()->exists()
             || ! $this->authorization->allows($actor, OrderPermission::Amend, $order)) {
             return false;
@@ -162,8 +162,8 @@ class OrderAmendmentService
 
                 return $existing;
             }
-            if ($order->status !== OrderStatus::Fulfilled || $order->marketplace_platform_id === null || ! $order->fulfillment()->exists()) {
-                throw ValidationException::withMessages(['order' => 'Post-shipment correction is available only for shipped platform Orders.']);
+            if ($order->status !== OrderStatus::Fulfilled || (! $this->isWebSalesOrder($order) && $order->marketplace_platform_id === null) || ! $order->fulfillment()->exists()) {
+                throw ValidationException::withMessages(['order' => 'Post-shipment correction is available only for eligible shipped Orders.']);
             }
             $start = $this->startedAt($order);
             if ($start === null) {
@@ -223,11 +223,19 @@ class OrderAmendmentService
                 $targetId = (int) $data['warehouse_id'];
                 if ($targetId !== $previousId) {
                     $target = Warehouse::query()->lockForUpdate()->findOrFail($targetId);
-                    $platform = MarketplacePlatform::query()->findOrFail($order->marketplace_platform_id);
-                    $this->locations->assertSelectable($target, $platform);
-                    foreach ($items as $item) {
-                        if (! $this->responsibilities->canAccessProduct($actor, $item->product_id, $platform->id, $targetId)) {
-                            throw ValidationException::withMessages(['warehouse_id' => 'The corrected Warehouse is outside your active Responsibility scope.']);
+                    $platform = $order->marketplace_platform_id === null
+                        ? null
+                        : MarketplacePlatform::query()->findOrFail($order->marketplace_platform_id);
+                    if ($this->isWebSalesOrder($order)) {
+                        if ($targetId !== (int) $order->warehouse_id) {
+                            throw ValidationException::withMessages(['warehouse_id' => 'Web Sales use the original Main Warehouse; a correction cannot reinterpret the historical shipment location.']);
+                        }
+                    } else {
+                        $this->locations->assertSelectable($target, $platform);
+                        foreach ($items as $item) {
+                            if (! $this->responsibilities->canAccessProduct($actor, $item->product_id, $platform->id, $targetId)) {
+                                throw ValidationException::withMessages(['warehouse_id' => 'The corrected Warehouse is outside your active Responsibility scope.']);
+                            }
                         }
                     }
                     $previous = Warehouse::query()->findOrFail($previousId);
@@ -240,8 +248,11 @@ class OrderAmendmentService
                 $external = trim((string) $data['external_order_number']) ?: null;
                 if ($external !== $order->external_order_number) {
                     $hash = $this->externalIdentity->hash($order->marketplace_platform_id, $external);
-                    if ($hash !== null && Order::query()->where('external_identity_hash', $hash)->where('id', '!=', $order->id)->exists()) {
-                        throw ValidationException::withMessages(['external_order_number' => 'This external order number already belongs to another Order on this Platform.']);
+                    $duplicate = $hash !== null
+                        ? Order::query()->where('external_identity_hash', $hash)->where('id', '!=', $order->id)->exists()
+                        : ($this->isWebSalesOrder($order) && Order::query()->webSales()->where('external_order_number', $external)->where('id', '!=', $order->id)->exists());
+                    if ($duplicate) {
+                        throw ValidationException::withMessages(['external_order_number' => 'This external order number already belongs to another Order in the same sales channel.']);
                     }
                     $this->line($amendment, null, 'external_order_number', $order->external_order_number, $external);
                     $order->forceFill(['external_order_number' => $external, 'external_identity_hash' => $hash])->save();
@@ -457,6 +468,11 @@ class OrderAmendmentService
     {
         return $order->reserved_at?->copy() ?? $order->statusEvents()->where('from_status', OrderStatus::Draft->value)
             ->where('to_status', '!=', OrderStatus::Draft->value)->orderBy('id')->first()?->created_at;
+    }
+
+    private function isWebSalesOrder(Order $order): bool
+    {
+        return $order->web_sales_channel !== null;
     }
 
     private function line(OrderAmendment $amendment, ?OrderItem $item, string $field, ?string $old, ?string $new): void

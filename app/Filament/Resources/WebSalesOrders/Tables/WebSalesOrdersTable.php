@@ -2,10 +2,10 @@
 
 namespace App\Filament\Resources\WebSalesOrders\Tables;
 
+use App\Enums\OrderStatus;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
 use App\Enums\WebSalesPermission;
-use App\Enums\OrderStatus;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\Employee;
 use App\Models\Order;

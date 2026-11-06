@@ -5,6 +5,7 @@ namespace Tests\Feature\Orders;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\WebSalesOrderData;
 use App\Enums\EmployeeRole;
+use App\Enums\OrderStatus;
 use App\Enums\ProductTitleMode;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
@@ -19,25 +20,27 @@ use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductCategory;
 use App\Models\ProductInventory;
-use App\Models\Supplier;
 use App\Models\ResponsibilityAssignment;
 use App\Models\ResponsibilityAssignmentProduct;
+use App\Models\StockMovement;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Invoices\InvoiceSettingsService;
-use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\ManualSourcingService;
+use App\Services\Orders\OrderAmendmentService;
+use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
 use App\Services\ReferenceSequenceService;
+use Filament\Forms\Components\Select;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Filament\Forms\Components\Select;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -293,7 +296,7 @@ class WebSalesWorkflowV2Test extends TestCase
         [$owner, , $product] = $this->foundation();
         $eligible = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
         $locked = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
-        $locked->forceFill(['status' => \App\Enums\OrderStatus::Fulfilled])->save();
+        $locked->forceFill(['status' => OrderStatus::Fulfilled])->save();
 
         $this->actingAs($owner);
         Livewire::test(ListWebSalesOrders::class)
@@ -307,7 +310,7 @@ class WebSalesWorkflowV2Test extends TestCase
         app(InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
         $sale = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
         $originalName = $sale->customer_name;
-        $sale->forceFill(['status' => \App\Enums\OrderStatus::Fulfilled])->save();
+        $sale->forceFill(['status' => OrderStatus::Fulfilled])->save();
 
         $this->actingAs($owner);
         Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])
@@ -341,6 +344,45 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->actingAs($staff->refresh());
         Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])
             ->assertActionHidden('postShipmentCorrection');
+    }
+
+    public function test_web_sales_post_shipment_correction_supports_null_platform_without_touching_stock(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        $sale = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
+        app(WebSalesService::class)->ship($sale, (string) Str::uuid(), $owner);
+        $before = $inventory->refresh()->only(['available_quantity', 'reserved_quantity']);
+        $movementCount = StockMovement::query()->count();
+
+        $amendment = app(OrderAmendmentService::class)->correctShipped($sale->refresh(), [
+            'order_date' => now()->subDay()->format('Y-m-d'),
+            'warehouse_id' => $sale->warehouse_id,
+            'external_order_number' => 'WEB-CORRECTED-1',
+            'items' => [['id' => $sale->items()->sole()->id, 'selling_price' => '1600.00']],
+            'reason' => 'Corrected Web Sale reference',
+            'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+
+        $this->assertNotNull($amendment->id);
+        $this->assertSame('WEB-CORRECTED-1', $sale->refresh()->external_order_number);
+        $this->assertSame('1600.00', (string) $sale->items()->sole()->selling_price);
+        $this->assertSame($before, $inventory->refresh()->only(['available_quantity', 'reserved_quantity']));
+        $this->assertSame($movementCount, StockMovement::query()->count());
+    }
+
+    public function test_web_sales_post_shipment_correction_rejects_unauthorized_staff(): void
+    {
+        [$owner, , $product] = $this->foundation();
+        $sale = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
+        app(WebSalesService::class)->ship($sale, (string) Str::uuid(), $owner);
+        $staff = $this->user(EmployeeRole::Staff);
+
+        $this->expectException(AuthorizationException::class);
+        app(OrderAmendmentService::class)->correctShipped($sale, [
+            'order_date' => now()->format('Y-m-d'),
+            'reason' => 'Unauthorized correction',
+            'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
     }
 
     public function test_web_sale_can_be_created_with_blank_address_and_detail_renders(): void

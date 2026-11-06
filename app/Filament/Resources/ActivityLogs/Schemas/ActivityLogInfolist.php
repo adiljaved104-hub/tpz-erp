@@ -3,8 +3,8 @@
 namespace App\Filament\Resources\ActivityLogs\Schemas;
 
 use App\Models\ActivityLog;
-use App\Support\ActivityLogPresenter;
 use App\Services\UserTimezoneResolver;
+use App\Support\ActivityLogPresenter;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Schema;
 

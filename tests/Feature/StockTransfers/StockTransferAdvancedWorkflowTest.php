@@ -19,7 +19,7 @@ class StockTransferAdvancedWorkflowTest extends TestCase
         $this->assertTrue(Schema::hasColumns('stock_transfer_marketplace_losses', [
             'stock_transfer_id', 'stock_transfer_item_id', 'quantity', 'status', 'marketplace_reference', 'idempotency_key',
         ]));
-        $indexes = collect(DB::select("PRAGMA index_list('stock_transfer_reservations')"))->pluck('name');
+        $indexes = collect(Schema::getIndexes('stock_transfer_reservations'))->pluck('name');
         $this->assertTrue($indexes->contains('str_item_status_idx'));
         $this->assertTrue($indexes->contains('str_transfer_status_idx'));
         $this->assertSame(0, DB::table('stock_transfer_reservations')->count());

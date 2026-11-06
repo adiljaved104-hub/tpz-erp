@@ -394,7 +394,7 @@ class QuickStockPurchaseResponsibilityPrivacyTest extends TestCase
                 $calls++;
                 $prepared = $documents->prepare($data, $purchase, $actor, $receivingScope);
                 if ($calls === 1) {
-                    $assignment->update(['status' => ResponsibilityAssignmentStatus::Inactive, 'ended_at' => now()]);
+                    $assignment->update(['status' => ResponsibilityAssignmentStatus::Inactive, 'active_fingerprint' => null, 'ended_at' => now()]);
                 }
 
                 return $prepared;

@@ -592,7 +592,7 @@ class CustomerReturnWorkflowTest extends TestCase
 
     public function test_one_page_handles_two_products_partial_quantities_and_mixed_qc_results(): void
     {
-        $owner = User::factory()->create();
+        $owner = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);
         Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
         $warehouse = Warehouse::factory()->create(['status' => true, 'is_default' => true]);
         $first = Product::factory()->create();

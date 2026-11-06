@@ -225,6 +225,10 @@ class QcMarketplaceTransferTest extends TestCase
 
     public function test_order_and_transfer_assignment_race_cannot_claim_the_same_device(): void
     {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('This process-isolation race harness runs in the dedicated SQLite schema cohort.');
+        }
+
         $certificate = $this->certify('CROSS-WORKFLOW-RACE-001');
         $orderItem = $this->orderItem();
         $transfer = $this->transfer($this->product, 1);

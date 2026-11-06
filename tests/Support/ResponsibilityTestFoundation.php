@@ -19,7 +19,7 @@ trait ResponsibilityTestFoundation
 {
     protected function responsibilityUser(EmployeeRole $role, ?Team $team = null): User
     {
-        $user = User::factory()->create();
+        $user = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);
         Employee::factory()->for($user)->role($role)->create(['email' => $user->email, 'team_id' => $team?->id]);
 
         return $user->refresh();

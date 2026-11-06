@@ -42,7 +42,7 @@ class InventoryResponsibilitySecurityTest extends TestCase
             $queries[] = strtolower($query->sql);
         });
         $this->assertSame([$assigned->id], $read->inventories($manager)->pluck('id')->all());
-        $inventorySql = collect($queries)->first(fn (string $sql): bool => str_contains($sql, 'from "product_inventories"'));
+        $inventorySql = collect($queries)->first(fn (string $sql): bool => str_contains($sql, 'product_inventories'));
         $this->assertNotNull($inventorySql);
         $this->assertStringNotContainsString('average_cost', $inventorySql);
         $this->assertFalse($manager->can('view', $unrelated));

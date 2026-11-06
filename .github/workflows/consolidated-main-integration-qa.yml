@@ -107,12 +107,12 @@ jobs:
           )
           for file in "${MYSQL_TESTS[@]}"; do
             test -f "$file" || { echo "::error::Missing MySQL cohort test: $file"; exit 1; }
-            if rg -q "PRAGMA|sqlite_master|sqlite::|DB_CONNECTION.*sqlite|SQLiteConnection|new PDO\\('sqlite" "$file"; then
+            if grep -Eq "PRAGMA|sqlite_master|sqlite::|DB_CONNECTION.*sqlite|SQLiteConnection|new PDO\\('sqlite" "$file"; then
               echo "::error::MySQL cohort test directly references SQLite internals: $file"
               exit 1
             fi
           done
-          printf '%s\\n' "${MYSQL_TESTS[@]}" > /tmp/tpz-mysql-cohort-files.txt
+          printf '%s\n' "${MYSQL_TESTS[@]}" > /tmp/tpz-mysql-cohort-files.txt
           echo "Explicit critical MySQL cohort: ${#MYSQL_TESTS[@]} test files; NOT full MySQL regression"
           python3 - <<'PY'
           import xml.etree.ElementTree as ET

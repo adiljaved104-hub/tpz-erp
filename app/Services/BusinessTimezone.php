@@ -14,7 +14,7 @@ class BusinessTimezone
 
     public function date(DateTimeInterface|string|null $instant): ?CarbonImmutable
     {
-        return $instant === null ? null : CarbonImmutable::parse($instant, config('app.timezone', 'UTC'))->setTimezone($this->name());
+        return $instant === null ? null : CarbonImmutable::parse($instant, 'UTC')->setTimezone($this->name());
     }
 
     public function format(DateTimeInterface|string|null $instant, string $format = 'd M Y H:i T'): ?string

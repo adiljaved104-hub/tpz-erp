@@ -24,6 +24,7 @@ use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
+use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\ReferenceSequenceService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -189,7 +190,7 @@ class WebSalesWorkflowV2Test extends TestCase
         $order = app(WebSalesService::class)->createConfirmed($this->data($product, null, address: 'Business Bay, Dubai'), $owner);
         $service = app(WebSalesTaxInvoiceService::class);
 
-        $nextBefore = app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber();
+        $nextBefore = app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber((int) app(InvoiceSettingsService::class)->settings()->starting_number);
         $invoice = $service->generateOrFind($order, $owner, ProductTitleMode::Website);
         $nextAfterFirst = app(ReferenceSequenceService::class)->currentTaxInvoiceNextNumber();
         $retry = $service->generateOrFind($order, $owner, ProductTitleMode::Accounting);
@@ -217,11 +218,13 @@ class WebSalesWorkflowV2Test extends TestCase
             'updated_by_user_id' => $owner->id,
         ]);
         $order = app(WebSalesService::class)->createConfirmed($this->data($product, null, address: 'Dubai, UAE'), $owner);
-        $guardedReferences = new class extends ReferenceSequenceService
+        $guardedReferences = new class(DB::connection()->transactionLevel()) extends ReferenceSequenceService
         {
+            public function __construct(private readonly int $testTransactionLevel) {}
+
             public function nextTaxInvoiceNumber(string $prefix, int $startingNumber = 1): string
             {
-                if (DB::connection()->transactionLevel() > 0) {
+                if (DB::connection()->transactionLevel() > $this->testTransactionLevel) {
                     throw new \RuntimeException('Tax invoice references must be reserved outside the business transaction.');
                 }
 
@@ -229,11 +232,11 @@ class WebSalesWorkflowV2Test extends TestCase
             }
         };
         $this->app->instance(ReferenceSequenceService::class, $guardedReferences);
-        $nextBefore = $guardedReferences->currentTaxInvoiceNextNumber();
+        $nextBefore = $guardedReferences->currentTaxInvoiceNextNumber((int) app(InvoiceSettingsService::class)->settings()->starting_number);
 
         $invoice = app(WebSalesTaxInvoiceService::class)->generateOrFind($order, $owner);
 
-        $this->assertStringStartsWith('INV ', $invoice->invoice_number);
+        $this->assertStringStartsWith(app(InvoiceSettingsService::class)->settings()->invoice_prefix.' ', $invoice->invoice_number);
         $this->assertDatabaseCount('tax_invoices', 1);
         $this->assertSame($nextBefore + 1, (int) DB::table('reference_sequences')->where('key', 'tax_invoice')->value('next_value'));
     }

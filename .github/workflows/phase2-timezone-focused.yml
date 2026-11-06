@@ -20,6 +20,8 @@ jobs:
           MYSQL_DATABASE: tpz_timezone_ci
           MYSQL_USER: tpz_timezone
           MYSQL_PASSWORD: qa_disposable_only
+        ports:
+          - 3306:3306
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
           --health-interval=10s --health-timeout=5s --health-retries=20
@@ -27,7 +29,7 @@ jobs:
       APP_ENV: testing
       APP_DEBUG: 'false'
       DB_CONNECTION: mysql
-      DB_HOST: mysql
+      DB_HOST: 127.0.0.1
       DB_PORT: '3306'
       DB_DATABASE: tpz_timezone_ci
       DB_USERNAME: tpz_timezone
@@ -59,7 +61,7 @@ jobs:
           php artisan config:clear --ansi
           test "$(php artisan tinker --execute="echo config('database.default');")" = "mysql"
           test "$(php artisan tinker --execute="echo config('database.connections.mysql.database');")" = "tpz_timezone_ci"
-          test "$(php artisan tinker --execute="echo config('database.connections.mysql.host');")" = "mysql"
+          test "$(php artisan tinker --execute="echo config('database.connections.mysql.host');")" = "127.0.0.1"
           php artisan migrate --force --no-interaction --ansi
       - uses: actions/setup-node@v4
         with:

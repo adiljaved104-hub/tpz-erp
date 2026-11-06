@@ -5,6 +5,7 @@ on:
     branches:
       - integration/business-operations-main-20261105
       - codex/consolidated-qa-corrections-20261106
+      - integration/consolidated-main-uat-20261106
   workflow_dispatch:
 
 permissions:

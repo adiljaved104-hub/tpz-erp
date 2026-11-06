@@ -1,4 +1,8 @@
 <x-filament-panels::page>
+    <style>
+        .stock-request-columns-option input { accent-color: rgb(14 165 233); }
+        .stock-request-columns-option { min-height: 2.25rem; }
+    </style>
     @php
         $rows = $this->rows();
         $filters = $this->filterOptions();
@@ -21,7 +25,14 @@
             <x-filament::dropdown placement="bottom-end" teleport>
                 <x-slot name="trigger"><x-filament::button color="gray" icon="heroicon-m-view-columns" title="Show / Hide Columns">Columns <span class="sr-only">Show / Hide Columns</span></x-filament::button></x-slot>
                 <x-filament::dropdown.list>
-                    @foreach (['warehouse' => 'Warehouse', 'mine' => 'My Stock', 'reserved' => 'Reserved', 'others' => 'Available From Others', 'holder' => 'Stock Holders', 'request_status' => 'Request Status'] as $key => $label)<x-filament::dropdown.list.item wire:click="toggleColumn('{{ $key }}')" :icon="$this->columnVisible($key) ? 'heroicon-m-check' : 'heroicon-m-minus'">{{ $label }}</x-filament::dropdown.list.item>@endforeach
+                    @foreach (['warehouse' => 'Warehouse', 'mine' => 'My Stock', 'reserved' => 'Reserved', 'others' => 'Available From Others', 'holder' => 'Stock Holders', 'request_status' => 'Request Status'] as $key => $label)
+                        <x-filament::dropdown.list.item wire:click="toggleColumn('{{ $key }}')" class="stock-request-columns-option">
+                            <span class="flex items-center gap-2">
+                                <input type="checkbox" tabindex="-1" aria-hidden="true" class="rounded border-gray-300" @checked($this->columnVisible($key)) readonly />
+                                <span>{{ $label }}</span>
+                            </span>
+                        </x-filament::dropdown.list.item>
+                    @endforeach
                     <x-filament::dropdown.list.item wire:click="resetColumns" icon="heroicon-m-arrow-path">Reset to Default</x-filament::dropdown.list.item>
                 </x-filament::dropdown.list>
             </x-filament::dropdown>

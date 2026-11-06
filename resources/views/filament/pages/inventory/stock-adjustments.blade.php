@@ -18,6 +18,9 @@
             white-space: normal;
             overflow-wrap: anywhere;
         }
+
+        .stock-adjustments-columns-option input { accent-color: rgb(14 165 233); }
+        .stock-adjustments-columns-option { min-height: 2.25rem; }
     </style>
     @php
         $rows = $this->rows();
@@ -46,7 +49,14 @@
             <x-filament::dropdown placement="bottom-end" teleport>
                 <x-slot name="trigger"><x-filament::button color="gray" icon="heroicon-m-view-columns" title="Show / Hide Columns">Columns <span class="sr-only">Show / Hide Columns</span></x-filament::button></x-slot>
                 <x-filament::dropdown.list>
-                    @foreach ($columnDefinitions as $key => $label)<x-filament::dropdown.list.item wire:click="toggleColumn('{{ $key }}')" :icon="in_array($key, $visibleColumns, true) ? 'heroicon-m-check' : 'heroicon-m-minus'">{{ $label }}</x-filament::dropdown.list.item>@endforeach
+                    @foreach ($columnDefinitions as $key => $label)
+                        <x-filament::dropdown.list.item wire:click="toggleColumn('{{ $key }}')" class="stock-adjustments-columns-option">
+                            <span class="flex items-center gap-2">
+                                <input type="checkbox" tabindex="-1" aria-hidden="true" class="rounded border-gray-300" @checked(in_array($key, $visibleColumns, true)) readonly />
+                                <span>{{ $label }}</span>
+                            </span>
+                        </x-filament::dropdown.list.item>
+                    @endforeach
                     <x-filament::dropdown.list.item wire:click="resetColumns" icon="heroicon-m-arrow-path">Reset to Default</x-filament::dropdown.list.item>
                 </x-filament::dropdown.list>
             </x-filament::dropdown>

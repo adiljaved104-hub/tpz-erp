@@ -146,4 +146,4 @@ jobs:
           php artisan config:clear --ansi
       - name: Run SQLite-only race harness
         run: |
-          timeout --signal=TERM 16m vendor/bin/phpunit --testdox tests/Feature/Qc/QcMarketplaceTransferTest.php --filter='order and transfer assignment race cannot claim the same device'
+          timeout --signal=TERM 16m vendor/bin/phpunit --testdox tests/Feature/Qc/QcMarketplaceTransferTest.php --filter='test_order_and_transfer_assignment_race_cannot_claim_the_same_device'

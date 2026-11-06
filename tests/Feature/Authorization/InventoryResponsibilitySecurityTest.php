@@ -47,7 +47,7 @@ class InventoryResponsibilitySecurityTest extends TestCase
         $this->assertStringNotContainsString('average_cost', $inventorySql);
         $this->assertFalse($manager->can('view', $unrelated));
 
-        $assignment->forceFill(['status' => ResponsibilityAssignmentStatus::Inactive, 'ended_at' => now()])->saveQuietly();
+        $assignment->forceFill(['status' => ResponsibilityAssignmentStatus::Inactive, 'active_fingerprint' => null, 'ended_at' => now()])->saveQuietly();
         $this->assertSame([], $read->inventories($manager)->pluck('id')->all());
     }
 

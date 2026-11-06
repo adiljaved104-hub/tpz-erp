@@ -89,7 +89,7 @@ class StockTransferAuthorizationTest extends TestCase
             $queries[] = strtolower($query->sql);
         });
         app(StockTransferReadService::class)->query($admin)->get();
-        $itemQuery = collect($queries)->first(fn (string $sql): bool => str_contains($sql, 'from "stock_transfer_items"'));
+        $itemQuery = collect($queries)->first(fn (string $sql): bool => str_contains($sql, 'stock_transfer_items'));
         $this->assertNotNull($itemQuery);
         $this->assertStringNotContainsString('dispatch_unit_cost', $itemQuery);
     }

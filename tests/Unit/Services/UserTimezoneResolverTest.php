@@ -69,6 +69,7 @@ class UserTimezoneResolverTest extends TestCase
         $this->assertSame('2026-11-05 20:00:00', $range['from']?->toDateTimeString());
         $this->assertSame('2026-11-06 20:00:00', $range['until']?->toDateTimeString());
     }
+
     public function test_pakistan_report_boundary_is_exclusive(): void
     {
         $user = User::factory()->create(['display_timezone' => 'Asia/Karachi']);
@@ -90,5 +91,4 @@ class UserTimezoneResolverTest extends TestCase
         $this->assertTrue($before->lt($range['until']));
         $this->assertTrue($boundary->equalTo($range['until']));
     }
-
 }

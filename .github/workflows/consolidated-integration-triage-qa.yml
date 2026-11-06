@@ -112,3 +112,38 @@ jobs:
             /tmp/tpz-triage-phpunit.log
             storage/logs/*.log
           if-no-files-found: ignore
+
+  sqlite-schema:
+    name: SQLite-only schema/concurrency cohort
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - name: Install locked PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Bootstrap isolated SQLite application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+          php artisan config:clear --ansi
+      - name: Run SQLite-only race harness
+        run: |
+          timeout --signal=TERM 16m vendor/bin/phpunit --testdox tests/Feature/Qc/QcMarketplaceTransferTest.php --filter='order and transfer assignment race cannot claim the same device'

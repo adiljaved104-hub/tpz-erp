@@ -27,7 +27,7 @@ jobs:
       APP_ENV: testing
       APP_DEBUG: 'false'
       DB_CONNECTION: mysql
-      DB_HOST: 127.0.0.1
+      DB_HOST: mysql
       DB_PORT: '3306'
       DB_DATABASE: tpz_timezone_ci
       DB_USERNAME: tpz_timezone
@@ -59,6 +59,7 @@ jobs:
           php artisan config:clear --ansi
           test "$(php artisan tinker --execute="echo config('database.default');")" = "mysql"
           test "$(php artisan tinker --execute="echo config('database.connections.mysql.database');")" = "tpz_timezone_ci"
+          test "$(php artisan tinker --execute="echo config('database.connections.mysql.host');")" = "mysql"
           php artisan migrate --force --no-interaction --ansi
       - uses: actions/setup-node@v4
         with:

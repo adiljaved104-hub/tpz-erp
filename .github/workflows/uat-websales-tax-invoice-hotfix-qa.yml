@@ -1,0 +1,114 @@
+name: UAT Web Sales Tax Invoice Hotfix QA (non-deploying)
+
+on:
+  push:
+    branches:
+      - hotfix/uat-websales-invoice-reference-20261106
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  invoice-hotfix:
+    name: ${{ matrix.group }} — PHP 8.3 / MySQL 8.4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: web_sales_invoice
+            paths: "tests/Feature/Orders/WebSalesWorkflowV2Test.php tests/Feature/Orders/WebSalesWorkflowTest.php"
+          - group: invoice_settings_and_import
+            paths: "tests/Feature/Invoices/InvoiceSettingsSequenceTest.php tests/Feature/Invoices/TaxInvoiceOrderImportTest.php tests/Feature/Invoices/TaxInvoiceFoundationTest.php"
+          - group: invoice_title_and_permissions
+            paths: "tests/Feature/Invoices/TaxInvoiceProductTitleModeTest.php tests/Feature/Invoices/TaxInvoiceEmployeeWorkflowTest.php tests/Feature/Invoices/TaxInvoiceUiCorrectionTest.php"
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_invoice_hotfix_qa
+          MYSQL_USER: tpz_ci
+          MYSQL_PASSWORD: disposable_qa_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_invoice_hotfix_qa
+      DB_USERNAME: tpz_ci
+      DB_PASSWORD: disposable_qa_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - name: Install locked PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Validate PHP syntax and formatting
+        run: |
+          php -l app/Services/Orders/WebSalesTaxInvoiceService.php
+          php -l app/Services/Invoices/TaxInvoiceService.php
+          php -l tests/Feature/Orders/WebSalesWorkflowV2Test.php
+          vendor/bin/pint --test app/Services/Orders/WebSalesTaxInvoiceService.php app/Services/Invoices/TaxInvoiceService.php tests/Feature/Orders/WebSalesWorkflowV2Test.php
+      - name: Bootstrap isolated Laravel application
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+          php artisan config:clear --ansi
+      - name: Rehearse fresh database migrations on disposable MySQL
+        run: |
+          test "$(php artisan tinker --execute="echo config('database.default');")" = "mysql"
+          test "$(php artisan tinker --execute="echo config('database.connections.mysql.database');")" = "tpz_invoice_hotfix_qa"
+          php artisan migrate --force --no-interaction --ansi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build frontend assets
+        run: |
+          npm ci
+          npm run build
+          php artisan view:cache --ansi
+      - name: Run focused invoice regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          cp phpunit.xml phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_invoice_hotfix_qa"\/>/' phpunit.mysql.ci.xml
+          read -r -a selected <<< "${{ matrix.paths }}"
+          timeout --signal=TERM 17m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox "${selected[@]}" 2>&1 | tee /tmp/tpz-invoice-hotfix-qa.log
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-hotfix-${{ matrix.group }}
+          path: |
+            /tmp/tpz-invoice-hotfix-qa.log
+            storage/logs/*.log
+          if-no-files-found: ignore

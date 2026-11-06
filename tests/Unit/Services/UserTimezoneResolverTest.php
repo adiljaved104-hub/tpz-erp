@@ -48,7 +48,7 @@ class UserTimezoneResolverTest extends TestCase
         $user = User::factory()->create(['display_timezone' => 'Asia/Karachi']);
         $this->actingAs($user);
 
-        $this->assertSame('07 Nov 2026 04:00 PKT', app(\\App\\Services\\BusinessTimezone::class)->format('2026-11-06 23:00:00'));
+        $this->assertSame('07 Nov 2026 04:00 PKT', app(\App\Services\BusinessTimezone::class)->format('2026-11-06 23:00:00'));
     }
 
     public function test_date_ranges_use_exclusive_utc_end_for_pakistan(): void

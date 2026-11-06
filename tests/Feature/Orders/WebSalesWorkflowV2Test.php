@@ -9,6 +9,7 @@ use App\Enums\ProductTitleMode;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
 use App\Filament\Resources\WebSalesOrders\Pages\CreateWebSalesOrder;
+use App\Filament\Resources\WebSalesOrders\Pages\ListWebSalesOrders;
 use App\Filament\Resources\WebSalesOrders\Pages\ViewWebSalesOrder;
 use App\Models\CompanyProfile;
 use App\Models\Employee;
@@ -287,6 +288,19 @@ class WebSalesWorkflowV2Test extends TestCase
             ->assertActionVisible('amendWebSaleItems');
     }
 
+    public function test_web_sales_listing_exposes_edit_for_eligible_orders_only(): void
+    {
+        [$owner, , $product] = $this->foundation();
+        $eligible = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
+        $locked = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
+        $locked->forceFill(['status' => \App\Enums\OrderStatus::Fulfilled])->save();
+
+        $this->actingAs($owner);
+        Livewire::test(ListWebSalesOrders::class)
+            ->assertTableActionVisible('editWebSale', $eligible)
+            ->assertTableActionHidden('editWebSale', $locked);
+    }
+
     public function test_web_sale_edit_is_locked_after_shipment_and_does_not_change_customer_snapshot(): void
     {
         [$owner, , $product, $inventory] = $this->foundation();
@@ -310,6 +324,23 @@ class WebSalesWorkflowV2Test extends TestCase
             $this->assertArrayHasKey('order', $exception->errors());
         }
         $this->assertSame($originalName, $sale->refresh()->customer_name);
+    }
+
+    public function test_web_sale_exposes_post_shipment_correction_only_when_authorized(): void
+    {
+        [$owner, , $product] = $this->foundation();
+        $sale = app(WebSalesService::class)->createConfirmed($this->data($product, null), $owner);
+        app(WebSalesService::class)->ship($sale, (string) Str::uuid(), $owner);
+
+        $this->actingAs($owner);
+        Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])
+            ->assertActionVisible('postShipmentCorrection');
+
+        $staff = User::factory()->create();
+        Employee::factory()->for($staff)->create(['email' => $staff->email, 'role' => EmployeeRole::Staff]);
+        $this->actingAs($staff->refresh());
+        Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])
+            ->assertActionHidden('postShipmentCorrection');
     }
 
     public function test_web_sale_can_be_created_with_blank_address_and_detail_renders(): void

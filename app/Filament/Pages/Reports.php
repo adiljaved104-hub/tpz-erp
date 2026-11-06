@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\User;
 use App\Services\Reports\ReportCatalog;
 use App\Services\Reports\ReportQueryService;
+use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -89,7 +90,7 @@ class Reports extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
-        $today = CarbonImmutable::today(config('app.timezone'));
+        $today = CarbonImmutable::today(app(UserTimezoneResolver::class)->resolve(auth()->user()));
         $this->from = $this->from ?: $today->startOfMonth()->toDateString();
         $this->to = $this->to ?: $today->toDateString();
         $available = app(ReportCatalog::class)->available($this->user());

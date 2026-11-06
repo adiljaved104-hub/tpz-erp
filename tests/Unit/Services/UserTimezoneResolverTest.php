@@ -42,4 +42,22 @@ class UserTimezoneResolverTest extends TestCase
 
         $this->assertSame(config('business.timezone'), app(UserTimezoneResolver::class)->resolve($user, $request));
     }
+
+    public function test_date_ranges_use_exclusive_utc_end_for_pakistan(): void
+    {
+        $user = User::factory()->create(['display_timezone' => 'Asia/Karachi']);
+        $range = app(UserTimezoneResolver::class)->utcDateRange('2026-11-06', '2026-11-06', $user);
+
+        $this->assertSame('2026-11-05 19:00:00', $range['from']?->toDateTimeString());
+        $this->assertSame('2026-11-06 19:00:00', $range['until']?->toDateTimeString());
+    }
+
+    public function test_date_ranges_use_exclusive_utc_end_for_uae(): void
+    {
+        $user = User::factory()->create(['display_timezone' => 'Asia/Dubai']);
+        $range = app(UserTimezoneResolver::class)->utcDateRange('2026-11-06', '2026-11-06', $user);
+
+        $this->assertSame('2026-11-05 20:00:00', $range['from']?->toDateTimeString());
+        $this->assertSame('2026-11-06 20:00:00', $range['until']?->toDateTimeString());
+    }
 }

@@ -28,6 +28,7 @@ class ReceivingHistoryReport extends BasePurchaseReport
     public function rows(): array
     {
         abort_unless(static::canAccess(), 403);
+        $range = app(UserTimezoneResolver::class)->utcDateRange($this->dateFrom, $this->dateTo, auth()->user());
 
         return DB::table('purchase_receipts as pr')
             ->join('purchases as purchase', 'purchase.id', '=', 'pr.purchase_id')
@@ -42,8 +43,8 @@ class ReceivingHistoryReport extends BasePurchaseReport
             ->selectRaw('SUM(pri.accepted_quantity) AS accepted_quantity')
             ->selectRaw('SUM(pri.damaged_quantity) AS damaged_quantity')
             ->selectRaw('SUM(pri.rejected_quantity) AS rejected_quantity')
-            ->when($this->dateFrom, fn ($query, string $date) => $query->whereDate('pr.received_at', '>=', $date))
-            ->when($this->dateTo, fn ($query, string $date) => $query->whereDate('pr.received_at', '<=', $date))
+            ->when($range['from'], fn ($query, $date) => $query->where('pr.received_at', '>=', $date))
+            ->when($range['until'], fn ($query, $date) => $query->where('pr.received_at', '<', $date))
             ->when($this->supplierId === 'none', fn ($query) => $query->whereNull('purchase.supplier_id'))
             ->when($this->supplierId && $this->supplierId !== 'none', fn ($query, string $id) => $query->where('purchase.supplier_id', (int) $id))
             ->when($this->warehouseId, fn ($query, string $id) => $query->where('pr.warehouse_id', (int) $id))

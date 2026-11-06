@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
+use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder;
@@ -21,6 +22,7 @@ class PurchaseCostHistoryService
         private readonly PurchaseAuthorization $authorization,
         private readonly PurchaseTotalsCalculator $decimals,
         private readonly ResponsibilityProductScopeService $responsibilityScope,
+        private readonly UserTimezoneResolver $timezone,
     ) {}
 
     public function query(PurchaseCostHistoryFilterData $filters, User $actor): Builder
@@ -43,13 +45,15 @@ class PurchaseCostHistoryService
 
         $this->responsibilityScope->apply($query, 'pri.product_id', $actor);
 
+        $range = $this->timezone->utcDateRange($filters->dateFrom, $filters->dateTo, $actor);
+
         return $query
             ->when($filters->productId, fn ($query, $id) => $query->where('pri.product_id', $id))
             ->when($filters->supplierId === 'none', fn ($query) => $query->whereNull('p.supplier_id'))
             ->when($filters->supplierId && $filters->supplierId !== 'none', fn ($query, $id) => $query->where('p.supplier_id', $id))
             ->when($filters->warehouseId, fn ($query, $id) => $query->where('p.warehouse_id', $id))
-            ->when($filters->dateFrom, fn ($query, $date) => $query->whereDate('pr.received_at', '>=', $date))
-            ->when($filters->dateTo, fn ($query, $date) => $query->whereDate('pr.received_at', '<=', $date))
+            ->when($range['from'], fn ($query, $date) => $query->where('pr.received_at', '>=', $date))
+            ->when($range['until'], fn ($query, $date) => $query->where('pr.received_at', '<', $date))
             ->orderByDesc('pr.received_at')->orderByDesc('pr.id')->orderByDesc('pri.id');
     }
 

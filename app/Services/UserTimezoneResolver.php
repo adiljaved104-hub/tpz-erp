@@ -46,6 +46,17 @@ class UserTimezoneResolver
         return $this->date($value, $user, $request)?->toIso8601String();
     }
 
+    /** @return array{from: ?CarbonImmutable, until: ?CarbonImmutable} */
+    public function utcDateRange(?string $from, ?string $to, ?User $user = null, ?Request $request = null): array
+    {
+        $timezone = $this->resolve($user, $request);
+
+        return [
+            'from' => filled($from) ? CarbonImmutable::createFromFormat('!Y-m-d', $from, $timezone)->utc() : null,
+            'until' => filled($to) ? CarbonImmutable::createFromFormat('!Y-m-d', $to, $timezone)->addDay()->utc() : null,
+        ];
+    }
+
     public function valid(?string $timezone): bool
     {
         return is_string($timezone) && in_array($timezone, timezone_identifiers_list(), true);

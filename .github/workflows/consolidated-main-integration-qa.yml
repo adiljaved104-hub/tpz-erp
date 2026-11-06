@@ -71,6 +71,15 @@ jobs:
           php -l app/Filament/Resources/StockRequests/Pages/CreateStockRequestGrid.php
           php -l app/Services/Inventory/StockRequestColumnRegistry.php
           vendor/bin/pint --test app/Filament/Pages/Inventory/StockAdjustmentGridPage.php app/Filament/Resources/StockRequests/Pages/CreateStockRequestGrid.php app/Services/Inventory/StockRequestColumnRegistry.php
+      - name: Install Node.js for Vite assets
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Build Vite assets for feature tests
+        run: npm run build
       - name: Blade compilation
         run: php artisan view:cache --ansi
       - name: Focused PHPUnit suites (bounded)

@@ -17,8 +17,8 @@ use App\Models\NoticeCategory;
 use App\Models\NoticeTemplate;
 use App\Models\Team;
 use App\Services\Authorization\HrRecordAuthorization;
-use BackedEnum;
 use App\Services\UserTimezoneResolver;
+use BackedEnum;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
@@ -88,7 +88,7 @@ class HrNoticeResource extends Resource
                     ->searchable()->placeholder('No Category')->live()
                     ->afterStateUpdated(function ($state, Get $get, Set $set): void {
                         $templateId = $get('notice_template_id');
-                        if (filled($templateId) && ! NoticeTemplate::query()->whereKey($templateId)->where('communication_type', static::communicationType()->value)->where('notice_category_id', $state)->exists()) {
+                        if (filled($templateId) && !NoticeTemplate::query()->whereKey($templateId)->where('communication_type', static::communicationType()->value)->where('notice_category_id', $state)->exists()) {
                             $set('notice_template_id', null);
                         }
                     }),
@@ -99,7 +99,7 @@ class HrNoticeResource extends Resource
                     ->searchable()->disabled(fn (Get $get): bool => blank($get('notice_category_id')))->live()
                     ->helperText('A Template fills the four fields on a new, untouched form. Changing Templates after editing preserves your current values.')
                     ->afterStateUpdated(function ($state, Get $get, Set $set): void {
-                        if (blank($state) || ! ($template = NoticeTemplate::query()->whereKey($state)->where('communication_type', static::communicationType()->value)->where('status', true)->first())) {
+                        if (blank($state) || !($template = NoticeTemplate::query()->whereKey($state)->where('communication_type', static::communicationType()->value)->where('status', true)->first())) {
                             return;
                         }
                         $newFormDefaults = blank($get('title'))
@@ -155,7 +155,7 @@ class HrNoticeResource extends Resource
                     return $ack?->read_at ? 'Read' : 'Unread';
                 })->badge()->visible(fn (HrNotice $record): bool => self::isCurrentEmployeeRecipient($record)),
                 TextEntry::make('acknowledgment_state')->label('Your Acknowledgment')->state(function (HrNotice $record): string {
-                    if (! $record->acknowledgment_required) {
+                    if (!$record->acknowledgment_required) {
                         return 'Not Required';
                     }
                     $ack = $record->acknowledgments->firstWhere('employee_id', auth()->user()?->employee?->id);
@@ -169,10 +169,10 @@ class HrNoticeResource extends Resource
                         && self::currentEmployeeAcknowledgment($record)?->acknowledged_at !== null),
                 TextEntry::make('read_progress')->label('Read')
                     ->state(fn (HrNotice $record): string => self::recipientProgress($record, 'read_at'))
-                    ->visible(fn (HrNotice $record): bool => ! self::isCurrentEmployeeRecipient($record)),
+                    ->visible(fn (HrNotice $record): bool => !self::isCurrentEmployeeRecipient($record)),
                 TextEntry::make('acknowledgment_progress')->label('Acknowledged')
                     ->state(fn (HrNotice $record): string => self::recipientProgress($record, 'acknowledged_at'))
-                    ->visible(fn (HrNotice $record): bool => ! self::isCurrentEmployeeRecipient($record) && $record->acknowledgment_required),
+                    ->visible(fn (HrNotice $record): bool => !self::isCurrentEmployeeRecipient($record) && $record->acknowledgment_required),
             ]),
             Section::make('Recipient Status')->schema([
                 RepeatableEntry::make('recipient_status')
@@ -249,7 +249,7 @@ class HrNoticeResource extends Resource
     public static function shouldRegisterNavigation(): bool
     {
         $user = auth()->user();
-        if ($user === null || ! self::canViewAny()) {
+        if ($user === null || !self::canViewAny()) {
             return false;
         }
         if (self::authorization()->allows($user, static::managePermission())
@@ -309,7 +309,7 @@ class HrNoticeResource extends Resource
     {
         $user = auth()->user();
         $query = Employee::query()->where('status', true)->whereNotNull('user_id');
-        if (! in_array($user?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
+        if (!in_array($user?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
             $query->where('team_id', $user?->employee?->team_id);
         }
 
@@ -320,7 +320,7 @@ class HrNoticeResource extends Resource
     {
         $user = auth()->user();
         $query = Team::query()->where('status', true);
-        if (! in_array($user?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
+        if (!in_array($user?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
             $query->whereKey($user?->employee?->team_id);
         }
 
@@ -367,7 +367,7 @@ class HrNoticeResource extends Resource
                 'employee' => $employee,
                 'read_status' => $acknowledgment?->read_at !== null ? 'Read' : 'Unread',
                 'read_at' => $acknowledgment?->read_at,
-                'acknowledgment_status' => ! $notice->acknowledgment_required
+                'acknowledgment_status' => !$notice->acknowledgment_required
                     ? 'Not Required'
                     : ($acknowledgment?->acknowledged_at !== null ? 'Acknowledged' : 'Pending'),
                 'acknowledged_at' => $acknowledgment?->acknowledged_at,

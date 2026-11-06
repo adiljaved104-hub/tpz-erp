@@ -25,8 +25,8 @@ use App\Services\Quotations\QuotationConversionService;
 use App\Services\Quotations\QuotationEmailService;
 use App\Services\Quotations\QuotationService;
 use App\Services\Quotations\QuotationSourcingService;
-use BackedEnum;
 use App\Services\UserTimezoneResolver;
+use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\EditAction;
@@ -105,7 +105,7 @@ class QuotationResource extends Resource
                         ->getSearchResultsUsing(function (string $search): array {
                             $user = auth()->user();
 
-                            if (! $user instanceof User) {
+                            if (!$user instanceof User) {
                                 return [];
                             }
 
@@ -130,7 +130,7 @@ class QuotationResource extends Resource
                         ->getOptionLabelUsing(function ($value): ?string {
                             $user = auth()->user();
 
-                            if (! $user instanceof User || blank($value)) {
+                            if (!$user instanceof User || blank($value)) {
                                 return null;
                             }
 
@@ -138,7 +138,7 @@ class QuotationResource extends Resource
                                 ->scope(Quotation::query(), $user)
                                 ->find($value);
 
-                            if (! $q) {
+                            if (!$q) {
                                 return null;
                             }
 
@@ -845,7 +845,7 @@ class QuotationResource extends Resource
                             )
                                 && $record->effectiveStatus()
                                     === QuotationStatus::Accepted
-                                && ! $record->order_id
+                                && !$record->order_id
                         )
                         ->action(
                             function (
@@ -881,7 +881,7 @@ class QuotationResource extends Resource
                             )
                                 && $record->effectiveStatus()
                                     === QuotationStatus::Accepted
-                                && ! $record->tax_invoice_id
+                                && !$record->tax_invoice_id
                                 && self::canConvertDirectlyToInvoice($record)
                         )
                         ->action(
@@ -1077,7 +1077,7 @@ class QuotationResource extends Resource
     private static function canConfigureSourcingForLine(Get $get): bool
     {
         $user = auth()->user();
-        if (! $user instanceof User) {
+        if (!$user instanceof User) {
             return false;
         }
 
@@ -1102,12 +1102,12 @@ class QuotationResource extends Resource
             return false;
         }
 
-        return ! app(QuotationSourcingService::class)->requiresOrderConversion($quotation);
+        return !app(QuotationSourcingService::class)->requiresOrderConversion($quotation);
     }
 
     private static function lineAvailability(Get $get): ?array
     {
-        if (! auth()->user() instanceof User) {
+        if (!auth()->user() instanceof User) {
             return null;
         }
         if ($get('source_type') === QuotationItemSourceType::ManualSourced->value) {

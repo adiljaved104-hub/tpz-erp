@@ -97,7 +97,26 @@ jobs:
           )
           test "${#MYSQL_TESTS[@]}" -gt 0
           printf 'MySQL cohort files: %s\n' "${#MYSQL_TESTS[@]}"
-          timeout --signal=TERM 35m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox "${MYSQL_TESTS[@]}" 2>&1 | tee /tmp/tpz-mysql-phpunit.log
+          printf '%s\n' "${MYSQL_TESTS[@]}" > /tmp/tpz-mysql-cohort-files.txt
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          config = "phpunit.mysql.ci.xml"
+          tree = ET.parse(config)
+          root = tree.getroot()
+          suites = root.find("testsuites")
+          for suite in list(suites):
+              suites.remove(suite)
+          selected = ET.SubElement(suites, "testsuite", {"name": "MySQL-Explicit-Cohort"})
+          with open("/tmp/tpz-mysql-cohort-files.txt", encoding="utf-8") as source:
+              files = [line.strip() for line in source if line.strip()]
+          if not files:
+              raise SystemExit("No MySQL cohort tests selected")
+          for file in files:
+              ET.SubElement(selected, "file").text = file
+          tree.write(config, encoding="unicode", xml_declaration=True)
+          print(f"Explicit MySQL PHPUnit XML suite contains {len(files)} files")
+          PY
+          timeout --signal=TERM 35m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testsuite MySQL-Explicit-Cohort --testdox 2>&1 | tee /tmp/tpz-mysql-phpunit.log
           test ${PIPESTATUS[0]} -eq 0
           rm -f phpunit.mysql.ci.xml
       - name: Upload diagnostics on failure
@@ -146,6 +165,16 @@ jobs:
           test "$(php artisan tinker --execute="echo config('database.connections.sqlite.database');")" = ":memory:"
       - name: SQLite migration rehearsal
         run: php artisan migrate --force --no-interaction --ansi
+      - name: Install Node.js for SQLite UI tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build frontend assets for SQLite UI tests
+        run: |
+          npm ci
+          npm run build
+          test -f public/build/manifest.json
       - name: Complete SQLite PHPUnit suite (bounded)
         run: |
           timeout --signal=TERM 35m vendor/bin/phpunit --testdox tests 2>&1 | tee /tmp/tpz-sqlite-phpunit.log

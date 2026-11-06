@@ -1,0 +1,85 @@
+name: Phase 2 timezone completion focused validation
+
+on:
+  push:
+    branches:
+      - codex/web-erp-timezone-completion
+
+permissions:
+  contents: read
+
+jobs:
+  timezone:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_timezone_ci
+          MYSQL_USER: tpz_timezone
+          MYSQL_PASSWORD: qa_disposable_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_timezone_ci
+      DB_USERNAME: tpz_timezone
+      DB_PASSWORD: qa_disposable_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Bootstrap disposable app
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+          php artisan config:clear --ansi
+          test "$(php artisan tinker --execute="echo config('database.default');")" = "mysql"
+          test "$(php artisan tinker --execute="echo config('database.connections.mysql.database');")" = "tpz_timezone_ci"
+          php artisan migrate --force --no-interaction --ansi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Blade and frontend
+        run: |
+          npm ci
+          npm run build
+          php artisan view:cache --ansi
+      - name: PHP syntax
+        run: |
+          git diff --name-only 0b9ab1cfcb3dbb1432e84ef54a3d96576fda2ddd $GITHUB_SHA -- '*.php' | xargs -r -n1 php -l
+      - name: Focused PHPUnit
+        run: |
+          cp phpunit.xml phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_timezone_ci"\/>/' phpunit.mysql.ci.xml
+          timeout --signal=TERM 12m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox tests/Unit/Services/UserTimezoneResolverTest.php tests/Feature/Administration/TimezonePreferencesTest.php
+      - name: Pint changed PHP files
+        run: |
+          files=$(git diff --name-only 0b9ab1cfcb3dbb1432e84ef54a3d96576fda2ddd $GITHUB_SHA -- '*.php')
+          test -n "$files"
+          vendor/bin/pint --test $files

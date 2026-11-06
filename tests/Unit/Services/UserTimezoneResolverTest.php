@@ -4,6 +4,7 @@ namespace Tests\Unit\Services;
 
 use App\Models\User;
 use App\Services\UserTimezoneResolver;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Tests\TestCase;
@@ -68,4 +69,26 @@ class UserTimezoneResolverTest extends TestCase
         $this->assertSame('2026-11-05 20:00:00', $range['from']?->toDateTimeString());
         $this->assertSame('2026-11-06 20:00:00', $range['until']?->toDateTimeString());
     }
+    public function test_pakistan_report_boundary_is_exclusive(): void
+    {
+        $user = User::factory()->create(['display_timezone' => 'Asia/Karachi']);
+        $range = app(UserTimezoneResolver::class)->utcDateRange('2026-11-06', '2026-11-06', $user);
+        $before = CarbonImmutable::parse('2026-11-06 18:59:59', 'UTC');
+        $boundary = CarbonImmutable::parse('2026-11-06 19:00:00', 'UTC');
+
+        $this->assertTrue($before->lt($range['until']));
+        $this->assertTrue($boundary->equalTo($range['until']));
+    }
+
+    public function test_uae_report_boundary_is_exclusive(): void
+    {
+        $user = User::factory()->create(['display_timezone' => 'Asia/Dubai']);
+        $range = app(UserTimezoneResolver::class)->utcDateRange('2026-11-06', '2026-11-06', $user);
+        $before = CarbonImmutable::parse('2026-11-06 19:59:59', 'UTC');
+        $boundary = CarbonImmutable::parse('2026-11-06 20:00:00', 'UTC');
+
+        $this->assertTrue($before->lt($range['until']));
+        $this->assertTrue($boundary->equalTo($range['until']));
+    }
+
 }

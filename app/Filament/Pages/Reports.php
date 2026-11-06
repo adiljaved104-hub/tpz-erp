@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Reports\ReportCatalog;
 use App\Services\Reports\ReportQueryService;
 use App\Services\UserTimezoneResolver;
+use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -107,7 +108,7 @@ class Reports extends Page
 
     public function setPeriod(string $period): void
     {
-        $today = CarbonImmutable::today(config('app.timezone'));
+        $today = CarbonImmutable::today(app(UserTimezoneResolver::class)->resolve(auth()->user()));
         [$from, $to] = match ($period) {
             'today' => [$today, $today],
             'week' => [$today->startOfWeek(), $today->endOfWeek()],

@@ -278,7 +278,7 @@ class ReportQueryService
     private function receiving(User $user, array $f): array
     {
         $q = DB::table('purchase_receipt_items as gri')->join('purchase_receipts as gr', 'gr.id', '=', 'gri.purchase_receipt_id')->join('purchases as gp', 'gp.id', '=', 'gr.purchase_id')->join('products as gpr', 'gpr.id', '=', 'gri.product_id')->join('warehouses as gw', 'gw.id', '=', 'gr.warehouse_id')->leftJoin('suppliers as gs', 'gs.id', '=', 'gp.supplier_id')
-            ->whereBetween('gr.received_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])->when($f['supplier_id'], fn (Builder $x) => $x->where('gs.id', $f['supplier_id']))
+            ->whereBetween('gr.received_at', [$f['from_utc'], $f['until_utc']])->when($f['supplier_id'], fn (Builder $x) => $x->where('gs.id', $f['supplier_id']))
             ->when($f['warehouse_id'], fn (Builder $x) => $x->where('gw.id', $f['warehouse_id']))->when($f['product_id'], fn (Builder $x) => $x->where('gpr.id', $f['product_id']))
             ->select(['gp.reference as purchase_reference', 'gr.reference as grn_reference', 'gr.received_at', 'gs.name as supplier', 'gw.name as location', 'gpr.sku', 'gpr.name as product', 'gri.quantity_received', 'gri.accepted_quantity', 'gri.damaged_quantity', 'gri.rejected_quantity'])->orderByDesc('gr.received_at');
         $this->productScope->apply($q, 'gpr.id', $user);
@@ -295,7 +295,7 @@ class ReportQueryService
     {
         $ids = $this->returnReads->query($user)->select('customer_returns.id');
         $q = DB::table('customer_return_items as cri')->join('customer_returns as cr', 'cr.id', '=', 'cri.customer_return_id')->join('products as crp', 'crp.id', '=', 'cri.product_id')->leftJoin('marketplace_platforms as crm', 'crm.id', '=', 'cr.marketplace_platform_id')
-            ->whereIn('cr.id', $ids)->whereBetween('cr.reported_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])
+            ->whereIn('cr.id', $ids)->whereBetween('cr.reported_at', [$f['from_utc'], $f['until_utc']])
             ->when($f['status'], fn (Builder $x) => $x->where('cr.status', $f['status']))->when($f['platform_id'], fn (Builder $x) => $x->where('cr.marketplace_platform_id', $f['platform_id']))->when($f['product_id'], fn (Builder $x) => $x->where('crp.id', $f['product_id']))
             ->select(['cr.reference as return_reference', 'crm.name as platform', 'cr.reported_at', 'cr.received_at', 'cr.status', 'cr.return_source', 'cri.sku_snapshot as sku', 'cri.product_name_snapshot as product', 'cri.return_quantity', 'cri.return_reason'])->orderByDesc('cr.reported_at');
         $columns = $this->columns(['return_reference' => 'Return Reference', 'platform' => 'Platform', 'reported_at' => 'Reported At', 'received_at' => 'Received At', 'status' => 'Status', 'return_source' => 'Source', 'sku' => 'SKU', 'product' => 'Product', 'return_quantity' => 'Return Qty', 'return_reason' => 'Reason'], ['return_quantity']);
@@ -307,7 +307,7 @@ class ReportQueryService
     {
         $ids = $this->claimAuth->scopeQuery(SafetClaim::query(), $user)->select('safet_claims.id');
         $q = DB::table('safet_claims as sc')->join('products as sp', 'sp.id', '=', 'sc.product_id')->leftJoin('marketplace_platforms as sm', 'sm.id', '=', 'sc.marketplace_platform_id')->leftJoin('customer_returns as sr', 'sr.id', '=', 'sc.customer_return_id')->leftJoin('orders as so', 'so.id', '=', 'sc.order_id')
-            ->whereIn('sc.id', $ids)->whereBetween('sc.created_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])->when($f['status'], fn (Builder $x) => $x->where('sc.status', $f['status']))->when($f['platform_id'], fn (Builder $x) => $x->where('sc.marketplace_platform_id', $f['platform_id']))->when($f['product_id'], fn (Builder $x) => $x->where('sp.id', $f['product_id']))
+            ->whereIn('sc.id', $ids)->whereBetween('sc.created_at', [$f['from_utc'], $f['until_utc']])->when($f['status'], fn (Builder $x) => $x->where('sc.status', $f['status']))->when($f['platform_id'], fn (Builder $x) => $x->where('sc.marketplace_platform_id', $f['platform_id']))->when($f['product_id'], fn (Builder $x) => $x->where('sp.id', $f['product_id']))
             ->select(['sc.reference as claim_reference', 'sr.reference as return_reference', 'so.reference as order_reference', 'sm.name as platform', 'sp.sku', 'sp.name as product', 'sc.quantity', 'sc.status', 'sc.filed_at', 'sc.approved_at', 'sc.paid_at', 'sc.external_claim_reference'])->orderByDesc('sc.created_at');
         $columns = $this->columns(['claim_reference' => 'Claim Reference', 'return_reference' => 'Return Reference', 'order_reference' => 'Order Reference', 'platform' => 'Platform', 'sku' => 'SKU', 'product' => 'Product', 'quantity' => 'Qty', 'status' => 'Status', 'filed_at' => 'Filed At', 'approved_at' => 'Approved At', 'paid_at' => 'Paid At', 'external_claim_reference' => 'External Claim Ref'], ['quantity']);
         if ($this->claimAuth->allows($user, SafetClaimPermission::ViewFinancial)) {
@@ -327,7 +327,7 @@ class ReportQueryService
             ->leftJoin('marketplace_platforms as rp', 'rp.id', '=', 'rr.marketplace_platform_id')
             ->leftJoin('warranty_repairs as rw', 'rw.id', '=', 'rf.warranty_repair_id')
             ->whereIn('rr.id', $returnIds)
-            ->whereBetween('rf.created_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])
+            ->whereBetween('rf.created_at', [$f['from_utc'], $f['until_utc']])
             ->when($f['status'], fn (Builder $query) => $query->where('rf.status', $f['status']))
             ->when($f['platform_id'], fn (Builder $query) => $query->where('rr.marketplace_platform_id', $f['platform_id']))
             ->when($f['product_id'], fn (Builder $query) => $query->whereExists(fn (Builder $items) => $items
@@ -380,7 +380,7 @@ class ReportQueryService
     {
         $ids = $this->warrantyAuth->scopeQuery(WarrantyRepair::query(), $user)->select('warranty_repairs.id');
         $q = DB::table('warranty_repairs as wr')->join('products as wp', 'wp.id', '=', 'wr.product_id')->leftJoin('marketplace_platforms as wm', 'wm.id', '=', 'wr.marketplace_platform_id')->leftJoin('orders as wo', 'wo.id', '=', 'wr.order_id')->leftJoin('customer_returns as wret', 'wret.id', '=', 'wr.customer_return_id')->leftJoin('users as wa', 'wa.id', '=', 'wr.assigned_to_user_id')
-            ->whereIn('wr.id', $ids)->whereBetween('wr.received_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])->when($internal, fn (Builder $x) => $x->where('wr.source', 'damaged_item'))->when(! $internal, fn (Builder $x) => $x->where('wr.source', '!=', 'damaged_item'))
+            ->whereIn('wr.id', $ids)->whereBetween('wr.received_at', [$f['from_utc'], $f['until_utc']])->when($internal, fn (Builder $x) => $x->where('wr.source', 'damaged_item'))->when(! $internal, fn (Builder $x) => $x->where('wr.source', '!=', 'damaged_item'))
             ->when($f['status'], fn (Builder $x) => $x->where('wr.status', $f['status']))->when($f['platform_id'], fn (Builder $x) => $x->where('wr.marketplace_platform_id', $f['platform_id']))->when($f['product_id'], fn (Builder $x) => $x->where('wp.id', $f['product_id']))
             ->select(['wr.reference as warranty_reference', 'wp.sku', 'wp.name as product', 'wr.quantity', 'wm.name as platform', 'wo.reference as order_reference', 'wret.reference as return_reference', 'wr.received_at', 'wr.sent_to_technician_at', 'wr.expected_return_at', 'wr.repair_completed_at', 'wr.dispatched_back_at', 'wr.completed_at', 'wr.status', 'wr.service_provider', 'wa.name as assigned_to'])->orderByDesc('wr.received_at');
         $columns = $this->columns(['warranty_reference' => 'Warranty Reference', 'sku' => 'SKU', 'product' => 'Product', 'quantity' => 'Qty', 'platform' => 'Platform', 'order_reference' => 'Order Reference', 'return_reference' => 'Return Reference', 'received_at' => 'Received At', 'sent_to_technician_at' => 'Sent to Technician', 'expected_return_at' => 'Expected Return', 'repair_completed_at' => 'Repair Completed', 'dispatched_back_at' => 'Dispatched Back', 'completed_at' => 'Completed At', 'status' => 'Status', 'service_provider' => 'Technician / Provider', 'assigned_to' => 'Assigned To'], ['quantity']);
@@ -392,7 +392,7 @@ class ReportQueryService
     {
         $ids = $this->complaintAuth->scopeQuery(Complaint::query(), $user)->select('complaints.id');
         $q = DB::table('complaints as co')->leftJoin('products as cp', 'cp.id', '=', 'co.product_id')->leftJoin('marketplace_platforms as cm', 'cm.id', '=', 'co.marketplace_platform_id')->leftJoin('orders as cord', 'cord.id', '=', 'co.order_id')->leftJoin('users as ca', 'ca.id', '=', 'co.assigned_to_user_id')
-            ->whereIn('co.id', $ids)->whereBetween('co.opened_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])->when($f['status'], fn (Builder $x) => $x->where('co.status', $f['status']))->when($f['platform_id'], fn (Builder $x) => $x->where('co.marketplace_platform_id', $f['platform_id']))->when($f['product_id'], fn (Builder $x) => $x->where('cp.id', $f['product_id']))
+            ->whereIn('co.id', $ids)->whereBetween('co.opened_at', [$f['from_utc'], $f['until_utc']])->when($f['status'], fn (Builder $x) => $x->where('co.status', $f['status']))->when($f['platform_id'], fn (Builder $x) => $x->where('co.marketplace_platform_id', $f['platform_id']))->when($f['product_id'], fn (Builder $x) => $x->where('cp.id', $f['product_id']))
             ->select(['co.reference as complaint_reference', 'cord.reference as order_reference', 'cm.name as platform', 'cp.sku', 'cp.name as product', 'co.category', 'co.quantity', 'co.status', 'co.opened_at', 'co.resolved_at', 'ca.name as assigned_to'])->orderByDesc('co.opened_at');
         $columns = $this->columns(['complaint_reference' => 'Complaint Reference', 'order_reference' => 'Order Reference', 'platform' => 'Platform', 'sku' => 'SKU', 'product' => 'Product', 'category' => 'Category', 'quantity' => 'Qty', 'status' => 'Status', 'opened_at' => 'Opened At', 'resolved_at' => 'Resolved At', 'assigned_to' => 'Assigned To'], ['quantity']);
 
@@ -403,7 +403,7 @@ class ReportQueryService
     {
         $ids = $this->taskQueries->visible($user)->select('tasks.id');
         $q = DB::table('tasks as rt')->leftJoin('task_assignments as rta', fn ($join) => $join->on('rta.task_id', '=', 'rt.id')->whereNotIn('rta.status', ['cancelled', 'removed']))->leftJoin('employees as rte', 'rte.id', '=', 'rta.employee_id')->leftJoin('teams as rtt', 'rtt.id', '=', 'rta.team_id_at_assignment')
-            ->whereIn('rt.id', $ids)->whereBetween('rt.created_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])->when($f['status'], fn (Builder $x) => $x->whereRaw('COALESCE(rta.status, rt.status) = ?', [$f['status']]))->when($f['employee_id'], fn (Builder $x) => $x->where('rta.employee_id', $f['employee_id']))->when($f['team_id'], fn (Builder $x) => $x->where('rta.team_id_at_assignment', $f['team_id']))
+            ->whereIn('rt.id', $ids)->whereBetween('rt.created_at', [$f['from_utc'], $f['until_utc']])->when($f['status'], fn (Builder $x) => $x->whereRaw('COALESCE(rta.status, rt.status) = ?', [$f['status']]))->when($f['employee_id'], fn (Builder $x) => $x->where('rta.employee_id', $f['employee_id']))->when($f['team_id'], fn (Builder $x) => $x->where('rta.team_id_at_assignment', $f['team_id']))
             ->select(['rt.reference as task_reference', 'rt.title', 'rt.priority', DB::raw('COALESCE(rta.status, rt.status) AS status'), 'rte.name as assigned_employee', 'rtt.name as assigned_team', 'rt.due_at', 'rta.started_at', 'rta.completed_at', 'rt.linked_type', 'rt.created_at'])->orderByDesc('rt.created_at');
         $columns = $this->columns(['task_reference' => 'Task Reference', 'title' => 'Title', 'priority' => 'Priority', 'status' => 'Status', 'assigned_employee' => 'Assigned Employee', 'assigned_team' => 'Assigned Team', 'due_at' => 'Due At', 'started_at' => 'Started At', 'completed_at' => 'Completed At', 'linked_type' => 'Linked Module', 'created_at' => 'Created At']);
 
@@ -458,7 +458,7 @@ class ReportQueryService
     private function notices(User $user, array $f): array
     {
         $management = $this->hrAuth->allows($user, HrPermission::NoticeManage) || $this->hrAuth->allows($user, HrPermission::NoticePublish);
-        $q = DB::table('hr_notices as hn')->leftJoin('notice_categories as nc', 'nc.id', '=', 'hn.notice_category_id')->where('hn.communication_type', 'official_notice')->whereBetween('hn.published_at', [$f['from'].' 00:00:00', $f['to'].' 23:59:59'])->when($f['status'], fn (Builder $x) => $x->where('hn.status', $f['status']));
+        $q = DB::table('hr_notices as hn')->leftJoin('notice_categories as nc', 'nc.id', '=', 'hn.notice_category_id')->where('hn.communication_type', 'official_notice')->whereBetween('hn.published_at', [$f['from_utc'], $f['until_utc']])->when($f['status'], fn (Builder $x) => $x->where('hn.status', $f['status']));
         if ($management) {
             $q->select(['hn.reference as notice_reference', 'nc.name as category', 'hn.title', 'hn.audience_type', 'hn.priority', 'hn.published_at', 'hn.expires_at', 'hn.status'])
                 ->selectRaw('(SELECT COUNT(*) FROM hr_notice_recipients nr WHERE nr.hr_notice_id = hn.id) AS recipients')

@@ -696,7 +696,8 @@ class CustomerReturnWorkflowTest extends TestCase
 
     private function fulfilledOrder(int $available, int $quantity, string $cost, ?MarketplacePlatform $platform = null): array
     {
-        $owner = User::factory()->create();
+        // API token tests must use an active account in the existing allowed company domain.
+        $owner = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);
         Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['email' => $owner->email]);
         $product = Product::factory()->create();
         $warehouse = Warehouse::factory()->create(['status' => true, 'is_default' => true]);

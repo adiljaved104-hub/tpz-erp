@@ -1,9 +1,6 @@
 ﻿name: TPZ ERP Consolidated Main Integration QA
 
 on:
-  push:
-    branches:
-      - integration/business-operations-main-20261105
   workflow_dispatch:
 
 permissions:

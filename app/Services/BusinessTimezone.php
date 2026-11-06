@@ -9,9 +9,7 @@ class BusinessTimezone
 {
     public function name(): string
     {
-        $zone = (string) config('business.timezone', 'Asia/Dubai');
-
-        return in_array($zone, timezone_identifiers_list(), true) ? $zone : 'Asia/Dubai';
+        return app(UserTimezoneResolver::class)->resolve(auth()->user());
     }
 
     public function date(DateTimeInterface|string|null $instant): ?CarbonImmutable

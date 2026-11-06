@@ -68,12 +68,11 @@ jobs:
           tools: composer:v2
       - name: Install locked PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
-      - name: Validate PHP syntax and formatting
+      - name: Validate PHP syntax
         run: |
           php -l app/Services/Orders/WebSalesTaxInvoiceService.php
           php -l app/Services/Invoices/TaxInvoiceService.php
           php -l tests/Feature/Orders/WebSalesWorkflowV2Test.php
-          vendor/bin/pint --test app/Services/Orders/WebSalesTaxInvoiceService.php app/Services/Invoices/TaxInvoiceService.php tests/Feature/Orders/WebSalesWorkflowV2Test.php
       - name: Bootstrap isolated Laravel application
         run: |
           cp .env.example .env
@@ -103,6 +102,12 @@ jobs:
           sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_invoice_hotfix_qa"\/>/' phpunit.mysql.ci.xml
           read -r -a selected <<< "${{ matrix.paths }}"
           timeout --signal=TERM 17m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox "${selected[@]}" 2>&1 | tee /tmp/tpz-invoice-hotfix-qa.log
+      - name: Verify Laravel Pint formatting and print suggested diff
+        if: always()
+        shell: bash
+        run: |
+          vendor/bin/pint app/Services/Orders/WebSalesTaxInvoiceService.php app/Services/Invoices/TaxInvoiceService.php tests/Feature/Orders/WebSalesWorkflowV2Test.php
+          git diff --exit-code -- app/Services/Orders/WebSalesTaxInvoiceService.php app/Services/Invoices/TaxInvoiceService.php tests/Feature/Orders/WebSalesWorkflowV2Test.php
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4

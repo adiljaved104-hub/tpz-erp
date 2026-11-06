@@ -4,14 +4,15 @@ on:
   push:
     branches:
       - integration/business-operations-main-20261105
+      - codex/consolidated-qa-corrections-20261106
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  focused:
-    name: Focused UI regression (PHP 8.3 / MySQL 8.4)
+  mysql-integration:
+    name: MySQL integration regression (PHP 8.3 / MySQL 8.4)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
@@ -82,21 +83,80 @@ jobs:
         run: npm run build
       - name: Blade compilation
         run: php artisan view:cache --ansi
-      - name: Focused PHPUnit suites (bounded)
+      - name: MySQL integration PHPUnit cohort (bounded)
         run: |
           cp phpunit.xml phpunit.mysql.ci.xml
           sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
           sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_ui_qa"\/>/' phpunit.mysql.ci.xml
-          timeout --signal=TERM 35m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox tests 2>&1 | tee /tmp/tpz-ui-phpunit.log
+          mapfile -t MYSQL_TESTS < <(
+            while IFS= read -r file; do
+              if ! rg -q "PRAGMA|sqlite_master|sqlite::|DB_CONNECTION.*sqlite|SQLiteConnection|new PDO\('sqlite" "$file"; then
+                printf '%s\n' "$file"
+              fi
+            done < <(find tests/Feature tests/Unit -type f -name '*Test.php' -print | sort)
+          )
+          test "${#MYSQL_TESTS[@]}" -gt 0
+          printf 'MySQL cohort files: %s\n' "${#MYSQL_TESTS[@]}"
+          timeout --signal=TERM 35m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox "${MYSQL_TESTS[@]}" 2>&1 | tee /tmp/tpz-mysql-phpunit.log
           test ${PIPESTATUS[0]} -eq 0
           rm -f phpunit.mysql.ci.xml
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: stock-adjustments-sales-orders-ui-qa-logs
+          name: consolidated-mysql-qa-logs
           path: |
-            /tmp/tpz-ui-phpunit.log
+            /tmp/tpz-mysql-phpunit.log
+            storage/logs/*.log
+          if-no-files-found: ignore
+
+  sqlite-regression:
+    name: Complete SQLite regression suite (PHP 8.3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - run: cp .env.example .env && php artisan key:generate --force && php artisan package:discover --ansi
+      - name: Verify disposable SQLite configuration
+        run: |
+          php artisan config:clear --ansi
+          test "$(php artisan tinker --execute="echo config('database.default');")" = "sqlite"
+          test "$(php artisan tinker --execute="echo config('database.connections.sqlite.database');")" = ":memory:"
+      - name: SQLite migration rehearsal
+        run: php artisan migrate --force --no-interaction --ansi
+      - name: Complete SQLite PHPUnit suite (bounded)
+        run: |
+          timeout --signal=TERM 35m vendor/bin/phpunit --testdox tests 2>&1 | tee /tmp/tpz-sqlite-phpunit.log
+          test ${PIPESTATUS[0]} -eq 0
+      - name: Upload SQLite diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-sqlite-qa-logs
+          path: |
+            /tmp/tpz-sqlite-phpunit.log
             storage/logs/*.log
           if-no-files-found: ignore
 

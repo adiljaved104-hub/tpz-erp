@@ -46,6 +46,7 @@ class UserTimezoneResolverTest extends TestCase
     public function test_business_timezone_formatter_parses_technical_timestamps_as_utc(): void
     {
         $user = User::factory()->create(['display_timezone' => 'Asia/Karachi']);
+        $this->actingAs($user);
 
         $this->assertSame('07 Nov 2026 04:00 PKT', app(\\App\\Services\\BusinessTimezone::class)->format('2026-11-06 23:00:00'));
     }

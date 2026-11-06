@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Orders\WebSalesService;
 use App\Services\Qc\RenewedQcDispatchService;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
@@ -57,7 +58,7 @@ class WebSalesOrdersTable
         $filters = [
             SelectFilter::make('period')->options(['today' => 'Today', 'yesterday' => 'Yesterday', 'week' => 'This Week', 'month' => 'This Month'])
                 ->query(function (Builder $query, array $data): Builder {
-                    $today = now(config('app.timezone'))->startOfDay();
+                    $today = now(app(UserTimezoneResolver::class)->resolve(auth()->user()))->startOfDay();
 
                     return match ($data['value'] ?? null) {
                         'today' => $query->whereDate('order_date', $today),

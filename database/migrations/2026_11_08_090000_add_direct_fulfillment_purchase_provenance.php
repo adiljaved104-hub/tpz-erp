@@ -20,12 +20,20 @@ return new class extends Migration
 
         // A direct-to-customer GRN must be distinguished from physical receipt
         // into our warehouse. The posting service must enforce the semantics.
-        Schema::table('purchase_receipts', function (Blueprint $table): void {
-            $table->string('custody_mode', 32)->nullable();
-            $table->foreignId('direct_fulfillment_order_id')->nullable();
-            $table->foreign('direct_fulfillment_order_id', 'pr_direct_order_fk')
-                ->references('id')->on('orders')->restrictOnDelete();
-        });
+        if (DB::getDriverName() === 'sqlite') {
+            // SQLite supports adding a nullable column with an inline REFERENCES clause.
+            // Schema::table would rebuild the existing purchase_receipts table here and
+            // try to recreate its reserved sqlite_autoindex_* name, failing migration.
+            DB::statement('ALTER TABLE purchase_receipts ADD COLUMN custody_mode VARCHAR(32) NULL');
+            DB::statement('ALTER TABLE purchase_receipts ADD COLUMN direct_fulfillment_order_id INTEGER NULL REFERENCES orders(id) ON DELETE RESTRICT');
+        } else {
+            Schema::table('purchase_receipts', function (Blueprint $table): void {
+                $table->string('custody_mode', 32)->nullable();
+                $table->foreignId('direct_fulfillment_order_id')->nullable();
+                $table->foreign('direct_fulfillment_order_id', 'pr_direct_order_fk')
+                    ->references('id')->on('orders')->restrictOnDelete();
+            });
+        }
 
         // Append-only links for each committed shipping event. Never infer
         // completed shipment from a purchase/GRN existing without this link.

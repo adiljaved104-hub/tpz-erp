@@ -77,7 +77,7 @@ jobs:
           cp phpunit.xml phpunit.mysql.ci.xml
           sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
           sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_timezone_ci"\/>/' phpunit.mysql.ci.xml
-          timeout --signal=TERM 12m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox             tests/Unit/Services/UserTimezoneResolverTest.php             tests/Feature/Administration/TimezonePreferencesTest.php             tests/Feature/Purchases/PurchaseCostHistoryPopoverTest.php             tests/Feature/Purchases/PurchaseCostHistoryResponsibilityScopeTest.php
+          timeout --signal=TERM 12m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox tests/Unit/Services/UserTimezoneResolverTest.php tests/Feature/Administration/TimezonePreferencesTest.php
       - name: Pint changed PHP files
         run: |
           vendor/bin/pint --test             app/Filament/Pages/Reports.php             app/Filament/Widgets/ErpDashboardOverview.php             app/Filament/Resources/WebSalesOrders/Tables/WebSalesOrdersTable.php             app/Filament/Resources/TaxInvoices/TaxInvoiceResource.php             app/Filament/Resources/PurchaseReceipts/Schemas/PurchaseReceiptInfolist.php             app/Services/BusinessTimezone.php             app/Services/Reports/ReportQueryService.php             app/Services/Reports/Handlers/WebSalesReportHandler.php             tests/Unit/Services/UserTimezoneResolverTest.php

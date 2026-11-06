@@ -4,6 +4,7 @@ namespace App\Filament\Resources\ActivityLogs\Schemas;
 
 use App\Models\ActivityLog;
 use App\Support\ActivityLogPresenter;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Schema;
 
@@ -22,7 +23,7 @@ class ActivityLogInfolist
             TextEntry::make('properties')->json()->columnSpanFull(),
             TextEntry::make('ip_address')->placeholder('-'),
             TextEntry::make('user_agent')->placeholder('-')->columnSpanFull(),
-            TextEntry::make('created_at')->dateTime('d M Y, h:i A'),
+            TextEntry::make('created_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
         ]);
     }
 }

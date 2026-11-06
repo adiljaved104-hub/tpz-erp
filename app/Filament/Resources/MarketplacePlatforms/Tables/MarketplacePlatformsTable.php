@@ -6,6 +6,7 @@ use App\Actions\Responsibilities\SetMarketplacePlatformStatus;
 use App\DTOs\Responsibilities\ChangeMarketplacePlatformStatusData;
 use App\Filament\Resources\MarketplacePlatforms\Actions\ChangeMarketplacePlatformCodeAction;
 use App\Models\MarketplacePlatform;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
@@ -28,7 +29,7 @@ class MarketplacePlatformsTable
             TextColumn::make('claim_program_name')->label('Claim Program')->placeholder('—')->toggleable(),
             TextColumn::make('assignment_scopes_count')->label('Assignments')->counts('assignmentScopes')->sortable(),
             IconColumn::make('status')->label('Active')->boolean()->sortable(),
-            TextColumn::make('updated_at')->dateTime('d M Y, h:i A')->sortable(),
+            TextColumn::make('updated_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->sortable(),
         ])->filters([
             TernaryFilter::make('status')->label('Active'),
         ])->recordActions([

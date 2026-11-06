@@ -5,6 +5,7 @@ namespace App\Filament\Resources\OpeningStockEntries\Schemas;
 use App\Enums\InventoryPermission;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -23,7 +24,7 @@ class OpeningStockEntryInfolist
                 TextEntry::make('damaged_quantity')->label('Damaged'),
                 ...(self::canViewFinancials() ? [TextEntry::make('unit_cost')->money('AED', decimalPlaces: 2)] : []),
                 TextEntry::make('postedBy.name')->label('Posted By'),
-                TextEntry::make('posted_at')->dateTime('d M Y, h:i A'),
+                TextEntry::make('posted_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
                 TextEntry::make('reason')->columnSpanFull(),
             ])->columns(3),
         ]);

@@ -14,6 +14,7 @@ use App\Models\WarningCategory;
 use App\Models\WarningTemplate;
 use App\Services\Authorization\HrRecordAuthorization;
 use BackedEnum;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -102,7 +103,7 @@ class EmployeeWarningResource extends Resource
                 TextEntry::make('acknowledgment_required')->label('Acknowledgment Required')->formatStateUsing(fn (bool $state): string => $state ? 'Yes' : 'No'),
                 TextEntry::make('read_state')->label('Read State')->state(fn (EmployeeWarning $record): string => $record->acknowledgments->first()?->read_at ? 'Read' : 'Unread')->badge(),
                 TextEntry::make('acknowledgment_state')->label('Acknowledgment')->state(fn (EmployeeWarning $record): string => $record->acknowledgments->first()?->acknowledged_at ? 'Acknowledged' : ($record->acknowledgment_required ? 'Pending' : 'Not Required'))->badge(),
-                TextEntry::make('acknowledged_at')->label('Acknowledged At')->state(fn (EmployeeWarning $record) => $record->acknowledgments->first()?->acknowledged_at)->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('acknowledged_at')->label('Acknowledged At')->state(fn (EmployeeWarning $record) => $record->acknowledgments->first()?->acknowledged_at)->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
             ]),
         ]);
     }

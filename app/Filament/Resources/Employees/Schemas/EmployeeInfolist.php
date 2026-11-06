@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Employees\Schemas;
 
 use App\Models\Employee;
 use App\Services\CompanyEmailPolicyService;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -59,8 +60,8 @@ class EmployeeInfolist
                         TextEntry::make('role')->badge(),
                         IconEntry::make('status')->label('Active')->boolean(),
                         TextEntry::make('joining_date')->label('Joining Date')->date()->placeholder('-'),
-                        TextEntry::make('created_at')->label('Created')->dateTime(),
-                        TextEntry::make('updated_at')->label('Last Updated')->dateTime(),
+                        TextEntry::make('created_at')->label('Created')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state)),
+                        TextEntry::make('updated_at')->label('Last Updated')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state)),
                     ])
                     ->columns(3),
             ]);

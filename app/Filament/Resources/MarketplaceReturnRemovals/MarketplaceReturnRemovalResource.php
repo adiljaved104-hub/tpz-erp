@@ -9,6 +9,7 @@ use App\Filament\Resources\MarketplaceReturnRemovals\Schemas\MarketplaceReturnRe
 use App\Models\MarketplaceReturnRemoval;
 use App\Services\Authorization\MarketplaceReturnAuthorization;
 use BackedEnum;
+use App\Services\UserTimezoneResolver;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -42,7 +43,7 @@ class MarketplaceReturnRemovalResource extends Resource
 
     public static function table(Table $t): Table
     {
-        return $t->columns([TextColumn::make('reference'), TextColumn::make('platform.name')->label('Platform'), TextColumn::make('sourceWarehouse.name')->label('From'), TextColumn::make('destinationWarehouse.name')->label('To'), TextColumn::make('status')->badge(), TextColumn::make('requested_at')->dateTime('d M Y, h:i A')])->recordUrl(fn (MarketplaceReturnRemoval $record): string => static::getUrl('view', ['record' => $record]));
+        return $t->columns([TextColumn::make('reference'), TextColumn::make('platform.name')->label('Platform'), TextColumn::make('sourceWarehouse.name')->label('From'), TextColumn::make('destinationWarehouse.name')->label('To'), TextColumn::make('status')->badge(), TextColumn::make('requested_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))])->recordUrl(fn (MarketplaceReturnRemoval $record): string => static::getUrl('view', ['record' => $record]));
     }
 
     public static function getPages(): array

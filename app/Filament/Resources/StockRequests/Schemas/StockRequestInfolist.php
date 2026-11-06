@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\StockRequests\Schemas;
 
 use App\Models\StockRequestSourceLine;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -20,7 +21,7 @@ class StockRequestInfolist
                 TextEntry::make('purpose'),
                 TextEntry::make('order.reference')->label('Order')->placeholder('—'),
                 TextEntry::make('requester.name')->label('Requested By'),
-                TextEntry::make('created_at')->label('Requested At')->dateTime('d M Y, h:i A'),
+                TextEntry::make('created_at')->label('Requested At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
                 TextEntry::make('reason')->columnSpanFull(),
             ]),
             Section::make('Requested Products')->schema([
@@ -36,7 +37,7 @@ class StockRequestInfolist
                             ->state(fn (StockRequestSourceLine $record): string => $record->requiresOwnerAdminApproval() ? 'Owner/Admin' : 'Allocation Holder'),
                         TextEntry::make('status')->badge(),
                         TextEntry::make('decidedBy.employee.name')->label('Decided By')->placeholder('—'),
-                        TextEntry::make('decided_at')->label('Decided At')->dateTime('d M Y, h:i A')->placeholder('—'),
+                        TextEntry::make('decided_at')->label('Decided At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                         TextEntry::make('decision_note')->label('Note / Reason')->placeholder('—'),
                     ])->table([
                         TableColumn::make('Source'),
@@ -55,7 +56,7 @@ class StockRequestInfolist
                     'permanent_transfer' => 'Permanent Transfer',
                     default => $state ?? 'Not executed',
                 }),
-                TextEntry::make('execution.executed_at')->label('Executed At')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('execution.executed_at')->label('Executed At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 TextEntry::make('execution.executedBy.employee.name')->label('Executed By')->placeholder('—'),
                 TextEntry::make('execution.order.reference')->label('Reserved Order')->placeholder('—'),
             ])->visible(fn ($record): bool => $record->execution()->exists()),

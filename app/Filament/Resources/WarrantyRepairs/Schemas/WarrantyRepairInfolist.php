@@ -7,6 +7,7 @@ use App\Models\WarrantyRepair;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Returns\ReturnFinancialReadService;
 use App\Services\ServiceCases\WarrantySlaService;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -52,11 +53,11 @@ class WarrantyRepairInfolist
                 TextEntry::make('warehouse.name')->label('Location'),
                 TextEntry::make('source')->badge(),
                 TextEntry::make('received_from')->label('Received From')->placeholder('—'),
-                TextEntry::make('received_at')->label('Received At')->dateTime('d M Y, h:i:s A'),
-                TextEntry::make('sla_due')->label('SLA Due')->state(fn (WarrantyRepair $record) => app(WarrantySlaService::class)->dueAt($record))->dateTime('d M Y, h:i:s A'),
+                TextEntry::make('received_at')->label('Received At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i:s A')),
+                TextEntry::make('sla_due')->label('SLA Due')->state(fn (WarrantyRepair $record) => app(WarrantySlaService::class)->dueAt($record))->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i:s A')),
                 TextEntry::make('sla_status')->label('SLA Status')->state(fn (WarrantyRepair $record): string => app(WarrantySlaService::class)->status($record))->badge(),
                 TextEntry::make('sla_days_left')->label('Days Left')->state(fn (WarrantyRepair $record): string => app(WarrantySlaService::class)->daysLeftLabel($record)),
-                TextEntry::make('expected_return_at')->label('Expected Return')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('expected_return_at')->label('Expected Return')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 TextEntry::make('assignedTo.name')->label('Assigned To')->placeholder('Unassigned'),
                 TextEntry::make('issue_description')->label('Issue Description')->columnSpanFull(),
                 TextEntry::make('notes')->label('Notes')->placeholder('—')->columnSpanFull(),
@@ -67,19 +68,19 @@ class WarrantyRepairInfolist
             Section::make('Service Details')->columns(3)->schema([
                 TextEntry::make('service_provider')->label('Technician / Service Provider')->placeholder('—'),
                 TextEntry::make('external_service_reference')->label('External Item / Service Ref')->placeholder('—'),
-                TextEntry::make('sent_to_technician_at')->label('Sent to Technician')->dateTime('d M Y, h:i A')->placeholder('—'),
-                TextEntry::make('received_back_at')->label('Received Back')->dateTime('d M Y, h:i A')->placeholder('—'),
-                TextEntry::make('qc_at')->label('QC Date')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('sent_to_technician_at')->label('Sent to Technician')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                TextEntry::make('received_back_at')->label('Received Back')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                TextEntry::make('qc_at')->label('QC Date')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 TextEntry::make('inspection_result')->label('QC / Inspection Result')->placeholder('—'),
-                TextEntry::make('dispatched_back_at')->label('Dispatch Date')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('dispatched_back_at')->label('Dispatch Date')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 TextEntry::make('dispatch_tracking_reference')->label('Tracking / Dispatch Reference')->placeholder('—'),
-                TextEntry::make('completed_at')->label('Completed')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('completed_at')->label('Completed')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
             ]),
             Section::make('Damaged Items')->columns(3)->schema([
                 TextEntry::make('damaged_state')->label('State')->state(fn (WarrantyRepair $record): string => $record->moved_to_damaged_at === null ? 'Not moved' : 'Moved to Damaged')->badge(),
                 TextEntry::make('moved_to_damaged_quantity')->label('Moved Quantity')->placeholder('—'),
                 TextEntry::make('movedToDamagedEvent.warehouse.name')->label('Destination Location')->placeholder('—'),
-                TextEntry::make('moved_to_damaged_at')->label('Moved Date')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('moved_to_damaged_at')->label('Moved Date')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 TextEntry::make('movedToDamagedBy.name')->label('Moved By')->placeholder('—'),
                 TextEntry::make('movedToDamagedEvent.reference')->label('Damaged Item Reference')->placeholder('—'),
             ]),
@@ -88,7 +89,7 @@ class WarrantyRepairInfolist
                     ->label('')
                     ->schema([
                         TextEntry::make('to_status')->label('Status')->badge(),
-                        TextEntry::make('changed_at')->label('Date / Time')->dateTime('d M Y, h:i A'),
+                        TextEntry::make('changed_at')->label('Date / Time')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
                         TextEntry::make('changedBy.name')->label('Changed By'),
                         TextEntry::make('note')->label('Note / Reason')->placeholder('—'),
                     ])

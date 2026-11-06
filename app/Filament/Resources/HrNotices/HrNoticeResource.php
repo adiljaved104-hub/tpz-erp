@@ -18,6 +18,7 @@ use App\Models\NoticeTemplate;
 use App\Models\Team;
 use App\Services\Authorization\HrRecordAuthorization;
 use BackedEnum;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
@@ -141,8 +142,8 @@ class HrNoticeResource extends Resource
                     : ($record->expires_at?->isPast() ? 'Expired' : 'Active')),
                 TextEntry::make('category.name')->label('Category')->placeholder('No Category'),
                 TextEntry::make('audience_label')->label('Audience')->state(fn (HrNotice $record): string => $record->audience_type === NoticeAudienceType::Team ? 'Team — '.$record->team?->name : $record->audience_type->getLabel()),
-                TextEntry::make('published_at')->label('Published')->dateTime('d M Y, h:i A'),
-                TextEntry::make('expires_at')->label('Expires')->dateTime('d M Y, h:i A')->placeholder('No expiry'),
+                TextEntry::make('published_at')->label('Published')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
+                TextEntry::make('expires_at')->label('Expires')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('No expiry'),
                 TextEntry::make('title')->columnSpanFull(),
                 TextEntry::make('content')->label(static::communicationLabel())->columnSpanFull(),
                 TextEntry::make('publishedBy.name')->label('Published By'),
@@ -163,7 +164,7 @@ class HrNoticeResource extends Resource
                 })->badge()->visible(fn (HrNotice $record): bool => self::isCurrentEmployeeRecipient($record)),
                 TextEntry::make('acknowledged_at')->label('Acknowledged At')
                     ->state(fn (HrNotice $record) => self::currentEmployeeAcknowledgment($record)?->acknowledged_at)
-                    ->dateTime('d M Y, h:i A')
+                    ->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))
                     ->visible(fn (HrNotice $record): bool => self::isCurrentEmployeeRecipient($record)
                         && self::currentEmployeeAcknowledgment($record)?->acknowledged_at !== null),
                 TextEntry::make('read_progress')->label('Read')
@@ -185,14 +186,14 @@ class HrNoticeResource extends Resource
                                 : null),
                         TextEntry::make('read_status')->label('Read Status')->badge()
                             ->color(fn (string $state): string => $state === 'Read' ? 'success' : 'gray'),
-                        TextEntry::make('read_at')->label('Read At')->dateTime('d M Y, h:i A')->placeholder('—'),
+                        TextEntry::make('read_at')->label('Read At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                         TextEntry::make('acknowledgment_status')->label('Acknowledgment Status')->badge()
                             ->color(fn (string $state): string => match ($state) {
                                 'Acknowledged' => 'success',
                                 'Pending' => 'warning',
                                 default => 'gray',
                             }),
-                        TextEntry::make('acknowledged_at')->label('Acknowledged At')->dateTime('d M Y, h:i A')->placeholder('—'),
+                        TextEntry::make('acknowledged_at')->label('Acknowledged At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                     ])
                     ->table([
                         TableColumn::make('Employee'),
@@ -215,8 +216,8 @@ class HrNoticeResource extends Resource
             TextColumn::make('category.name')->label('Category')->placeholder('No Category'),
             TextColumn::make('audience_type')->label('Audience')->badge(),
             TextColumn::make('priority')->badge(),
-            TextColumn::make('published_at')->label('Published')->dateTime('d M Y, h:i A')->sortable(),
-            TextColumn::make('expires_at')->label('Expires')->dateTime('d M Y, h:i A')->placeholder('No expiry')->sortable(),
+            TextColumn::make('published_at')->label('Published')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->sortable(),
+            TextColumn::make('expires_at')->label('Expires')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('No expiry')->sortable(),
             TextColumn::make('acknowledgment_required')->label('Acknowledgment')->formatStateUsing(fn (bool $state): string => $state ? 'Required' : 'Not required'),
             TextColumn::make('recipients_count')->label('Recipients')->counts('recipients'),
             TextColumn::make('status')->badge()->formatStateUsing(fn (HrNotice $record): string => $record->status === 'archived'

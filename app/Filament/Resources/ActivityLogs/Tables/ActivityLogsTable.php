@@ -4,6 +4,7 @@ namespace App\Filament\Resources\ActivityLogs\Tables;
 
 use App\Models\ActivityLog;
 use App\Support\ActivityLogPresenter;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -14,7 +15,7 @@ class ActivityLogsTable
     {
         return $table
             ->columns([
-                TextColumn::make('created_at')->dateTime('d M Y, h:i A')->sortable(),
+                TextColumn::make('created_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->sortable(),
                 TextColumn::make('event')->label('Event')->formatStateUsing(fn (?string $state): string => ActivityLogPresenter::event($state))->badge()->searchable()->sortable(),
                 TextColumn::make('actor.email')->label('Actor')->placeholder('System')->searchable(),
                 TextColumn::make('subject_type')->label('Subject')->formatStateUsing(fn (?string $state): string => ActivityLogPresenter::subject($state)),

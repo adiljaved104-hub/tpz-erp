@@ -41,8 +41,8 @@
     <div>
         <h3 class="mb-3 text-base font-semibold text-gray-950 dark:text-white">Last 5 Posted Goods Receipts (GRNs)</h3>
 
-        <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
-            <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-white/10">
+        <div class="max-w-full overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
+            <table class="min-w-[48rem] w-full divide-y divide-gray-200 text-sm dark:divide-white/10">
                 <thead class="bg-gray-50 dark:bg-white/5">
                     <tr>
                         <th class="whitespace-nowrap px-4 py-3 text-left font-semibold">Purchase Date</th>

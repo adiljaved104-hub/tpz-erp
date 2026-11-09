@@ -32,6 +32,7 @@ use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\Orders\ManualSourcingService;
 use App\Services\Orders\OrderAmendmentService;
 use App\Services\Orders\WebSalesCustomerLookupService;
+use App\Services\Orders\WebSalesFinancialSummaryService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
@@ -340,6 +341,43 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertSame('1200.0000', (string) $line->actual_unit_cost);
         $this->assertSame(0, (int) $inventory->refresh()->available_quantity);
         $this->assertSame(0, (int) $inventory->reserved_quantity);
+    }
+
+    public function test_manual_sourcing_cost_is_used_as_estimated_cogs_before_shipment(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        $inventory->forceFill(['available_quantity' => 0, 'average_cost' => null])->save();
+        $order = app(WebSalesService::class)->createConfirmed(new WebSalesOrderData(
+            customerName: 'Estimated cost customer', customerPhone: '+971501234567', channel: WebSalesChannel::WhatsApp,
+            deliveryType: WebSalesDeliveryType::Courier, courierName: 'Aramex', trackingNumber: null,
+            items: [new OrderItemData($product->id, 1, '3350.00', sourceType: 'manual_sourced', actualUnitCost: '3090.00', purchaseCurrency: 'AED', purchasedOn: today()->toDateString())],
+            idempotencyKey: (string) Str::uuid(),
+        ), $owner);
+
+        $summary = app(WebSalesFinancialSummaryService::class)->summarize($order);
+
+        $this->assertSame('estimated', $summary['status']);
+        $this->assertSame('3090.0000', $summary['cogs']);
+        $this->assertSame('260.00', $summary['gross_profit']);
+        $this->assertSame(0, (int) $inventory->refresh()->available_quantity);
+    }
+
+    public function test_missing_cost_is_reported_as_pending_instead_of_zero_profit(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        $inventory->forceFill(['available_quantity' => 0, 'average_cost' => null])->save();
+        $order = app(WebSalesService::class)->createConfirmed(new WebSalesOrderData(
+            customerName: 'Pending cost customer', customerPhone: '+971501234567', channel: WebSalesChannel::WhatsApp,
+            deliveryType: WebSalesDeliveryType::Courier, courierName: 'Aramex', trackingNumber: null,
+            items: [new OrderItemData($product->id, 1, '3350.00', sourceType: 'manual_sourced')],
+            idempotencyKey: (string) Str::uuid(),
+        ), $owner);
+
+        $summary = app(WebSalesFinancialSummaryService::class)->summarize($order);
+
+        $this->assertSame('pending', $summary['status']);
+        $this->assertNull($summary['gross_profit']);
+        $this->assertSame(0, (int) $inventory->refresh()->available_quantity);
     }
 
     public function test_manual_sourcing_does_not_accept_an_unknown_existing_product_id(): void

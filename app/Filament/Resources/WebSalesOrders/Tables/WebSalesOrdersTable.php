@@ -12,6 +12,7 @@ use App\Models\Order;
 use App\Models\User;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Orders\WebSalesService;
+use App\Services\Orders\WebSalesFinancialSummaryService;
 use App\Services\Qc\RenewedQcDispatchService;
 use App\Services\UserTimezoneResolver;
 use Filament\Actions\Action;
@@ -52,7 +53,21 @@ class WebSalesOrdersTable
             $columns[] = TextColumn::make('grand_total')->label('Revenue')->money('AED')->sortable();
         }
         if (self::allowed(WebSalesPermission::ViewGrossProfit)) {
-            $columns[] = TextColumn::make('gross_profit')->label('Gross Profit')->money('AED');
+            $columns[] = TextColumn::make('gross_profit')->label('Gross Profit')->money('AED')->placeholder('Cost Pending')
+                ->state(fn (Order $record): ?string => app(WebSalesFinancialSummaryService::class)->summarize($record)['gross_profit'])
+                ->description(fn (Order $record): string => match (app(WebSalesFinancialSummaryService::class)->summarize($record)['status']) {
+                    'actual' => 'Actual', 'estimated' => 'Estimated', default => 'Cost Pending',
+                });
+        }
+        if (self::allowed(WebSalesPermission::ViewCost)) {
+            $columns[] = TextColumn::make('cogs_total')->label('COGS')->money('AED')->placeholder('Cost Pending')
+                ->state(function (Order $record): ?string {
+                    $summary = app(WebSalesFinancialSummaryService::class)->summarize($record);
+
+                    return $summary['status'] === 'pending' ? null : $summary['cogs'];
+                })->description(fn (Order $record): string => match (app(WebSalesFinancialSummaryService::class)->summarize($record)['status']) {
+                    'actual' => 'Actual', 'estimated' => 'Estimated', default => 'Cost Pending',
+                });
         }
 
         $filters = [

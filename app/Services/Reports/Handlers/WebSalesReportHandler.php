@@ -180,7 +180,11 @@ class WebSalesReportHandler implements ReportHandler
 
     private function cogsSubquery(): string
     {
-        return '(SELECT COALESCE(SUM('.ConfiguredCogs::sql('wfi').'), 0) FROM order_fulfillment_items wfi JOIN order_items woi ON woi.id = wfi.order_item_id WHERE woi.order_id = wo.id)';
+        $fulfillment = 'SELECT SUM('.ConfiguredCogs::sql('wfi').') FROM order_fulfillment_items wfi JOIN order_items woi ON woi.id = wfi.order_item_id WHERE woi.order_id = wo.id';
+        $manual = 'SELECT SUM(wsm.actual_unit_cost * wsm.quantity) FROM web_sales_manual_sourcing_lines wsm WHERE wsm.order_id = wo.id';
+        $unknown = 'EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines wsm_pending WHERE wsm_pending.order_id = wo.id AND wsm_pending.actual_unit_cost IS NULL)';
+
+        return '(SELECT CASE WHEN '.$unknown.' THEN NULL ELSE COALESCE(('.$fulfillment.'), ('.$manual.')) END)';
     }
 
     /** @param array<int, array{key:string,label:string,type?:string}> $columns */

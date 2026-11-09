@@ -14,7 +14,7 @@ class AccountingJournal extends \Illuminate\Database\Eloquent\Model
     protected static function booted(): void
     {
         static::updating(function (self $journal): void {
-            if ($journal->getOriginal('status') === AccountingJournalStatus::Posted->value) {
+            if ($journal->getRawOriginal('status') === AccountingJournalStatus::Posted->value) {
                 throw new LogicException('Posted accounting journals are immutable; create a reversal instead.');
             }
         });

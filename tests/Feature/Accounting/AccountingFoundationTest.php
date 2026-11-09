@@ -57,6 +57,7 @@ class AccountingFoundationTest extends TestCase
         $posted = $service->post($draft, $owner);
 
         $this->assertSame(AccountingJournalStatus::Posted, $posted->status);
+        $this->actingAs($owner);
         $rows = $service->trialBalance($book, now()->toDateString());
         $cashRow = $rows->first(fn (array $row): bool => $row['account']->id === $cash->id);
         $equityRow = $rows->first(fn (array $row): bool => $row['account']->id === $equity->id);

@@ -67,6 +67,8 @@ class PurchaseCostHistoryPopoverTest extends TestCase
         $this->assertSame('30.0000', $summary->latestReceivedCost);
         $this->assertSame(3, $summary->latestReceivedQuantity);
         $this->assertSame($latest->receipt->reference, $summary->recentEntries[0]['grn_reference']);
+        $this->assertSame($summary->recentEntries[0]['purchase_date']->toDateString(), $summary->latestPurchaseDate?->toDateString());
+        $this->assertSame($latest->receipt->received_at->toDateTimeString(), $summary->recentEntries[0]['received_at']->toDateTimeString());
         $this->assertSame('21.6667', $summary->weightedAverageReceivedCost);
         $this->assertCount(3, $summary->recentEntries);
 

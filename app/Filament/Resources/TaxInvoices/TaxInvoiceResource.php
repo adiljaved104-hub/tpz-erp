@@ -14,6 +14,7 @@ use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Invoices\TaxInvoiceOrderImportService;
 use App\Services\Invoices\TaxInvoiceService;
 use App\Services\Invoices\TaxInvoiceZipService;
+use App\Services\UserTimezoneResolver;
 use App\Support\AedMoney;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -42,7 +43,6 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
@@ -236,12 +236,12 @@ class TaxInvoiceResource extends Resource
                 ->columns(['default' => 1, 'md' => 3])
                 ->schema([
                     TextEntry::make('invoice_date')->label('Invoice Date')->date('d M Y'),
-                    TextEntry::make('created_at')->label('Created At')->dateTime('d M Y, h:i A', config('app.timezone')),
+                    TextEntry::make('created_at')->label('Created At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A T')),
                     TextEntry::make('createdBy.name')->label('Created By')->placeholder('Not recorded'),
                     TextEntry::make('last_customer_amendment_at')
                         ->label('Last Customer Amendment At')
                         ->state(fn (TaxInvoice $record) => self::amendments($record)->first()?->created_at)
-                        ->dateTime('d M Y, h:i A', config('app.timezone'))
+                        ->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A T'))
                         ->placeholder('No amendments'),
                     TextEntry::make('last_customer_amendment_actor')
                         ->label('Last Amended By')
@@ -261,7 +261,7 @@ class TaxInvoiceResource extends Resource
             TextColumn::make('invoice_number')->label('Invoice #')->searchable()->sortable(),
             TextColumn::make('order_reference')->label('Order ID')->searchable(),
             TextColumn::make('invoice_date')->label('Invoice Date')->date('d M Y')->sortable(),
-            TextColumn::make('created_at')->label('Created At')->dateTime('d M Y, h:i A', config('app.timezone'))->sortable(),
+            TextColumn::make('created_at')->label('Created At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A T'))->sortable(),
             TextColumn::make('customer_name')->label('Customer')->searchable(),
             TextColumn::make('customer_trn')->label('Customer TRN')->searchable()->toggleable(isToggledHiddenByDefault: true),
             TextColumn::make('customer_phone')->label('Customer Phone')->searchable()->toggleable(isToggledHiddenByDefault: true),
@@ -285,9 +285,13 @@ class TaxInvoiceResource extends Resource
                     DatePicker::make('created_from')->label('Created From'),
                     DatePicker::make('created_to')->label('Created To'),
                 ])
-                ->query(fn (Builder $query, array $data): Builder => $query
-                    ->when($data['created_from'] ?? null, fn (Builder $q, $date) => $q->where('created_at', '>=', Carbon::parse($date, config('app.timezone'))->startOfDay()->utc()))
-                    ->when($data['created_to'] ?? null, fn (Builder $q, $date) => $q->where('created_at', '<=', Carbon::parse($date, config('app.timezone'))->endOfDay()->utc()))),
+                ->query(function (Builder $query, array $data): Builder {
+                    $range = app(UserTimezoneResolver::class)->utcDateRange($data['created_from'] ?? null, $data['created_to'] ?? null);
+
+                    return $query
+                        ->when($range['from'], fn (Builder $q, $from) => $q->where('created_at', '>=', $from))
+                        ->when($range['until'], fn (Builder $q, $until) => $q->where('created_at', '<', $until));
+                }),
         ])->recordActions([
             ViewAction::make(),
             self::editCustomerDetailsAction(),

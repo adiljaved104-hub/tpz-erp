@@ -9,6 +9,7 @@ use App\Models\SafetClaim;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Claims\SafetClaimAssigneeService;
 use App\Services\Claims\SafetClaimService;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
@@ -40,7 +41,7 @@ class SafetClaimsTable
             TextColumn::make('quantity')->label('Qty'),
             TextColumn::make('claim_reason')->label('Damage Reason'),
             TextColumn::make('evidence_readiness')->label('Evidence')->state(fn (SafetClaim $record): string => $record->evidenceReadiness()),
-            TextColumn::make('damagedStockEvent.occurred_at')->label('QC / Damaged Date')->dateTime('d M Y, h:i A'),
+            TextColumn::make('damagedStockEvent.occurred_at')->label('QC / Damaged Date')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
             TextColumn::make('source')->label('Source')->badge(),
             TextColumn::make('status')->badge(),
             TextInputColumn::make('external_claim_reference')->label('External Claim Reference')

@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Qc\QcStockTransferReadinessService;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -42,10 +43,10 @@ class StockTransferInfolist
         $components = [
             Section::make('Stock Transfer')->columns(2)->schema([
                 TextEntry::make('reference'), TextEntry::make('status')->badge(), TextEntry::make('sourceWarehouse.name')->label('From'), TextEntry::make('destinationWarehouse.name')->label('To'),
-                TextEntry::make('transfer_date')->date('d M Y'), TextEntry::make('handledBy.name')->label('Handled By')->placeholder('—'), TextEntry::make('dispatched_at')->dateTime('d M Y, h:i A')->placeholder('—'), TextEntry::make('received_at')->dateTime('d M Y, h:i A')->placeholder('—'), TextEntry::make('notes')->placeholder('—')->columnSpanFull(),
+                TextEntry::make('transfer_date')->date('d M Y'), TextEntry::make('handledBy.name')->label('Handled By')->placeholder('—'), TextEntry::make('dispatched_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'), TextEntry::make('received_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'), TextEntry::make('notes')->placeholder('—')->columnSpanFull(),
             ]),
             Section::make('Products')->schema([RepeatableEntry::make($relation)->hiddenLabel()->schema($entries)->table($columns)->columnSpanFull()]),
-            Section::make('Timeline')->collapsed()->schema([RepeatableEntry::make('statusEvents')->hiddenLabel()->schema([TextEntry::make('to_status')->label('Status')->badge(), TextEntry::make('actor.name')->label('By'), TextEntry::make('created_at')->dateTime('d M Y, h:i A'), TextEntry::make('reason')->placeholder('—')])->table([TableColumn::make('Status'), TableColumn::make('By'), TableColumn::make('When'), TableColumn::make('Reason')])]),
+            Section::make('Timeline')->collapsed()->schema([RepeatableEntry::make('statusEvents')->hiddenLabel()->schema([TextEntry::make('to_status')->label('Status')->badge(), TextEntry::make('actor.name')->label('By'), TextEntry::make('created_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')), TextEntry::make('reason')->placeholder('—')])->table([TableColumn::make('Status'), TableColumn::make('By'), TableColumn::make('When'), TableColumn::make('Reason')])]),
         ];
 
         if ($qcVisible) {
@@ -63,10 +64,10 @@ class StockTransferInfolist
                     TextEntry::make('device.serial')->label('Serial'),
                     TextEntry::make('certificate.snapshot.grade')->label('Grade'),
                     TextEntry::make('certificate_version')->label('Certificate Version'),
-                    TextEntry::make('assigned_at')->label('Assigned')->dateTime('d M Y, h:i A'),
+                    TextEntry::make('assigned_at')->label('Assigned')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
                     TextEntry::make('released_at')->label('Assignment State')->formatStateUsing(fn ($state): string => $state === null ? 'Active' : 'Released')->badge(),
-                    TextEntry::make('transfer.dispatched_at')->label('Dispatched')->dateTime('d M Y, h:i A')->placeholder('—'),
-                    TextEntry::make('transfer.received_at')->label('Received')->dateTime('d M Y, h:i A')->placeholder('—'),
+                    TextEntry::make('transfer.dispatched_at')->label('Dispatched')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                    TextEntry::make('transfer.received_at')->label('Received')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 ])->table([
                     TableColumn::make('QC ID'), TableColumn::make('Serial'), TableColumn::make('Grade'), TableColumn::make('Certificate Version'),
                     TableColumn::make('Assigned'), TableColumn::make('Assignment State'), TableColumn::make('Dispatched'), TableColumn::make('Received'),

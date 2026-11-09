@@ -6,6 +6,7 @@ use App\Enums\InventoryPermission;
 use App\Enums\StockMovementType;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -18,7 +19,7 @@ class StockMovementInfolist
             Section::make('Movement')
                 ->schema([
                     TextEntry::make('reference'),
-                    TextEntry::make('occurred_at')->dateTime('d M Y, h:i A'),
+                    TextEntry::make('occurred_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
                     TextEntry::make('product.name')->label('Product'),
                     TextEntry::make('product.sku')->label('SKU'),
                     TextEntry::make('warehouse.name')->label('Warehouse'),

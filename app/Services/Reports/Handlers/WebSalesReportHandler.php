@@ -97,7 +97,7 @@ class WebSalesReportHandler implements ReportHandler
             ->join('order_items as woi', 'woi.id', '=', 'wfi.order_item_id')
             ->leftJoin('employees as we', 'we.id', '=', 'wo.handled_by_employee_id')
             ->whereIn('wo.id', $ids)
-            ->whereBetween('wf.fulfilled_at', [$filters['from'].' 00:00:00', $filters['to'].' 23:59:59'])
+            ->where('wf.fulfilled_at', '>=', $filters['from_utc'])->where('wf.fulfilled_at', '<', $filters['until_utc'])
             ->when($filters['employee_id'], fn (Builder $query) => $query->where('wo.handled_by_employee_id', $filters['employee_id']))
             ->groupBy('we.id', 'we.name')
             ->selectRaw("COALESCE(we.name, 'Unassigned') AS employee, COUNT(DISTINCT wo.id) AS orders, SUM(wfi.quantity) AS units")

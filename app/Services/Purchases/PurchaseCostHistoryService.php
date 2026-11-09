@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
+use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder;
@@ -21,6 +22,7 @@ class PurchaseCostHistoryService
         private readonly PurchaseAuthorization $authorization,
         private readonly PurchaseTotalsCalculator $decimals,
         private readonly ResponsibilityProductScopeService $responsibilityScope,
+        private readonly UserTimezoneResolver $timezone,
     ) {}
 
     public function query(PurchaseCostHistoryFilterData $filters, User $actor): Builder
@@ -34,7 +36,7 @@ class PurchaseCostHistoryService
             ->join('products as product', 'product.id', '=', 'pri.product_id')
             ->join('warehouses as w', 'w.id', '=', 'p.warehouse_id')
             ->select([
-                'product.name as product', 'product.sku', 'w.name as warehouse', 'pr.received_at',
+                'product.name as product', 'product.sku', 'w.name as warehouse', 'p.purchase_date', 'pr.received_at',
                 DB::raw("COALESCE(s.name, 'No Supplier') as supplier"), 'p.reference as purchase_reference', 'pr.reference as grn_reference',
                 'pri.accepted_quantity', 'pri.damaged_quantity', 'pri.inventory_unit_cost',
             ])->selectRaw('(pri.accepted_quantity + pri.damaged_quantity) AS valuation_quantity')
@@ -43,13 +45,15 @@ class PurchaseCostHistoryService
 
         $this->responsibilityScope->apply($query, 'pri.product_id', $actor);
 
+        $range = $this->timezone->utcDateRange($filters->dateFrom, $filters->dateTo, $actor);
+
         return $query
             ->when($filters->productId, fn ($query, $id) => $query->where('pri.product_id', $id))
             ->when($filters->supplierId === 'none', fn ($query) => $query->whereNull('p.supplier_id'))
             ->when($filters->supplierId && $filters->supplierId !== 'none', fn ($query, $id) => $query->where('p.supplier_id', $id))
             ->when($filters->warehouseId, fn ($query, $id) => $query->where('p.warehouse_id', $id))
-            ->when($filters->dateFrom, fn ($query, $date) => $query->whereDate('pr.received_at', '>=', $date))
-            ->when($filters->dateTo, fn ($query, $date) => $query->whereDate('pr.received_at', '<=', $date))
+            ->when($range['from'], fn ($query, $date) => $query->where('pr.received_at', '>=', $date))
+            ->when($range['until'], fn ($query, $date) => $query->where('pr.received_at', '<', $date))
             ->orderByDesc('pr.received_at')->orderByDesc('pr.id')->orderByDesc('pri.id');
     }
 
@@ -83,7 +87,7 @@ class PurchaseCostHistoryService
         $product = $productQuery->firstOrFail();
         $rows = $this->query(new PurchaseCostHistoryFilterData(productId: $productId), $actor)
             ->select([
-                'pr.received_at', 'pr.id as receipt_id', 'pri.id as receipt_item_id',
+                'p.purchase_date', 'pr.received_at', 'pr.id as receipt_id', 'pri.id as receipt_item_id',
                 'pri.inventory_unit_cost', 'p.reference as purchase_reference', 'pr.reference as grn_reference',
             ])
             ->selectRaw('(pri.accepted_quantity + pri.damaged_quantity) AS valuation_quantity')
@@ -94,10 +98,13 @@ class PurchaseCostHistoryService
             productId: $product->id,
             productName: $product->name,
             sku: $product->sku,
+            latestPurchaseDate: $latest === null ? null : CarbonImmutable::parse($latest->purchase_date),
             latestReceivedCost: $latest === null ? null : $this->normalizeCost((string) $latest->inventory_unit_cost),
             latestReceiptDate: $latest === null ? null : CarbonImmutable::parse($latest->received_at),
             latestReceivedQuantity: $latest === null ? null : (int) $latest->valuation_quantity,
             recentEntries: $rows->take(5)->map(fn ($row): array => [
+                'purchase_date' => CarbonImmutable::parse($row->purchase_date),
+                'received_at' => CarbonImmutable::parse($row->received_at),
                 'date' => CarbonImmutable::parse($row->received_at),
                 'quantity' => (int) $row->valuation_quantity,
                 'unit_cost' => $this->normalizeCost((string) $row->inventory_unit_cost),

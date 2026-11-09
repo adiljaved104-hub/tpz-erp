@@ -23,15 +23,18 @@ use App\Models\WebSalesManualSourcingLine;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Orders\ManualSourcingService;
 use App\Services\Orders\OrderAmendmentService;
-use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
 use Filament\Actions\Action;
-use Filament\Forms\Components\Select;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -39,6 +42,7 @@ use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Support\Collection;
+use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -124,6 +128,53 @@ class ViewWebSalesOrder extends ViewRecord
 
                     return $this->record->refresh();
                 })),
+            Action::make('postShipmentCorrection')
+                ->label('Post-Shipment Correction')
+                ->icon('heroicon-o-pencil-square')
+                ->visible(fn (): bool => auth()->user() instanceof User
+                    && app(OrderAmendmentService::class)->canCorrectShipped($this->record, auth()->user()))
+                ->modalHeading('Post-Shipment Correction')
+                ->modalDescription('Only order date, selling price, corrected warehouse and external reference may change. Shipment, inventory movements and issued invoice snapshots remain immutable.')
+                ->modalSubmitActionLabel('Confirm Correction')
+                ->fillForm(function (): array {
+                    $canEditPrices = app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $this->record)
+                        && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $this->record);
+
+                    return [
+                        'order_date' => $this->record->order_date->format('Y-m-d'),
+                        'warehouse_id' => app(OrderAmendmentService::class)->correctedWarehouseId($this->record) ?? $this->record->warehouse_id,
+                        'external_order_number' => $this->record->external_order_number,
+                        'items' => $canEditPrices ? $this->record->items()->orderBy('line_number')->get()->map(fn ($item): array => [
+                            'id' => $item->id, 'product' => $item->sku.' · '.$item->product_name, 'selling_price' => $item->selling_price,
+                        ])->all() : [],
+                        'idempotency_key' => (string) Str::uuid(),
+                    ];
+                })
+                ->schema([
+                    Hidden::make('idempotency_key'),
+                    DatePicker::make('order_date')->label('Corrected Order Date')->required(),
+                    Select::make('warehouse_id')->label('Corrected Warehouse (shipment stays at original location)')
+                        ->options(fn (): array => app(OrderFulfillmentLocationService::class)->options($this->record->marketplace_platform_id))
+                        ->required()->searchable(),
+                    TextInput::make('external_order_number')->label('External Reference')->maxLength(255),
+                    Repeater::make('items')->label('Selling Prices (locked quantities)')
+                        ->visible(fn (): bool => app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $this->record)
+                            && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $this->record))
+                        ->schema([
+                            Hidden::make('id'),
+                            TextInput::make('product')->disabled()->dehydrated(false),
+                            TextInput::make('selling_price')->label('Selling Price (AED)')->numeric()->minValue(0)->required(),
+                        ])->addable(false)->deletable(false)->reorderable(false),
+                    Placeholder::make('correction_notice')->content(new HtmlString('<p class="text-sm text-warning-600">The original shipment, inventory movements and invoice snapshots will not be rewritten.</p>')),
+                    Textarea::make('reason')->label('Reason for correction')->required()->minLength(5)->maxLength(2000),
+                ])
+                ->action(function (array $data): void {
+                    $this->run('Could not correct shipped Web Sale', function () use ($data) {
+                        app(OrderAmendmentService::class)->correctShipped($this->record, $data, auth()->user());
+
+                        return $this->record->refresh();
+                    });
+                }),
             Action::make('assignManualSourcingSupplier')
                 ->label('Set Manual Sourcing Supplier')
                 ->icon('heroicon-o-user-circle')

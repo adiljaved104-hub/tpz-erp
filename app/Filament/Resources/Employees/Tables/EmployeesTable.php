@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Employees\Tables;
 
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
@@ -68,12 +69,12 @@ class EmployeesTable
 
                 TextColumn::make('created_at')
                     ->label('Created')
-                    ->dateTime('d M Y H:i')
+                    ->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y H:i'))
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('updated_at')
                     ->label('Updated')
-                    ->dateTime('d M Y H:i')
+                    ->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y H:i'))
                     ->toggleable(isToggledHiddenByDefault: true),
 
             ])

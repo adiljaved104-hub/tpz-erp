@@ -17,7 +17,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Notifications\Notification;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'password_changed_at'])]
+#[Fillable(['name', 'email', 'password', 'password_changed_at', 'display_timezone', 'use_device_timezone'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser
 {
@@ -43,6 +43,7 @@ class User extends Authenticatable implements FilamentUser
             'email_two_factor_enabled_at' => 'immutable_datetime',
             'password_changed_at' => 'immutable_datetime',
             'password' => 'hashed',
+            'use_device_timezone' => 'boolean',
         ];
     }
 

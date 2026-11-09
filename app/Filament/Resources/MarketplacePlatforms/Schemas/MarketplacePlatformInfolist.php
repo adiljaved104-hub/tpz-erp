@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\MarketplacePlatforms\Schemas;
 
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -21,7 +22,7 @@ class MarketplacePlatformInfolist
                 TextEntry::make('claim_program_name')->label('Claim Program')->placeholder('Not configured'),
                 IconEntry::make('status')->label('Active')->boolean(),
                 TextEntry::make('createdBy.name')->label('Created By')->placeholder('Migration/System'),
-                TextEntry::make('created_at')->dateTime('d M Y, h:i A'),
+                TextEntry::make('created_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
             ])->columns(2),
         ]);
     }

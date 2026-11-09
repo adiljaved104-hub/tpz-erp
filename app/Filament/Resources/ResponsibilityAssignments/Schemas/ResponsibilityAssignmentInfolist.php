@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\ResponsibilityAssignments\Schemas;
 
 use App\Models\ResponsibilityAssignment;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -26,8 +27,8 @@ class ResponsibilityAssignmentInfolist
                 TextEntry::make('product_name')->label('Product')->state(fn (ResponsibilityAssignment $record): ?string => $record->productScope?->product?->name ?? $record->quantityScope?->inventory?->product?->name)->placeholder('—'),
                 TextEntry::make('warehouse_name')->label('Warehouse')->state(fn (ResponsibilityAssignment $record): ?string => $record->warehouseScope?->warehouse?->name ?? $record->quantityScope?->inventory?->warehouse?->name)->placeholder('—'),
                 TextEntry::make('quantityScope.assigned_quantity')->label('Assigned Qty')->placeholder('—'),
-                TextEntry::make('effective_at')->dateTime('d M Y, h:i A'),
-                TextEntry::make('ended_at')->dateTime('d M Y, h:i A')->placeholder('Active'),
+                TextEntry::make('effective_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
+                TextEntry::make('ended_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('Active'),
                 TextEntry::make('assignedBy.name')->label('Assigned By'),
                 TextEntry::make('endedBy.name')->label('Ended By')->placeholder('—'),
                 TextEntry::make('predecessor.reference')->label('Previous Assignment')->placeholder('—'),

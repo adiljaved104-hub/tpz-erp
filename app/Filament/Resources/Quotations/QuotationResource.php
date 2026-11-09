@@ -25,6 +25,7 @@ use App\Services\Quotations\QuotationConversionService;
 use App\Services\Quotations\QuotationEmailService;
 use App\Services\Quotations\QuotationService;
 use App\Services\Quotations\QuotationSourcingService;
+use App\Services\UserTimezoneResolver;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -452,7 +453,7 @@ class QuotationResource extends Resource
                         ->label('Salesperson'),
 
                     TextEntry::make('sent_at')
-                        ->dateTime('d M Y, h:i A')
+                        ->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))
                         ->placeholder('—'),
 
                     TextEntry::make('customer_name'),
@@ -526,8 +527,8 @@ class QuotationResource extends Resource
                 ->schema([
                     TextEntry::make('recipient_email'),
                     TextEntry::make('status')->badge(),
-                    TextEntry::make('requested_at')->dateTime('d M Y, h:i A'),
-                    TextEntry::make('sent_at')->dateTime('d M Y, h:i A')->placeholder('—'),
+                    TextEntry::make('requested_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
+                    TextEntry::make('sent_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 ])
                 ->columns(4),
         ]);
@@ -586,7 +587,7 @@ class QuotationResource extends Resource
                     ->placeholder('—'),
 
                 TextColumn::make('sent_at')
-                    ->dateTime('d M Y')
+                    ->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y'))
                     ->placeholder('—'),
             ])
             ->filters([

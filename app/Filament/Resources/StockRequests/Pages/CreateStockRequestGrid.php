@@ -157,6 +157,12 @@ class CreateStockRequestGrid extends Page
         $this->visibleColumns = app(StockRequestColumnRegistry::class)->defaults();
     }
 
+    public function applyColumns(): void
+    {
+        app(StockRequestColumnRegistry::class)->save(auth()->user(), $this->visibleColumns);
+        $this->visibleColumns = app(StockRequestColumnRegistry::class)->resolve(auth()->user());
+    }
+
     public function visibleColumnCount(): int
     {
         return 3 + count(array_intersect($this->visibleColumns,

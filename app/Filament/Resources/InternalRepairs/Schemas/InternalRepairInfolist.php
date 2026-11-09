@@ -8,6 +8,7 @@ use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\SafetClaims\SafetClaimResource;
 use App\Models\WarrantyRepair;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -53,12 +54,12 @@ class InternalRepairInfolist
             Section::make('Technician / Service Provider')->columns(3)->schema([
                 TextEntry::make('service_provider')->label('Technician / Service Provider')->placeholder('—'),
                 TextEntry::make('external_service_reference')->label('External Service Ref')->placeholder('—'),
-                TextEntry::make('sent_to_technician_at')->label('Sent Date')->dateTime('d M Y, h:i A')->placeholder('—'),
-                TextEntry::make('expected_return_at')->label('Expected Return')->dateTime('d M Y, h:i A')->placeholder('—'),
-                TextEntry::make('repair_completed_at')->label('Repair Completed')->dateTime('d M Y, h:i A')->placeholder('—'),
-                TextEntry::make('received_back_at')->label('Received Back')->dateTime('d M Y, h:i A')->placeholder('—'),
-                TextEntry::make('qc_at')->label('QC Date')->dateTime('d M Y, h:i A')->placeholder('—'),
-                TextEntry::make('completed_at')->label('Completed')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('sent_to_technician_at')->label('Sent Date')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                TextEntry::make('expected_return_at')->label('Expected Return')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                TextEntry::make('repair_completed_at')->label('Repair Completed')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                TextEntry::make('received_back_at')->label('Received Back')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                TextEntry::make('qc_at')->label('QC Date')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                TextEntry::make('completed_at')->label('Completed')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
             ]),
             Section::make('Final Stock Classification')->columns(3)->schema([
                 TextEntry::make('product.condition')->label('Original Condition')->state(fn (WarrantyRepair $record): string => $record->product?->condition?->label() ?? '—'),
@@ -68,7 +69,7 @@ class InternalRepairInfolist
                 TextEntry::make('stockClassification.reference')->label('Classification Ref')->placeholder('—'),
                 TextEntry::make('stockClassification.quantity')->label('Quantity')->placeholder('—'),
                 TextEntry::make('stockClassification.approvedBy.name')->label('Approved By')->placeholder('—'),
-                TextEntry::make('stockClassification.approved_at')->label('Approved At')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('stockClassification.approved_at')->label('Approved At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 TextEntry::make('stockClassification.sourceMovement.reference')->label('Source Stock Movement')->placeholder('—'),
                 TextEntry::make('stockClassification.destinationMovement.reference')->label('Destination Stock Movement')->placeholder('—'),
                 TextEntry::make('stockClassification.reason')->label('Reason')->placeholder('—')->columnSpanFull(),
@@ -77,7 +78,7 @@ class InternalRepairInfolist
             Section::make('Status Timeline')->schema([
                 RepeatableEntry::make('statusEvents')->label('')->schema([
                     TextEntry::make('to_status')->label('Status')->badge(),
-                    TextEntry::make('changed_at')->label('Date / Time')->dateTime('d M Y, h:i A'),
+                    TextEntry::make('changed_at')->label('Date / Time')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
                     TextEntry::make('changedBy.name')->label('Changed By'),
                     TextEntry::make('note')->label('Note / Reason')->placeholder('—'),
                 ])->table([

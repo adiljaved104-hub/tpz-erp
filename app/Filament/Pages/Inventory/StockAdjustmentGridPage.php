@@ -215,6 +215,12 @@ abstract class StockAdjustmentGridPage extends Page
         $this->visibleColumns = $registry->defaults();
     }
 
+    public function applyColumns(): void
+    {
+        app(StockAdjustmentColumnRegistry::class)->save(auth()->user(), $this->visibleColumns);
+        $this->visibleColumns = app(StockAdjustmentColumnRegistry::class)->resolve(auth()->user());
+    }
+
     public function resetHistoryFilters(): void
     {
         $this->reset('historyFrom', 'historyTo', 'historyType', 'historyEmployee', 'historyStatus', 'historyProduct');

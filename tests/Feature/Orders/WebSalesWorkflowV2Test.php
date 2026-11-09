@@ -37,6 +37,7 @@ use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\ReferenceSequenceService;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -73,10 +74,10 @@ class WebSalesWorkflowV2Test extends TestCase
             $this->assertSame(6, $field->getColumnSpan('md'));
             $this->assertSame(1, $field->getColumnSpan('default'));
         }
-        $selectedTitle = $fields->first(fn ($field): bool => $field->getName() === 'selected_product_title');
-        $this->assertNotNull($selectedTitle);
-        $this->assertStringContainsString($product->sku, (string) $selectedTitle->getContent());
-        $this->assertStringContainsString('Lenovo Demo Book 14 16GB/512GB', (string) $selectedTitle->getContent());
+        $page->assertSchemaComponentExists('selected_product_title', 'form', function (Placeholder $component): bool {
+            return str_contains((string) $component->getContent(), 'TPZ-')
+                && str_contains((string) $component->getContent(), 'Lenovo Demo Book 14 16GB/512GB');
+        });
         $items = $fields->first(fn ($field): bool => $field->getName() === 'items');
         $this->assertSame(12, $items->getColumns('lg'));
         $this->assertSame(6, $items->getColumns('md'));

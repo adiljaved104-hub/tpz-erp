@@ -361,8 +361,12 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertStringContainsString('Lenovo Yoga 7i 16-inch Convertible Laptop with 32GB RAM and 1TB SSD', $manualResults[$product->id]);
         $this->assertStringContainsString('Manual sourcing allowed', $manualResults[$product->id]);
 
-        $page->fillForm(['items' => [['source_type' => 'existing_product']]]);
-        $existingResults = $field->getSearchResults($product->sku);
+        $existingPage = Livewire::test(CreateWebSalesOrder::class)->fillForm(['items' => [[
+            'source_type' => 'existing_product',
+        ]]])->assertOk();
+        $existingField = collect($existingPage->instance()->form->getFlatFields(withHidden: true))
+            ->first(fn ($candidate): bool => $candidate->getName() === 'product_id');
+        $existingResults = $existingField->getSearchResults($product->sku);
         $this->assertStringContainsString('Out of Stock · Use Manual Sourced Product.', $existingResults[$product->id]);
     }
 

@@ -810,4 +810,3 @@ class WebSalesWorkflowV2Test extends TestCase
         return $user->refresh();
     }
 }
-

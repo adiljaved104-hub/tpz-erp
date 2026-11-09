@@ -245,4 +245,3 @@ class WebSalesReportHandler implements ReportHandler
         return collect($labels)->map(fn (string $label, string $key): array => ['key' => $key, 'label' => $label] + (in_array($key, $numeric, true) ? ['type' => 'number'] : []))->values()->all();
     }
 }
-

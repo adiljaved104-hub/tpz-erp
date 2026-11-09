@@ -1,5 +1,7 @@
 # TPZ ERP Native Accounting — Discovery, QuickBooks 2024 Comparison and Test Protocol
 
+> **Owner authorization addendum (9 Nov 2026):** The installed QuickBooks Desktop Enterprise 2024 **already contains company accounting records**. Codex may review and use actual company accounts, transactions, balances, reports, mappings and settings as a primary design/reference source, and is authorized to make appropriate changes when necessary for controlled evaluation. Earlier references in this plan that limit the review to a sample company are superseded for read/review. **Experimental postings must use a verified backup/copy**, not pollute active books. Before any live-company financial change, prepare a verified backup, identify the particular entries and financial impact, maintain an audit trail, and obtain separate specific approval for destructive operations, tax filings, or closed-period changes. Respect QuickBooks application permissions and report if the Windows desktop or SDK is not actually accessible. No unrelated VPS or GitHub Main/Staging writes.
+
 **Initiated:** 2026-11-09  
 **Status:** Discovery only. No financial posting code, migrations, VPS deployment or production ledger writes approved.  
 **Reference software:** QuickBooks Desktop Enterprise 2024 (installed on Owner's Windows computer).  

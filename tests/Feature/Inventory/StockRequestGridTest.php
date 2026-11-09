@@ -82,6 +82,35 @@ class StockRequestGridTest extends TestCase
         $this->assertSame(3, $holderAccount->balances()->where('product_inventory_id', $f['inventory']->id)->value('allocated_quantity'));
     }
 
+    public function test_stock_request_filters_columns_and_source_details_do_not_create_requests(): void
+    {
+        $f = $this->responsibilityFoundation(5);
+        $staff = $f['employee']->user;
+        app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
+
+        $this->actingAs($staff);
+        $page = Livewire::test(CreateStockRequestGrid::class)
+            ->assertSee('Show / Hide Columns')
+            ->assertSee('Available Sources / Approval Status')
+            ->assertSee('Apply Filters')
+            ->assertSee('Reset')
+            ->set('search', 'does-not-exist')
+            ->set('stockFilter', 'reserved')
+            ->call('resetFilters')
+            ->assertSet('search', '')
+            ->assertSet('stockFilter', '')
+            ->set('visibleColumns', ['warehouse'])
+            ->assertSee('Product / SKU')
+            ->assertSee('Request Qty')
+            ->set('sortBy', 'highest_stock');
+
+        $this->assertSame(4, $page->instance()->visibleColumnCount());
+        $page->set("quantities.{$f['inventory']->id}", 1);
+        $page->call('resetFilters');
+        $this->assertSame(1, (int) $page->instance()->quantities[$f['inventory']->id]);
+        $this->assertDatabaseCount('stock_requests', 0);
+    }
+
     public function test_unrelated_inventory_and_excess_quantity_cannot_be_submitted(): void
     {
         $f = $this->responsibilityFoundation(2);

@@ -46,8 +46,10 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Qc\RenewedQcExceptionSalesService;
 use App\Services\ReferenceSequenceService;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -62,6 +64,7 @@ class InventoryService
         private readonly ActivityLogger $activity,
         private readonly ResponsibilityAllocationService $allocations,
         private readonly InventoryAllocationService $allocationLedger,
+        private readonly RenewedQcExceptionSalesService $qcExceptionSales,
     ) {}
 
     public function postOpeningStock(PostOpeningStockData $data, User $actor): InventoryMutationResult
@@ -201,8 +204,8 @@ class InventoryService
             return $this->resultFor($existing->product_id, $existing->warehouse_id, $existing);
         }
 
-        $reservationReference = $this->references->nextInventoryReservationReference();
-        $movementReference = $this->references->nextStockMovementReference();
+        $reservationReference = $data->reservationReference ?? $this->references->nextInventoryReservationReference();
+        $movementReference = $data->movementReference ?? $this->references->nextStockMovementReference();
 
         return DB::transaction(function () use ($validated, $actor, $reservationReference, $movementReference): InventoryMutationResult {
             $inventory = $this->balances->lock($validated['product_inventory_id']);
@@ -284,7 +287,7 @@ class InventoryService
             throw new DuplicateInventoryPostingException('The release idempotency key belongs to another inventory operation.');
         }
 
-        $movementReference = $this->references->nextStockMovementReference();
+        $movementReference = $data->movementReference ?? $this->references->nextStockMovementReference();
 
         return DB::transaction(function () use ($reservation, $validated, $actor, $movementReference): InventoryMutationResult {
             $reservation = InventoryReservation::query()->lockForUpdate()->findOrFail($reservation->id);
@@ -470,6 +473,28 @@ class InventoryService
         );
     }
 
+    public function reconcileMarketplaceLoss(ProductInventory $inventory, int $quantity, Model $source, User $actor, string $movementReference, string $idempotencyKey): StockMovement
+    {
+        if (DB::transactionLevel() === 0 || $quantity < 1) {
+            throw new InventoryInvariantException('Marketplace loss reconciliation requires an active transaction and positive quantity.');
+        }
+        $inventory = ProductInventory::query()->lockForUpdate()->findOrFail($inventory->id);
+        if ($quantity > $inventory->marketplace_non_sellable_quantity) {
+            throw new InventoryInvariantException('Marketplace loss exceeds marketplace non-sellable stock.');
+        }
+        if (StockMovement::query()->where('idempotency_key', $idempotencyKey)->exists()) {
+            return StockMovement::query()->where('idempotency_key', $idempotencyKey)->firstOrFail();
+        }
+        $before = $this->snapshot($inventory);
+        $value = bcmul((string) ($inventory->average_cost ?? '0'), (string) $quantity, 4);
+        $inventory->forceFill(['marketplace_non_sellable_quantity' => $inventory->marketplace_non_sellable_quantity - $quantity, 'marketplace_non_sellable_value' => bcsub((string) $inventory->marketplace_non_sellable_value, $value, 4)])->save();
+        $movement = $this->createMovement($inventory, $actor, $movementReference, (string) Str::uuid(), StockMovementType::MarketplaceLoss, $quantity, 0, 0, 0, $before, $source, 'Authorized marketplace post-receipt loss', $idempotencyKey, (string) ($inventory->average_cost ?? '0'));
+        StockMovementBucketChange::query()->create(['stock_movement_id' => $movement->id, 'bucket' => StockMovementBucket::MarketplaceNonSellable, 'quantity_delta' => -$quantity, 'quantity_before' => $before['marketplace_non_sellable'] ?? 0, 'quantity_after' => $inventory->marketplace_non_sellable_quantity, 'value_delta' => '-'.$value, 'value_before' => $before['marketplace_non_sellable_value'] ?? '0', 'value_after' => $inventory->marketplace_non_sellable_value]);
+        $this->allocationLedger->reconcileMarketplaceLoss($inventory, $quantity, $source, $actor);
+
+        return $movement;
+    }
+
     public function receiveQuotationSourcing(QuotationSourcingPosting $posting, User $actor, string $reference, string $group): StockMovement
     {
         if (DB::transactionLevel() === 0) {
@@ -550,6 +575,7 @@ class InventoryService
             }
             $this->allocationLedger->reserveExact($reservation, $exactAllocationSources, $actor, $authorizeExactSources);
         }
+        $this->qcExceptionSales->sync($reservation, $item, $actor);
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $item->ordered_quantity])->save();
         $movement = $this->createMovement(
             $inventory,
@@ -664,6 +690,7 @@ class InventoryService
 
         $before = $this->snapshot($inventory);
         $this->allocationLedger->release($reservation, $actor, $reason);
+        $this->qcExceptionSales->release($reservation, $actor);
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity - $reservation->quantity])->save();
         $reservation->forceFill([
             'status' => InventoryReservationStatus::Released,
@@ -732,6 +759,11 @@ class InventoryService
                 'released_at' => now(),
             ];
             $reservation->forceFill($attributes)->save();
+            if ($newQuantity > 0 && $reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
+                $this->qcExceptionSales->sync($reservation, $reservation->orderItem()->with('order')->firstOrFail(), $actor);
+            } elseif ($newQuantity === 0) {
+                $this->qcExceptionSales->release($reservation, $actor);
+            }
             $movement = $this->createMovement(
                 $inventory, $actor, array_shift($movementReferences), $adjustment->movement_group,
                 $reservation->reservation_kind === InventoryReservationKind::UpgradeComponent
@@ -782,11 +814,16 @@ class InventoryService
         }
 
         $before = $this->snapshot($inventory);
+        $orderItem = null;
         if ($reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
-            $this->allocationLedger->adjustReservation($reservation, $reservation->orderItem()->with('order')->firstOrFail(), $quantity, $actor, $additionalAllocationSources);
+            $orderItem = $reservation->orderItem()->with('order')->firstOrFail();
+            $this->allocationLedger->adjustReservation($reservation, $orderItem, $quantity, $actor, $additionalAllocationSources);
         }
         $inventory->forceFill(['reserved_quantity' => $inventory->reserved_quantity + $delta])->save();
         $reservation->forceFill(['quantity' => $quantity])->save();
+        if ($orderItem !== null) {
+            $this->qcExceptionSales->sync($reservation, $orderItem, $actor);
+        }
         $component = $reservation->reservation_kind === InventoryReservationKind::UpgradeComponent;
         $type = $delta > 0
             ? ($component ? StockMovementType::UpgradeComponentReservation : StockMovementType::Reservation)
@@ -1002,6 +1039,7 @@ class InventoryService
             }
         } elseif ($reservation->reservation_kind === InventoryReservationKind::BaseProduct) {
             $this->allocationLedger->fulfill($reservation, $actor);
+            $this->qcExceptionSales->fulfill($reservation, $actor);
         }
         $reservedDelta = $reservation === null ? 0 : -$quantity;
         $inventory->forceFill([
@@ -1127,13 +1165,14 @@ class InventoryService
         }, 5);
     }
 
-    public function dispatchTransferItem(StockTransferItem $item, ProductInventory $inventory, User $actor, string $movementReference, string $movementGroup): StockMovement
+    public function dispatchTransferItem(StockTransferItem $item, ProductInventory $inventory, User $actor, string $movementReference, string $movementGroup, ?int $quantity = null, ?string $postingKey = null): StockMovement
     {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Stock Transfer dispatch requires an active transaction.');
         }
 
-        if ($inventory->product_id !== $item->product_id || $item->quantity > $inventory->sellableQuantity()) {
+        $quantity ??= $item->quantity;
+        if ($quantity < 1 || $quantity > ($item->quantity - $item->dispatched_quantity) || $inventory->product_id !== $item->product_id || $quantity > $inventory->sellableQuantity()) {
             throw new InsufficientInventoryException("Insufficient Sellable inventory for {$item->sku}.");
         }
 
@@ -1143,27 +1182,31 @@ class InventoryService
 
         $this->allocationLedger->ensureShadowCoverage($inventory, $actor);
         $before = $this->snapshot($inventory);
-        $inventory->forceFill(['available_quantity' => $inventory->available_quantity - $item->quantity])->save();
-        $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferDispatch, $item->quantity, -$item->quantity, 0, 0, $before, $item, 'Stock Transfer dispatch', $item->posting_key, $inventory->average_cost);
-        $this->allocationLedger->dispatchTransfer($item, $inventory, $item->quantity, $actor);
-        $this->activity->log('inventory.transfer_out', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'source_warehouse_id' => $inventory->warehouse_id, 'quantity' => $item->quantity]);
+        $inventory->forceFill(['available_quantity' => $inventory->available_quantity - $quantity])->save();
+        $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferDispatch, $quantity, -$quantity, 0, 0, $before, $item, 'Stock Transfer dispatch', $postingKey ?? $item->posting_key, $inventory->average_cost);
+        $this->allocationLedger->dispatchTransfer($item, $inventory, $quantity, $actor);
+        $this->activity->log('inventory.transfer_out', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'source_warehouse_id' => $inventory->warehouse_id, 'quantity' => $quantity]);
 
         return $movement;
     }
 
-    public function receiveTransferItem(StockTransferItem $item, int $destinationWarehouseId, User $actor, string $movementReference, string $movementGroup): array
+    public function receiveTransferItem(StockTransferItem $item, int $destinationWarehouseId, User $actor, string $movementReference, string $movementGroup, ?int $quantity = null): array
     {
         if (DB::transactionLevel() === 0) {
             throw new InventoryInvariantException('Stock Transfer receipt requires an active transaction.');
         }
 
+        $quantity ??= $item->inTransitQuantity();
+        if ($quantity < 1 || $quantity > $item->inTransitQuantity()) {
+            throw new InventoryInvariantException('Received quantity exceeds the remaining in-transit quantity.');
+        }
         $inventory = $this->balances->lockOrCreate($item->product_id, $destinationWarehouseId);
         $before = $this->snapshot($inventory);
-        $newAverage = $this->costs->weightedAverage($inventory->totalOnHand(), $inventory->average_cost, $item->dispatched_quantity, (string) $item->dispatch_unit_cost);
-        $inventory->forceFill(['available_quantity' => $inventory->available_quantity + $item->dispatched_quantity, 'average_cost' => $newAverage])->save();
-        $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferReceipt, $item->dispatched_quantity, $item->dispatched_quantity, 0, 0, $before, $item, 'Stock Transfer receipt', null, (string) $item->dispatch_unit_cost);
-        $this->allocationLedger->completeTransfer($item, $inventory, $actor, false);
-        $this->activity->log('inventory.transfer_in', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'destination_warehouse_id' => $destinationWarehouseId, 'quantity' => $item->dispatched_quantity]);
+        $newAverage = $this->costs->weightedAverage($inventory->totalOnHand(), $inventory->average_cost, $quantity, (string) $item->dispatch_unit_cost);
+        $inventory->forceFill(['available_quantity' => $inventory->available_quantity + $quantity, 'average_cost' => $newAverage])->save();
+        $movement = $this->createMovement($inventory, $actor, $movementReference, $movementGroup, StockMovementType::TransferReceipt, $quantity, $quantity, 0, 0, $before, $item, 'Stock Transfer receipt', null, (string) $item->dispatch_unit_cost);
+        $this->allocationLedger->completeTransfer($item, $inventory, $actor, false, $quantity);
+        $this->activity->log('inventory.transfer_in', $actor, $item, ['transfer_id' => $item->stock_transfer_id, 'product_id' => $item->product_id, 'destination_warehouse_id' => $destinationWarehouseId, 'quantity' => $quantity]);
 
         return [$inventory, $movement];
     }
@@ -1254,6 +1297,8 @@ class InventoryService
             'available' => $inventory->available_quantity,
             'reserved' => $inventory->reserved_quantity,
             'damaged' => $inventory->damaged_quantity,
+            'marketplace_non_sellable' => $inventory->marketplace_non_sellable_quantity,
+            'marketplace_non_sellable_value' => $inventory->marketplace_non_sellable_value,
             'average' => $inventory->average_cost,
         ];
     }

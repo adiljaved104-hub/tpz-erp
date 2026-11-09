@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Orders\OrderAmendmentService;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -53,7 +54,7 @@ class OrderInfolist
                     ->visible(fn (?Order $record): bool => $record !== null && app(OrderAmendmentService::class)->correctedWarehouseId($record) !== null),
                 TextEntry::make('handledBy.name')->label('Handled By'),
                 TextEntry::make('fulfillment.reference')->label('Shipment Reference')->visible(fn (?Order $record): bool => $record?->status?->value === 'fulfilled'),
-                TextEntry::make('fulfillment.fulfilled_at')->label('Shipped At')->dateTime('d M Y, h:i A')->visible(fn (?Order $record): bool => $record?->status?->value === 'fulfilled'),
+                TextEntry::make('fulfillment.fulfilled_at')->label('Shipped At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->visible(fn (?Order $record): bool => $record?->status?->value === 'fulfilled'),
                 TextEntry::make('notes')->placeholder('No notes')->columnSpanFull(),
             ])->columns(2),
             Section::make('Products')->schema([
@@ -70,7 +71,7 @@ class OrderInfolist
                 RepeatableEntry::make('statusEvents')->hiddenLabel()->schema([
                     TextEntry::make('to_status')->label('Status')->badge(),
                     TextEntry::make('actor.name')->label('By'),
-                    TextEntry::make('created_at')->label('When')->dateTime('d M Y, h:i A'),
+                    TextEntry::make('created_at')->label('When')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
                     TextEntry::make('reason')->placeholder('—'),
                 ])->table([
                     TableColumn::make('Status'), TableColumn::make('By'), TableColumn::make('When'), TableColumn::make('Reason'),

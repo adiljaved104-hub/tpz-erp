@@ -9,6 +9,7 @@ use App\Enums\InventoryReservationStatus;
 use App\Models\InventoryReservation;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Textarea;
@@ -29,8 +30,8 @@ class InventoryReservationsTable
             TextColumn::make('warehouse.name')->label('Warehouse'),
             TextColumn::make('quantity'),
             TextColumn::make('status')->badge(),
-            TextColumn::make('reserved_at')->dateTime('d M Y, h:i A')->sortable(),
-            TextColumn::make('released_at')->dateTime('d M Y, h:i A')->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
+            TextColumn::make('reserved_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->sortable(),
+            TextColumn::make('released_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—')->toggleable(isToggledHiddenByDefault: true),
         ])->filters([
             SelectFilter::make('status')->options([
                 InventoryReservationStatus::Active->value => 'Active',

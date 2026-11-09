@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
 use App\Services\Authorization\WebSalesAuthorization;
+use App\Services\Orders\WebSalesFinancialSummaryService;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -52,8 +53,22 @@ class WebSalesOrderInfolist
             QcOrderAssignmentSection::make(),
             Section::make('Financial Summary')->schema([
                 TextEntry::make('grand_total')->label('Revenue')->money('AED')->visible(fn (): bool => self::allowed(WebSalesPermission::ViewRevenue)),
-                TextEntry::make('cogs_total')->label('COGS')->money('AED')->state(fn (Order $record): string => self::cogs($record))->visible(fn (): bool => self::allowed(WebSalesPermission::ViewCost)),
-                TextEntry::make('gross_profit')->label('Gross Profit')->money('AED')->state(fn (Order $record): string => bcsub((string) $record->grand_total, self::cogs($record), 2))->visible(fn (): bool => self::allowed(WebSalesPermission::ViewGrossProfit)),
+                TextEntry::make('cogs_total')->label('COGS')->money('AED')->placeholder('Cost Pending')
+                    ->state(function (Order $record): ?string {
+                        $summary = app(WebSalesFinancialSummaryService::class)->summarize($record);
+
+                        return $summary['status'] === 'pending' ? null : $summary['cogs'];
+                    })->helperText(function (Order $record): ?string {
+                        $status = app(WebSalesFinancialSummaryService::class)->summarize($record)['status'];
+
+                        return $status === 'estimated' ? 'Estimated from recorded sourcing or authorized inventory cost.' : ($status === 'actual' ? 'Actual posted fulfillment cost.' : null);
+                    })->visible(fn (): bool => self::allowed(WebSalesPermission::ViewCost)),
+                TextEntry::make('cost_basis')->label('Cost Basis')->state(fn (Order $record): string => match (app(WebSalesFinancialSummaryService::class)->summarize($record)['status']) {
+                    'actual' => 'Actual', 'estimated' => 'Estimated', default => 'Cost Pending',
+                })->visible(fn (): bool => self::allowed(WebSalesPermission::ViewCost)),
+                TextEntry::make('gross_profit')->label('Gross Profit')->money('AED')->placeholder('Cost Pending')
+                    ->state(fn (Order $record): ?string => app(WebSalesFinancialSummaryService::class)->summarize($record)['gross_profit'])
+                    ->visible(fn (): bool => self::allowed(WebSalesPermission::ViewGrossProfit)),
             ])->columns(3)->visible(fn (): bool => self::allowed(WebSalesPermission::ViewRevenue) || self::allowed(WebSalesPermission::ViewCost) || self::allowed(WebSalesPermission::ViewGrossProfit)),
         ]);
     }
@@ -63,11 +78,5 @@ class WebSalesOrderInfolist
         $user = auth()->user();
 
         return $user instanceof User && app(WebSalesAuthorization::class)->allows($user, $permission);
-    }
-
-    private static function cogs(Order $record): string
-    {
-        return $record->fulfillment?->items()->with('upgradeExecution:id,order_fulfillment_item_id,final_configured_cogs')->get()
-            ->reduce(fn (string $total, $item): string => bcadd($total, $item->effectiveCogsTotal(), 4), '0.0000') ?? '0.0000';
     }
 }

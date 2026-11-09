@@ -1,16 +1,16 @@
 @php
     $sections = [
-        'sales' => ['heading' => 'Sales & Orders', 'description' => 'Order activity for the selected period.', 'keys' => ['orders', 'revenue']],
-        'inventory' => ['heading' => 'Inventory', 'description' => 'Current authorized stock position.', 'keys' => ['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending']],
+        'sales' => ['heading' => 'Sales & Orders', 'description' => 'Order activity and common operational entry points.', 'keys' => ['orders', 'revenue', 'quick_purchase', 'record_return']],
+        'inventory' => ['heading' => 'Inventory', 'description' => 'Current authorized stock position.', 'keys' => ['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory']],
         'service' => ['heading' => 'Service & Claims', 'description' => 'Open operational cases requiring follow-up.', 'keys' => ['returns', 'claims', 'warranty', 'internal_repairs', 'complaints']],
         'work' => ['heading' => 'Work', 'description' => 'Tasks and communication in your authorized scope.', 'keys' => ['tasks', 'chat_unread', 'notifications']],
         'hr' => ['heading' => 'HR', 'description' => 'Attendance, leave, and acknowledgment status.', 'keys' => ['attendance_present', 'attendance_late', 'attendance_absent', 'pending_leave', 'warning_acknowledgments', 'notice_acknowledgments']],
     ];
     $icons = [
-        'orders' => 'heroicon-o-shopping-bag', 'revenue' => 'heroicon-o-banknotes',
+        'orders' => 'heroicon-o-shopping-bag', 'revenue' => 'heroicon-o-banknotes', 'quick_purchase' => 'heroicon-o-plus-circle', 'record_return' => 'heroicon-o-arrow-uturn-left',
         'inventory_units' => 'heroicon-o-cube', 'inventory_value' => 'heroicon-o-chart-bar-square',
         'sellable_inventory' => 'heroicon-o-archive-box', 'low_stock' => 'heroicon-o-exclamation-triangle', 'out_of_stock' => 'heroicon-o-x-circle',
-        'damaged' => 'heroicon-o-exclamation-triangle', 'qc_pending' => 'heroicon-o-magnifying-glass-circle',
+        'damaged' => 'heroicon-o-exclamation-triangle', 'qc_pending' => 'heroicon-o-magnifying-glass-circle', 'marketplace_inventory' => 'heroicon-o-building-storefront',
         'returns' => 'heroicon-o-arrow-uturn-left', 'claims' => 'heroicon-o-shield-check',
         'warranty' => 'heroicon-o-wrench-screwdriver', 'internal_repairs' => 'heroicon-o-cog-6-tooth',
         'complaints' => 'heroicon-o-megaphone', 'tasks' => 'heroicon-o-clipboard-document-check',

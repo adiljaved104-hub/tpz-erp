@@ -31,6 +31,7 @@ use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
@@ -75,8 +76,8 @@ class ResponsibilityAssignmentsTable
 
                 return "{$summary['status']->getLabel()} · Outstanding {$summary['outstanding']} · Assignable {$summary['remaining']}";
             })->wrap(),
-            TextColumn::make('effective_at')->dateTime('d M Y, h:i A')->sortable(),
-            TextColumn::make('ended_at')->dateTime('d M Y, h:i A')->placeholder('Active'),
+            TextColumn::make('effective_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->sortable(),
+            TextColumn::make('ended_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('Active'),
             TextColumn::make('status')->badge(),
             TextColumn::make('assignedBy.name')->label('Assigned By'),
             TextColumn::make('reason')->limit(40)->tooltip(fn (ResponsibilityAssignment $record): string => $record->reason),

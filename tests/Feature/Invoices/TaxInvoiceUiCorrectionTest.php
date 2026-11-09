@@ -320,7 +320,7 @@ class TaxInvoiceUiCorrectionTest extends TestCase
 
     private function user(EmployeeRole $role): User
     {
-        $user = User::factory()->create();
+        $user = User::factory()->create(['email' => fake()->unique()->userName().'@techpointzone.com']);
         Employee::factory()->for($user)->role($role)->create(['email' => $user->email, 'status' => true]);
 
         return $user->refresh();

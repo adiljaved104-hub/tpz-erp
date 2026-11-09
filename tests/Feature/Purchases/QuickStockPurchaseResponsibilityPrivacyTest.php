@@ -226,7 +226,7 @@ class QuickStockPurchaseResponsibilityPrivacyTest extends TestCase
         }
         ProductInventory::factory()->create(['product_id' => $product->id, 'warehouse_id' => $warehouse->id, 'available_quantity' => 0]);
         $this->assertArrayHasKey($product->id, $this->productField($component)->getSearchResults($product->sku));
-        $assignment->update(['status' => ResponsibilityAssignmentStatus::Inactive, 'ended_at' => now()]);
+        $assignment->update(['status' => ResponsibilityAssignmentStatus::Inactive, 'active_fingerprint' => null, 'ended_at' => now()]);
         $this->assertArrayNotHasKey($product->id, $this->productField($component)->getSearchResults($product->sku));
         $this->assertDatabaseCount('inventory_allocation_events', 0);
         $this->assertDatabaseCount('stock_movements', 0);
@@ -394,7 +394,7 @@ class QuickStockPurchaseResponsibilityPrivacyTest extends TestCase
                 $calls++;
                 $prepared = $documents->prepare($data, $purchase, $actor, $receivingScope);
                 if ($calls === 1) {
-                    $assignment->update(['status' => ResponsibilityAssignmentStatus::Inactive, 'ended_at' => now()]);
+                    $assignment->update(['status' => ResponsibilityAssignmentStatus::Inactive, 'active_fingerprint' => null, 'ended_at' => now()]);
                 }
 
                 return $prepared;

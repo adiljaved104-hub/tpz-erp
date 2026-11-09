@@ -7,6 +7,7 @@ use App\Enums\InventoryLocationType;
 use App\Models\CustomerReturn;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Returns\ReturnFinancialReadService;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -45,8 +46,8 @@ class CustomerReturnInfolist
                 TextEntry::make('fulfillmentWarehouse.name')->label('Fulfilled From'),
                 TextEntry::make('receivingWarehouse.name')->label('Returned To')->placeholder('Financial-only Return'),
                 TextEntry::make('status')->label('Physical Status')->badge(),
-                TextEntry::make('reported_at')->dateTime('d M Y, h:i A'),
-                TextEntry::make('received_at')->dateTime('d M Y, h:i A')->placeholder('—'),
+                TextEntry::make('reported_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
+                TextEntry::make('received_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
             ]),
             Section::make('Refund')->columns(3)->schema($refundEntries),
             Section::make('Related Claims')->schema([

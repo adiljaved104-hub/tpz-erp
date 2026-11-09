@@ -7,6 +7,7 @@ use App\Models\InventoryAdjustment;
 use App\Models\PurchaseReceipt;
 use App\Models\User;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -49,7 +50,8 @@ class PurchaseReceiptInfolist
                 TextEntry::make('purchase.supplier.name')->label('Supplier')->placeholder('No Supplier'),
                 TextEntry::make('warehouse.name')->label('Warehouse'),
                 TextEntry::make('supplier_delivery_note')->label('Supplier Delivery Note'),
-                TextEntry::make('received_at')->label('Received At')->dateTime('d M Y, h:i A', config('app.timezone')),
+                TextEntry::make('purchase.purchase_date')->label('Purchase Date')->date('d M Y'),
+                TextEntry::make('received_at')->label('Received At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A T')),
                 TextEntry::make('receivedBy.name')->label('Received By'),
                 RepeatableEntry::make('receipt_items')
                     ->label('Receipt Items')
@@ -75,7 +77,7 @@ class PurchaseReceiptInfolist
                             TextEntry::make('adjustment_quantity')->label('Adjustment'),
                             TextEntry::make('reason')->label('Reason'),
                             TextEntry::make('performedBy.name')->label('Corrected By'),
-                            TextEntry::make('corrected_at')->label('Corrected At')->dateTime('d M Y, h:i A', config('app.timezone')),
+                            TextEntry::make('corrected_at')->label('Corrected At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A T')),
                         ])
                         ->table([
                             TableColumn::make('Correction'),
@@ -107,7 +109,7 @@ class PurchaseReceiptInfolist
                                 ->formatStateUsing(fn (int $state): string => sprintf('%+d', $state)),
                             TextEntry::make('reason')->label('Reason'),
                             TextEntry::make('performedBy.name')->label('Adjusted By'),
-                            TextEntry::make('performed_at')->label('Adjusted At')->dateTime('d M Y, h:i A', config('app.timezone')),
+                            TextEntry::make('performed_at')->label('Adjusted At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A T')),
                         ])
                         ->table([
                             TableColumn::make('Adjustment'), TableColumn::make('SKU'),

@@ -19,6 +19,7 @@ use App\Models\InventoryReservation;
 use App\Models\MarketplacePlatform;
 use App\Models\Order;
 use App\Models\OrderFulfillment;
+use App\Models\OrderFulfillmentItem;
 use App\Models\OrderItem;
 use App\Models\OrderStatusEvent;
 use App\Models\Product;
@@ -59,6 +60,7 @@ class OrderService
         private readonly OrderUpgradeService $upgrades,
         private readonly ActivityLogger $activity,
         private readonly ResponsibilityAllocationService $allocations,
+        private readonly OrderLineFulfillmentService $lineFulfillments,
     ) {}
 
     /** Save editable plain-product drafts without touching inventory. */
@@ -720,12 +722,16 @@ class OrderService
                 }
 
                 $items = $order->items()->with(['reservation', 'componentReservations', 'upgradeSelection'])->orderBy('line_number')->lockForUpdate()->get();
+                $manualLines = $order->manualSourcingLines()->lockForUpdate()->get()->keyBy('order_item_id');
 
-                if ($items->isEmpty() || $items->contains(fn (OrderItem $item): bool => $item->reservation === null)) {
+                if ($items->isEmpty() || $items->contains(fn (OrderItem $item): bool => $item->reservation === null && $manualLines->get($item->id)?->source_mode !== 'supplier_direct')) {
                     throw new InvalidOrderTransitionException('Every Order Item must have its linked active reservation before shipping.');
                 }
 
                 foreach ($items as $item) {
+                    if ($manualLines->get($item->id)?->source_mode === 'supplier_direct' && $item->reservation === null) {
+                        continue;
+                    }
                     if (! $this->responsibilities->canAccessProduct($actor, $item->product_id, $platform?->id, $warehouse->id)) {
                         throw ValidationException::withMessages(['items' => 'A Product is outside your active Responsibility Assignments.']);
                     }
@@ -745,6 +751,38 @@ class OrderService
                 $quantity = 0;
 
                 foreach ($items as $item) {
+                    if ($manualLines->get($item->id)?->source_mode === 'supplier_direct' && $item->reservation === null) {
+                        $sourcingLine = $manualLines->get($item->id);
+                        $receiptItem = $sourcingLine->purchaseReceipt?->items()
+                            ->where('product_id', $item->product_id)
+                            ->sole();
+                        if ($receiptItem === null || $receiptItem->accepted_quantity !== $item->ordered_quantity) {
+                            throw ValidationException::withMessages(['items' => 'Direct fulfilment requires an exact, posted supplier receipt for every sold unit.']);
+                        }
+                        $inventory = ProductInventory::query()
+                            ->where('product_id', $item->product_id)
+                            ->where('warehouse_id', $order->warehouse_id)
+                            ->lockForUpdate()
+                            ->firstOrFail();
+                        $unitCost = (string) $receiptItem->inventory_unit_cost;
+                        OrderFulfillmentItem::query()->create([
+                            'order_fulfillment_id' => $fulfillment->id,
+                            'order_item_id' => $item->id,
+                            'product_inventory_id' => $inventory->id,
+                            'product_id' => $item->product_id,
+                            'warehouse_id' => $order->warehouse_id,
+                            'quantity' => $item->ordered_quantity,
+                            'inventory_unit_cost' => $unitCost,
+                            'cogs_total' => bcmul($unitCost, (string) $item->ordered_quantity, 4),
+                            'posting_key' => $postingKeys[$item->id],
+                            'created_at' => now(),
+                        ]);
+                        // Supplier-direct units never pass through physical warehouse custody.
+                        // Their original receipt cost is snapshotted for COGS and Customer Returns.
+                        $quantity += $item->ordered_quantity;
+
+                        continue;
+                    }
                     $fulfillmentItem = $this->inventory->fulfillOrderItem(
                         $item->setRelation('order', $order),
                         $fulfillment,
@@ -920,8 +958,8 @@ class OrderService
             $this->authorization->authorize($actor, OrderPermission::Reserve, $order);
             $scopeActor ??= $actor;
 
-            if ($order->status !== OrderStatus::Draft) {
-                throw new InvalidOrderTransitionException('Only a Draft Order can be reserved.');
+            if (! in_array($order->status, [OrderStatus::Draft, OrderStatus::PendingReview], true)) {
+                throw new InvalidOrderTransitionException('Only a Draft or pending manual-sourcing Order can be reserved.');
             }
 
             $warehouse = Warehouse::query()->lockForUpdate()->findOrFail($order->warehouse_id);
@@ -934,6 +972,10 @@ class OrderService
             }
 
             $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->lockForUpdate()->get();
+            $manualLines = $order->manualSourcingLines()->lockForUpdate()->get()->keyBy('order_item_id');
+            // Supplier-direct lines are fulfilled by the atomic manual-sourcing
+            // shipment transaction and must never reserve warehouse stock.
+            $physicalItems = $items->reject(fn (OrderItem $item): bool => $manualLines->get($item->id)?->source_mode === 'supplier_direct');
 
             if ($items->isEmpty()) {
                 throw ValidationException::withMessages(['items' => 'Add at least one Product before reserving.']);
@@ -941,10 +983,10 @@ class OrderService
 
             $inventories = ProductInventory::query()
                 ->where('warehouse_id', $warehouse->id)
-                ->whereIn('product_id', $items->pluck('product_id'))
+                ->whereIn('product_id', $physicalItems->pluck('product_id'))
                 ->orderBy('product_id')->lockForUpdate()->get()->keyBy('product_id');
 
-            $requiredByProduct = $items->groupBy('product_id')->map(fn ($group): int => (int) $group->sum('ordered_quantity'));
+            $requiredByProduct = $physicalItems->groupBy('product_id')->map(fn ($group): int => (int) $group->sum('ordered_quantity'));
             foreach ($requiredByProduct as $productId => $requiredQuantity) {
                 $product = Product::query()->products()->lockForUpdate()->findOrFail((int) $productId);
                 $inventory = $inventories->get((int) $productId);
@@ -954,6 +996,17 @@ class OrderService
                 }
             }
             foreach ($items as $item) {
+                $manualLine = $manualLines->get($item->id);
+                if ($manualLine?->source_mode === 'supplier_direct') {
+                    if (! in_array($manualLine->status?->value, ['supplier_direct_fulfilled', 'ready_for_allocation'], true)) {
+                        throw ValidationException::withMessages(['items' => 'Supplier-direct lines require verified delivery before reservation.']);
+                    }
+
+                    continue;
+                }
+                if ($manualLine !== null && $manualLine->status?->value !== 'ready_for_allocation') {
+                    throw ValidationException::withMessages(['items' => 'Manual warehouse lines require a fully confirmed GRN before reservation.']);
+                }
                 $product = Product::query()->products()->lockForUpdate()->findOrFail($item->product_id);
                 if (! $this->responsibilities->canAccessProduct($scopeActor, $item->product_id, $platform?->id, $warehouse->id)) {
                     throw ValidationException::withMessages(['items' => 'A Product is outside your active Responsibility Assignments.']);
@@ -972,7 +1025,7 @@ class OrderService
             $movementGroup = (string) Str::uuid();
             $quantity = 0;
 
-            foreach ($items as $item) {
+            foreach ($physicalItems as $item) {
                 $this->inventory->reserveOrderItem(
                     $item->setRelation('order', $order),
                     $actor,
@@ -1001,7 +1054,7 @@ class OrderService
             if ($afterReserved !== null) {
                 $afterReserved($order, $items);
             }
-            $this->timeline($order, OrderStatus::Draft, OrderStatus::Reserved, $actor, null, ['item_count' => $items->count(), 'total_quantity' => $quantity]);
+            $this->timeline($order, $order->getRawOriginal('status') === OrderStatus::PendingReview->value ? OrderStatus::PendingReview : OrderStatus::Draft, OrderStatus::Reserved, $actor, null, ['item_count' => $items->count(), 'total_quantity' => $quantity]);
             $this->activity->log('order.reserved', $actor, $order, [
                 'order_reference' => $order->reference,
                 'item_count' => $items->count(),

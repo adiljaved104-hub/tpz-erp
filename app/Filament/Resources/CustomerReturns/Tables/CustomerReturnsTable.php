@@ -10,6 +10,7 @@ use App\Models\CustomerReturn;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Returns\ReturnFinancialReadService;
 use App\Services\Search\SearchQuery;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -42,7 +43,7 @@ class CustomerReturnsTable
                 ->state(fn (CustomerReturn $record): string => $record->qc_exception_needed ? 'Owner/Admin review pending' : '—')
                 ->badge(fn (CustomerReturn $record): bool => (bool) $record->qc_exception_needed)
                 ->color(fn (CustomerReturn $record): string => $record->qc_exception_needed ? 'danger' : 'gray'),
-            TextColumn::make('reported_at')->dateTime('d M Y, h:i A')->toggleable(isToggledHiddenByDefault: true),
+            TextColumn::make('reported_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->toggleable(isToggledHiddenByDefault: true),
         ];
 
         if (self::canViewFinancials()) {

@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Qc\QcStockTransferReadinessService;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -26,8 +27,14 @@ class StockTransferInfolist
             && app(QcAuthorization::class)->allows($user, QcPermission::ViewOrderAssignments)
             && app(QcStockTransferReadinessService::class)->isRequired($record);
         $relation = $cost ? 'costedDisplayItems' : 'displayItems';
-        $entries = [TextEntry::make('sku')->label('SKU'), TextEntry::make('product_name')->label('Product'), TextEntry::make('quantity')->label('Qty'), TextEntry::make('dispatched_quantity')->label('Dispatched'), TextEntry::make('received_quantity')->label('Received'), TextEntry::make('returned_quantity')->label('Returned')];
-        $columns = collect(['SKU', 'Product', 'Qty', 'Dispatched', 'Received', 'Returned'])->map(fn (string $label) => TableColumn::make($label))->all();
+        $entries = [TextEntry::make('sku')->label('SKU'), TextEntry::make('product_name')->label('Product'), TextEntry::make('quantity')->label('Requested'), TextEntry::make('dispatched_quantity')->label('Shipped'), TextEntry::make('received_quantity')->label('Previously Received'), TextEntry::make('inTransitQuantity')->label('Remaining')->state(fn ($record): int => max(0, (int) $record->inTransitQuantity())), TextEntry::make('shortage_quantity')->label('Shortage')->state(fn ($record): int => max(0, (int) $record->quantity - (int) $record->received_quantity - (int) $record->returned_quantity - (int) $record->lost_quantity))];
+        $columns = collect(['SKU', 'Product', 'Requested', 'Shipped', 'Previously Received', 'Remaining', 'Shortage'])->map(fn (string $label) => TableColumn::make($label))->all();
+        $entries[] = TextEntry::make('unshipped_quantity')->label('Not Shipped')->state(fn ($record): int => max(0, (int) $record->quantity - (int) $record->dispatched_quantity));
+        $entries[] = TextEntry::make('returned_quantity')->label('Returned');
+        $entries[] = TextEntry::make('lost_quantity')->label('Confirmed Lost');
+        $columns[] = TableColumn::make('Not Shipped');
+        $columns[] = TableColumn::make('Returned');
+        $columns[] = TableColumn::make('Confirmed Lost');
         if ($cost) {
             $entries[] = TextEntry::make('dispatch_unit_cost')->label('Dispatch Cost')->money('AED', decimalPlaces: 2);
             $columns[] = TableColumn::make('Dispatch Cost');
@@ -36,10 +43,10 @@ class StockTransferInfolist
         $components = [
             Section::make('Stock Transfer')->columns(2)->schema([
                 TextEntry::make('reference'), TextEntry::make('status')->badge(), TextEntry::make('sourceWarehouse.name')->label('From'), TextEntry::make('destinationWarehouse.name')->label('To'),
-                TextEntry::make('transfer_date')->date('d M Y'), TextEntry::make('handledBy.name')->label('Handled By')->placeholder('—'), TextEntry::make('dispatched_at')->dateTime('d M Y, h:i A')->placeholder('—'), TextEntry::make('received_at')->dateTime('d M Y, h:i A')->placeholder('—'), TextEntry::make('notes')->placeholder('—')->columnSpanFull(),
+                TextEntry::make('transfer_date')->date('d M Y'), TextEntry::make('handledBy.name')->label('Handled By')->placeholder('—'), TextEntry::make('dispatched_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'), TextEntry::make('received_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'), TextEntry::make('notes')->placeholder('—')->columnSpanFull(),
             ]),
             Section::make('Products')->schema([RepeatableEntry::make($relation)->hiddenLabel()->schema($entries)->table($columns)->columnSpanFull()]),
-            Section::make('Timeline')->collapsed()->schema([RepeatableEntry::make('statusEvents')->hiddenLabel()->schema([TextEntry::make('to_status')->label('Status')->badge(), TextEntry::make('actor.name')->label('By'), TextEntry::make('created_at')->dateTime('d M Y, h:i A'), TextEntry::make('reason')->placeholder('—')])->table([TableColumn::make('Status'), TableColumn::make('By'), TableColumn::make('When'), TableColumn::make('Reason')])]),
+            Section::make('Timeline')->collapsed()->schema([RepeatableEntry::make('statusEvents')->hiddenLabel()->schema([TextEntry::make('to_status')->label('Status')->badge(), TextEntry::make('actor.name')->label('By'), TextEntry::make('created_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')), TextEntry::make('reason')->placeholder('—')])->table([TableColumn::make('Status'), TableColumn::make('By'), TableColumn::make('When'), TableColumn::make('Reason')])]),
         ];
 
         if ($qcVisible) {
@@ -57,10 +64,10 @@ class StockTransferInfolist
                     TextEntry::make('device.serial')->label('Serial'),
                     TextEntry::make('certificate.snapshot.grade')->label('Grade'),
                     TextEntry::make('certificate_version')->label('Certificate Version'),
-                    TextEntry::make('assigned_at')->label('Assigned')->dateTime('d M Y, h:i A'),
+                    TextEntry::make('assigned_at')->label('Assigned')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A')),
                     TextEntry::make('released_at')->label('Assignment State')->formatStateUsing(fn ($state): string => $state === null ? 'Active' : 'Released')->badge(),
-                    TextEntry::make('transfer.dispatched_at')->label('Dispatched')->dateTime('d M Y, h:i A')->placeholder('—'),
-                    TextEntry::make('transfer.received_at')->label('Received')->dateTime('d M Y, h:i A')->placeholder('—'),
+                    TextEntry::make('transfer.dispatched_at')->label('Dispatched')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
+                    TextEntry::make('transfer.received_at')->label('Received')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 ])->table([
                     TableColumn::make('QC ID'), TableColumn::make('Serial'), TableColumn::make('Grade'), TableColumn::make('Certificate Version'),
                     TableColumn::make('Assigned'), TableColumn::make('Assignment State'), TableColumn::make('Dispatched'), TableColumn::make('Received'),

@@ -128,7 +128,7 @@ class PurchaseProductContextService
             ->join('products as product', 'product.id', '=', 'pri.product_id')
             ->select([
                 'pri.id', 'pri.product_id', 'pri.accepted_quantity', 'pri.damaged_quantity', 'pri.inventory_unit_cost',
-                'pr.received_at', 'pr.reference as grn_reference', 'p.reference as purchase_reference',
+                'p.purchase_date', 'pr.received_at', 'pr.reference as grn_reference', 'p.reference as purchase_reference',
                 'p.supplier_id', 'p.warehouse_id', DB::raw("COALESCE(s.name, 'No Supplier') as supplier_name"), 'product.name as product_name', 'product.sku',
             ])
             ->where('p.warehouse_id', $warehouseId)

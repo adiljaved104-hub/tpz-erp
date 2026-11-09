@@ -23,7 +23,13 @@ class RenewedQcRequirement
 
     public function requiredQuantity(OrderItem $item): int
     {
-        return $this->requires($item) ? max(0, (int) $item->ordered_quantity) : 0;
+        if (! $this->requires($item)) {
+            return 0;
+        }
+
+        $exceptionQuantity = app(RenewedQcExceptionSalesService::class)->reservedQuantity($item);
+
+        return max(0, (int) $item->ordered_quantity - $exceptionQuantity);
     }
 
     public function orderHasRequiredLine(Order $order): bool

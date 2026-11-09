@@ -1,0 +1,190 @@
+﻿name: TPZ ERP Consolidated Main Integration QA
+
+on:
+  push:
+    branches:
+      - integration/business-operations-main-20261105
+      - codex/consolidated-qa-corrections-20261106
+      - integration/consolidated-main-uat-20261106
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mysql-integration:
+    name: MySQL critical transactional smoke (PHP 8.3 / MySQL 8.4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_ui_qa
+          MYSQL_USER: tpz_ui_qa
+          MYSQL_PASSWORD: qa_disposable_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_ui_qa
+      DB_USERNAME: tpz_ui_qa
+      DB_PASSWORD: qa_disposable_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - run: cp .env.example .env && php artisan key:generate --force && php artisan package:discover --ansi
+      - name: Verify disposable MySQL configuration
+        run: |
+          php artisan config:clear --ansi
+          test "$(php artisan tinker --execute="echo config('database.default');")" = "mysql"
+          test "$(php artisan tinker --execute="echo config('database.connections.mysql.database');")" = "tpz_ui_qa"
+      - name: Migration rehearsal
+        run: php artisan migrate --force --no-interaction --ansi
+      - name: PHP syntax and formatter checks
+        run: |
+          php -l app/Filament/Pages/Inventory/StockAdjustmentGridPage.php
+          php -l app/Filament/Resources/StockRequests/Pages/CreateStockRequestGrid.php
+          php -l app/Services/Inventory/StockRequestColumnRegistry.php
+          vendor/bin/pint --test app/Filament/Pages/Inventory/StockAdjustmentGridPage.php app/Filament/Resources/StockRequests/Pages/CreateStockRequestGrid.php app/Services/Inventory/StockRequestColumnRegistry.php
+      - name: Install Node.js for Vite assets
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Build Vite assets for feature tests
+        run: npm run build
+      - name: Blade compilation
+        run: php artisan view:cache --ansi
+      - name: MySQL critical transactional PHPUnit cohort (bounded)
+        run: |
+          cp phpunit.xml phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_CONNECTION" value="sqlite"\/>/<env name="DB_CONNECTION" value="mysql"\/>/' phpunit.mysql.ci.xml
+          sed -i 's/<env name="DB_DATABASE" value=":memory:"\/>/<env name="DB_DATABASE" value="tpz_ui_qa"\/>/' phpunit.mysql.ci.xml
+          # These are the same isolated MySQL groups used by the approved baseline triage.
+          # They are critical integration coverage, not the repository's full MySQL suite.
+          # Keeping groups separate prevents fixture state/order from masking real failures.
+          declare -a GROUP_NAMES=(inventory_transfers web_sales_sourcing purchasing security_responsibility returns_marketplace hr_mobile)
+          declare -a GROUP_PATHS=(
+            "tests/Feature/StockTransfers tests/Feature/Inventory/InventoryAllocationLedgerTest.php tests/Feature/Inventory/InventoryAdjustmentTest.php tests/Feature/Inventory/StockRequestGridTest.php"
+            "tests/Feature/Orders/WebSalesWorkflowTest.php tests/Feature/Orders/WebSalesWorkflowV2Test.php tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php tests/Feature/Orders/ManualSourcingShipmentProvenanceTest.php tests/Feature/Orders/OrderAmendmentTest.php"
+            "tests/Feature/Purchases/PurchaseReceivingTest.php tests/Feature/Purchases/PurchaseReceiptCorrectionTest.php tests/Feature/Purchases/QuickStockPurchaseResponsibilityPrivacyTest.php"
+            "tests/Feature/AccessControl tests/Feature/Responsibilities/ConditionResponsibilityTest.php tests/Feature/Authorization/InventoryResponsibilitySecurityTest.php"
+            "tests/Feature/Returns/CustomerReturnWorkflowTest.php tests/Feature/Marketplace/MarketplaceOperationsWatchdogTest.php tests/Feature/Qc/QcMarketplaceTransferTest.php"
+            "tests/Feature/Hr/HrAuthorizationTest.php tests/Feature/Hr/LeaveWorkflowTest.php tests/Feature/Mobile/MobileHrNotificationTargetTest.php"
+          )
+          : > /tmp/tpz-mysql-phpunit.log
+          : > /tmp/tpz-mysql-cohort-files.txt
+          failures=0
+          for index in "${!GROUP_NAMES[@]}"; do
+            group="${GROUP_NAMES[$index]}"
+            read -r -a selected <<< "${GROUP_PATHS[$index]}"
+            printf 'Group %s: %s\n' "$group" "${selected[*]}" | tee -a /tmp/tpz-mysql-phpunit.log
+            printf '%s\n' "${selected[@]}" >> /tmp/tpz-mysql-cohort-files.txt
+            timeout --signal=TERM 16m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox "${selected[@]}" 2>&1 | tee -a /tmp/tpz-mysql-phpunit.log
+            status=${PIPESTATUS[0]}
+            if [ "$status" -ne 0 ]; then
+              failures=$((failures + 1))
+            fi
+          done
+          test "$failures" -eq 0
+          rm -f phpunit.mysql.ci.xml
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-mysql-qa-logs
+          path: |
+            /tmp/tpz-mysql-phpunit.log
+            /tmp/tpz-mysql-cohort-files.txt
+            storage/logs/*.log
+          if-no-files-found: ignore
+
+  sqlite-regression:
+    name: Complete SQLite regression suite (PHP 8.3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - run: cp .env.example .env && php artisan key:generate --force && php artisan package:discover --ansi
+      - name: Verify disposable SQLite configuration
+        run: |
+          php artisan config:clear --ansi
+          test "$(php artisan tinker --execute="echo config('database.default');")" = "sqlite"
+          test "$(php artisan tinker --execute="echo config('database.connections.sqlite.database');")" = ":memory:"
+      - name: SQLite migration rehearsal
+        run: php artisan migrate --force --no-interaction --ansi
+      - name: Install Node.js for SQLite UI tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build frontend assets for SQLite UI tests
+        run: |
+          npm ci
+          npm run build
+          test -f public/build/manifest.json
+      - name: Complete SQLite PHPUnit suite (bounded)
+        run: |
+          timeout --signal=TERM 35m vendor/bin/phpunit --testdox tests 2>&1 | tee /tmp/tpz-sqlite-phpunit.log
+          test ${PIPESTATUS[0]} -eq 0
+      - name: Upload SQLite diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-sqlite-qa-logs
+          path: |
+            /tmp/tpz-sqlite-phpunit.log
+            storage/logs/*.log
+          if-no-files-found: ignore
+

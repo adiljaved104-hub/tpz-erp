@@ -124,8 +124,10 @@ use App\Models\QcCertificate;
 use App\Models\QcDevice;
 use App\Models\QcDeviceClaim;
 use App\Models\QcEvidence;
+use App\Models\QcExceptionSetting;
 use App\Models\QcInspection;
 use App\Models\QcOrderAssignment;
+use App\Models\QcRecordedStockBypassRelease;
 use App\Models\QcRecordedStockIntake;
 use App\Models\QcRecordedStockIntakeAdjustment;
 use App\Models\QcStockTransferAssignment;
@@ -142,6 +144,7 @@ use App\Models\StockMovement;
 use App\Models\StockRequest;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
+use App\Models\StockTransferMarketplaceLoss;
 use App\Models\StockTransferStatusEvent;
 use App\Models\Supplier;
 use App\Models\Task;
@@ -155,6 +158,7 @@ use App\Models\WarehouseStockVisibilityGrant;
 use App\Models\WarningCategory;
 use App\Models\WarrantyRepair;
 use App\Models\WarrantyRepairStatusEvent;
+use App\Models\WebSalesManualSourcingLine;
 use App\Models\WorkSchedule;
 use App\Models\WorkScheduleAssignment;
 use App\Observers\CustomerReturnAlertObserver;
@@ -524,10 +528,12 @@ class AppServiceProvider extends ServiceProvider
             'qc_evidence' => QcEvidence::class,
             'qc_certificate' => QcCertificate::class,
             'qc_order_assignment' => QcOrderAssignment::class,
+            'qc_recorded_stock_bypass_release' => QcRecordedStockBypassRelease::class,
             'qc_stock_transfer_assignment' => QcStockTransferAssignment::class,
             'qc_recorded_stock_intake' => QcRecordedStockIntake::class,
             'qc_recorded_stock_intake_adjustment' => QcRecordedStockIntakeAdjustment::class,
             'qc_device_claim' => QcDeviceClaim::class,
+            'qc_exception_setting' => QcExceptionSetting::class,
             'user' => User::class,
             'employee' => Employee::class,
             'team' => Team::class,
@@ -555,6 +561,7 @@ class AppServiceProvider extends ServiceProvider
             'order_fulfillment' => OrderFulfillment::class,
             'order_fulfillment_item' => OrderFulfillmentItem::class,
             'order_item' => OrderItem::class,
+            'web_sales_manual_sourcing_line' => WebSalesManualSourcingLine::class,
             'order_item_upgrade_selection' => OrderItemUpgradeSelection::class,
             'order_upgrade_execution' => OrderUpgradeExecution::class,
             'order_upgrade_execution_line' => OrderUpgradeExecutionLine::class,
@@ -572,6 +579,7 @@ class AppServiceProvider extends ServiceProvider
             'warehouse_stock_visibility_grant' => WarehouseStockVisibilityGrant::class,
             'stock_transfer' => StockTransfer::class,
             'stock_transfer_item' => StockTransferItem::class,
+            'stock_transfer_marketplace_loss' => StockTransferMarketplaceLoss::class,
             'stock_transfer_status_event' => StockTransferStatusEvent::class,
             'customer_return' => CustomerReturn::class,
             'customer_return_exception_case' => CustomerReturnExceptionCase::class,

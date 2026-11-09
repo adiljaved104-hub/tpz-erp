@@ -20,6 +20,6 @@ enum ProductMatchContext: string
 
     public function requiresSellableStock(): bool
     {
-        return in_array($this, [self::Order, self::WebSales], true);
+        return $this === self::Order;
     }
 }

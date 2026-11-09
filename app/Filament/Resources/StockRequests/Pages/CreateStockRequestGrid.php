@@ -11,6 +11,7 @@ use App\Models\InventoryAllocationBalance;
 use App\Models\ProductInventory;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Inventory\StockRequestColumnRegistry;
 use App\Services\Inventory\StockRequestService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Search\SearchQuery;
@@ -43,6 +44,13 @@ class CreateStockRequestGrid extends Page
 
     public int $perPage = 20;
 
+    public string $stockFilter = '';
+
+    public string $sortBy = 'sku';
+
+    /** @var array<int,string> */
+    public array $visibleColumns = ['warehouse', 'mine', 'reserved', 'others', 'holder', 'request_status'];
+
     /** @var array<int, int|string|null> */
     public array $quantities = [];
 
@@ -56,6 +64,7 @@ class CreateStockRequestGrid extends Page
     public function mount(): void
     {
         $this->authorizeAccess();
+        $this->visibleColumns = app(StockRequestColumnRegistry::class)->resolve(auth()->user());
         $this->idempotencyKey = (string) Str::uuid();
     }
 
@@ -87,6 +96,77 @@ class CreateStockRequestGrid extends Page
     public function updatedHolder(): void
     {
         $this->resetPage();
+    }
+
+    public function updatedPerPage(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedStockFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedSortBy(): void
+    {
+        $this->resetPage();
+    }
+
+    public function resetFilters(): void
+    {
+        $this->search = '';
+        $this->brand = '';
+        $this->warehouse = '';
+        $this->holder = '';
+        $this->stockFilter = '';
+        $this->sortBy = 'sku';
+        $this->resetPage();
+    }
+
+    public function applyFilters(): void
+    {
+        $this->resetPage();
+    }
+
+    public function activeFilterCount(): int
+    {
+        return collect([$this->search, $this->brand, $this->warehouse, $this->holder, $this->stockFilter, $this->sortBy !== 'sku' ? $this->sortBy : ''])
+            ->filter(fn (mixed $value): bool => filled($value))->count();
+    }
+
+    public function columnVisible(string $name): bool
+    {
+        return in_array($name, $this->visibleColumns, true);
+    }
+
+    public function toggleColumn(string $column): void
+    {
+        $allowed = ['warehouse', 'mine', 'reserved', 'others', 'holder', 'request_status'];
+        abort_unless(in_array($column, $allowed, true), 422);
+        $this->visibleColumns = $this->columnVisible($column)
+            ? array_values(array_diff($this->visibleColumns, [$column]))
+            : [...$this->visibleColumns, $column];
+        app(StockRequestColumnRegistry::class)->save(auth()->user(), $this->visibleColumns);
+        $this->visibleColumns = app(StockRequestColumnRegistry::class)->resolve(auth()->user());
+    }
+
+    public function resetColumns(): void
+    {
+        app(StockRequestColumnRegistry::class)->reset(auth()->user());
+        $this->visibleColumns = app(StockRequestColumnRegistry::class)->defaults();
+    }
+
+    public function applyColumns(): void
+    {
+        app(StockRequestColumnRegistry::class)->save(auth()->user(), $this->visibleColumns);
+        $this->visibleColumns = app(StockRequestColumnRegistry::class)->resolve(auth()->user());
+    }
+
+    public function visibleColumnCount(): int
+    {
+        return 3 + count(array_intersect($this->visibleColumns,
+            ['warehouse', 'mine', 'reserved', 'others', 'holder', 'request_status']));
     }
 
     public function updatedQuantities(mixed $value, string $key): void
@@ -124,7 +204,21 @@ class CreateStockRequestGrid extends Page
             $query->whereHas('allocationBalances.account', fn (Builder $account) => $account->whereKey((int) $this->holder));
         }
 
-        $rows = $query->orderBy('product_id')->orderBy('warehouse_id')->paginate(min(50, max(10, $this->perPage)));
+        match ($this->stockFilter) {
+            'saleable' => $query->where('available_quantity', '>', 0),
+            'reserved' => $query->where('reserved_quantity', '>', 0),
+            'zero' => $query->where('available_quantity', 0),
+            'damaged' => $query->where('damaged_quantity', '>', 0),
+            default => null,
+        };
+        match ($this->sortBy) {
+            'low_stock' => $query->orderBy('available_quantity'),
+            'highest_stock' => $query->orderByDesc('available_quantity'),
+            'recent' => $query->orderByDesc('product_inventories.updated_at'),
+            default => $query->orderBy('product_id'),
+        };
+        $rows = $query->orderBy('warehouse_id')->orderBy('product_id')
+            ->paginate(min(50, max(10, $this->perPage)));
         $inventoryIds = $rows->getCollection()->pluck('id');
         $statuses = DB::table('stock_request_items as item')->join('stock_requests as request', 'request.id', '=', 'item.stock_request_id')
             ->where('request.requested_by_employee_id', $actor->employee->id)

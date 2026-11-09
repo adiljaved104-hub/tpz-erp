@@ -85,9 +85,19 @@ class OrderItem extends Model
         return $this->hasOne(OrderFulfillmentItem::class);
     }
 
+    public function manualSourcingLine(): HasOne
+    {
+        return $this->hasOne(WebSalesManualSourcingLine::class);
+    }
+
     public function qcAssignments(): HasMany
     {
         return $this->hasMany(QcOrderAssignment::class)->orderBy('assigned_at')->orderBy('id');
+    }
+
+    public function qcBypassReservationAllocations(): HasMany
+    {
+        return $this->hasMany(QcRecordedStockBypassReservationAllocation::class);
     }
 
     public function customerDescription(): string

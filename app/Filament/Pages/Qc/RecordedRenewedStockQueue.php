@@ -8,10 +8,14 @@ use App\Services\BusinessTimezone;
 use App\Services\Qc\QcOrderDemandService;
 use App\Services\Qc\QcRecordedRenewedStockIntakeService;
 use App\Services\Qc\QcRecordedStockIntakeAdjustmentService;
+use App\Services\Qc\RenewedStockQcExceptionService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Tables\Columns\TextColumn;
@@ -42,7 +46,10 @@ class RecordedRenewedStockQueue extends Page implements HasTable
 
     public static function canAccess(): bool
     {
-        return auth()->user() && app(QcRecordedRenewedStockIntakeService::class)->canAccess(auth()->user());
+        $user = auth()->user();
+
+        return $user && (app(QcRecordedRenewedStockIntakeService::class)->canAccess($user)
+            || app(RenewedStockQcExceptionService::class)->canRelease($user));
     }
 
     protected function getViewData(): array
@@ -52,7 +59,9 @@ class RecordedRenewedStockQueue extends Page implements HasTable
 
     public function table(Table $table): Table
     {
-        return $table->query(fn () => app(QcRecordedRenewedStockIntakeService::class)->queueQuery(auth()->user()))
+        return $table->query(fn () => app(QcRecordedRenewedStockIntakeService::class)->canAccess(auth()->user())
+                ? app(QcRecordedRenewedStockIntakeService::class)->queueQuery(auth()->user())
+                : app(RenewedStockQcExceptionService::class)->queueQuery(auth()->user()))
             ->columns([
                 TextColumn::make('product.sku')->label('SKU')->searchable(),
                 TextColumn::make('product.name')->label('Product')->wrap()->searchable(),
@@ -69,6 +78,7 @@ class RecordedRenewedStockQueue extends Page implements HasTable
             ])
             ->recordActions([
                 Action::make('startQc')->label('Start QC')->icon('heroicon-o-play')
+                    ->visible(fn (): bool => app(QcRecordedRenewedStockIntakeService::class)->canAccess(auth()->user()))
                     ->url(fn (QcRecordedStockIntake $record): string => QcInspectionResource::getUrl('create', ['recorded_stock_intake_id' => $record->id])),
                 Action::make('adjustRecordedQcIntake')->label('Adjust Recorded QC Intake')->icon('heroicon-o-minus-circle')
                     ->visible(fn (): bool => app(QcRecordedStockIntakeAdjustmentService::class)->canAdjust(auth()->user()))
@@ -93,8 +103,71 @@ class RecordedRenewedStockQueue extends Page implements HasTable
                         app(QcRecordedStockIntakeAdjustmentService::class)->adjust($record->id, auth()->user(), $data);
                         Notification::make()->title('Recorded QC Intake adjusted')->success()->send();
                     }),
+                Action::make('releaseWithoutQc')
+                    ->label('Move to Sellable — QC Exception')
+                    ->icon('heroicon-o-exclamation-triangle')
+                    ->color('warning')
+                    ->button()
+                    ->visible(fn (QcRecordedStockIntake $record): bool => app(RenewedStockQcExceptionService::class)->canReleaseIntake($record, auth()->user()))
+                    ->requiresConfirmation()
+                    ->modalHeading('Release Renewed stock WITHOUT QC?')
+                    ->modalDescription(fn (QcRecordedStockIntake $record): string => implode(' · ', [
+                        'GRN: '.$record->receiptItem->receipt->reference,
+                        'SKU: '.$record->product->sku,
+                        'Location: '.$record->warehouse->name,
+                        'Original GRN accepted: '.$record->receiptItem->accepted_quantity,
+                        'Unstarted QC quantity: '.$record->accepted_quantity,
+                        'This records a temporary no-QC inventory exception; NO QC certificate is created.',
+                        'Only this released quantity may be reserved and fulfilled without a normal QC certificate.',
+                    ]))
+                    ->schema([
+                        TextInput::make('quantity')->label('Quantity to move to Sellable')
+                            ->integer()->required()->minValue(1)
+                            ->maxValue(fn (QcRecordedStockIntake $record): int => (int) $record->accepted_quantity),
+                        Textarea::make('reason')->label('Reason for bypassing QC')
+                            ->required()->minLength(10)->maxLength(2000)->rows(3),
+                        Hidden::make('idempotency_key')->default(fn (): string => (string) Str::uuid())
+                            ->required()->uuid(),
+                    ])
+                    ->action(function (QcRecordedStockIntake $record, array $data): void {
+                        app(RenewedStockQcExceptionService::class)->release($record->id, auth()->user(), $data);
+                        Notification::make()->title('Stock moved to Sellable without QC — exception recorded')
+                            ->warning()->send();
+                    }),
             ])
             ->defaultSort('id')->defaultPaginationPageOption(25);
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('qcExceptionSettings')
+                ->label('QC Exception Settings')
+                ->icon('heroicon-o-adjustments-horizontal')
+                ->visible(fn (): bool => app(RenewedStockQcExceptionService::class)
+                    ->settings()->ownerCanManage(auth()->user()))
+                ->modalHeading('Renewed QC Exception Settings')
+                ->modalDescription(fn (): string => app(RenewedStockQcExceptionService::class)->settings()->description())
+                ->schema([
+                    Toggle::make('enabled')->label('Enable temporary QC exception')->default(false),
+                    Select::make('duration_mode')->label('Activation duration')->required()
+                        ->options([
+                            'disabled' => 'Disabled',
+                            'one_day' => '1 day',
+                            'seven_days' => '7 days',
+                            'thirty_days' => '30 days',
+                            'custom' => 'Custom expiry',
+                            'unlimited' => 'Until manually disabled',
+                        ])->default('disabled')->live(),
+                    DateTimePicker::make('custom_expiry')->label('Custom expiry')->seconds(false)
+                        ->native(false)->minDate(now())->visible(fn ($get): bool => $get('duration_mode') === 'custom'),
+                ])
+                ->fillForm(fn (): array => app(RenewedStockQcExceptionService::class)->settings()->formState())
+                ->action(function (array $data): void {
+                    app(RenewedStockQcExceptionService::class)->settings()->save($data, auth()->user());
+                    Notification::make()->success()->title('QC exception settings saved')->send();
+                }),
+        ];
     }
 
     /** @return array{units_needed: int, by_intake_id: array<int, int>} */
@@ -105,6 +178,10 @@ class RecordedRenewedStockQueue extends Page implements HasTable
         }
 
         $actor = auth()->user();
+        if (! app(QcRecordedRenewedStockIntakeService::class)->canAccess($actor)) {
+            return $this->orderPriorityProjection = ['units_needed' => 0, 'by_intake_id' => []];
+        }
+
         $demand = app(QcOrderDemandService::class)->calculateForQcQueue($actor);
         $intakes = app(QcRecordedRenewedStockIntakeService::class)->queueQuery($actor)->get();
 

@@ -35,6 +35,7 @@ use App\Services\Authorization\MarketplaceReturnAuthorization;
 use App\Services\Claims\SafetClaimService;
 use App\Services\Inventory\DamagedStockEventService;
 use App\Services\Inventory\InventoryBalanceService;
+use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\WeightedAverageCostCalculator;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\ReferenceSequenceService;
@@ -44,7 +45,7 @@ use Illuminate\Support\Str;
 
 class MarketplaceReturnService
 {
-    public function __construct(private readonly CustomerReturnAuthorization $returns, private readonly MarketplaceReturnAuthorization $authorization, private readonly InventoryBalanceService $balances, private readonly WeightedAverageCostCalculator $costs, private readonly ReferenceSequenceService $references, private readonly ActivityLogger $activity, private readonly OrderResponsibilityScopeService $responsibilities, private readonly DamagedStockEventService $damagedStock, private readonly SafetClaimService $claims) {}
+    public function __construct(private readonly CustomerReturnAuthorization $returns, private readonly MarketplaceReturnAuthorization $authorization, private readonly InventoryBalanceService $balances, private readonly InventoryAllocationService $allocations, private readonly WeightedAverageCostCalculator $costs, private readonly ReferenceSequenceService $references, private readonly ActivityLogger $activity, private readonly OrderResponsibilityScopeService $responsibilities, private readonly DamagedStockEventService $damagedStock, private readonly SafetClaimService $claims) {}
 
     public function disposition(CustomerReturnItem $item, int $sellable, int $nonSellable, string $postingKey, User $actor, ?string $notes = null): CustomerReturn
     {
@@ -226,8 +227,10 @@ class MarketplaceReturnService
                     if ($inventory->sellableQuantity() < $i->quantity) {
                         throw new CustomerReturnException('Sellable inventory is insufficient for Marketplace Removal dispatch.');
                     }
+                    $this->allocations->ensureShadowCoverage($inventory, $actor);
                     $inventory->forceFill(['available_quantity' => $inventory->available_quantity - $i->quantity])->save();
                     $this->movement($inventory, $i, $actor, $movementReferences[$i->id], $group, StockMovementType::MarketplaceReturnRemovalDispatch, $i->quantity, -$i->quantity, 0, $before, (string) $i->unit_cost);
+                    $this->allocations->dispatchMarketplaceSellableRemoval($inventory, (int) $i->quantity, $i, $actor);
                 } else {
                     if ($inventory->marketplace_non_sellable_quantity < $i->quantity) {
                         throw new CustomerReturnException('Marketplace non-sellable custody is insufficient for dispatch.');

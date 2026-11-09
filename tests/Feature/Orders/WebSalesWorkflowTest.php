@@ -75,7 +75,8 @@ class WebSalesWorkflowTest extends TestCase
         try {
             app(WebSalesService::class)->createConfirmed($this->data($product, quantity: 2), $owner);
             $this->fail('Insufficient stock should fail.');
-        } catch (ValidationException) {
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('Only 1 sellable units of', $exception->getMessage());
             $this->assertDatabaseCount('orders', 0);
             $this->assertSame(2, $inventory->refresh()->available_quantity);
             $this->assertSame(1, $inventory->reserved_quantity);
@@ -132,6 +133,24 @@ class WebSalesWorkflowTest extends TestCase
         $this->assertDatabaseCount('inventory_reservations', 0);
         $this->assertDatabaseCount('stock_movements', 1);
         $this->assertSame(3, $inventory->refresh()->available_quantity);
+    }
+
+    public function test_complete_sale_rejects_non_walk_in_or_non_pickup_without_inventory_changes(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation(4, 0, '100.0000');
+        $data = $this->data($product, WebSalesChannel::WhatsApp, WebSalesDeliveryType::Courier, quantity: 1);
+
+        try {
+            app(WebSalesService::class)->completeSale($data, $owner);
+            $this->fail('Complete Sale must remain restricted to Walk-in + Shop Pickup.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(4, (int) $inventory->refresh()->available_quantity);
+            $this->assertSame(0, (int) $inventory->reserved_quantity);
+            $this->assertDatabaseCount('orders', 0);
+            $this->assertDatabaseCount('stock_movements', 0);
+            $this->assertArrayHasKey('channel', $exception->errors());
+            $this->assertArrayHasKey('delivery_type', $exception->errors());
+        }
     }
 
     public function test_staff_scope_and_financial_projection_are_enforced_in_sql(): void

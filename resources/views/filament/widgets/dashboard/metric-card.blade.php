@@ -3,12 +3,13 @@
     $_metricKey = $metricKey ?? ($_metric['key'] ?? null);
     $_metricTitle = $metricTitle ?? ($_metric['label'] ?? '');
     $_metricValue = $metricValue ?? ($_metric['value'] ?? 0);
+    $_metricType = $_metric['type'] ?? 'metric';
     $_metricDescription = $metricDescription ?? ($_metric['description'] ?? null);
     $_metricHref = $metricHref ?? ($_metric['url'] ?? null);
     $_metricWireClick = $metricWireClick ?? null;
     $_metricIcon = $metricIcon ?? ($icons[$_metricKey] ?? 'heroicon-o-chart-bar');
     $_metricColor = $_metric['color'] ?? null;
-    $_metricBadge = $metricBadge ?? (in_array($_metricColor, ['warning', 'danger', 'success'], true)
+    $_metricBadge = $metricBadge ?? ($_metricType === 'metric' && in_array($_metricColor, ['warning', 'danger', 'success'], true)
         ? ($_metricColor === 'danger' ? 'Action' : ($_metricColor === 'warning' ? 'Monitor' : 'Current'))
         : null);
     $_metricBadgeColor = $metricBadgeColor ?? $_metricColor ?? 'gray';
@@ -60,7 +61,9 @@
             <div class="flex min-w-0 items-start justify-between gap-3">
                 <div class="min-w-0">
                     <p class="text-sm font-medium text-gray-500 dark:text-gray-400">{{ $_metricTitle }}</p>
-                    <p class="mt-1 break-words text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ $_metricFormattedValue }}</p>
+                    @if ($_metricType !== 'action')
+                        <p class="mt-1 break-words text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ $_metricFormattedValue }}</p>
+                    @endif
                 </div>
                 <span class="flex size-8 shrink-0 items-center justify-center rounded-lg transition duration-150 {{ $_metricVariant['icon'] }}">
                     <x-filament::icon :icon="$_metricIcon" class="!size-4" />
@@ -74,7 +77,7 @@
                     @endif
                     @if ($_metricShowOpen || filled($_metricBadge))
                         <div class="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-                            @if ($_metricShowOpen)<span class="text-xs font-semibold text-primary-600 dark:text-primary-400">Open →</span>@endif
+                            @if ($_metricShowOpen)<span class="text-xs font-semibold text-primary-600 dark:text-primary-400">Open</span>@endif
                             @if (filled($_metricBadge))<x-filament::badge :color="$_metricBadgeColor">{{ $_metricBadge }}</x-filament::badge>@endif
                         </div>
                     @endif

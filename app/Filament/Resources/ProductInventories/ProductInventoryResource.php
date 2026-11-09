@@ -45,6 +45,12 @@ class ProductInventoryResource extends Resource
 
         $query = app(EmployeeOwnedInventoryReadService::class)->locationInventories($user);
 
+        if (request()->boolean('marketplace')) {
+            $query->whereHas('warehouse', fn (Builder $warehouse): Builder => $warehouse
+                ->where('status', true)
+                ->where('location_type', 'marketplace_fulfilment'));
+        }
+
         if (app(PurchaseAuthorization::class)->allows($user, PurchasePermission::ViewCostHistory)) {
             app(PurchaseCostHistoryService::class)->addLatestCostSelect($query, 'product_inventories.product_id', $user);
         }

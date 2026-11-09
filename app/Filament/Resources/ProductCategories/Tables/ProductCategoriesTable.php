@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ProductCategories\Tables;
 use App\Actions\Catalog\SetProductCategoryStatus;
 use App\DTOs\Catalog\ChangeCatalogStatusData;
 use App\Models\ProductCategory;
+use App\Services\UserTimezoneResolver;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
@@ -21,7 +22,7 @@ class ProductCategoriesTable
         return $table->columns([
             TextColumn::make('name')->searchable()->sortable(),
             TextColumn::make('products_count')->label('Products')->counts('products')->sortable(),
-            IconColumn::make('status')->label('Active')->boolean()->sortable(), TextColumn::make('updated_at')->dateTime()->sortable(),
+            IconColumn::make('status')->label('Active')->boolean()->sortable(), TextColumn::make('updated_at')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state))->sortable(),
         ])->filters([TernaryFilter::make('status')->label('Active')])->recordActions([
             ViewAction::make(), EditAction::make(),
             Action::make('changeStatus')->label(fn (ProductCategory $record): string => $record->status ? 'Deactivate' : 'Activate')

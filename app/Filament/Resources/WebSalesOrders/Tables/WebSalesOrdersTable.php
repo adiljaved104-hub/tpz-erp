@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WebSalesOrders\Tables;
 
+use App\Enums\OrderStatus;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
 use App\Enums\WebSalesPermission;
@@ -10,9 +11,15 @@ use App\Models\Employee;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Authorization\WebSalesAuthorization;
+use App\Services\Orders\WebSalesFinancialSummaryService;
+use App\Services\Orders\WebSalesService;
 use App\Services\Qc\RenewedQcDispatchService;
+use App\Services\UserTimezoneResolver;
+use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -46,13 +53,27 @@ class WebSalesOrdersTable
             $columns[] = TextColumn::make('grand_total')->label('Revenue')->money('AED')->sortable();
         }
         if (self::allowed(WebSalesPermission::ViewGrossProfit)) {
-            $columns[] = TextColumn::make('gross_profit')->label('Gross Profit')->money('AED');
+            $columns[] = TextColumn::make('gross_profit')->label('Gross Profit')->money('AED')->placeholder('Cost Pending')
+                ->state(fn (Order $record): ?string => app(WebSalesFinancialSummaryService::class)->summarize($record)['gross_profit'])
+                ->description(fn (Order $record): string => match (app(WebSalesFinancialSummaryService::class)->summarize($record)['status']) {
+                    'actual' => 'Actual', 'estimated' => 'Estimated', default => 'Cost Pending',
+                });
+        }
+        if (self::allowed(WebSalesPermission::ViewCost)) {
+            $columns[] = TextColumn::make('cogs_total')->label('COGS')->money('AED')->placeholder('Cost Pending')
+                ->state(function (Order $record): ?string {
+                    $summary = app(WebSalesFinancialSummaryService::class)->summarize($record);
+
+                    return $summary['status'] === 'pending' ? null : $summary['cogs'];
+                })->description(fn (Order $record): string => match (app(WebSalesFinancialSummaryService::class)->summarize($record)['status']) {
+                    'actual' => 'Actual', 'estimated' => 'Estimated', default => 'Cost Pending',
+                });
         }
 
         $filters = [
             SelectFilter::make('period')->options(['today' => 'Today', 'yesterday' => 'Yesterday', 'week' => 'This Week', 'month' => 'This Month'])
                 ->query(function (Builder $query, array $data): Builder {
-                    $today = now(config('app.timezone'))->startOfDay();
+                    $today = now(app(UserTimezoneResolver::class)->resolve(auth()->user()))->startOfDay();
 
                     return match ($data['value'] ?? null) {
                         'today' => $query->whereDate('order_date', $today),
@@ -82,8 +103,33 @@ class WebSalesOrdersTable
             $filters[] = SelectFilter::make('handled_by_employee_id')->label('Employee')->options(fn (): array => Employee::query()->where('status', true)->orderBy('name')->pluck('name', 'id')->all())->searchable();
         }
 
-        return $table->columns($columns)->filters($filters)->recordActions([ViewAction::make()])
+        return $table->columns($columns)->filters($filters)->recordActions([
+            ViewAction::make(),
+            Action::make('editWebSale')
+                ->label('Edit')
+                ->icon('heroicon-o-pencil-square')
+                ->color('primary')
+                ->modalHeading('Edit Web Sale')
+                ->modalDescription('Update customer information before shipment. Existing reservations, purchasing references and invoice history remain protected.')
+                ->fillForm(fn (Order $record): array => $record->only(['customer_name', 'customer_phone', 'customer_address', 'notes']))
+                ->schema([
+                    TextInput::make('customer_name')->required()->maxLength(255),
+                    TextInput::make('customer_phone')->label('WhatsApp / Phone')->tel()->required()->maxLength(50),
+                    Textarea::make('customer_address')->maxLength(2000),
+                    Textarea::make('notes')->maxLength(2000),
+                ])
+                ->visible(fn (Order $record): bool => self::canEdit($record))
+                ->action(fn (Order $record, array $data): Order => app(WebSalesService::class)->updateDetails($record, $data, auth()->user())),
+        ])
             ->defaultSort('id', 'desc')->emptyStateHeading('No Web Sales orders found.');
+    }
+
+    private static function canEdit(Order $record): bool
+    {
+        return self::allowed(WebSalesPermission::Update)
+            && in_array($record->status, [OrderStatus::Draft, OrderStatus::Reserved, OrderStatus::PendingReview, OrderStatus::Confirmed], true)
+            && ! $record->fulfillment()->exists()
+            && ! $record->taxInvoices()->exists();
     }
 
     private static function allowed(WebSalesPermission $permission): bool

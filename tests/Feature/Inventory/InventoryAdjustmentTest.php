@@ -26,6 +26,8 @@ use App\Models\InventoryAdjustment;
 use App\Models\InventoryAllocationBalance;
 use App\Models\InventoryAllocationReservationLine;
 use App\Models\InventoryReservation;
+use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductInventory;
@@ -133,10 +135,36 @@ class InventoryAdjustmentTest extends TestCase
         [$owner, , $item] = $this->receivedPurchase();
         $inventory = ProductInventory::query()->sole();
         $balance = InventoryAllocationBalance::query()->sole();
+        $order = Order::query()->create([
+            'reference' => 'SO-'.Str::upper(Str::random(10)),
+            'source' => 'manual',
+            'status' => 'draft',
+            'warehouse_id' => $inventory->warehouse_id,
+            'order_date' => today(),
+            'subtotal' => 100,
+            'discount_total' => 0,
+            'vat_total' => 0,
+            'grand_total' => 100,
+            'idempotency_key' => (string) Str::uuid(),
+            'created_by_user_id' => $owner->id,
+        ]);
+        $orderItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'product_id' => $inventory->product_id,
+            'product_name' => $inventory->product->name,
+            'sku' => $inventory->product->sku,
+            'ordered_quantity' => 4,
+            'selling_price' => 25,
+            'discount_total' => 0,
+            'vat_rate' => 0,
+            'vat_amount' => 0,
+            'line_total' => 100,
+        ]);
         $reservation = InventoryReservation::factory()->create([
             'product_inventory_id' => $inventory->id,
             'product_id' => $inventory->product_id,
             'warehouse_id' => $inventory->warehouse_id,
+            'order_item_id' => $orderItem->id,
             'quantity' => 4,
             'reserved_by_user_id' => $owner->id,
         ]);
@@ -546,6 +574,41 @@ class InventoryAdjustmentTest extends TestCase
         $this->assertSame(1, InventoryAdjustment::query()->distinct()->count('batch_key'));
         $this->assertSame(5, $inventory->refresh()->available_quantity);
         $this->assertSame(1, $other->refresh()->available_quantity);
+    }
+
+    public function test_adjustment_grid_filters_column_visibility_and_top_save_all_do_not_post_inventory(): void
+    {
+        [$owner] = $this->receivedPurchase();
+        $inventory = ProductInventory::query()->sole();
+        $quantity = (int) $inventory->available_quantity;
+        $this->actingAs($owner);
+
+        $page = Livewire::test(StockAdjustments::class)
+            ->assertSee('Show / Hide Columns')
+            ->assertSee('Apply Filters')
+            ->assertSee('Reset')
+            ->assertSee('Sort By')
+            ->assertSee('Save All')
+            ->set('search', 'unknown-sku-no-match')
+            ->set('stockFilter', 'zero')
+            ->call('resetFilters')
+            ->assertSet('search', '')
+            ->assertSet('stockFilter', '')
+            ->set('visibleColumns', ['brand', 'warehouse'])
+            ->assertSee('Adjustment Type')
+            ->assertSee('New Purchase?')
+            ->assertSee('Status')
+            ->set('sortBy', 'low_stock')
+            ->assertSet('sortBy', 'low_stock');
+        $this->assertSame(9, $page->instance()->visibleColumnCount());
+
+        $page->set("drafts.{$inventory->id}.type", 'saleable_decrease')
+            ->assertSet("drafts.{$inventory->id}.selected", true);
+        $this->assertTrue($page->instance()->columnVisible('holder'),
+            'Holder selector must remain accessible while an adjustment is drafted.');
+        $page->call('resetFilters');
+        $this->assertSame($quantity, (int) $inventory->refresh()->available_quantity);
+        $this->assertDatabaseCount('inventory_adjustments', 0);
     }
 
     public function test_grid_loads_scoped_rows_and_true_stock_and_holder_values(): void

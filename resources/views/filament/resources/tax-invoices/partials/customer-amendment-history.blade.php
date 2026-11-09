@@ -4,7 +4,7 @@
             <div class="flex flex-wrap items-start justify-between gap-2">
                 <div>
                     <p class="text-sm font-semibold text-gray-950 dark:text-white">
-                        {{ $amendment->created_at?->timezone(config('app.timezone'))->format('d M Y, h:i A') ?? 'Time not recorded' }}
+                        {{ app(\App\Services\UserTimezoneResolver::class)->format($amendment->created_at, 'd M Y, h:i A T') ?? 'Time not recorded' }}
                     </p>
                     <p class="text-xs text-gray-500 dark:text-gray-400">
                         Amended by {{ $amendment->actor?->name ?? 'Unknown user' }}

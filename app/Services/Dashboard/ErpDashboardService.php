@@ -22,6 +22,7 @@ use App\Filament\Pages\Hr\LeaveManagement;
 use App\Filament\Pages\Inventory\MyInventory;
 use App\Filament\Pages\MyWork;
 use App\Filament\Pages\Notifications;
+use App\Filament\Pages\Purchasing\QuickStockPurchase;
 use App\Filament\Resources\Announcements\AnnouncementResource;
 use App\Filament\Resources\Complaints\ComplaintResource;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
@@ -40,6 +41,7 @@ use App\Models\EmployeeWarning;
 use App\Models\HrNotice;
 use App\Models\LeaveRequest;
 use App\Models\Order;
+use App\Models\ProductInventory;
 use App\Models\Purchase;
 use App\Models\SafetClaim;
 use App\Models\User;
@@ -58,6 +60,7 @@ use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Chat\ChatQueryService;
 use App\Services\Hr\AttendanceQueryService;
 use App\Services\Hr\HrScopeService;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
@@ -213,6 +216,14 @@ class ErpDashboardService
         if ($this->orders->allows($user, OrderPermission::ViewSellingPrice)) {
             $cards->push($this->card('revenue', "Sales {$label}", $this->money((string) (clone $query)->sum('grand_total')), 'Recorded Order total', OrderResource::getUrl(), 'success'));
         }
+
+        if ($this->purchases->allows($user, PurchasePermission::QuickReceive)) {
+            $cards->push($this->actionCard('quick_purchase', 'Quick Purchase', 'Receive stock through the authorized purchasing workflow', QuickStockPurchase::getUrl(), 'success'));
+        }
+
+        if ($this->returns->allows($user, CustomerReturnPermission::Create)) {
+            $cards->push($this->actionCard('record_return', 'Record Return', 'Start a customer return without bypassing QC or disposition safeguards', CustomerReturnResource::getUrl('create'), 'indigo'));
+        }
     }
 
     private function addInventoryCards(Collection $cards, Collection $attention, User $user, bool $includeCards = true): void
@@ -229,6 +240,13 @@ class ErpDashboardService
             $cards->push($this->card('inventory_units', 'Inventory Units', $summary['total_company_stock'], 'Company-owned units in authorized scope', $url));
             $cards->push($this->card('damaged', 'Damaged Stock', $summary['damaged'], 'Units requiring operational attention', $url, $summary['damaged'] > 0 ? 'danger' : 'gray'));
             $cards->push($this->card('qc_pending', 'QC Pending', $summary['qc_pending'], 'Units awaiting quality control', $url, $summary['qc_pending'] > 0 ? 'warning' : 'gray'));
+            $marketplaceQuery = ProductInventory::query()
+                ->join('warehouses as marketplace_warehouses', 'marketplace_warehouses.id', '=', 'product_inventories.warehouse_id')
+                ->where('marketplace_warehouses.status', true)
+                ->where('marketplace_warehouses.location_type', 'marketplace_fulfilment');
+            app(EmployeeOwnedInventoryReadService::class)->apply($marketplaceQuery->getQuery(), 'product_inventories.id', $user);
+            $marketplace = (int) $marketplaceQuery->sum(DB::raw('product_inventories.available_quantity + product_inventories.damaged_quantity'));
+            $cards->push($this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', (int) $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url.'?marketplace=1'));
         }
 
         if ($includeCards && $this->inventory->allows($user, InventoryPermission::ViewFinancials)) {
@@ -507,6 +525,12 @@ class ErpDashboardService
     private function card(string $key, string $label, int|string $value, string $description, string $url, string $color = 'primary'): array
     {
         return compact('key', 'label', 'value', 'description', 'url', 'color');
+    }
+
+    /** @return array<string, mixed> */
+    private function actionCard(string $key, string $label, string $description, string $url, string $color = 'primary'): array
+    {
+        return ['key' => $key, 'label' => $label, 'value' => null, 'description' => $description, 'url' => $url, 'color' => $color, 'type' => 'action'];
     }
 
     /** @return array<string, mixed> */

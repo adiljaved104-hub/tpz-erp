@@ -43,7 +43,7 @@ class QcRecordedRenewedStockIntakeService
     public function queueQuery(User $actor): Builder
     {
         return $this->awaitingStartQuery($actor)
-            ->with(['product:id,sku,name', 'warehouse:id,name', 'receiptItem.receipt:id,reference,received_at'])
+            ->with(['product:id,sku,name,condition', 'warehouse:id,name', 'receiptItem.receipt:id,reference,received_at'])
             ->addSelect(['completed_quantity' => QcInspection::query()->selectRaw('COUNT(DISTINCT device_id)')
                 ->whereColumn('recorded_stock_intake_id', 'qc_recorded_stock_intakes.id')
                 ->where('status', QcInspectionStatus::Completed->value)])

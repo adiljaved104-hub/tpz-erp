@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Products\ProductTitleService;
+use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Schema;
 
@@ -64,10 +65,10 @@ class ProductInfolist
                     ->formatStateUsing(fn (ProductStatus $state): string => $state->label())
                     ->color(fn (ProductStatus $state): string => $state->color()),
                 TextEntry::make('created_at')
-                    ->dateTime()
+                    ->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state))
                     ->placeholder('-'),
                 TextEntry::make('updated_at')
-                    ->dateTime()
+                    ->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state))
                     ->placeholder('-'),
             ]);
     }

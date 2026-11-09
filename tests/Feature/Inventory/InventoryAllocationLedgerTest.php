@@ -49,6 +49,7 @@ use App\Services\Purchases\PurchaseReceivingService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -129,7 +130,18 @@ class InventoryAllocationLedgerTest extends TestCase
     public function test_migration_reconciles_legacy_stock_and_preserves_active_reservations_in_system_account(): void
     {
         $migration = require database_path('migrations/2026_09_23_090000_create_inventory_allocation_ledger.php');
-        $migration->down();
+        // This test reconstructs a pre-ledger schema. Later migrations may reference these
+        // tables, so temporarily suspend FK checks only inside this disposable test database.
+        if (DB::getDriverName() === 'mysql') {
+            Schema::disableForeignKeyConstraints();
+        }
+        try {
+            $migration->down();
+        } finally {
+            if (DB::getDriverName() === 'mysql') {
+                Schema::enableForeignKeyConstraints();
+            }
+        }
 
         [$owner, $product, $warehouse, $inventory] = $this->foundation(10);
         $reservation = InventoryReservation::factory()->create([

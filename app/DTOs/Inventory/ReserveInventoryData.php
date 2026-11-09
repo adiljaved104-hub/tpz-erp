@@ -9,5 +9,7 @@ final readonly class ReserveInventoryData
         public int $quantity,
         public string $reason,
         public string $idempotencyKey,
+        public ?string $reservationReference = null,
+        public ?string $movementReference = null,
     ) {}
 }

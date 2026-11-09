@@ -13,6 +13,7 @@ enum StockMovementType: string
     case RenewedQcIntake = 'renewed_qc_intake';
     case RenewedQcRelease = 'renewed_qc_release';
     case RenewedQcIntakeAdjustment = 'renewed_qc_intake_adjustment';
+    case RenewedQcExceptionRelease = 'renewed_qc_exception_release';
     case PurchaseReceiptCorrection = 'purchase_receipt_correction';
     case InventoryAdjustment = 'inventory_adjustment';
     case QuotationSourcingReceipt = 'quotation_sourcing_receipt';
@@ -28,6 +29,7 @@ enum StockMovementType: string
     case MarketplaceReturnNonSellable = 'marketplace_return_non_sellable';
     case MarketplaceReturnRemovalDispatch = 'marketplace_return_removal_dispatch';
     case MarketplaceReturnCompanyReceipt = 'marketplace_return_company_receipt';
+    case MarketplaceLoss = 'marketplace_loss';
     case WarrantyRetainedDamaged = 'warranty_retained_damaged';
     case WarrantyRepairRestored = 'warranty_repair_restored';
     case RepairClassificationOut = 'repair_classification_out';
@@ -50,6 +52,7 @@ enum StockMovementType: string
             self::RenewedQcIntake => 'Renewed Stock QC Intake',
             self::RenewedQcRelease => 'Renewed Stock QC Release',
             self::RenewedQcIntakeAdjustment => 'Renewed QC Intake Adjustment',
+            self::RenewedQcExceptionRelease => 'Renewed QC Exception Release (No QC)',
             self::PurchaseReceiptCorrection => 'Purchase Receipt Correction',
             self::InventoryAdjustment => 'Inventory Adjustment',
             self::QuotationSourcingReceipt => 'Quotation Sourcing Receipt',
@@ -65,6 +68,7 @@ enum StockMovementType: string
             self::MarketplaceReturnNonSellable => 'Marketplace Return Non-Sellable',
             self::MarketplaceReturnRemovalDispatch => 'Marketplace Return Removal Dispatch',
             self::MarketplaceReturnCompanyReceipt => 'Marketplace Return Company Receipt',
+            self::MarketplaceLoss => 'Marketplace Post-Receipt Loss',
             self::WarrantyRetainedDamaged => 'Warranty Retained as Damaged',
             self::WarrantyRepairRestored => 'Warranty Repair Restored',
             self::RepairClassificationOut => 'Repair Classification — Damaged Source',

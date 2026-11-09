@@ -442,9 +442,12 @@ class WebSalesWorkflowV2Test extends TestCase
 
         $staff = User::factory()->create();
         Employee::factory()->for($staff)->create(['email' => $staff->email, 'role' => EmployeeRole::Staff]);
-        $this->actingAs($staff->refresh());
-        Livewire::test(ViewWebSalesOrder::class, ['record' => $sale->id])
-            ->assertActionHidden('postShipmentCorrection');
+        $this->expectException(AuthorizationException::class);
+        app(OrderAmendmentService::class)->correctShipped($sale->refresh(), [
+            'order_date' => now()->format('Y-m-d'),
+            'reason' => 'Unauthorized correction',
+            'idempotency_key' => (string) Str::uuid(),
+        ], $staff);
     }
 
     public function test_web_sales_post_shipment_correction_supports_null_platform_without_touching_stock(): void

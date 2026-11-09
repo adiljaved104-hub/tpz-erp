@@ -122,6 +122,7 @@ Route::prefix('mobile/v1')
             Route::post('/hr/leave-requests/{record}/approve', [HrController::class, 'approveLeave'])->whereNumber('record');
             Route::post('/hr/leave-requests/{record}/reject', [HrController::class, 'rejectLeave'])->whereNumber('record');
             Route::post('/hr/leave-requests/{record}/cancel', [HrController::class, 'cancelLeave'])->whereNumber('record');
+            Route::post('/hr/attendance/{record}/correct', [HrController::class, 'correctAttendance'])->whereNumber('record');
             Route::get('/hr/{section}', [HrController::class, 'index']);
             Route::get('/hr/{section}/{record}', [HrController::class, 'show'])->whereNumber('record');
             Route::post('/hr/notices', [HrController::class, 'publishNotice']);

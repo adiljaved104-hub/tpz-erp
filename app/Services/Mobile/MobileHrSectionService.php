@@ -32,6 +32,10 @@ class MobileHrSectionService
                 || $hr->allows($user, HrPermission::LeaveViewTeam)
                 || $hr->allows($user, HrPermission::LeaveViewAll)
                 ? ['key' => 'leave-requests', 'title' => 'Leave Requests'] : null,
+            $hr->allows($user, HrPermission::AttendanceViewOwn)
+                || $hr->allows($user, HrPermission::AttendanceViewTeam)
+                || $hr->allows($user, HrPermission::AttendanceViewAll)
+                ? ['key' => 'attendance', 'title' => 'Attendance'] : null,
         ]));
     }
 }

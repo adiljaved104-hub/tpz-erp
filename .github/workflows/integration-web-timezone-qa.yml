@@ -88,8 +88,6 @@ jobs:
             tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php \
             tests/Feature/Purchases/PurchaseReceivingTest.php \
             tests/Feature/Purchases/PurchaseReceiptCorrectionTest.php \
-            --filter 'test_staff_can_retrieve_received_cost_history_without_owner_only|test_last_five_history_is_ordered_by_receipt_date_then_receipt_id|test_click_action_loads_history_without_a_page_reload_and_enforces_authorization' \
-            tests/Feature/Purchases/PurchaseCostHistoryPopoverTest.php \
             tests/Feature/Inventory/InventoryAllocationLedgerTest.php \
             tests/Feature/Inventory/InventoryAdjustmentTest.php \
             tests/Feature/Inventory/StockRequestGridTest.php \
@@ -98,6 +96,9 @@ jobs:
             tests/Feature/Invoices/TaxInvoiceUiCorrectionTest.php \
             tests/Unit/Services/UserTimezoneResolverTest.php \
             tests/Feature/Administration/TimezonePreferencesTest.php
+          timeout --signal=TERM 10m vendor/bin/phpunit -c phpunit.mysql.ci.xml --testdox \
+            --filter 'test_staff_can_retrieve_received_cost_history_without_owner_only|test_last_five_history_is_ordered_by_receipt_date_then_receipt_id|test_click_action_loads_history_without_a_page_reload_and_enforces_authorization' \
+            tests/Feature/Purchases/PurchaseCostHistoryPopoverTest.php
           rm -f phpunit.mysql.ci.xml
       - name: Pint changed PHP files
         run: |

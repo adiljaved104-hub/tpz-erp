@@ -79,5 +79,4 @@ class WebSalesOrderInfolist
 
         return $user instanceof User && app(WebSalesAuthorization::class)->allows($user, $permission);
     }
-
 }

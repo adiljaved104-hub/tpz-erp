@@ -27,6 +27,7 @@ final class WebSalesFinancialSummaryService
             $cost = $this->lineCost($order, $item);
             if ($cost === null) {
                 $hasPending = true;
+
                 continue;
             }
 

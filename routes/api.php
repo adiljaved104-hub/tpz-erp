@@ -117,6 +117,11 @@ Route::prefix('mobile/v1')
             Route::post('/products/{product}/update', [ProductController::class, 'update'])->whereNumber('product');
             Route::get('/hr', [HrController::class, 'home']);
             Route::get('/hr/options', [HrController::class, 'options']);
+            Route::get('/hr/leave-options', [HrController::class, 'leaveOptions']);
+            Route::post('/hr/leave-requests', [HrController::class, 'submitLeave']);
+            Route::post('/hr/leave-requests/{record}/approve', [HrController::class, 'approveLeave'])->whereNumber('record');
+            Route::post('/hr/leave-requests/{record}/reject', [HrController::class, 'rejectLeave'])->whereNumber('record');
+            Route::post('/hr/leave-requests/{record}/cancel', [HrController::class, 'cancelLeave'])->whereNumber('record');
             Route::get('/hr/{section}', [HrController::class, 'index']);
             Route::get('/hr/{section}/{record}', [HrController::class, 'show'])->whereNumber('record');
             Route::post('/hr/notices', [HrController::class, 'publishNotice']);

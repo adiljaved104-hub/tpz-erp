@@ -8,13 +8,17 @@ use App\Models\Employee;
 use App\Models\EmployeeWarning;
 use App\Models\HrAcknowledgment;
 use App\Models\HrNotice;
+use App\Models\LeaveRequest;
+use App\Models\LeaveType;
 use App\Models\Team;
 use App\Models\WarningCategory;
 use App\Services\Authorization\EmployeeDirectoryScopeService;
+use App\Services\Authorization\HrAuthorization;
 use App\Services\Authorization\HrRecordAuthorization;
 use App\Services\Hr\EmployeeWarningService;
 use App\Services\Hr\HrNoticeService;
 use App\Services\Hr\HrScopeService;
+use App\Services\Hr\LeaveService;
 use App\Services\Mobile\MobileHrSectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,7 +32,11 @@ class HrController extends MobileController
 
     public function home(Request $request): JsonResponse
     {
-        return response()->json(['data' => ['sections' => $this->sections($request),
+        $sections = $this->sections($request);
+
+        return response()->json(['data' => ['sections' => $sections,
+            'can_request_leave' => collect($sections)->contains('key', 'leave-requests')
+                && app(HrAuthorization::class)->allows($request->user(), HrPermission::LeaveRequest),
             'can_publish_notice' => app(HrRecordAuthorization::class)->allows($request->user(), HrPermission::NoticePublish),
             'can_publish_announcement' => app(HrRecordAuthorization::class)->allows($request->user(), HrPermission::AnnouncementPublish),
             'can_publish_all' => in_array($request->user()->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true),
@@ -163,6 +171,19 @@ class HrController extends MobileController
                 'decided_at' => $row->decided_at?->toIso8601String(), 'decision_reason' => $row->decision_reason],
         };
         $actions = [];
+        if ($section === 'leave-requests' && $row->status === 'pending') {
+            $scope = app(HrScopeService::class);
+            if ($scope->canApprove($request->user(), $row)) {
+                $actions[] = $this->action('approve', 'Approve leave request', confirmationMessage: 'Approve this pending leave request?');
+                $actions[] = $this->action('reject', 'Reject leave request', [
+                    $this->field('reason', 'Rejection reason', 'multiline', true),
+                ]);
+            }
+            if ($request->user()->employee?->id === $row->employee_id
+                && app(HrAuthorization::class)->allows($request->user(), HrPermission::LeaveRequest)) {
+                $actions[] = $this->action('cancel', 'Cancel leave request');
+            }
+        }
         if (in_array($section, ['notices', 'warnings'], true) && $row->acknowledgment_required && $request->user()->employee) {
             $column = $section === 'notices' ? 'hr_notice_id' : 'employee_warning_id';
             if (HrAcknowledgment::query()->where($column, $row->id)->where('employee_id', $request->user()->employee->id)->whereNull('acknowledged_at')->exists()) {
@@ -177,6 +198,62 @@ class HrController extends MobileController
                 'status' => $employee->status ? 'active' : 'inactive'])->all() : [];
 
         return [...$data, 'fields' => $fields, 'items' => $items, 'actions' => $actions];
+    }
+
+    public function leaveOptions(Request $request): JsonResponse
+    {
+        abort_unless(collect($this->sections($request))->contains('key', 'leave-requests')
+            && app(HrAuthorization::class)->allows($request->user(), HrPermission::LeaveRequest), 403);
+
+        return response()->json(['data' => [
+            'leave_types' => LeaveType::query()->where('status', true)
+                ->whereIn('code', ['annual', 'unpaid'])
+                ->orderBy('name')->get(['id', 'name', 'code']),
+        ]]);
+    }
+
+    public function submitLeave(Request $request): JsonResponse
+    {
+        abort_unless(collect($this->sections($request))->contains('key', 'leave-requests'), 403);
+        $idempotency = $request->validate(['idempotency_key' => ['nullable', 'uuid']]);
+        $leave = app(LeaveService::class)->submit(
+            $request->all(),
+            $request->user(),
+            $idempotency['idempotency_key'] ?? null,
+        );
+
+        return $this->show($request, 'leave-requests', $leave->id);
+    }
+
+    public function approveLeave(Request $request, int $record): JsonResponse
+    {
+        $leave = $this->leaveRecord($request, $record);
+        app(LeaveService::class)->approve($leave, $request->user());
+
+        return $this->show($request, 'leave-requests', $record);
+    }
+
+    public function rejectLeave(Request $request, int $record): JsonResponse
+    {
+        $leave = $this->leaveRecord($request, $record);
+        app(LeaveService::class)->reject($leave, (string) $request->input('reason'), $request->user());
+
+        return $this->show($request, 'leave-requests', $record);
+    }
+
+    public function cancelLeave(Request $request, int $record): JsonResponse
+    {
+        $leave = $this->leaveRecord($request, $record);
+        app(LeaveService::class)->cancel($leave, $request->user());
+
+        return $this->show($request, 'leave-requests', $record);
+    }
+
+    private function leaveRecord(Request $request, int $record): LeaveRequest
+    {
+        abort_unless(collect($this->sections($request))->contains('key', 'leave-requests'), 403);
+
+        return $this->query($request, 'leave-requests')->findOrFail($record);
     }
 
     public function publishNotice(Request $request): JsonResponse

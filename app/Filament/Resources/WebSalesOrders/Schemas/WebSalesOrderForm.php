@@ -23,7 +23,6 @@ use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Orders\WebSalesCustomerLookupService;
 use App\Services\Orders\WebSalesReadService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
-use App\Services\Products\ProductTitleService;
 use App\Support\AedMoney;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
@@ -211,7 +210,7 @@ class WebSalesOrderForm
                 ? "Available sellable: {$quantity}"
                 : ($manualSourced ? 'Out of Stock · Manual sourcing allowed; no warehouse stock consumed.' : 'Out of Stock · Use Manual Sourced Product.');
 
-            return [$id => $label."\n{$availability}"];
+            return [$id => $label." — {$availability}"];
         })->all();
     }
 
@@ -241,7 +240,7 @@ class WebSalesOrderForm
             return null;
         }
 
-        return $product->sku.' · '.app(ProductTitleService::class)->accounting($product);
+        return $product->sku.' · '.trim($product->name);
     }
 
     private static function selectedProductTitle(mixed $id): ?string

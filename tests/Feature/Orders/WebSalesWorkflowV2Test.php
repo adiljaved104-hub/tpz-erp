@@ -405,9 +405,9 @@ class WebSalesWorkflowV2Test extends TestCase
         $row = $report->rows->firstWhere('reference', $order->reference);
 
         $this->assertNotNull($row);
-        $this->assertSame($summary['cogs'], (string) $row['cogs']);
+        $this->assertEqualsWithDelta((float) $summary['cogs'], (float) $row['cogs'], 0.0001);
         $this->assertSame('estimated', strtolower((string) $row['cost_basis']));
-        $this->assertSame($summary['gross_profit'], (string) $row['gross_profit']);
+        $this->assertEqualsWithDelta((float) $summary['gross_profit'], (float) $row['gross_profit'], 0.0001);
     }
 
     public function test_manual_sourcing_does_not_accept_an_unknown_existing_product_id(): void

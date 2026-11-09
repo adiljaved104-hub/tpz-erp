@@ -138,7 +138,10 @@ Route::prefix('mobile/v1')
             Route::get('/purchase-receipts', [PurchaseReceiptController::class, 'index']);
             Route::get('/purchase-receipts/{receipt}', [PurchaseReceiptController::class, 'show'])->whereNumber('receipt');
             Route::get('/suppliers', [SupplierController::class, 'index']);
+            Route::get('/suppliers/options', [SupplierController::class, 'options']);
+            Route::post('/suppliers', [SupplierController::class, 'store']);
             Route::get('/suppliers/{supplier}', [SupplierController::class, 'show'])->whereNumber('supplier');
+            Route::post('/suppliers/{supplier}/{action}', [SupplierController::class, 'act'])->whereNumber('supplier');
             Route::get('/inventory-locations', [InventoryLocationController::class, 'index']);
             Route::get('/inventory-locations/{location}', [InventoryLocationController::class, 'show'])->whereNumber('location');
             Route::get('/stock-transfers', [StockTransferController::class, 'index']);

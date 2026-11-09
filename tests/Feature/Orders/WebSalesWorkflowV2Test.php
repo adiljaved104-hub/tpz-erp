@@ -73,6 +73,10 @@ class WebSalesWorkflowV2Test extends TestCase
             $this->assertSame(6, $field->getColumnSpan('md'));
             $this->assertSame(1, $field->getColumnSpan('default'));
         }
+        $selectedTitle = $fields->first(fn ($field): bool => $field->getName() === 'selected_product_title');
+        $this->assertNotNull($selectedTitle);
+        $this->assertStringContainsString($product->sku, (string) $selectedTitle->getContent());
+        $this->assertStringContainsString('Lenovo Demo Book 14 16GB/512GB', (string) $selectedTitle->getContent());
         $items = $fields->first(fn ($field): bool => $field->getName() === 'items');
         $this->assertSame(12, $items->getColumns('lg'));
         $this->assertSame(6, $items->getColumns('md'));
@@ -780,3 +784,4 @@ class WebSalesWorkflowV2Test extends TestCase
         return $user->refresh();
     }
 }
+

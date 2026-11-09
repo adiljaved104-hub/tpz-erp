@@ -72,6 +72,11 @@ class WebSalesReportHandler implements ReportHandler
             $query->selectRaw('(wo.grand_total - '.$this->cogsSubquery().') AS gross_profit');
             $columns[] = ['key' => 'gross_profit', 'label' => 'Gross Profit', 'type' => 'money'];
         }
+        if ($this->authorization->allows($user, WebSalesPermission::ViewCost)
+            || $this->authorization->allows($user, WebSalesPermission::ViewGrossProfit)) {
+            $query->selectRaw($this->costBasisSubquery().' AS cost_basis');
+            $columns[] = ['key' => 'cost_basis', 'label' => 'Cost Basis'];
+        }
 
         return $this->queryResult($definition, $filters, $query, $columns, $limit);
     }
@@ -180,11 +185,23 @@ class WebSalesReportHandler implements ReportHandler
 
     private function cogsSubquery(): string
     {
-        $fulfillment = 'SELECT SUM('.ConfiguredCogs::sql('wfi').') FROM order_fulfillment_items wfi JOIN order_items woi ON woi.id = wfi.order_item_id WHERE woi.order_id = wo.id';
-        $manual = 'SELECT SUM(wsm.actual_unit_cost * wsm.quantity) FROM web_sales_manual_sourcing_lines wsm WHERE wsm.order_id = wo.id';
-        $unknown = 'EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines wsm_pending WHERE wsm_pending.order_id = wo.id AND wsm_pending.actual_unit_cost IS NULL)';
+        return '(SELECT CASE WHEN '.$this->pendingCostSubquery().' THEN NULL ELSE SUM(CASE
+            WHEN EXISTS (SELECT 1 FROM order_fulfillment_items wfi_match WHERE wfi_match.order_item_id = woi.id)
+                THEN (SELECT SUM('.ConfiguredCogs::sql('wfi').') FROM order_fulfillment_items wfi WHERE wfi.order_item_id = woi.id)
+            WHEN EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines wsm WHERE wsm.order_item_id = woi.id)
+                THEN (SELECT wsm.actual_unit_cost * wsm.quantity FROM web_sales_manual_sourcing_lines wsm WHERE wsm.order_item_id = woi.id LIMIT 1)
+            ELSE (SELECT pi.average_cost * woi.ordered_quantity FROM product_inventories pi WHERE pi.product_id = woi.product_id AND pi.warehouse_id = wo.warehouse_id LIMIT 1)
+        END) END FROM order_items woi WHERE woi.order_id = wo.id)';
+    }
 
-        return '(SELECT CASE WHEN '.$unknown.' THEN NULL ELSE COALESCE(('.$fulfillment.'), ('.$manual.')) END)';
+    private function pendingCostSubquery(): string
+    {
+        return 'EXISTS (SELECT 1 FROM order_items pending_oi WHERE pending_oi.order_id = wo.id AND NOT EXISTS (SELECT 1 FROM order_fulfillment_items pending_wfi WHERE pending_wfi.order_item_id = pending_oi.id) AND (EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines pending_wsm WHERE pending_wsm.order_item_id = pending_oi.id AND pending_wsm.actual_unit_cost IS NULL) OR (NOT EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines pending_wsm_any WHERE pending_wsm_any.order_item_id = pending_oi.id) AND NOT EXISTS (SELECT 1 FROM product_inventories pending_pi WHERE pending_pi.product_id = pending_oi.product_id AND pending_pi.warehouse_id = wo.warehouse_id AND pending_pi.average_cost IS NOT NULL)))';
+    }
+
+    private function costBasisSubquery(): string
+    {
+        return "(SELECT CASE WHEN {$this->pendingCostSubquery()} THEN 'Pending' WHEN EXISTS (SELECT 1 FROM order_items estimated_oi WHERE estimated_oi.order_id = wo.id AND NOT EXISTS (SELECT 1 FROM order_fulfillment_items estimated_wfi WHERE estimated_wfi.order_item_id = estimated_oi.id)) THEN 'Estimated' ELSE 'Actual' END)";
     }
 
     /** @param array<int, array{key:string,label:string,type?:string}> $columns */
@@ -228,3 +245,4 @@ class WebSalesReportHandler implements ReportHandler
         return collect($labels)->map(fn (string $label, string $key): array => ['key' => $key, 'label' => $label] + (in_array($key, $numeric, true) ? ['type' => 'number'] : []))->values()->all();
     }
 }
+

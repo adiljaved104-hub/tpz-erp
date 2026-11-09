@@ -83,6 +83,9 @@ class WebSalesOrderForm
                         ->helperText(fn (Get $get): string => ($get('source_type') === 'manual_sourced'
                             ? 'Search and reuse an existing SKU, including zero-stock items. If not found, leave blank to create a new product. Manual sourcing does not consume existing warehouse stock.'
                             : 'Catalog search shows Main Warehouse sellable stock, including zero-stock items. Use Manual Sourced Product if the required quantity is unavailable.').($get('stock_context') ? ' '.$get('stock_context') : '')),
+                    Placeholder::make('selected_product_title')->label('Selected Product')->content(fn (Get $get): ?string => self::selectedProductTitle($get('product_id')))
+                        ->visible(fn (Get $get): bool => filled($get('product_id')))
+                        ->extraAttributes(['class' => 'whitespace-pre-wrap break-words']),
                     Placeholder::make('manual_catalog_reuse_note')->label('Existing Product / SKU')->content('The selected catalog product will be reused for this purchase. No duplicate SKU will be created or existing warehouse stock consumed.')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && filled($get('product_id')))->columnSpanFull(),
                     TextInput::make('manual_description')->label('New Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12]),
                     Select::make('manual_brand')->label('Brand')->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
@@ -219,6 +222,13 @@ class WebSalesOrderForm
         return $product->sku.' · '.app(ProductTitleService::class)->accounting($product);
     }
 
+    private static function selectedProductTitle(mixed $id): ?string
+    {
+        $label = filled($id) ? self::productLabel((int) $id) : null;
+
+        return $label === null ? null : str_replace(' · ', "\n", $label);
+    }
+
     private static function productChanged(mixed $state, Set $set): void
     {
         $product = $state ? Product::query()->products()->find((int) $state, ['id', 'selling_price']) : null;
@@ -352,3 +362,4 @@ class WebSalesOrderForm
         return $value instanceof WebSalesDeliveryType ? $value->value : $value;
     }
 }
+

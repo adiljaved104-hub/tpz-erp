@@ -7,6 +7,8 @@ use App\Enums\AccountingPermission;
 use App\Models\AccountingAccount;
 use App\Models\AccountingBook;
 use App\Services\Accounting\AccountingLedgerService;
+use App\Services\ActivityLogger;
+use App\Services\Authorization\AccountingAuthorization;
 use Filament\Notifications\Notification;
 use Illuminate\Validation\ValidationException;
 
@@ -47,7 +49,7 @@ class AccountingChartOfAccounts extends BaseAccountingPage
                 'active' => true,
                 'protected' => false,
             ]);
-            app(\App\Services\ActivityLogger::class)->log('accounting.account_created', $this->user(), $account, ['account_number' => $account->number]);
+            app(ActivityLogger::class)->log('accounting.account_created', $this->user(), $account, ['account_number' => $account->number]);
             Notification::make()->success()->title('Account created')->send();
             $this->reset('number', 'name');
         } catch (ValidationException $exception) {

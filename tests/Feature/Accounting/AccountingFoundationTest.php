@@ -12,6 +12,8 @@ use App\Models\AccountingPeriod;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\Accounting\AccountingLedgerService;
+use App\Services\Authorization\AccountingAuthorization;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -94,7 +96,7 @@ class AccountingFoundationTest extends TestCase
         $service = app(AccountingLedgerService::class);
         $this->actingAs($staff);
 
-        $this->expectException(\Illuminate\Auth\Access\AuthorizationException::class);
+        $this->expectException(AuthorizationException::class);
         $service->createDraft([
             'book_id' => $book->id,
             'posting_date' => now()->toDateString(),
@@ -103,7 +105,7 @@ class AccountingFoundationTest extends TestCase
             'lines' => [['account_id' => $cash->id, 'debit' => '1.00'], ['account_id' => $equity->id, 'credit' => '1.00']],
         ], $staff);
 
-        $this->assertFalse(app(\App\Services\Authorization\AccountingAuthorization::class)->allows($staff, AccountingPermission::View));
+        $this->assertFalse(app(AccountingAuthorization::class)->allows($staff, AccountingPermission::View));
     }
 
     public function test_posted_journals_are_immutable_and_reversal_is_a_balanced_compensating_entry(): void

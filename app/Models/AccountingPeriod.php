@@ -3,10 +3,11 @@
 namespace App\Models;
 
 use App\Enums\AccountingPeriodStatus;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class AccountingPeriod extends \Illuminate\Database\Eloquent\Model
+class AccountingPeriod extends Model
 {
     protected $guarded = [];
 

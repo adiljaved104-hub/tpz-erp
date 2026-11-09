@@ -2,8 +2,8 @@
 
 namespace App\Services\Authorization;
 
-use App\Enums\AuthSecurityPermission;
 use App\Enums\AccountingPermission;
+use App\Enums\AuthSecurityPermission;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;
 use App\Enums\ChatPermission;

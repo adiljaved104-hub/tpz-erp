@@ -2,10 +2,11 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
 
-class AccountingJournalLine extends \Illuminate\Database\Eloquent\Model
+class AccountingJournalLine extends Model
 {
     public $timestamps = false;
 

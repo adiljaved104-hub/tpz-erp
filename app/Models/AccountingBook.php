@@ -3,9 +3,10 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class AccountingBook extends \Illuminate\Database\Eloquent\Model
+class AccountingBook extends Model
 {
     use HasFactory;
 

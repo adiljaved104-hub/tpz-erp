@@ -68,13 +68,13 @@ class WebSalesWorkflowV2Test extends TestCase
         $products = $fields->filter(fn ($field): bool => $field->getName() === 'product_id');
         $this->assertCount(2, $products);
         foreach ($products as $field) {
-            $this->assertSame($product->sku.' · Lenovo Demo Book 14 16GB/512GB', $field->getOptionLabel());
+            $this->assertSame($product->sku.' · Lenovo Demo Book 14-inch Business Laptop with LongTitleSearchMarker and extensive marketplace specifications', $field->getOptionLabel());
             $this->assertArrayHasKey($product->id, $field->getSearchResults('LongTitleSearchMarker'));
             $this->assertSame(12, $field->getColumnSpan('lg'));
             $this->assertSame(6, $field->getColumnSpan('md'));
             $this->assertSame(1, $field->getColumnSpan('default'));
         }
-        $page->assertSee('Lenovo Demo Book 14 16GB/512GB');
+        $page->assertSee('Lenovo Demo Book 14-inch Business Laptop with LongTitleSearchMarker and extensive marketplace specifications');
         $items = $fields->first(fn ($field): bool => $field->getName() === 'items');
         $this->assertSame(12, $items->getColumns('lg'));
         $this->assertSame(6, $items->getColumns('md'));

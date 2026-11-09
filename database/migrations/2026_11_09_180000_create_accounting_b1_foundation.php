@@ -36,8 +36,8 @@ return new class extends Migration
             $table->boolean('active')->default(true);
             $table->boolean('protected')->default(false);
             $table->timestamps();
-            $table->unique(['accounting_book_id', 'number']);
-            $table->index(['accounting_book_id', 'account_type', 'active']);
+            $table->unique(['accounting_book_id', 'number'], 'accounting_accounts_book_number_uq');
+            $table->index(['accounting_book_id', 'account_type', 'active'], 'accounting_accounts_book_type_status_idx');
         });
 
         Schema::create('accounting_periods', function (Blueprint $table): void {
@@ -50,8 +50,8 @@ return new class extends Migration
             $table->timestamp('closed_at')->nullable();
             $table->foreignId('closed_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
-            $table->unique(['accounting_book_id', 'starts_on', 'ends_on']);
-            $table->index(['accounting_book_id', 'status', 'starts_on', 'ends_on']);
+            $table->unique(['accounting_book_id', 'starts_on', 'ends_on'], 'accounting_periods_book_dates_uq');
+            $table->index(['accounting_book_id', 'status', 'starts_on', 'ends_on'], 'accounting_periods_book_status_dates_idx');
         });
 
         Schema::create('accounting_journals', function (Blueprint $table): void {
@@ -70,10 +70,10 @@ return new class extends Migration
             $table->foreignId('posted_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('created_by_user_id')->constrained('users')->restrictOnDelete();
             $table->timestamps();
-            $table->unique(['accounting_book_id', 'reference']);
-            $table->unique(['accounting_book_id', 'idempotency_key']);
-            $table->unique(['accounting_book_id', 'source_type', 'source_key']);
-            $table->index(['accounting_book_id', 'posting_date', 'status']);
+            $table->unique(['accounting_book_id', 'reference'], 'accounting_journals_book_reference_uq');
+            $table->unique(['accounting_book_id', 'idempotency_key'], 'accounting_journals_book_idempotency_uq');
+            $table->unique(['accounting_book_id', 'source_type', 'source_key'], 'accounting_journals_book_source_uq');
+            $table->index(['accounting_book_id', 'posting_date', 'status'], 'accounting_journals_posting_status_idx');
         });
 
         Schema::create('accounting_journal_lines', function (Blueprint $table): void {
@@ -84,8 +84,8 @@ return new class extends Migration
             $table->string('description', 250)->nullable();
             $table->decimal('debit', 18, 2)->default(0);
             $table->decimal('credit', 18, 2)->default(0);
-            $table->unique(['journal_id', 'line_number']);
-            $table->index(['account_id', 'journal_id']);
+            $table->unique(['journal_id', 'line_number'], 'accounting_journal_lines_journal_line_uq');
+            $table->index(['account_id', 'journal_id'], 'accounting_journal_lines_account_idx');
         });
 
         $bookId = DB::table('accounting_books')->insertGetId([

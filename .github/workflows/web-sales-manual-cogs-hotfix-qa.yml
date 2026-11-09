@@ -1,0 +1,85 @@
+name: Web Sales manual sourcing COGS hotfix QA
+
+on:
+  push:
+    branches:
+      - hotfix/web-sales-manual-page-load-20261109
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-web-sales:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_web_sales_hotfix_qa
+          MYSQL_USER: tpz_ci
+          MYSQL_PASSWORD: disposable_qa_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_web_sales_hotfix_qa
+      DB_USERNAME: tpz_ci
+      DB_PASSWORD: disposable_qa_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      ERP_DEMO_DATA_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - name: Install locked dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Bootstrap and migrate disposable MySQL
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+          php artisan config:clear --ansi
+          test "$(php artisan tinker --execute="echo config('database.default');")" = "mysql"
+          php artisan migrate --force --no-interaction --ansi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build frontend and compile Blade
+        run: |
+          npm ci
+          npm run build
+          php artisan view:cache --ansi
+      - name: Focused Web Sales regression tests
+        run: |
+          timeout --signal=TERM 17m vendor/bin/phpunit tests/Feature/Orders/WebSalesWorkflowV2Test.php tests/Feature/Orders/WebSalesWorkflowTest.php
+      - name: Syntax and formatting
+        run: |
+          php -l app/Services/Orders/WebSalesFinancialSummaryService.php
+          php -l app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderInfolist.php
+          php -l app/Filament/Resources/WebSalesOrders/Tables/WebSalesOrdersTable.php
+          php -l app/Services/Reports/Handlers/WebSalesReportHandler.php
+          php -l tests/Feature/Orders/WebSalesWorkflowV2Test.php
+          vendor/bin/pint --test app/Services/Orders/WebSalesFinancialSummaryService.php app/Filament/Resources/WebSalesOrders/Schemas/WebSalesOrderInfolist.php app/Filament/Resources/WebSalesOrders/Tables/WebSalesOrdersTable.php app/Services/Reports/Handlers/WebSalesReportHandler.php tests/Feature/Orders/WebSalesWorkflowV2Test.php

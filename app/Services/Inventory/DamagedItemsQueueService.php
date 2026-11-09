@@ -71,6 +71,14 @@ class DamagedItemsQueueService
         return $paginator;
     }
 
+    /** @return array<string, mixed>|null */
+    public function find(User $user, int $id): ?array
+    {
+        $row = $this->query($user)->where('id', $id)->first();
+
+        return $row === null ? null : $this->present($row);
+    }
+
     /** @param array{search?:?string,warehouse_id?:?int,source?:?string,platform_id?:?int,status?:?string} $filters
      * @return array{items:int,units:int,oldest:?string}
      */
@@ -121,12 +129,15 @@ class DamagedItemsQueueService
             ->leftJoin('marketplace_platforms as platform', 'platform.id', '=', 'dse.marketplace_platform_id')
             ->leftJoin('customer_returns as customer_return', 'customer_return.id', '=', 'dse.customer_return_id')
             ->leftJoin('orders as orders', 'orders.id', '=', 'dse.order_id')
+            ->leftJoin('safet_claims as claim', 'claim.damaged_stock_event_id', '=', 'dse.id')
             ->leftJoin('users as reporter', 'reporter.id', '=', 'dse.reported_by_user_id')
             ->select(['dse.id', 'dse.reference', 'product.sku', 'product.name as product_name'])
             ->selectRaw('CASE WHEN dse.remaining_damaged_quantity > COALESCE(pending_classification.pending_quantity, 0) THEN dse.remaining_damaged_quantity - COALESCE(pending_classification.pending_quantity, 0) ELSE 0 END AS quantity')
             ->addSelect([
                 'warehouse.name as location', 'dse.source', 'platform.name as platform',
-                'customer_return.id as return_id', 'customer_return.reference as return_reference', 'orders.reference as order_reference',
+                'customer_return.id as return_id', 'customer_return.reference as return_reference',
+                'orders.id as order_id', 'orders.reference as order_reference',
+                'claim.id as claim_id', 'claim.reference as claim_reference',
                 'dse.reason', 'dse.notes', 'dse.occurred_at', 'reporter.name as reported_by',
             ])
             ->selectRaw("CASE WHEN dse.remaining_damaged_quantity > COALESCE(pending_classification.pending_quantity, 0) THEN 'damaged' WHEN COALESCE(pending_classification.pending_quantity, 0) > 0 THEN 'awaiting_classification' ELSE 'resolved' END AS status")
@@ -148,7 +159,7 @@ class DamagedItemsQueueService
             ->selectRaw('-inventory.id AS id, NULL AS reference, product.sku, product.name AS product_name')
             ->selectRaw('inventory.damaged_quantity - COALESCE(classified.classified_quantity, 0) - COALESCE(legacy_repair.active_legacy_repair_quantity, 0) AS quantity')
             ->addSelect(['warehouse.name as location'])
-            ->selectRaw("'legacy' AS source, NULL AS platform, NULL AS return_id, NULL AS return_reference, NULL AS order_reference")
+            ->selectRaw("'legacy' AS source, NULL AS platform, NULL AS return_id, NULL AS return_reference, NULL AS order_id, NULL AS order_reference, NULL AS claim_id, NULL AS claim_reference")
             ->selectRaw("'Existing damaged balance without recorded history' AS reason, NULL AS notes, NULL AS occurred_at, NULL AS reported_by, 'damaged' AS status")
             ->addSelect(['inventory.product_id', 'inventory.warehouse_id'])
             ->selectRaw("NULL AS marketplace_platform_id, 'legacy' AS row_kind, inventory.damaged_quantity - COALESCE(classified.classified_quantity, 0) - COALESCE(legacy_repair.active_legacy_repair_quantity, 0) AS available_repair_quantity");

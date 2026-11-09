@@ -5,11 +5,13 @@ namespace App\Services\Mobile;
 use App\Enums\ChatPermission;
 use App\Enums\ComplaintPermission;
 use App\Enums\CustomerReturnPermission;
+use App\Enums\DamagedStockPermission;
 use App\Enums\EmployeeRole;
 use App\Enums\HrPermission;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\InventoryPermission;
 use App\Enums\InvoicePermission;
+use App\Enums\MarketplaceOperationsPermission;
 use App\Enums\OrderPermission;
 use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
@@ -25,10 +27,12 @@ use App\Models\User;
 use App\Services\Authorization\ChatAuthorization;
 use App\Services\Authorization\ComplaintAuthorization;
 use App\Services\Authorization\CustomerReturnAuthorization;
+use App\Services\Authorization\DamagedStockAuthorization;
 use App\Services\Authorization\HrAuthorization;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\InventoryLocationAuthorization;
 use App\Services\Authorization\InvoiceAuthorization;
+use App\Services\Authorization\MarketplaceOperationsAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
@@ -39,6 +43,7 @@ use App\Services\Authorization\StockTransferAuthorization;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Reports\ReportCatalog;
+use App\Services\Responsibilities\ResponsibilityReadService;
 
 class MobileWorkspaceCapabilities
 {
@@ -50,6 +55,7 @@ class MobileWorkspaceCapabilities
         $qc = $this->hasQcAccess($user);
         $inventory = app(InventoryAuthorization::class)->allows($user, InventoryPermission::View)
             || app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::ViewOwn);
+        $inventoryAdjustments = app(InventoryAuthorization::class)->allows($user, InventoryPermission::View);
         $stockRequests = app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests);
         $orders = app(OrderAuthorization::class)->allows($user, OrderPermission::View);
         $products = app(ProductAuthorization::class)->allows($user, ProductPermission::View)
@@ -59,8 +65,12 @@ class MobileWorkspaceCapabilities
         $locations = app(InventoryLocationAuthorization::class)->allows($user, InventoryLocationPermission::View);
         $transfers = app(StockTransferAuthorization::class)->allows($user, StockTransferPermission::View);
         $invoices = app(InvoiceAuthorization::class)->allows($user, InvoicePermission::View);
+        $marketplace = app(MarketplaceOperationsAuthorization::class)->allows($user, MarketplaceOperationsPermission::View)
+            || app(ResponsibilityReadService::class)->myPlatformResponsibilities($user)->isNotEmpty()
+            || $user->notifications()->whereIn('data->target_type', ['marketplace_operation_incident', 'marketplace_order_event'])->exists();
         $reports = app(ReportCatalog::class)->available($user) !== [];
         $returns = app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View);
+        $damagedInventory = app(DamagedStockAuthorization::class)->allows($user, DamagedStockPermission::View);
         $warranty = app(WarrantyRepairAuthorization::class)->allows($user, WarrantyRepairPermission::View);
         $tasks = app(TaskAuthorization::class)->allows($user, TaskPermission::View);
         $responsibilities = app(ResponsibilityAuthorization::class)->allows($user, ResponsibilityPermission::ViewOwn)
@@ -82,6 +92,8 @@ class MobileWorkspaceCapabilities
             $this->module('qc', 'My QC Work / Dispatch', 'Renewed QC and physical unit dispatch', 'QC', $qc),
             $this->module('sales', 'Sales', 'Create and manage authorized sales', 'SALE', $orders),
             $this->module('inventory', 'My Inventory', 'Assigned stock and inventory', 'INV', $inventory),
+            $this->module('inventory_adjustments', 'Stock Adjustments', 'Scoped adjustment history and authorized discrepancy posting', 'ADJ', $inventoryAdjustments),
+            $this->module('damaged_inventory', 'Damaged Inventory', 'Scoped damage history and authorized repair intake', 'DMG', $damagedInventory),
             $this->module('products', 'Products', 'Search products and SKUs', 'PRD', $products),
             $this->module('purchases', 'Purchases', 'Purchases and receipts', 'PUR', $purchases),
             $this->module('suppliers', 'Suppliers', 'Authorized supplier contacts', 'SUP', $suppliers),
@@ -90,6 +102,7 @@ class MobileWorkspaceCapabilities
             $this->module('stock_requests', 'Stock Requests', 'Request, approve and execute authorized stock', 'SRQ', $stockRequests),
             $this->module('reservations', 'Reservations', 'Authorized inventory reservations', 'RSV', $inventory),
             $this->module('invoices', 'Invoices', 'Authorized tax invoices', 'INVX', $invoices),
+            $this->module('marketplace_operations', 'Marketplace Operations', 'Assigned incidents and marketplace order events', 'MKT', $marketplace),
             $this->module('reports', 'Reports', 'Authorized ERP reports and analytics', 'RPT', $reports),
             $this->module('hr', 'HR', 'People, notices and warnings', 'HR', $hrVisible),
             $this->module('responsibilities', 'Responsibilities', 'Your assigned product scope', 'RSP', $responsibilities),

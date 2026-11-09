@@ -62,7 +62,7 @@ class InventoryAdjustmentService
             ->where('idempotency_key', $entry['data']->idempotencyKey)->first(), $prepared);
         if (count(array_filter($existing)) === count($lines)) {
             foreach ($existing as $index => $adjustment) {
-                $this->assertReplay($adjustment, $prepared[$index]['data']);
+                $this->assertReplay($adjustment, $prepared[$index]['data'], $actor);
             }
 
             return $existing;
@@ -330,9 +330,10 @@ class InventoryAdjustmentService
         $this->authorization->authorize($actor, InventoryPermission::AdjustStock, $inventory);
     }
 
-    private function assertReplay(InventoryAdjustment $existing, InventoryAdjustmentData $data): void
+    private function assertReplay(InventoryAdjustment $existing, InventoryAdjustmentData $data, User $actor): void
     {
-        if ($existing->product_inventory_id !== $data->inventoryId
+        if ($existing->performed_by_user_id !== $actor->id
+            || $existing->product_inventory_id !== $data->inventoryId
             || $existing->type !== $data->type
             || abs($existing->available_delta) !== $data->quantity
             || $existing->allocation_account_id !== $data->allocationAccountId

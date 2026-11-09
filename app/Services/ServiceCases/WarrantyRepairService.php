@@ -46,7 +46,7 @@ class WarrantyRepairService
             'marketplace_platform_id' => isset($v['marketplace_platform_id']) ? (int) $v['marketplace_platform_id'] : null,
         ]));
         if ($existing = WarrantyRepair::query()->where('idempotency_key', $v['idempotency_key'])->first()) {
-            return $existing;
+            return $this->assertReplayOwner($existing, $actor);
         }$reference = $this->refs->nextWarrantyRepairReference();
 
         $case = DB::transaction(function () use ($v, $actor, $reference) {
@@ -143,6 +143,12 @@ class WarrantyRepairService
         ])->validate();
 
         if ($existing = WarrantyRepair::query()->where('idempotency_key', $validated['idempotency_key'])->first()) {
+            $existing = $this->assertReplayOwner($existing, $actor);
+            if ($existing->damaged_stock_event_id !== $damage->id
+                || (isset($validated['quantity']) && $existing->quantity !== (int) $validated['quantity'])) {
+                throw new WarrantyRepairException('This submission key was already used for a different repair. Reload and try again.');
+            }
+
             return $existing;
         }
         $remaining = $this->damagedAvailability->remaining($damage);
@@ -228,6 +234,13 @@ class WarrantyRepairService
         ])->validate();
 
         if ($existing = WarrantyRepair::query()->where('idempotency_key', $validated['idempotency_key'])->first()) {
+            $existing = $this->assertReplayOwner($existing, $actor);
+            if ($existing->damaged_stock_event_id !== null
+                || $existing->product_inventory_id !== $inventory->id
+                || $existing->quantity !== (int) $validated['quantity']) {
+                throw new WarrantyRepairException('This submission key was already used for a different repair. Reload and try again.');
+            }
+
             return $existing;
         }
 
@@ -317,6 +330,15 @@ class WarrantyRepairService
 
             return $locked->refresh();
         });
+    }
+
+    private function assertReplayOwner(WarrantyRepair $repair, User $actor): WarrantyRepair
+    {
+        if ($repair->created_by_user_id !== $actor->id) {
+            throw new WarrantyRepairException('This submission key was already used by another user. Reload and try again.');
+        }
+
+        return $repair;
     }
 
     public function moveToDamaged(WarrantyRepair $case, int $quantity, int $warehouseId, string $reason, ?string $note, string $idempotencyKey, User $actor): WarrantyRepair

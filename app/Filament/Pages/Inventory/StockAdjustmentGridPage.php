@@ -3,23 +3,20 @@
 namespace App\Filament\Pages\Inventory;
 
 use App\DTOs\Inventory\InventoryAdjustmentData;
-use App\Enums\EmployeeRole;
 use App\Enums\InventoryPermission;
 use App\Enums\PurchasePermission;
 use App\Filament\Pages\Purchasing\QuickStockPurchase;
 use App\Models\InventoryAdjustment;
-use App\Models\InventoryAllocationAccount;
 use App\Models\ProductInventory;
 use App\Models\PurchaseReceiptItem;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
+use App\Services\Inventory\InventoryAdjustmentOptionService;
 use App\Services\Inventory\InventoryAdjustmentService;
-use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Inventory\StockAdjustmentColumnRegistry;
-use App\Services\Responsibilities\WarehouseStockActionScopeService;
 use App\Services\Search\SearchQuery;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -241,17 +238,8 @@ abstract class StockAdjustmentGridPage extends Page
     private function canAdjustInventory(ProductInventory $inventory): bool
     {
         $actor = auth()->user();
-        if (! $actor instanceof User) {
-            return false;
-        }
 
-        $authorization = app(InventoryAuthorization::class);
-
-        return $authorization->allows($actor, InventoryPermission::AdjustStock, $inventory)
-            || ($authorization->allows($actor, InventoryPermission::AdjustStock)
-                && app(WarehouseStockActionScopeService::class)->allows(
-                    $actor, $inventory, WarehouseStockActionScopeService::ADJUST_STOCK,
-                ));
+        return $actor instanceof User && app(InventoryAdjustmentOptionService::class)->canAdjust($actor, $inventory);
     }
 
     public function canQuickPurchase(): bool
@@ -344,95 +332,35 @@ abstract class StockAdjustmentGridPage extends Page
     /** @return array<int, string> */
     public function increaseHolderOptions(ProductInventory $inventory): array
     {
-        if (! $this->canAdjustInventory($inventory)) {
-            return [];
-        }
-
-        if (app(WarehouseStockActionScopeService::class)->allows(auth()->user(), $inventory, WarehouseStockActionScopeService::ADJUST_STOCK)) {
-            return $this->adjustmentHolderOptions($inventory);
-        }
-
-        return InventoryAllocationAccount::query()->where('status', true)->orderBy('name')->get()
-            ->filter(fn (InventoryAllocationAccount $account): bool => app(InventoryAllocationService::class)->canConsumeFromAccount(auth()->user(), $account, $inventory))
-            ->pluck('name', 'id')->all();
+        return app(InventoryAdjustmentOptionService::class)->holderOptions(auth()->user(), $inventory, 'saleable_increase');
     }
 
     public function requiresScopedHolderTarget(ProductInventory $inventory): bool
     {
         $actor = auth()->user();
 
-        return $actor instanceof User
-            && ! in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)
-            && $this->canAdjustInventory($inventory)
-            && app(WarehouseStockActionScopeService::class)->allows($actor, $inventory, WarehouseStockActionScopeService::ADJUST_STOCK);
+        return $actor instanceof User && app(InventoryAdjustmentOptionService::class)->requiresScopedHolderTarget($actor, $inventory);
     }
 
     public function shouldSelectAdjustmentHolder(ProductInventory $inventory, ?string $type): bool
     {
-        if (blank($type)) {
-            return false;
-        }
-
         $actor = auth()->user();
-        $isBroad = $actor instanceof User
-            && in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
 
-        return $this->requiresScopedHolderTarget($inventory)
-            || $isBroad
-            || ($type === 'saleable_increase' && $this->increaseHolderOptions($inventory) !== []);
+        return $actor instanceof User && app(InventoryAdjustmentOptionService::class)->shouldSelectHolder($actor, $inventory, $type);
     }
 
     /** @return array<int, string> */
     public function stockAdjustmentHolderOptions(ProductInventory $inventory, ?string $type): array
     {
-        return $type === 'saleable_increase'
-            ? $this->increaseHolderOptions($inventory)
-            : $this->adjustmentHolderOptions($inventory, $type);
+        return app(InventoryAdjustmentOptionService::class)->holderOptions(auth()->user(), $inventory, $type);
     }
 
     /** @return array<int, string> */
     public function adjustmentHolderOptions(ProductInventory $inventory, ?string $type = null): array
     {
         $actor = auth()->user();
-        if (! $actor instanceof User || ! $this->canAdjustInventory($inventory)) {
-            return [];
-        }
 
-        $scope = app(WarehouseStockActionScopeService::class);
-        $scopedAction = $scope->allows($actor, $inventory, WarehouseStockActionScopeService::ADJUST_STOCK);
-        $isBroad = in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
-        if (! $isBroad && (! $scopedAction || ! $scope->allowsHolderSelection($actor, $inventory))) {
-            return [];
-        }
-
-        $accounts = InventoryAllocationAccount::query()->where('status', true);
-        if ($isBroad) {
-            $accounts->where(function (Builder $holders): void {
-                $holders->where('is_system', true)
-                    ->orWhere(function (Builder $employees): void {
-                        $employees->where('is_system', false)->whereNotNull('employee_id')
-                            ->whereHas('employee', fn (Builder $employee) => $employee->where('status', true)->whereNotNull('user_id'));
-                    })
-                    ->orWhere(function (Builder $teams): void {
-                        $teams->where('is_system', false)->whereNotNull('team_id')
-                            ->whereHas('team', fn (Builder $team) => $team->where('status', true));
-                    });
-            });
-        } else {
-            $accounts->where('is_system', false)->whereNotNull('employee_id')
-                ->whereHas('employee', fn (Builder $employee) => $employee->where('status', true)->whereNotNull('user_id'));
-        }
-        $accounts->orderBy('name');
-        if (in_array($type, ['saleable_decrease', 'mark_damaged'], true)) {
-            $accounts->whereHas('balances', fn (Builder $balance) => $balance
-                ->where('product_inventory_id', $inventory->id)->whereRaw('allocated_quantity > reserved_quantity'));
-        } elseif ($type === 'restore_damaged') {
-            $accounts->whereIn('id', DB::table('inventory_allocation_transition_lines')
-                ->where('context_type', 'damaged')->where('source_product_inventory_id', $inventory->id)
-                ->where('remaining_quantity', '>', 0)->select('account_id'));
-        }
-
-        return $accounts->pluck('name', 'id')->all();
+        return $actor instanceof User ? app(InventoryAdjustmentOptionService::class)->holderOptions($actor, $inventory, $type) : [];
     }
 
     public function rowStatus(ProductInventory $inventory): string

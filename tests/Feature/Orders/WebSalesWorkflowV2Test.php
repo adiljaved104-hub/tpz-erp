@@ -37,6 +37,7 @@ use App\Services\Orders\WebSalesService;
 use App\Services\Orders\WebSalesTaxInvoiceService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
 use App\Services\ReferenceSequenceService;
+use App\Services\Reports\ReportQueryService;
 use Filament\Forms\Components\Select;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -379,6 +380,34 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertSame('pending', $summary['status']);
         $this->assertNull($summary['gross_profit']);
         $this->assertSame(0, (int) $inventory->refresh()->available_quantity);
+    }
+
+    public function test_web_sales_report_matches_mixed_source_financial_summary(): void
+    {
+        [$owner, $warehouse, $product, $inventory] = $this->foundation();
+        app(InventoryAllocationService::class)->ensureShadowCoverage($inventory, $owner);
+        $manualProduct = Product::factory()->create(['selling_price' => '2000.00']);
+        ProductInventory::factory()->create([
+            'product_id' => $manualProduct->id, 'warehouse_id' => $warehouse->id,
+            'available_quantity' => 0, 'reserved_quantity' => 0, 'average_cost' => null,
+        ]);
+        $order = app(WebSalesService::class)->createConfirmed(new WebSalesOrderData(
+            customerName: 'Mixed financial report customer', customerPhone: '+971501234567', channel: WebSalesChannel::WhatsApp,
+            deliveryType: WebSalesDeliveryType::Courier, courierName: 'Aramex', trackingNumber: null,
+            items: [
+                new OrderItemData($product->id, 1, '1500.00'),
+                new OrderItemData($manualProduct->id, 1, '2000.00', sourceType: 'manual_sourced', actualUnitCost: '1200.00', purchaseCurrency: 'AED', purchasedOn: today()->toDateString()),
+            ], idempotencyKey: (string) Str::uuid(),
+        ), $owner);
+
+        $summary = app(WebSalesFinancialSummaryService::class)->summarize($order);
+        $report = app(ReportQueryService::class)->run($owner, 'web_sales.orders', ['from' => '2026-01-01', 'to' => '2026-12-31']);
+        $row = $report->rows->firstWhere('reference', $order->reference);
+
+        $this->assertNotNull($row);
+        $this->assertSame($summary['cogs'], (string) $row['cogs']);
+        $this->assertSame('estimated', strtolower((string) $row['cost_basis']));
+        $this->assertSame($summary['gross_profit'], (string) $row['gross_profit']);
     }
 
     public function test_manual_sourcing_does_not_accept_an_unknown_existing_product_id(): void

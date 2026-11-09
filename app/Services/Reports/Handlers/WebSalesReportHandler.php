@@ -196,7 +196,7 @@ class WebSalesReportHandler implements ReportHandler
 
     private function pendingCostSubquery(): string
     {
-        return 'EXISTS (SELECT 1 FROM order_items pending_oi WHERE pending_oi.order_id = wo.id AND NOT EXISTS (SELECT 1 FROM order_fulfillment_items pending_wfi WHERE pending_wfi.order_item_id = pending_oi.id) AND (EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines pending_wsm WHERE pending_wsm.order_item_id = pending_oi.id AND pending_wsm.actual_unit_cost IS NULL) OR (NOT EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines pending_wsm_any WHERE pending_wsm_any.order_item_id = pending_oi.id) AND NOT EXISTS (SELECT 1 FROM product_inventories pending_pi WHERE pending_pi.product_id = pending_oi.product_id AND pending_pi.warehouse_id = wo.warehouse_id AND pending_pi.average_cost IS NOT NULL)))';
+        return 'EXISTS (SELECT 1 FROM order_items pending_oi WHERE pending_oi.order_id = wo.id AND NOT EXISTS (SELECT 1 FROM order_fulfillment_items pending_wfi WHERE pending_wfi.order_item_id = pending_oi.id) AND (EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines pending_wsm WHERE pending_wsm.order_item_id = pending_oi.id AND pending_wsm.actual_unit_cost IS NULL) OR (NOT EXISTS (SELECT 1 FROM web_sales_manual_sourcing_lines pending_wsm_any WHERE pending_wsm_any.order_item_id = pending_oi.id) AND NOT EXISTS (SELECT 1 FROM product_inventories pending_pi WHERE pending_pi.product_id = pending_oi.product_id AND pending_pi.warehouse_id = wo.warehouse_id AND pending_pi.average_cost IS NOT NULL))))';
     }
 
     private function costBasisSubquery(): string

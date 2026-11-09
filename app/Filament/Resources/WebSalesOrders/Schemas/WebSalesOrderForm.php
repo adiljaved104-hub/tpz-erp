@@ -75,8 +75,9 @@ class WebSalesOrderForm
                     Select::make('product_id')->label(fn (Get $get): string => $get('source_type') === 'manual_sourced' ? 'Find Existing Catalog Product (Optional)' : 'Product')->placeholder('Search by SKU or product name')
                         ->searchable()->searchPrompt('Search the catalog, including products with zero stock.')
                         ->noSearchResultsMessage('No matching catalog products found. Enter a new product below in Manual Sourcing.')
-                        ->getSearchResultsUsing(fn (string $search): array => self::productOptions($search))
+                        ->getSearchResultsUsing(fn (string $search, Get $get): array => self::productOptions($search, $get('source_type') === 'manual_sourced'))
                         ->getOptionLabelUsing(fn ($value): ?string => self::productLabel((int) $value))
+                        ->disableOptionWhen(fn ($value, Get $get): bool => $get('source_type') !== 'manual_sourced' && self::sellableQuantity((int) $value) < 1)
                         ->validationMessages(['in' => 'Select an active Product authorized for your Main Warehouse responsibilities.'])
                         ->required(fn (Get $get): bool => $get('source_type') !== 'manual_sourced')->live()->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12])
                         ->afterStateUpdated(fn ($state, Set $set) => self::productChanged($state, $set))
@@ -85,7 +86,8 @@ class WebSalesOrderForm
                             : 'Catalog search shows Main Warehouse sellable stock, including zero-stock items. Use Manual Sourced Product if the required quantity is unavailable.').($get('stock_context') ? ' '.$get('stock_context') : '')),
                     Placeholder::make('selected_product_title')->label('Selected Product')->content(fn (Get $get): ?string => self::selectedProductTitle($get('product_id')))
                         ->visible(fn (Get $get): bool => filled($get('product_id')))
-                        ->extraAttributes(['class' => 'whitespace-pre-wrap break-words']),
+                        ->columnSpanFull()
+                        ->extraAttributes(['class' => 'whitespace-normal break-words [overflow-wrap:anywhere]']),
                     Placeholder::make('manual_catalog_reuse_note')->label('Existing Product / SKU')->content('The selected catalog product will be reused for this purchase. No duplicate SKU will be created or existing warehouse stock consumed.')->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && filled($get('product_id')))->columnSpanFull(),
                     TextInput::make('manual_description')->label('New Product Name / Description')->maxLength(255)->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 6, 'lg' => 12]),
                     Select::make('manual_brand')->label('Brand')->options(fn (): array => ProductBrand::query()->active()->orderBy('name')->pluck('name', 'name')->all())->searchable()->required(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->visible(fn (Get $get): bool => $get('source_type') === 'manual_sourced' && blank($get('product_id')))->columnSpan(['default' => 1, 'md' => 3, 'lg' => 3]),
@@ -173,7 +175,7 @@ class WebSalesOrderForm
         ]);
     }
 
-    private static function productOptions(string $search): array
+    private static function productOptions(string $search, bool $manualSourced = false): array
     {
         $search = trim($search);
         $user = auth()->user();
@@ -185,12 +187,32 @@ class WebSalesOrderForm
             return [];
         }
 
-        return app(ProductSearchOptions::class)->search(
+        $matches = app(ProductSearchOptions::class)->search(
             $search,
             ProductMatchContext::WebSales,
             $user,
             $warehouse->id,
         );
+
+        $sellable = ProductInventory::query()->where('warehouse_id', $warehouse->id)
+            ->whereIn('product_id', array_keys($matches))->get(['product_id', 'available_quantity', 'reserved_quantity'])->mapWithKeys(function (ProductInventory $inventory): array {
+                return [$inventory->product_id => $inventory->sellableQuantity()];
+            });
+
+        return collect($matches)->mapWithKeys(function (string $compact, int|string $productId) use ($sellable, $manualSourced): array {
+            $id = (int) $productId;
+            $label = self::productLabel($id);
+            if ($label === null) {
+                return [];
+            }
+
+            $quantity = (int) ($sellable[$id] ?? 0);
+            $availability = $quantity > 0
+                ? "Available sellable: {$quantity}"
+                : ($manualSourced ? 'Out of Stock · Manual sourcing allowed; no warehouse stock consumed.' : 'Out of Stock · Use Manual Sourced Product.');
+
+            return [$id => $label."\n{$availability}"];
+        })->all();
     }
 
     private static function productLabel(int $id): ?string
@@ -249,6 +271,23 @@ class WebSalesOrderForm
         if ($product->selling_price !== null) {
             $set('selling_price', $product->selling_price);
         }
+    }
+
+    private static function sellableQuantity(int $productId): int
+    {
+        if ($productId < 1) {
+            return 0;
+        }
+
+        try {
+            $warehouse = app(DefaultWarehouseService::class)->operationalDefault();
+        } catch (DefaultWarehouseException) {
+            return 0;
+        }
+
+        $inventory = ProductInventory::query()->where('warehouse_id', $warehouse->id)->where('product_id', $productId)->first();
+
+        return $inventory?->sellableQuantity() ?? 0;
     }
 
     private static function configurationOptions(int $productId, string $search): array
@@ -362,4 +401,3 @@ class WebSalesOrderForm
         return $value instanceof WebSalesDeliveryType ? $value->value : $value;
     }
 }
-

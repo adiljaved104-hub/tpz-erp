@@ -345,6 +345,31 @@ class WebSalesWorkflowV2Test extends TestCase
         $this->assertSame(0, (int) $inventory->reserved_quantity);
     }
 
+    public function test_web_sales_catalog_results_show_full_title_and_source_specific_stock_guidance(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation();
+        $product->update(['name' => 'Lenovo Yoga 7i 16-inch Convertible Laptop with 32GB RAM and 1TB SSD']);
+        $inventory->forceFill(['available_quantity' => 0, 'reserved_quantity' => 0])->save();
+        $this->actingAs($owner);
+
+        $page = Livewire::test(CreateWebSalesOrder::class)->fillForm(['items' => [[
+            'source_type' => 'manual_sourced',
+        ]]])->assertOk();
+        $field = collect($page->instance()->form->getFlatFields(withHidden: true))
+            ->first(fn ($candidate): bool => $candidate->getName() === 'product_id');
+        $manualResults = $field->getSearchResults($product->sku);
+        $this->assertStringContainsString('Lenovo Yoga 7i 16-inch Convertible Laptop with 32GB RAM and 1TB SSD', $manualResults[$product->id]);
+        $this->assertStringContainsString('Manual sourcing allowed', $manualResults[$product->id]);
+
+        $existingPage = Livewire::test(CreateWebSalesOrder::class)->fillForm(['items' => [[
+            'source_type' => 'existing_product',
+        ]]])->assertOk();
+        $existingField = collect($existingPage->instance()->form->getFlatFields(withHidden: true))
+            ->first(fn ($candidate): bool => $candidate->getName() === 'product_id');
+        $existingResults = $existingField->getSearchResults($product->sku);
+        $this->assertStringContainsString('Out of Stock · Use Manual Sourced Product.', $existingResults[$product->id]);
+    }
+
     public function test_manual_sourcing_cost_is_used_as_estimated_cogs_before_shipment(): void
     {
         [$owner, , $product, $inventory] = $this->foundation();

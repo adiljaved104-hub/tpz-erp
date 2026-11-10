@@ -55,13 +55,11 @@ class AccountingFoundationTest extends TestCase
 
         $this->assertSame(AccountingJournalStatus::Draft, $draft->status);
         try {
-            config()->set('accounting.posting_activation_approved', true);
-        $service->enablePosting($book, $owner);
+            $service->enablePosting($book, $owner);
             $this->fail('Posting activation must remain gated until explicit approval.');
         } catch (ValidationException) {
             $this->assertFalse($book->refresh()->posting_enabled);
         }
-        config()->set('accounting.posting_activation_approved', true);
         config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
         $posted = $service->post($draft, $owner);

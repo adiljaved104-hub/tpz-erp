@@ -250,7 +250,20 @@ class AccountingLedgerService
 
     private function periodForDate(AccountingBook $book, string $date): AccountingPeriod
     {
-        return AccountingPeriod::query()->where('accounting_book_id', $book->id)->whereDate('starts_on', '<=', $date)->whereDate('ends_on', '>=', $date)->firstOrFail();
+        $period = AccountingPeriod::query()
+            ->where('accounting_book_id', $book->id)
+            ->whereDate('starts_on', '<=', $date)
+            ->whereDate('ends_on', '>=', $date)
+            ->first();
+
+        if ($period === null) {
+            throw ValidationException::withMessages(['posting_date' => 'The posting date is outside the selected accounting book periods.']);
+        }
+        if ($period->status !== AccountingPeriodStatus::Open) {
+            throw ValidationException::withMessages(['posting_date' => 'The accounting period is closed or locked.']);
+        }
+
+        return $period;
     }
 
     /** @param array<int,array<string,mixed>> $lines */

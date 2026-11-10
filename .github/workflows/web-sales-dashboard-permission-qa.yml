@@ -1,0 +1,75 @@
+name: Web Sales Dashboard permission QA
+
+on:
+  push:
+    branches:
+      - codex/web-sales-dashboard-permission-20261110
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: tpz_dashboard_permission_qa
+          MYSQL_USER: tpz_ci
+          MYSQL_PASSWORD: disposable_qa_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_ci_only"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    env:
+      APP_ENV: testing
+      APP_DEBUG: false
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: tpz_dashboard_permission_qa
+      DB_USERNAME: tpz_ci
+      DB_PASSWORD: disposable_qa_only
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      ERP_BACKUP_SCHEDULE_ENABLED: false
+      ERP_DEMO_DATA_ENABLED: false
+      HIKVISION_ENABLED: false
+      MARKETPLACE_BROWSER_WORKER_ENABLED: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - name: Install locked dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Bootstrap disposable database
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+          php artisan config:clear --ansi
+          php artisan migrate --force --no-interaction --ansi
+      - name: Focused authorization and dashboard tests
+        run: timeout --signal=TERM 20m vendor/bin/phpunit tests/Feature/Orders/WebSalesDashboardPermissionTest.php tests/Feature/Orders/WebSalesWorkflowTest.php tests/Feature/AccessControl/AccessControlMatrixTest.php tests/Feature/Authorization/PermissionCatalogCompletenessTest.php
+      - name: Syntax and formatting
+        run: |
+          php -l app/Enums/WebSalesPermission.php
+          php -l app/Services/Authorization/WebSalesAuthorization.php
+          php -l app/Services/Authorization/EmployeePermissionCatalog.php
+          php -l app/Services/Authorization/AccessControlModuleRegistry.php
+          php -l app/Services/Orders/WebSalesReadService.php
+          php -l app/Services/Orders/WebSalesDashboardService.php
+          php -l app/Filament/Pages/WebSalesDashboard.php
+          php -l tests/Feature/Orders/WebSalesDashboardPermissionTest.php
+          vendor/bin/pint --test app/Enums/WebSalesPermission.php app/Services/Authorization/WebSalesAuthorization.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php app/Services/Orders/WebSalesReadService.php app/Services/Orders/WebSalesDashboardService.php app/Filament/Pages/WebSalesDashboard.php tests/Feature/Orders/WebSalesDashboardPermissionTest.php tests/Feature/Orders/WebSalesWorkflowTest.php

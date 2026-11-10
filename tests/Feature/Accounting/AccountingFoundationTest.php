@@ -55,11 +55,13 @@ class AccountingFoundationTest extends TestCase
 
         $this->assertSame(AccountingJournalStatus::Draft, $draft->status);
         try {
-            $service->enablePosting($book, $owner);
+            config()->set('accounting.posting_activation_approved', true);
+        $service->enablePosting($book, $owner);
             $this->fail('Posting activation must remain gated until explicit approval.');
         } catch (ValidationException) {
             $this->assertFalse($book->refresh()->posting_enabled);
         }
+        config()->set('accounting.posting_activation_approved', true);
         config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
         $posted = $service->post($draft, $owner);
@@ -122,6 +124,7 @@ class AccountingFoundationTest extends TestCase
         $cash = $book->accounts()->where('number', '1100')->firstOrFail();
         $equity = $book->accounts()->where('number', '3000')->firstOrFail();
         $draft = $service->createDraft(['book_id' => $book->id, 'posting_date' => now()->toDateString(), 'narration' => 'Reversible journal', 'idempotency_key' => (string) Str::uuid(), 'lines' => [['account_id' => $cash->id, 'debit' => '50.00'], ['account_id' => $equity->id, 'credit' => '50.00']]], $owner);
+        config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
         $posted = $service->post($draft, $owner);
 
@@ -145,6 +148,7 @@ class AccountingFoundationTest extends TestCase
         $cash = $book->accounts()->where('number', '1100')->firstOrFail();
         $equity = $book->accounts()->where('number', '3000')->firstOrFail();
         $draft = $service->createDraft(['book_id' => $book->id, 'posting_date' => now()->toDateString(), 'narration' => 'Closed period journal', 'idempotency_key' => (string) Str::uuid(), 'lines' => [['account_id' => $cash->id, 'debit' => '50.00'], ['account_id' => $equity->id, 'credit' => '50.00']]], $owner);
+        config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
 
         $this->expectException(ValidationException::class);

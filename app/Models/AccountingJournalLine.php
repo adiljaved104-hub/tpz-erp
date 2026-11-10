@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Enums\AccountingJournalStatus;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
 
@@ -16,7 +17,7 @@ class AccountingJournalLine extends Model
     {
         static::creating(function (self $line): void {
             $journal = AccountingJournal::query()->find($line->journal_id);
-            if ($journal?->status === \App\Enums\AccountingJournalStatus::Posted) {
+            if ($journal?->status === AccountingJournalStatus::Posted) {
                 throw new LogicException('Posted accounting journals cannot receive additional lines.');
             }
         });

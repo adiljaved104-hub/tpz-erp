@@ -333,8 +333,17 @@ class WebSalesWorkflowTest extends TestCase
         $order = app(WebSalesService::class)->createConfirmed($this->data($product), $creator);
         $order->update(['handled_by_employee_id' => $handler->employee->id]);
 
+        $unassigned = $this->user(EmployeeRole::Staff);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $unassigned->employee->id,
+            'permission_key' => WebSalesPermission::Dashboard->value,
+            'effect' => EmployeePermissionEffect::Allow,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Dashboard scope regression coverage',
+        ]);
+
         $this->assertSame(1, app(WebSalesReadService::class)->scopedForDashboard($handler)->count());
-        $this->assertSame(0, app(WebSalesReadService::class)->scopedForDashboard($this->user(EmployeeRole::Staff))->count());
+        $this->assertSame(0, app(WebSalesReadService::class)->scopedForDashboard($unassigned)->count());
     }
 
     /** @return array{User, Warehouse, Product, ProductInventory} */

@@ -185,12 +185,11 @@ class AccountingLedgerService
             ->select('line.account_id', DB::raw('SUM(line.debit) as debit'), DB::raw('SUM(line.credit) as credit'))
             ->get()->keyBy('account_id');
 
-        return $rows->map(fn (AccountingAccount $account): array => [
-            'account' => $account,
-            'debit' => (string) ($totals[$account->id]->debit ?? '0.00'),
-            'credit' => (string) ($totals[$account->id]->credit ?? '0.00'),
-            'balance' => $this->normalBalance($account, (string) ($totals[$account->id]->debit ?? '0.00'), (string) ($totals[$account->id]->credit ?? '0.00')),
-        ]);
+        return $rows->map(fn (AccountingAccount $account): array => $this->trialBalanceRow(
+            $account,
+            (string) ($totals[$account->id]->debit ?? '0.00'),
+            (string) ($totals[$account->id]->credit ?? '0.00'),
+        ));
     }
 
     /** @return EloquentCollection<int,AccountingJournalLine> */
@@ -200,10 +199,33 @@ class AccountingLedgerService
         abort_unless($user instanceof User, 403);
         $this->authorization->authorize($user, AccountingPermission::View);
 
-        return \App\Models\AccountingJournalLine::query()->with(['journal', 'account'])
+        $lines = \App\Models\AccountingJournalLine::query()->with(['journal', 'account'])
             ->whereHas('journal', fn ($query) => $query->where('accounting_book_id', $book->id)->where('status', AccountingJournalStatus::Posted)->whereBetween('posting_date', [$from, $to]))
             ->when($accountId, fn ($query) => $query->where('account_id', $accountId))
             ->orderBy('journal_id')->orderBy('line_number')->get();
+
+        $opening = [];
+        if ($lines->isNotEmpty()) {
+            $opening = DB::table('accounting_journal_lines as line')
+                ->join('accounting_journals as journal', 'journal.id', '=', 'line.journal_id')
+                ->where('journal.accounting_book_id', $book->id)
+                ->where('journal.status', AccountingJournalStatus::Posted->value)
+                ->whereDate('journal.posting_date', '<', $from)
+                ->when($accountId, fn ($query) => $query->where('line.account_id', $accountId))
+                ->groupBy('line.account_id')
+                ->select('line.account_id', DB::raw('SUM(line.debit - line.credit) as balance'))
+                ->pluck('balance', 'account_id')
+                ->all();
+        }
+        $running = [];
+        return $lines->map(function ($line) use (&$opening, &$running): mixed {
+            $accountId = $line->account_id;
+            $opening[$accountId] ??= '0.00';
+            $running[$accountId] = bcadd((string) ($running[$accountId] ?? $opening[$accountId]), bcsub((string) $line->debit, (string) $line->credit, 2), 2);
+            $line->setAttribute('opening_balance', (string) $opening[$accountId]);
+            $line->setAttribute('running_balance', (string) $running[$accountId]);
+            return $line;
+        });
     }
 
     /** @return array<string,mixed> */
@@ -310,6 +332,21 @@ class AccountingLedgerService
                 && bccomp((string) $line->credit, $this->decimal($input['credit'] ?? '0'), 2) === 0
                 && ($line->description ?? null) === ($input['description'] ?? null);
         });
+    }
+
+    /** @return array<string,mixed> */
+    private function trialBalanceRow(AccountingAccount $account, string $debit, string $credit): array
+    {
+        $net = bcsub($debit, $credit, 2);
+
+        return [
+            'account' => $account,
+            'debit' => $debit,
+            'credit' => $credit,
+            'net_debit' => bccomp($net, '0.00', 2) > 0 ? $net : '0.00',
+            'net_credit' => bccomp($net, '0.00', 2) < 0 ? bcmul($net, '-1', 2) : '0.00',
+            'balance' => $this->normalBalance($account, $debit, $credit),
+        ];
     }
 
     private function normalBalance(AccountingAccount $account, string $debit, string $credit): string

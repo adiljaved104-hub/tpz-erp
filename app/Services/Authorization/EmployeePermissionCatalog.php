@@ -134,6 +134,7 @@ class EmployeePermissionCatalog
                 $this->item(OrderPermission::ViewProfit, 'View Profit', true, true),
                 $this->item(OrderPermission::Export, 'Export Orders'),
                 $this->item(WebSalesPermission::View, 'View Web Sales'),
+                $this->item(WebSalesPermission::Dashboard, 'Web Sales Dashboard'),
                 $this->item(WebSalesPermission::Create, 'Create Web Sales'),
                 $this->item(WebSalesPermission::Update, 'Update Web Sales', true),
                 $this->item(WebSalesPermission::ViewAll, 'View All Web Sales', true),

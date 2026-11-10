@@ -18,11 +18,11 @@ class AccountingPeriod extends Model
 
     public function book(): BelongsTo
     {
-        return $this->belongsTo(AccountingBook::class);
+        return $this->belongsTo(AccountingBook::class, 'accounting_book_id');
     }
 
     public function journals(): HasMany
     {
-        return $this->hasMany(AccountingJournal::class, 'period_id');
+        return $this->hasMany(AccountingJournal::class, 'accounting_period_id');
     }
 }

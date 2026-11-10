@@ -18,7 +18,7 @@ class AccountingAccount extends Model
 
     public function book(): BelongsTo
     {
-        return $this->belongsTo(AccountingBook::class);
+        return $this->belongsTo(AccountingBook::class, 'accounting_book_id');
     }
 
     public function parent(): BelongsTo

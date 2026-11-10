@@ -7,6 +7,8 @@ use App\Enums\AccountingPeriodStatus;
 use App\Enums\AccountingPermission;
 use App\Enums\EmployeeRole;
 use App\Models\AccountingBook;
+use App\Models\AccountingJournal;
+use App\Services\Authorization\AccessControlModuleRegistry;
 use App\Models\AccountingPeriod;
 use App\Models\Employee;
 use App\Models\User;
@@ -188,7 +190,7 @@ class AccountingFoundationTest extends TestCase
         $book = AccountingBook::query()->firstOrFail();
         $cash = $book->accounts()->where('number', '1100')->firstOrFail();
         $equity = $book->accounts()->where('number', '3000')->firstOrFail();
-        $before = \App\Models\AccountingJournal::query()->count();
+        $before = AccountingJournal::query()->count();
 
         try {
             app(AccountingLedgerService::class)->createDraft([
@@ -209,7 +211,7 @@ class AccountingFoundationTest extends TestCase
 
     public function test_access_control_registers_accounting_modules_without_granting_posting_to_admin(): void
     {
-        $registry = app(\App\Services\Authorization\AccessControlModuleRegistry::class);
+        $registry = app(AccessControlModuleRegistry::class);
         $modules = $registry->keyed();
 
         $this->assertContains('accounting.view', $modules['accounting_ledger']['view_keys']);

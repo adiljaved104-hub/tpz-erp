@@ -163,10 +163,17 @@ class AccountingLedgerService
     public function closePeriod(AccountingPeriod $period, User $actor): AccountingPeriod
     {
         $this->authorization->authorize($actor, AccountingPermission::ManagePeriods);
-        $period->forceFill(['status' => AccountingPeriodStatus::Closed, 'closed_at' => now('UTC'), 'closed_by_user_id' => $actor->id])->save();
-        $this->activity->log('accounting.period_closed', $actor, $period, ['period' => $period->name]);
 
-        return $period->refresh();
+        return DB::transaction(function () use ($period, $actor): AccountingPeriod {
+            $period = AccountingPeriod::query()->lockForUpdate()->findOrFail($period->id);
+            if ($period->status !== AccountingPeriodStatus::Open) {
+                throw ValidationException::withMessages(['period' => 'Only an open accounting period can be closed.']);
+            }
+            $period->forceFill(['status' => AccountingPeriodStatus::Closed, 'closed_at' => now('UTC'), 'closed_by_user_id' => $actor->id])->save();
+            $this->activity->log('accounting.period_closed', $actor, $period, ['period' => $period->name]);
+
+            return $period->refresh();
+        });
     }
 
     /** @return Collection<int,array<string,mixed>> */

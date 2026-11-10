@@ -7,16 +7,19 @@ use App\DTOs\GlobalSearchResult;
 use App\Enums\ComplaintPermission;
 use App\Enums\CustomerReturnPermission;
 use App\Enums\InvoicePermission;
+use App\Enums\QuotationPermission;
 use App\Enums\SafetClaimPermission;
 use App\Enums\WarrantyRepairPermission;
 use App\Filament\Resources\Complaints\ComplaintResource;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\InternalRepairs\InternalRepairResource;
 use App\Filament\Resources\Orders\OrderResource;
+use App\Filament\Resources\Quotations\QuotationResource;
 use App\Filament\Resources\SafetClaims\SafetClaimResource;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Filament\Resources\WarrantyRepairs\WarrantyRepairResource;
 use App\Models\Complaint;
+use App\Models\Quotation;
 use App\Models\SafetClaim;
 use App\Models\TaxInvoice;
 use App\Models\User;
@@ -24,6 +27,7 @@ use App\Models\WarrantyRepair;
 use App\Services\Authorization\ComplaintAuthorization;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\InvoiceAuthorization;
+use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
 use App\Services\Orders\OrderReferenceSearchService;
@@ -38,7 +42,27 @@ class SalesServiceSearchProvider implements GlobalSearchProvider
     {
         return collect()->concat($this->orders($user, $query, $limit))->concat($this->returns($user, $query, $limit))
             ->concat($this->claims($user, $query, $limit))->concat($this->warranties($user, $query, $limit))
-            ->concat($this->complaints($user, $query, $limit))->concat($this->invoices($user, $query, $limit));
+            ->concat($this->complaints($user, $query, $limit))->concat($this->invoices($user, $query, $limit))
+            ->concat($this->quotations($user, $query, $limit));
+    }
+
+    private function quotations(User $user, string $term, int $limit): Collection
+    {
+        $auth = app(QuotationAuthorization::class);
+        if (! $auth->allows($user, QuotationPermission::View)) {
+            return collect();
+        }
+        $ids = $auth->scope(Quotation::query()->select('quotations.id'), $user);
+        $query = DB::table('quotations')->whereIn('id', $ids)
+            ->select(['id', 'reference', 'customer_name', 'customer_company', 'external_reference', 'status']);
+        SearchQuery::match($query, ['reference', 'customer_name', 'customer_company', 'external_reference'], $term);
+        SearchQuery::rank($query, 'reference', $term);
+
+        return $query->limit($limit)->get()->map(fn ($quotation): GlobalSearchResult => new GlobalSearchResult(
+            'Quotations', $quotation->reference, $quotation->customer_name.' · '.str($quotation->status)->headline(),
+            QuotationResource::getUrl('view', ['record' => $quotation->id]), 'heroicon-o-document-text',
+            ['module' => 'quotations', 'id' => $quotation->id],
+        ));
     }
 
     private function invoices(User $user, string $term, int $limit): Collection

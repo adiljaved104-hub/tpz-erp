@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
+use App\Actions\Products\CreateProduct;
 use App\Actions\Products\UpdateProduct;
+use App\DTOs\Products\CreateProductData;
 use App\DTOs\Products\UpdateProductData;
 use App\Enums\ProductCondition;
 use App\Enums\ProductPermission;
@@ -37,7 +39,11 @@ class ProductController extends MobileController
 
     public function index(Request $request): JsonResponse
     {
-        return $this->page($request, $this->query($request)->orderBy('name')->orderBy('id'), ['name', 'sku', 'model', 'brand', 'category'], fn ($p) => $this->present($request, $p));
+        $response = $this->page($request, $this->query($request)->orderBy('name')->orderBy('id'), ['name', 'sku', 'model', 'brand', 'category'], fn ($p) => $this->present($request, $p));
+        $response->setData([...$response->getData(true),
+            'can_create' => app(ProductAuthorization::class)->allows($request->user(), ProductPermission::Create)]);
+
+        return $response;
     }
 
     public function show(Request $request, int $product): JsonResponse
@@ -55,7 +61,9 @@ class ProductController extends MobileController
             return $data;
         }
 
-        $fields = $p->only(['name', 'sku', 'model', 'processor', 'ram', 'storage', 'screen_size', 'graphics', 'color', 'warranty', 'description']);
+        $fields = $p->only(['name', 'sku', 'model', 'processor', 'processor_class', 'processor_model',
+            'processor_generation', 'ram', 'storage', 'screen_size', 'graphics', 'color', 'touch_screen',
+            'is_convertible_360', 'accounting_title_override', 'website_title_override', 'warranty', 'description']);
         $fields['condition'] = $p->condition->value;
         $fields['brand'] = $p->displayBrandName();
         $fields['category'] = $p->displayCategoryName();
@@ -73,13 +81,17 @@ class ProductController extends MobileController
         $fields['sellable_quantity'] = max(0, (int) $stock->available - (int) $stock->reserved);
 
         $actions = [];
+        $editFields = null;
         if ($auth->allows($user, ProductPermission::Update, $p)) {
-            $actions[] = $this->action('update', 'Update product', $this->editFields($request, $p));
+            $editFields = $this->editFields($request, $p);
+            $actions[] = $this->action('update', 'Update product', $editFields);
         }
+        $actions[] = $this->action('intelligence', 'Product intelligence');
 
         return [...$data, 'fields' => $fields,
             'field_schema' => $this->readFields($fields, ['selling_price' => 'currency', 'cost_price' => 'currency', 'description' => 'multiline', 'warranty' => 'number', 'available_quantity' => 'number', 'reserved_quantity' => 'number', 'sellable_quantity' => 'number']),
-            'actions' => $actions];
+            'actions' => $actions,
+            'edit_values' => $editFields === null ? null : collect($editFields)->mapWithKeys(fn (array $field): array => [$field['name'] => $field['value']])->all()];
     }
 
     private function editFields(Request $request, Product $p): array
@@ -95,10 +107,15 @@ class ProductController extends MobileController
             $this->field('condition', 'Condition', 'select', true, $p->condition->value,
                 array_map(fn (ProductCondition $condition) => ['value' => $condition->value, 'label' => $condition->label()], ProductCondition::cases())),
         ];
-        foreach (['model' => 'Model', 'processor' => 'Processor', 'ram' => 'RAM', 'storage' => 'Storage',
-            'screen_size' => 'Screen size', 'graphics' => 'Graphics', 'color' => 'Color'] as $key => $label) {
+        foreach (['model' => 'Model', 'processor' => 'Processor', 'processor_class' => 'Processor class',
+            'processor_model' => 'Processor model', 'processor_generation' => 'Processor generation', 'ram' => 'RAM',
+            'storage' => 'Storage', 'screen_size' => 'Screen size', 'graphics' => 'Graphics', 'color' => 'Color'] as $key => $label) {
             $fields[] = $this->field($key, $label, 'text', false, $p->{$key});
         }
+        $fields[] = $this->field('touch_screen', 'Touch screen', 'boolean', false, $p->touch_screen);
+        $fields[] = $this->field('is_convertible_360', 'Convertible 360', 'boolean', false, $p->is_convertible_360);
+        $fields[] = $this->field('accounting_title_override', 'Accounting title override', 'text', false, $p->accounting_title_override);
+        $fields[] = $this->field('website_title_override', 'Website title override', 'text', false, $p->website_title_override);
         $fields[] = $this->field('warranty', 'Warranty (months)', 'number', true, $p->warranty);
         $auth = app(ProductAuthorization::class);
         $user = $request->user();
@@ -119,36 +136,102 @@ class ProductController extends MobileController
     {
         $p = $this->query($request)->findOrFail($product);
         app(ProductAuthorization::class)->authorize($request->user(), ProductPermission::Update, $p);
-        $data = $request->validate([
+        $data = $this->validatedDocument($request);
+        app(UpdateProduct::class)->handle($p, new UpdateProductData(
+            name: $data['name'], brandId: $data['brand_id'], categoryId: $data['category_id'],
+            condition: $data['condition'], model: $data['model'] ?? null, processor: $data['processor'] ?? null,
+            processorClass: $data['processor_class'] ?? null, processorModel: $data['processor_model'] ?? null,
+            processorGeneration: $data['processor_generation'] ?? null, ram: $data['ram'] ?? null,
+            storage: $data['storage'] ?? null, screenSize: $data['screen_size'] ?? null,
+            graphics: $data['graphics'] ?? null, color: $data['color'] ?? null,
+            touchScreen: array_key_exists('touch_screen', $data) ? (bool) $data['touch_screen'] : null,
+            isConvertible360: array_key_exists('is_convertible_360', $data) ? (bool) $data['is_convertible_360'] : null,
+            accountingTitleOverride: $data['accounting_title_override'] ?? null,
+            websiteTitleOverride: $data['website_title_override'] ?? null, warranty: $data['warranty'],
+            sellingPrice: isset($data['selling_price']) ? (string) $data['selling_price'] : null,
+            sellingPriceProvided: array_key_exists('selling_price', $data),
+            costPrice: isset($data['cost_price']) ? (string) $data['cost_price'] : null,
+            costPriceProvided: array_key_exists('cost_price', $data), description: $data['description'] ?? null,
+            duplicateOverrideReason: $data['duplicate_override_reason'] ?? null,
+            duplicateOverrideConfirmed: (bool) ($data['duplicate_override_confirmed'] ?? false),
+            responsibilityOverrideConfirmed: (bool) ($data['responsibility_override_confirmed'] ?? false),
+        ), $request->user());
+
+        return $this->show($request, $product);
+    }
+
+    public function options(Request $request): JsonResponse
+    {
+        $input = $request->validate(['product_id' => 'nullable|integer']);
+        $product = isset($input['product_id']) ? $this->query($request)->findOrFail($input['product_id']) : null;
+        app(ProductAuthorization::class)->authorize($request->user(), $product ? ProductPermission::Update : ProductPermission::Create, $product);
+
+        return response()->json(['data' => [
+            'brands' => ProductBrand::query()->where(fn ($query) => $query->where('status', true)->when($product, fn ($query) => $query->orWhere('id', $product->brand_id)))->orderBy('name')->get(['id', 'name']),
+            'categories' => ProductCategory::query()->where(fn ($query) => $query->where('status', true)->when($product, fn ($query) => $query->orWhere('id', $product->category_id)))->orderBy('name')->get(['id', 'name']),
+            'conditions' => array_map(fn (ProductCondition $condition): array => [
+                'value' => $condition->value, 'label' => $condition->label(),
+            ], ProductCondition::cases()),
+            'can_set_selling_price' => app(ProductAuthorization::class)->allows($request->user(), ProductPermission::EditSellingPrice),
+            'can_set_cost_price' => app(ProductAuthorization::class)->allows($request->user(), ProductPermission::EditCostPrice),
+        ]]);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        app(ProductAuthorization::class)->authorize($request->user(), ProductPermission::Create);
+        $data = $this->validatedDocument($request, true);
+        $product = app(CreateProduct::class)->handle(new CreateProductData(
+            name: $data['name'], brandId: $data['brand_id'], categoryId: $data['category_id'],
+            condition: $data['condition'], model: $data['model'] ?? null, processor: $data['processor'] ?? null,
+            processorClass: $data['processor_class'] ?? null, processorModel: $data['processor_model'] ?? null,
+            processorGeneration: $data['processor_generation'] ?? null, ram: $data['ram'] ?? null,
+            storage: $data['storage'] ?? null, screenSize: $data['screen_size'] ?? null,
+            graphics: $data['graphics'] ?? null, color: $data['color'] ?? null,
+            touchScreen: array_key_exists('touch_screen', $data) ? (bool) $data['touch_screen'] : null,
+            isConvertible360: array_key_exists('is_convertible_360', $data) ? (bool) $data['is_convertible_360'] : null,
+            accountingTitleOverride: $data['accounting_title_override'] ?? null,
+            websiteTitleOverride: $data['website_title_override'] ?? null, warranty: $data['warranty'],
+            costPrice: isset($data['cost_price']) ? (string) $data['cost_price'] : null,
+            costPriceProvided: array_key_exists('cost_price', $data),
+            sellingPrice: isset($data['selling_price']) ? (string) $data['selling_price'] : null,
+            sellingPriceProvided: array_key_exists('selling_price', $data), description: $data['description'] ?? null,
+            duplicateOverrideReason: $data['duplicate_override_reason'] ?? null,
+            duplicateOverrideConfirmed: (bool) ($data['duplicate_override_confirmed'] ?? false),
+            responsibilityOverrideConfirmed: (bool) ($data['responsibility_override_confirmed'] ?? false),
+        ), $request->user());
+
+        return $this->show($request, $product->id);
+    }
+
+    private function validatedDocument(Request $request, bool $creating = false): array
+    {
+        return $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'brand_id' => ['required', 'integer', Rule::exists('product_brands', 'id')],
-            'category_id' => ['required', 'integer', Rule::exists('product_categories', 'id')],
+            'brand_id' => ['required', 'integer', $creating ? Rule::exists('product_brands', 'id')->where('status', true) : Rule::exists('product_brands', 'id')],
+            'category_id' => ['required', 'integer', $creating ? Rule::exists('product_categories', 'id')->where('status', true) : Rule::exists('product_categories', 'id')],
             'condition' => ['required', Rule::enum(ProductCondition::class)],
             'model' => ['nullable', 'string', 'max:255'],
             'processor' => ['nullable', 'string', 'max:255'],
+            'processor_class' => ['nullable', 'string', 'max:255'],
+            'processor_model' => ['nullable', 'string', 'max:255'],
+            'processor_generation' => ['nullable', 'string', 'max:255'],
             'ram' => ['nullable', 'string', 'max:255'],
             'storage' => ['nullable', 'string', 'max:255'],
             'screen_size' => ['nullable', 'string', 'max:255'],
             'graphics' => ['nullable', 'string', 'max:255'],
             'color' => ['nullable', 'string', 'max:255'],
+            'touch_screen' => ['nullable', 'boolean'],
+            'is_convertible_360' => ['nullable', 'boolean'],
+            'accounting_title_override' => ['nullable', 'string', 'max:255'],
+            'website_title_override' => ['nullable', 'string', 'max:255'],
             'warranty' => ['required', 'integer', 'min:0', 'max:600'],
             'description' => ['nullable', 'string', 'max:10000'],
             'selling_price' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'cost_price' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'duplicate_override_reason' => ['nullable', 'string', 'max:500'],
+            'duplicate_override_confirmed' => ['nullable', 'boolean'],
+            'responsibility_override_confirmed' => ['nullable', 'boolean'],
         ]);
-        app(UpdateProduct::class)->handle($p, new UpdateProductData(
-            name: $data['name'], brandId: $data['brand_id'], categoryId: $data['category_id'],
-            condition: $data['condition'], model: $data['model'] ?? null, processor: $data['processor'] ?? null,
-            ram: $data['ram'] ?? null, storage: $data['storage'] ?? null, screenSize: $data['screen_size'] ?? null,
-            graphics: $data['graphics'] ?? null, color: $data['color'] ?? null, warranty: $data['warranty'],
-            sellingPrice: isset($data['selling_price']) ? (string) $data['selling_price'] : null,
-            sellingPriceProvided: array_key_exists('selling_price', $data),
-            costPrice: isset($data['cost_price']) ? (string) $data['cost_price'] : null,
-            costPriceProvided: array_key_exists('cost_price', $data),
-            description: $data['description'] ?? null, duplicateOverrideReason: $data['duplicate_override_reason'] ?? null,
-        ), $request->user());
-
-        return $this->show($request, $product);
     }
 }

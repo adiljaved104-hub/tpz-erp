@@ -4,6 +4,7 @@ namespace App\Services\Mobile;
 
 use App\Enums\ChatPermission;
 use App\Enums\ComplaintPermission;
+use App\Enums\ComponentPermission;
 use App\Enums\CustomerReturnPermission;
 use App\Enums\DamagedStockPermission;
 use App\Enums\EmployeeRole;
@@ -16,6 +17,7 @@ use App\Enums\OrderPermission;
 use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
 use App\Enums\QcPermission;
+use App\Enums\QuotationPermission;
 use App\Enums\ResponsibilityPermission;
 use App\Enums\SafetClaimPermission;
 use App\Enums\StockTransferPermission;
@@ -26,6 +28,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Services\Authorization\ChatAuthorization;
 use App\Services\Authorization\ComplaintAuthorization;
+use App\Services\Authorization\ComponentAuthorization;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\DamagedStockAuthorization;
 use App\Services\Authorization\HrAuthorization;
@@ -37,6 +40,7 @@ use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
 use App\Services\Authorization\QcAuthorization;
+use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\StockTransferAuthorization;
@@ -65,6 +69,8 @@ class MobileWorkspaceCapabilities
         $locations = app(InventoryLocationAuthorization::class)->allows($user, InventoryLocationPermission::View);
         $transfers = app(StockTransferAuthorization::class)->allows($user, StockTransferPermission::View);
         $invoices = app(InvoiceAuthorization::class)->allows($user, InvoicePermission::View);
+        $quotations = app(QuotationAuthorization::class)->allows($user, QuotationPermission::View);
+        $components = app(ComponentAuthorization::class)->allows($user, ComponentPermission::View);
         $marketplace = app(MarketplaceOperationsAuthorization::class)->allows($user, MarketplaceOperationsPermission::View)
             || app(ResponsibilityReadService::class)->myPlatformResponsibilities($user)->isNotEmpty()
             || $user->notifications()->whereIn('data->target_type', ['marketplace_operation_incident', 'marketplace_order_event'])->exists();
@@ -95,6 +101,7 @@ class MobileWorkspaceCapabilities
             $this->module('inventory_adjustments', 'Stock Adjustments', 'Scoped adjustment history and authorized discrepancy posting', 'ADJ', $inventoryAdjustments),
             $this->module('damaged_inventory', 'Damaged Inventory', 'Scoped damage history and authorized repair intake', 'DMG', $damagedInventory),
             $this->module('products', 'Products', 'Search products and SKUs', 'PRD', $products),
+            $this->module('components', 'Components', 'Authorized component catalog and recovery controls', 'COM', $components),
             $this->module('purchases', 'Purchases', 'Purchases and receipts', 'PUR', $purchases),
             $this->module('suppliers', 'Suppliers', 'Authorized supplier contacts', 'SUP', $suppliers),
             $this->module('inventory_locations', 'Locations', 'Warehouses and inventory locations', 'LOC', $locations),
@@ -102,6 +109,7 @@ class MobileWorkspaceCapabilities
             $this->module('stock_requests', 'Stock Requests', 'Request, approve and execute authorized stock', 'SRQ', $stockRequests),
             $this->module('reservations', 'Reservations', 'Authorized inventory reservations', 'RSV', $inventory),
             $this->module('invoices', 'Invoices', 'Authorized tax invoices', 'INVX', $invoices),
+            $this->module('quotations', 'Quotations', 'Create and manage authorized quotations', 'QUO', $quotations),
             $this->module('marketplace_operations', 'Marketplace Operations', 'Assigned incidents and marketplace order events', 'MKT', $marketplace),
             $this->module('reports', 'Reports', 'Authorized ERP reports and analytics', 'RPT', $reports),
             $this->module('hr', 'HR', 'People, notices and warnings', 'HR', $hrVisible),

@@ -48,6 +48,13 @@ class WebSalesAuthorization
             return false;
         }
 
+        // Dashboard access is an independent permission. The dashboard service
+        // applies the same responsibility scope to its data without requiring
+        // Web Sales order-view access as a separate grant.
+        if ($permission === WebSalesPermission::Dashboard) {
+            return true;
+        }
+
         return $this->orders->allows($user, $this->matchingOrderPermission($permission), $order);
     }
 
@@ -59,7 +66,7 @@ class WebSalesAuthorization
     private function matchingOrderPermission(WebSalesPermission $permission): OrderPermission
     {
         return match ($permission) {
-            WebSalesPermission::View, WebSalesPermission::ViewAll => OrderPermission::View,
+            WebSalesPermission::View, WebSalesPermission::ViewAll, WebSalesPermission::Dashboard => OrderPermission::View,
             WebSalesPermission::Create => OrderPermission::Create,
             WebSalesPermission::Update => OrderPermission::UpdateDraft,
             WebSalesPermission::ViewRevenue => OrderPermission::ViewSellingPrice,

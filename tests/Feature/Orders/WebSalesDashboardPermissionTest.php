@@ -5,6 +5,7 @@ namespace Tests\Feature\Orders;
 use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\WebSalesPermission;
+use App\Filament\Pages\Administration\AccessControl;
 use App\Filament\Pages\WebSalesDashboard;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
@@ -90,6 +91,29 @@ class WebSalesDashboardPermissionTest extends TestCase
 
         $this->expectException(AuthorizationException::class);
         app(WebSalesDashboardService::class)->metrics($staff, CarbonImmutable::today(), CarbonImmutable::today());
+    }
+
+    public function test_read_only_dashboard_exposes_view_only_access_and_persists_employee_grant(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $staff = $this->user(EmployeeRole::Staff);
+
+        $component = Livewire::actingAs($owner)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->employee->id)
+            ->assertSee('Web Sales Dashboard')
+            ->assertSee('View only: this module has no editing capability.');
+
+        $component->call('setModuleAccess', 'web_sales_dashboard', 'view')
+            ->call('saveChanges')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('employee_permission_overrides', [
+            'employee_id' => $staff->employee->id,
+            'permission_key' => WebSalesPermission::Dashboard->value,
+            'effect' => EmployeePermissionEffect::Allow,
+        ]);
+
+        $this->assertTrue(app(WebSalesAuthorization::class)->allows($staff->refresh(), WebSalesPermission::Dashboard));
     }
 
     private function user(EmployeeRole $role): User

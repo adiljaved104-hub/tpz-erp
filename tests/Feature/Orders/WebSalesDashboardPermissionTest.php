@@ -60,6 +60,24 @@ class WebSalesDashboardPermissionTest extends TestCase
         Livewire::test(WebSalesDashboard::class)->assertOk();
     }
 
+    public function test_explicit_deny_overrides_an_admin_default(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $admin = $this->user(EmployeeRole::Admin);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $admin->employee->id,
+            'permission_key' => WebSalesPermission::Dashboard->value,
+            'effect' => EmployeePermissionEffect::Deny,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Dashboard access revoked',
+        ]);
+
+        $this->actingAs($admin->refresh());
+        $this->assertFalse(WebSalesDashboard::canAccess());
+        $this->assertFalse(WebSalesDashboard::shouldRegisterNavigation());
+        Livewire::test(WebSalesDashboard::class)->assertForbidden();
+    }
+
     public function test_denied_dashboard_cannot_open_the_page_or_call_the_data_service(): void
     {
         $staff = $this->user(EmployeeRole::Staff);

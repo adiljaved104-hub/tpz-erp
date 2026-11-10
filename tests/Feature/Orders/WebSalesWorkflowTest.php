@@ -291,6 +291,13 @@ class WebSalesWorkflowTest extends TestCase
         [$owner, , $product] = $this->foundation();
         $staff = $this->user(EmployeeRole::Staff);
         $this->assignProduct($staff, $product, $owner);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $staff->employee->id,
+            'permission_key' => WebSalesPermission::Dashboard->value,
+            'effect' => EmployeePermissionEffect::Allow,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Dashboard visibility regression coverage',
+        ]);
         $this->actingAs($staff);
 
         Livewire::test(WebSalesDashboard::class)
@@ -305,6 +312,38 @@ class WebSalesWorkflowTest extends TestCase
             ->assertDontSee('Gross Profit')
             ->assertDontSee('COGS')
             ->assertDontSee('Net Profit');
+    }
+
+    public function test_staff_dashboard_includes_orders_handled_by_employee_when_created_by_another_user(): void
+    {
+        [$owner, , $product] = $this->foundation();
+        $creator = $this->user(EmployeeRole::Staff);
+        $handler = $this->user(EmployeeRole::Staff);
+        $this->assignProduct($creator, $product, $owner);
+        $this->assignProduct($handler, $product, $owner);
+
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $handler->employee->id,
+            'permission_key' => WebSalesPermission::Dashboard->value,
+            'effect' => EmployeePermissionEffect::Allow,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Dashboard responsibility coverage',
+        ]);
+
+        $order = app(WebSalesService::class)->createConfirmed($this->data($product), $creator);
+        $order->update(['handled_by_employee_id' => $handler->employee->id]);
+
+        $unassigned = $this->user(EmployeeRole::Staff);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $unassigned->employee->id,
+            'permission_key' => WebSalesPermission::Dashboard->value,
+            'effect' => EmployeePermissionEffect::Allow,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Dashboard scope regression coverage',
+        ]);
+
+        $this->assertSame(1, app(WebSalesReadService::class)->scopedForDashboard($handler)->count());
+        $this->assertSame(0, app(WebSalesReadService::class)->scopedForDashboard($unassigned)->count());
     }
 
     /** @return array{User, Warehouse, Product, ProductInventory} */

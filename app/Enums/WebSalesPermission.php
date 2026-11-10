@@ -5,6 +5,7 @@ namespace App\Enums;
 enum WebSalesPermission: string
 {
     case View = 'web_sales.view';
+    case Dashboard = 'web_sales.dashboard';
     case Create = 'web_sales.create';
     case Update = 'web_sales.update';
     case ViewAll = 'web_sales.view_all';

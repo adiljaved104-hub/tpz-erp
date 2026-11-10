@@ -22,6 +22,18 @@ class WebSalesReadService
     {
         $this->authorization->authorize($user, WebSalesPermission::View);
 
+        return $this->applyResponsibilityScope($user);
+    }
+
+    public function scopedForDashboard(User $user): Builder
+    {
+        $this->authorization->authorize($user, WebSalesPermission::Dashboard);
+
+        return $this->applyResponsibilityScope($user);
+    }
+
+    private function applyResponsibilityScope(User $user): Builder
+    {
         $query = $this->responsibilities->applyOrders(Order::query()->webSales(), $user);
 
         if ($this->authorization->allows($user, WebSalesPermission::ViewAll)) {
@@ -34,10 +46,18 @@ class WebSalesReadService
         }
 
         if ($employee->role === EmployeeRole::Manager && $employee->team_id !== null) {
-            return $query->whereHas('handledBy', fn (Builder $employees): Builder => $employees->where('team_id', $employee->team_id));
+            return $query->where(function (Builder $scope) use ($employee, $user): void {
+                $scope
+                    ->where('orders.created_by_user_id', $user->id)
+                    ->orWhereHas('handledBy', fn (Builder $employees): Builder => $employees->where('team_id', $employee->team_id));
+            });
         }
 
-        return $query->where('created_by_user_id', $user->id);
+        return $query->where(function (Builder $scope) use ($employee, $user): void {
+            $scope
+                ->where('orders.created_by_user_id', $user->id)
+                ->orWhere('orders.handled_by_employee_id', $employee->id);
+        });
     }
 
     public function orders(User $user): Builder

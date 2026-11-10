@@ -41,13 +41,15 @@ class WebSalesDashboardService
     /** @return array<string, mixed> */
     public function metrics(User $user, CarbonImmutable $from, CarbonImmutable $to): array
     {
+        $this->authorization->authorize($user, WebSalesPermission::Dashboard);
+
         $canRevenue = $this->authorization->allows($user, WebSalesPermission::ViewRevenue);
         $canCost = $this->authorization->allows($user, WebSalesPermission::ViewCost);
         $canProfit = $this->authorization->allows($user, WebSalesPermission::ViewGrossProfit);
         $canNetProfit = $canProfit
             && $this->expenses->allows($user, ExpensePermission::ViewAmount)
             && $this->expenses->allows($user, ExpensePermission::ViewNetProfit);
-        $ids = $this->read->scoped($user)->select('orders.id');
+        $ids = $this->read->scopedForDashboard($user)->select('orders.id');
         $orders = DB::table('orders')->whereIn('orders.id', clone $ids)
             ->whereDate('orders.order_date', '>=', $from->toDateString())
             ->whereDate('orders.order_date', '<=', $to->toDateString());

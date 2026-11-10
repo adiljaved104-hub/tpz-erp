@@ -61,7 +61,6 @@ class AccountingFoundationTest extends TestCase
             $this->assertFalse($book->refresh()->posting_enabled);
         }
         config()->set('accounting.posting_activation_approved', true);
-        config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
         $posted = $service->post($draft, $owner);
 

@@ -9,6 +9,7 @@ use App\Models\AccountingBook;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\AccountingAuthorization;
 use Filament\Notifications\Notification;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class AccountingChartOfAccounts extends BaseAccountingPage
@@ -37,14 +38,21 @@ class AccountingChartOfAccounts extends BaseAccountingPage
     {
         try {
             app(AccountingAuthorization::class)->authorize($this->user(), AccountingPermission::ManageChart);
-            $book = AccountingBook::query()->findOrFail((int) $this->bookId);
+            $validated = $this->validate([
+                'bookId' => ['required', 'integer', 'exists:accounting_books,id'],
+                'number' => ['required', 'string', 'max:24', 'regex:/^[A-Za-z0-9][A-Za-z0-9.-]*$/', Rule::unique('accounting_accounts', 'number')->where(fn ($query) => $query->where('accounting_book_id', (int) $this->bookId))],
+                'name' => ['required', 'string', 'min:2', 'max:160'],
+                'type' => ['required', Rule::in(array_column(AccountingAccountType::cases(), 'value'))],
+                'posting' => ['boolean'],
+            ]);
+            $book = AccountingBook::query()->findOrFail((int) $validated['bookId']);
             $account = AccountingAccount::query()->create([
                 'accounting_book_id' => $book->id,
-                'number' => trim($this->number),
-                'name' => trim($this->name),
-                'account_type' => $this->type,
-                'normal_balance' => in_array($this->type, ['asset', 'cogs', 'expense'], true) ? 'debit' : 'credit',
-                'is_posting' => $this->posting,
+                'number' => trim($validated['number']),
+                'name' => trim($validated['name']),
+                'account_type' => $validated['type'],
+                'normal_balance' => in_array($validated['type'], ['asset', 'cogs', 'expense'], true) ? 'debit' : 'credit',
+                'is_posting' => (bool) $validated['posting'],
                 'active' => true,
                 'protected' => false,
             ]);
@@ -60,11 +68,12 @@ class AccountingChartOfAccounts extends BaseAccountingPage
 
     protected function getViewData(): array
     {
-        $book = AccountingBook::query()->first();
+        $books = AccountingBook::query()->orderBy('name')->get();
+        $book = AccountingBook::query()->find((int) $this->bookId) ?? $books->first();
         if ($book && $this->bookId === '') {
             $this->bookId = (string) $book->id;
         }
 
-        return ['book' => $book, 'books' => AccountingBook::query()->orderBy('name')->get(), 'accounts' => $book ? $book->accounts()->with('parent')->orderBy('number')->get() : collect(), 'types' => collect(AccountingAccountType::cases())->mapWithKeys(fn ($type) => [$type->value => ucfirst($type->value)])];
+        return ['book' => $book, 'books' => $books, 'accounts' => $book ? $book->accounts()->with('parent')->orderBy('number')->get() : collect(), 'types' => collect(AccountingAccountType::cases())->mapWithKeys(fn ($type) => [$type->value => ucfirst($type->value)])];
     }
 }

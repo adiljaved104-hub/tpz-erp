@@ -18,7 +18,13 @@ class AccountingAuthorization
             return false;
         }
 
-        $roleDefault = in_array($user->employee->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
+        $ownerOnly = [
+            AccountingPermission::ManagePeriods,
+            AccountingPermission::PostJournal,
+            AccountingPermission::ReverseJournal,
+        ];
+        $roleDefault = $user->employee->role === EmployeeRole::Owner
+            || ($user->employee->role === EmployeeRole::Admin && ! in_array($permission, $ownerOnly, true));
 
         return $roleDefault || ($this->overrides->decision($user, $permission->value) ?? false);
     }

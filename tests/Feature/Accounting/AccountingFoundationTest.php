@@ -3,11 +3,10 @@
 namespace Tests\Feature\Accounting;
 
 use App\Enums\AccountingJournalStatus;
-use App\Enums\AccountingPermission;
 use App\Enums\AccountingPeriodStatus;
+use App\Enums\AccountingPermission;
 use App\Enums\EmployeeRole;
 use App\Models\AccountingBook;
-use App\Models\AccountingJournal;
 use App\Models\AccountingPeriod;
 use App\Models\Employee;
 use App\Models\User;

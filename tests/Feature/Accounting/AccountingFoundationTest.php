@@ -151,6 +151,71 @@ class AccountingFoundationTest extends TestCase
         $service->post($draft, $owner);
     }
 
+    public function test_posting_controls_are_owner_only_and_idempotency_conflicts_are_rejected(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $admin = $this->user(EmployeeRole::Admin);
+        $book = AccountingBook::query()->firstOrFail();
+        $cash = $book->accounts()->where('number', '1100')->firstOrFail();
+        $equity = $book->accounts()->where('number', '3000')->firstOrFail();
+        $service = app(AccountingLedgerService::class);
+        $key = (string) Str::uuid();
+        $payload = [
+            'book_id' => $book->id,
+            'posting_date' => now()->toDateString(),
+            'narration' => 'Idempotent journal',
+            'idempotency_key' => $key,
+            'lines' => [
+                ['account_id' => $cash->id, 'debit' => '1234567890123456.78', 'credit' => '0'],
+                ['account_id' => $equity->id, 'debit' => '0', 'credit' => '1234567890123456.78'],
+            ],
+        ];
+
+        $draft = $service->createDraft($payload, $owner);
+        $retry = $service->createDraft($payload, $owner);
+        $this->assertSame($draft->id, $retry->id);
+        $this->assertFalse(app(AccountingAuthorization::class)->allows($admin, AccountingPermission::PostJournal));
+
+        $this->expectException(ValidationException::class);
+        $service->createDraft([...$payload, 'narration' => 'Conflicting replay'], $owner);
+    }
+
+    public function test_decimal_overflow_and_negative_amounts_are_rejected_without_records(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $book = AccountingBook::query()->firstOrFail();
+        $cash = $book->accounts()->where('number', '1100')->firstOrFail();
+        $equity = $book->accounts()->where('number', '3000')->firstOrFail();
+        $before = \App\Models\AccountingJournal::query()->count();
+
+        try {
+            app(AccountingLedgerService::class)->createDraft([
+                'book_id' => $book->id,
+                'posting_date' => now()->toDateString(),
+                'narration' => 'Overflow journal',
+                'idempotency_key' => (string) Str::uuid(),
+                'lines' => [
+                    ['account_id' => $cash->id, 'debit' => '12345678901234567.89'],
+                    ['account_id' => $equity->id, 'credit' => '12345678901234567.89'],
+                ],
+            ], $owner);
+            $this->fail('Overflow should be rejected.');
+        } catch (ValidationException) {
+            $this->assertSame($before, \App\Models\AccountingJournal::query()->count());
+        }
+    }
+
+    public function test_access_control_registers_accounting_modules_without_granting_posting_to_admin(): void
+    {
+        $registry = app(\App\Services\Authorization\AccessControlModuleRegistry::class);
+        $modules = $registry->keyed();
+
+        $this->assertContains('accounting.view', $modules['accounting_ledger']['view_keys']);
+        $this->assertContains('accounting.post_journal', $modules['accounting_journals']['advanced_keys']);
+        $this->assertContains('accounting.manage_periods', $modules['accounting_periods']['edit_keys']);
+        $this->assertNotSame($modules['accounting_journals']['edit_keys'], $modules['accounting_journals']['advanced_keys']);
+    }
+
     private function user(EmployeeRole $role): User
     {
         $user = User::factory()->create();

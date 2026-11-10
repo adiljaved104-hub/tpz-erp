@@ -36,6 +36,10 @@ class AccountingLedgerService
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($validated['book_id']);
             $existing = AccountingJournal::query()->where('accounting_book_id', $book->id)->where('idempotency_key', $validated['idempotency_key'])->with('lines')->first();
             if ($existing !== null) {
+                if (! $this->sameDraftPayload($existing, $validated)) {
+                    throw ValidationException::withMessages(['idempotency_key' => 'This idempotency key was already used with different journal content.']);
+                }
+
                 return $existing;
             }
             $period = $this->periodForDate($book, $validated['posting_date']);
@@ -84,7 +88,7 @@ class AccountingLedgerService
         });
     }
 
-    public function reverse(AccountingJournal $journal, string $reason, User $actor): AccountingJournal
+    public function reverse(AccountingJournal $journal, string $reason, User $actor, ?string $targetPostingDate = null): AccountingJournal
     {
         $this->authorization->authorize($actor, AccountingPermission::ReverseJournal);
         $reason = trim($reason);
@@ -92,19 +96,30 @@ class AccountingLedgerService
             throw ValidationException::withMessages(['reason' => 'Enter a reversal reason of at least 5 characters.']);
         }
 
-        return DB::transaction(function () use ($journal, $reason, $actor): AccountingJournal {
+        return DB::transaction(function () use ($journal, $reason, $actor, $targetPostingDate): AccountingJournal {
             $journal = AccountingJournal::query()->with('lines')->lockForUpdate()->findOrFail($journal->id);
             if ($journal->status !== AccountingJournalStatus::Posted) {
                 throw ValidationException::withMessages(['journal' => 'Only a posted journal can be reversed.']);
             }
-            if (AccountingJournal::query()->where('reversal_of_journal_id', $journal->id)->exists()) {
-                return AccountingJournal::query()->where('reversal_of_journal_id', $journal->id)->firstOrFail()->load('lines');
+            $book = AccountingBook::query()->lockForUpdate()->findOrFail($journal->accounting_book_id);
+            if (! $book->active || ! $book->posting_enabled) {
+                throw ValidationException::withMessages(['book' => 'This accounting book is inactive or posting is not enabled.']);
             }
+            $targetDate = $targetPostingDate ?? now('UTC')->toDateString();
+            $period = $this->periodForDate($book, $targetDate);
+            if ($period->status !== AccountingPeriodStatus::Open) {
+                throw ValidationException::withMessages(['posting_date' => 'The reversal target period is closed or locked.']);
+            }
+            $existing = AccountingJournal::query()->where('reversal_of_journal_id', $journal->id)->lockForUpdate()->first();
+            if ($existing !== null) {
+                return $existing->load('lines');
+            }
+
             $reversal = AccountingJournal::query()->create([
-                'accounting_book_id' => $journal->accounting_book_id,
-                'accounting_period_id' => $journal->accounting_period_id,
+                'accounting_book_id' => $book->id,
+                'accounting_period_id' => $period->id,
                 'reference' => 'REV-'.$journal->reference,
-                'posting_date' => $journal->posting_date,
+                'posting_date' => $targetDate,
                 'status' => AccountingJournalStatus::Draft,
                 'narration' => 'Reversal of '.$journal->reference.': '.$reason,
                 'idempotency_key' => (string) Str::uuid(),
@@ -118,9 +133,9 @@ class AccountingLedgerService
                 'debit' => $line->credit,
                 'credit' => $line->debit,
             ])->all());
-            $this->validateBalancedLines($reversal->lines()->get(), $journal->book()->firstOrFail());
+            $this->validateBalancedLines($reversal->lines()->get(), $book);
             $reversal->forceFill(['status' => AccountingJournalStatus::Posted, 'posted_at' => now('UTC'), 'posted_by_user_id' => $actor->id])->saveQuietly();
-            $this->activity->log('accounting.journal_reversed', $actor, $reversal, ['reference' => $journal->reference, 'reason' => $reason]);
+            $this->activity->log('accounting.journal_reversed', $actor, $reversal, ['reference' => $journal->reference, 'reason' => $reason, 'target_period' => $period->name]);
 
             return $reversal->load('lines');
         });
@@ -129,10 +144,20 @@ class AccountingLedgerService
     public function enablePosting(AccountingBook $book, User $actor): AccountingBook
     {
         $this->authorization->authorize($actor, AccountingPermission::ManagePeriods);
-        $book->forceFill(['posting_enabled' => true])->save();
-        $this->activity->log('accounting.book_posting_enabled', $actor, $book, ['book_code' => $book->code]);
+        if ($actor->employee?->role !== \App\Enums\EmployeeRole::Owner || ! config('accounting.posting_activation_approved', false)) {
+            throw ValidationException::withMessages(['posting' => 'Posting activation requires explicit Owner approval and remains disabled until the activation gate is enabled.']);
+        }
 
-        return $book->refresh();
+        return DB::transaction(function () use ($book, $actor): AccountingBook {
+            $book = AccountingBook::query()->lockForUpdate()->findOrFail($book->id);
+            if (! $book->active) {
+                throw ValidationException::withMessages(['book' => 'An inactive accounting book cannot be enabled for posting.']);
+            }
+            $book->forceFill(['posting_enabled' => true])->save();
+            $this->activity->log('accounting.book_posting_enabled', $actor, $book, ['book_code' => $book->code]);
+
+            return $book->refresh();
+        });
     }
 
     public function closePeriod(AccountingPeriod $period, User $actor): AccountingPeriod
@@ -251,11 +276,40 @@ class AccountingLedgerService
     private function decimal(string|int|float|null $value): string
     {
         $value = trim((string) ($value ?? '0'));
-        if (! preg_match('/^\d+(?:\.\d{1,2})?$/', $value) || bccomp($value, '0', 2) < 0) {
+        if (! preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $value)) {
             throw ValidationException::withMessages(['lines' => 'Amounts must be non-negative decimal values with at most two places.']);
         }
+        [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
+        $whole = ltrim($whole, '0') ?: '0';
+        if (strlen($whole) > 16) {
+            throw ValidationException::withMessages(['lines' => 'Amount exceeds the DECIMAL(18,2) accounting limit.']);
+        }
 
-        return number_format((float) $value, 2, '.', '');
+        return $whole.'.'.str_pad($fraction, 2, '0');
+    }
+
+    private function sameDraftPayload(AccountingJournal $journal, array $validated): bool
+    {
+        if ($journal->posting_date?->toDateString() !== $validated['posting_date']
+            || $journal->narration !== $validated['narration']
+            || $journal->source_type !== ($validated['source_type'] ?? null)
+            || $journal->source_key !== ($validated['source_key'] ?? null)) {
+            return false;
+        }
+
+        $existing = $journal->lines->sortBy('line_number')->values();
+        $incoming = collect($validated['lines'])->values();
+        if ($existing->count() !== $incoming->count()) {
+            return false;
+        }
+
+        return $existing->values()->zip($incoming)->every(function ($pair): bool {
+            [$line, $input] = $pair;
+            return (int) $line->account_id === (int) $input['account_id']
+                && bccomp((string) $line->debit, $this->decimal($input['debit'] ?? '0'), 2) === 0
+                && bccomp((string) $line->credit, $this->decimal($input['credit'] ?? '0'), 2) === 0
+                && ($line->description ?? null) === ($input['description'] ?? null);
+        });
     }
 
     private function normalBalance(AccountingAccount $account, string $debit, string $credit): string

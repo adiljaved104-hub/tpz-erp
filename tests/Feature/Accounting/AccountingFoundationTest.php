@@ -118,6 +118,12 @@ class AccountingFoundationTest extends TestCase
         $service->enablePosting($book, $owner);
         $posted = $service->post($draft, $owner);
 
+        $reversal = $service->reverse($posted, 'Owner-approved correction', $owner);
+        $this->assertSame(AccountingJournalStatus::Posted, $reversal->status);
+        $this->assertSame($posted->id, $reversal->reversal_of_journal_id);
+        $this->assertSame('50.00', (string) $reversal->lines->first()->credit);
+        $this->assertSame('50.00', (string) $reversal->lines->last()->debit);
+
         $this->expectException(LogicException::class);
         $posted->update(['narration' => 'tampered']);
     }

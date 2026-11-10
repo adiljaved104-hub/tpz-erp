@@ -219,6 +219,11 @@ class AccessControl extends Page
         abort_unless(in_array($level, ['none', 'view', 'view_edit'], true), 422);
         $module = app(AccessControlModuleRegistry::class)->keyed()[$moduleKey] ?? null;
         abort_unless(is_array($module) && ! $module['derived'], 404);
+        if ($level === 'view_edit' && $module['edit_keys'] === []) {
+            throw ValidationException::withMessages([
+                'moduleAccess' => $module['label'].' is view-only and has no edit permissions.',
+            ]);
+        }
         $employees = $this->targetEmployees();
 
         foreach ($module['view_keys'] as $key) {

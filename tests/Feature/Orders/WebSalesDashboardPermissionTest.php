@@ -60,11 +60,15 @@ class WebSalesDashboardPermissionTest extends TestCase
         Livewire::test(WebSalesDashboard::class)->assertOk();
     }
 
-    public function test_denied_dashboard_cannot_call_the_data_service(): void
+    public function test_denied_dashboard_cannot_open_the_page_or_call_the_data_service(): void
     {
         $staff = $this->user(EmployeeRole::Staff);
-        $this->expectException(AuthorizationException::class);
+        $this->actingAs($staff);
+        $this->assertFalse(WebSalesDashboard::canAccess());
+        $this->assertFalse(WebSalesDashboard::shouldRegisterNavigation());
+        Livewire::test(WebSalesDashboard::class)->assertForbidden();
 
+        $this->expectException(AuthorizationException::class);
         app(WebSalesDashboardService::class)->metrics(
             $staff,
             CarbonImmutable::today(),

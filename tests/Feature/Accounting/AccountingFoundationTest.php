@@ -8,8 +8,8 @@ use App\Enums\AccountingPermission;
 use App\Enums\EmployeeRole;
 use App\Models\AccountingBook;
 use App\Models\AccountingJournal;
-use App\Services\Authorization\AccessControlModuleRegistry;
 use App\Models\AccountingPeriod;
+use App\Services\Authorization\AccessControlModuleRegistry;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\Accounting\AccountingLedgerService;
@@ -205,7 +205,7 @@ class AccountingFoundationTest extends TestCase
             ], $owner);
             $this->fail('Overflow should be rejected.');
         } catch (ValidationException) {
-            $this->assertSame($before, \App\Models\AccountingJournal::query()->count());
+            $this->assertSame($before, AccountingJournal::query()->count());
         }
     }
 

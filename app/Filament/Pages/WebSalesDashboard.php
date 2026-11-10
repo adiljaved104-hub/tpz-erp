@@ -37,7 +37,7 @@ class WebSalesDashboard extends Page
     {
         $user = auth()->user();
 
-        return $user instanceof User && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View);
+        return $user instanceof User && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Dashboard);
     }
 
     public static function shouldRegisterNavigation(): bool
@@ -55,6 +55,7 @@ class WebSalesDashboard extends Page
 
     public function setPeriod(string $period): void
     {
+        $this->guardAccess();
         abort_unless(in_array($period, ['today', 'yesterday', 'week', 'month', 'custom'], true), 422);
         $this->period = $period;
         if ($period !== 'custom') {
@@ -66,16 +67,23 @@ class WebSalesDashboard extends Page
 
     public function applyRange(): void
     {
+        $this->guardAccess();
         $this->validate(['from' => ['required', 'date'], 'to' => ['required', 'date', 'after_or_equal:from']]);
         $this->period = 'custom';
     }
 
     public function getViewData(): array
     {
+        $this->guardAccess();
         $this->validate(['from' => ['required', 'date'], 'to' => ['required', 'date', 'after_or_equal:from']]);
         $service = app(WebSalesDashboardService::class);
         [$from, $to] = $service->range('custom', $this->from, $this->to);
 
         return ['metrics' => $service->metrics(auth()->user(), $from, $to), 'rangeLabel' => $from->format('d M Y').' – '.$to->format('d M Y')];
+    }
+
+    private function guardAccess(): void
+    {
+        abort_unless(static::canAccess(), 403);
     }
 }

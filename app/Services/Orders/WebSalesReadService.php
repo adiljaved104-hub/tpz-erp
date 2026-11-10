@@ -22,6 +22,18 @@ class WebSalesReadService
     {
         $this->authorization->authorize($user, WebSalesPermission::View);
 
+        return $this->applyResponsibilityScope($user);
+    }
+
+    public function scopedForDashboard(User $user): Builder
+    {
+        $this->authorization->authorize($user, WebSalesPermission::Dashboard);
+
+        return $this->applyResponsibilityScope($user);
+    }
+
+    private function applyResponsibilityScope(User $user): Builder
+    {
         $query = $this->responsibilities->applyOrders(Order::query()->webSales(), $user);
 
         if ($this->authorization->allows($user, WebSalesPermission::ViewAll)) {

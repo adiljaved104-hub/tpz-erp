@@ -291,6 +291,13 @@ class WebSalesWorkflowTest extends TestCase
         [$owner, , $product] = $this->foundation();
         $staff = $this->user(EmployeeRole::Staff);
         $this->assignProduct($staff, $product, $owner);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $staff->employee->id,
+            'permission_key' => WebSalesPermission::Dashboard->value,
+            'effect' => EmployeePermissionEffect::Allow,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Dashboard visibility regression coverage',
+        ]);
         $this->actingAs($staff);
 
         Livewire::test(WebSalesDashboard::class)

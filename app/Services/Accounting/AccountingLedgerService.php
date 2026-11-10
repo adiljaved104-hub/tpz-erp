@@ -4,8 +4,8 @@ namespace App\Services\Accounting;
 
 use App\Enums\AccountingJournalStatus;
 use App\Enums\AccountingPeriodStatus;
-use App\Enums\EmployeeRole;
 use App\Enums\AccountingPermission;
+use App\Enums\EmployeeRole;
 use App\Models\AccountingAccount;
 use App\Models\AccountingBook;
 use App\Models\AccountingJournal;
@@ -145,7 +145,7 @@ class AccountingLedgerService
     public function enablePosting(AccountingBook $book, User $actor): AccountingBook
     {
         $this->authorization->authorize($actor, AccountingPermission::ManagePeriods);
-        if ($actor->employee?->role !== EmployeeRole::Owner || ! config('accounting.posting_activation_approved', false)) {
+        if ($actor->employee?->role !== EmployeeRole::Owner || config('accounting.posting_activation_approved', false) !== true) {
             throw ValidationException::withMessages(['posting' => 'Posting activation requires explicit Owner approval and remains disabled until the activation gate is enabled.']);
         }
 

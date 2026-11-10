@@ -141,11 +141,11 @@ class AccountingFoundationTest extends TestCase
         $owner = $this->user(EmployeeRole::Owner);
         $book = AccountingBook::query()->firstOrFail();
         $period = AccountingPeriod::query()->where('accounting_book_id', $book->id)->firstOrFail();
-        $period->forceFill(['status' => AccountingPeriodStatus::Closed])->saveQuietly();
         $service = app(AccountingLedgerService::class);
         $cash = $book->accounts()->where('number', '1100')->firstOrFail();
         $equity = $book->accounts()->where('number', '3000')->firstOrFail();
         $draft = $service->createDraft(['book_id' => $book->id, 'posting_date' => now()->toDateString(), 'narration' => 'Closed period journal', 'idempotency_key' => (string) Str::uuid(), 'lines' => [['account_id' => $cash->id, 'debit' => '50.00'], ['account_id' => $equity->id, 'credit' => '50.00']]], $owner);
+        $period->forceFill(['status' => AccountingPeriodStatus::Closed])->saveQuietly();
         config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
 

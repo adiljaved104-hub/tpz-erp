@@ -67,6 +67,6 @@ jobs:
           php -l app/Models/AccountingSupplierPaymentAllocation.php
           php -l database/migrations/2026_11_11_120000_create_accounting_supplier_payables.php
       - name: Pint changed PHP files
-        run: vendor/bin/pint --test -v app/Enums/AccountingPermission.php app/Models/AccountingSupplierBill.php app/Models/AccountingSupplierBillLine.php app/Models/AccountingSupplierPayment.php app/Models/AccountingSupplierPaymentAllocation.php app/Services/Accounting/AccountsPayableService.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php tests/Feature/Accounting/AccountsPayableFoundationTest.php database/migrations/2026_11_11_120000_create_accounting_supplier_payables.php
+        run: vendor/bin/pint --test app/Enums/AccountingPermission.php app/Models/AccountingSupplierBill.php app/Models/AccountingSupplierBillLine.php app/Models/AccountingSupplierPayment.php app/Models/AccountingSupplierPaymentAllocation.php app/Services/Accounting/AccountsPayableService.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php tests/Feature/Accounting/AccountsPayableFoundationTest.php database/migrations/2026_11_11_120000_create_accounting_supplier_payables.php
       - name: Blade compilation
         run: php artisan view:cache

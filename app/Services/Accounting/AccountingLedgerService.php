@@ -103,7 +103,7 @@ class AccountingLedgerService
                 throw ValidationException::withMessages(['journal' => 'Only a posted journal can be reversed.']);
             }
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($journal->accounting_book_id);
-            if (! $book->active || ! $book->posting_enabled) {
+            if ($book->active === false || $book->posting_enabled === false) {
                 throw ValidationException::withMessages(['book' => 'This accounting book is inactive or posting is not enabled.']);
             }
             $targetDate = $targetPostingDate ?? now('UTC')->toDateString();
@@ -307,7 +307,7 @@ class AccountingLedgerService
         $credit = '0.00';
         foreach ($lines as $line) {
             $account = AccountingAccount::query()->where('accounting_book_id', $book->id)->find($line->account_id);
-            if (! $account || ! $account->active || ! $account->is_posting || $account->is_control) {
+            if ($account === null || $account->active === false || $account->is_posting === false || $account->is_control) {
                 throw ValidationException::withMessages(['lines' => 'Journal lines must use active posting accounts in the selected book.']);
             }
             $debit = bcadd($debit, (string) $line->debit, 2);

@@ -234,7 +234,7 @@ class AccountingLedgerService
     {
         $user = auth()->user();
         abort_unless($user instanceof User, 403);
-        $this->authorization->authorize($user, AccountingPermission::View);
+        $this->authorization->authorize($user, AccountingPermission::ViewLedger);
 
         $lines = \App\Models\AccountingJournalLine::query()->with(['journal', 'account'])
             ->whereHas('journal', fn ($query) => $query->where('accounting_book_id', $book->id)->where('status', AccountingJournalStatus::Posted)->whereBetween('posting_date', [$from, $to]))

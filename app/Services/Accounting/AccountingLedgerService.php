@@ -228,7 +228,9 @@ class AccountingLedgerService
         $running = [];
         return $lines->map(function ($line) use (&$opening, &$running): mixed {
             $accountId = $line->account_id;
-            $opening[$accountId] ??= '0.00';
+            if (! array_key_exists($accountId, $opening)) {
+                $opening[$accountId] = '0.00';
+            }
             $running[$accountId] = bcadd((string) ($running[$accountId] ?? $opening[$accountId]), bcsub((string) $line->debit, (string) $line->credit, 2), 2);
             $line->setAttribute('opening_balance', (string) $opening[$accountId]);
             $line->setAttribute('running_balance', (string) $running[$accountId]);
@@ -333,7 +335,7 @@ class AccountingLedgerService
 
     private function sameDraftPayload(AccountingJournal $journal, array $validated): bool
     {
-        if ($journal->posting_date?->toDateString() !== $validated['posting_date']
+        if (($journal->posting_date === null ? null : $journal->posting_date->toDateString()) !== $validated['posting_date']
             || $journal->narration !== $validated['narration']
             || $journal->source_type !== ($validated['source_type'] ?? null)
             || $journal->source_key !== ($validated['source_key'] ?? null)) {

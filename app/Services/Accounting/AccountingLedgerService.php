@@ -330,6 +330,7 @@ class AccountingLedgerService
             $debit = bcadd($debit, (string) $line->debit, 2);
             $credit = bcadd($credit, (string) $line->credit, 2);
         }
+
         if (bccomp($debit, $credit, 2) !== 0 || bccomp($debit, '0.00', 2) <= 0) {
             throw ValidationException::withMessages(['lines' => 'Journal debits and credits must balance to a positive amount.']);
         }

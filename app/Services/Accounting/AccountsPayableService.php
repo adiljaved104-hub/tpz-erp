@@ -157,8 +157,11 @@ class AccountsPayableService
             foreach ($allocations as $allocation) {
                 $billId = $allocation['bill_id'] ?? null; $input = $allocation['amount'] ?? null;
                 throw_if(! is_numeric($billId) || ! is_string((string) $input) || ! preg_match('/^\\d+(?:\\.\\d{1,2})?$/', (string) $input), ValidationException::withMessages(['allocations' => 'Each allocation needs a positive decimal amount and bill.']));
-                $amount = self::decimal((string) $input, 2); throw_if(bccomp($amount, '0.00', 2) <= 0, ValidationException::withMessages(['allocations' => 'Allocation amounts must be positive.']));
-                $billId = (int) $billId; throw_if(isset($seen[$billId]), ValidationException::withMessages(['allocations' => 'Duplicate bill allocation rows are not allowed.'])); $seen[$billId] = true;
+                $amount = self::decimal((string) $input, 2);
+                throw_if(bccomp($amount, '0.00', 2) <= 0, ValidationException::withMessages(['allocations' => 'Allocation amounts must be positive.']));
+                $billId = (int) $billId;
+                throw_if(isset($seen[$billId]), ValidationException::withMessages(['allocations' => 'Duplicate bill allocation rows are not allowed.']));
+                $seen[$billId] = true;
                 $bill = AccountingSupplierBill::query()->lockForUpdate()->withSum('allocations', 'amount')->findOrFail($billId);
                 throw_if($bill->status === 'voided', ValidationException::withMessages(['allocations' => 'Voided bills cannot be allocated.']));
                 if ($bill->accounting_book_id !== $payment->accounting_book_id || $bill->supplier_id !== $payment->supplier_id || strtoupper((string) $bill->currency) !== strtoupper((string) $payment->currency)) {
@@ -188,7 +191,8 @@ class AccountsPayableService
             $bill = AccountingSupplierBill::query()->lockForUpdate()->findOrFail($bill->id);
             throw_if($bill->status !== 'draft', ValidationException::withMessages(['bill' => 'Only draft bills can be approved.']));
             $bill->forceFill(['status' => 'approved', 'approved_by_user_id' => $actor->id, 'approved_at' => now()])->save();
-            $this->activity->log('accounting.supplier_bill_approved', $actor, $bill); return $bill;
+            $this->activity->log('accounting.supplier_bill_approved', $actor, $bill);
+            return $bill;
         });
     }
 
@@ -198,7 +202,8 @@ class AccountsPayableService
         return DB::transaction(function () use ($payment): AccountingSupplierPayment {
             $payment = AccountingSupplierPayment::query()->lockForUpdate()->findOrFail($payment->id);
             throw_if($payment->status !== 'draft', ValidationException::withMessages(['payment' => 'Only draft payments can be approved.']));
-            $payment->update(['status' => 'approved']); return $payment;
+            $payment->update(['status' => 'approved']);
+            return $payment;
         });
     }
 
@@ -208,7 +213,8 @@ class AccountsPayableService
         return DB::transaction(function () use ($adjustment): AccountingSupplierAdjustment {
             $adjustment = AccountingSupplierAdjustment::query()->lockForUpdate()->findOrFail($adjustment->id);
             throw_if($adjustment->status !== 'draft', ValidationException::withMessages(['adjustment' => 'Only draft adjustments can be approved.']));
-            $adjustment->update(['status' => 'approved']); return $adjustment;
+            $adjustment->update(['status' => 'approved']);
+            return $adjustment;
         });
     }
 
@@ -270,7 +276,9 @@ class AccountsPayableService
             $allocated = (string) ($bill->allocations_sum_amount ?? '0.00');
             $bill->setAttribute('outstanding_amount', bcsub((string) $bill->grand_total, $allocated, 2));
             $bill->setAttribute('days_overdue', $bill->due_date && $bill->due_date->lt($asOf) ? $bill->due_date->diffInDays($asOf) : 0); return $bill;
-        })->filter(fn (AccountingSupplierBill $bill): bool => bccomp((string) $bill->outstanding_amount, '0.00', 2) > 0)->values();
+        })
+            ->filter(fn (AccountingSupplierBill $bill): bool => bccomp((string) $bill->outstanding_amount, '0.00', 2) > 0)
+            ->values();
     }
 
     private function sumBalance(AccountingBook $book, int $supplierId, array $statuses): string
@@ -278,13 +286,21 @@ class AccountsPayableService
         $billed = (string) AccountingSupplierBill::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->whereIn('status', $statuses)->sum('grand_total');
         $credits = (string) AccountingSupplierAdjustment::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->where('kind', 'credit')->whereIn('status', $statuses)->sum('amount');
         $debits = (string) AccountingSupplierAdjustment::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->where('kind', 'debit')->whereIn('status', $statuses)->sum('amount');
-        $paid = (string) DB::table('accounting_supplier_payment_allocations as allocation')->join('accounting_supplier_payments as payment', 'payment.id', '=', 'allocation.payment_id')->where('payment.accounting_book_id', $book->id)->where('payment.supplier_id', $supplierId)->whereIn('payment.status', $statuses)->sum('allocation.amount');
+        $paid = (string) DB::table('accounting_supplier_payment_allocations as allocation')
+            ->join('accounting_supplier_payments as payment', 'payment.id', '=', 'allocation.payment_id')
+            ->where('payment.accounting_book_id', $book->id)
+            ->where('payment.supplier_id', $supplierId)
+            ->whereIn('payment.status', $statuses)
+            ->sum('allocation.amount');
         return bcsub(bcadd(bcsub($billed, $credits, 2), $debits, 2), $paid, 2);
     }
 
     private function assertCurrency(AccountingBook $book, string $currency): void
     {
-        throw_if(strtoupper((string) $book->currency) !== strtoupper($currency), ValidationException::withMessages(['currency' => 'Currency must match the accounting book currency.']));
+        throw_if(
+            strtoupper((string) $book->currency) !== strtoupper($currency),
+            ValidationException::withMessages(['currency' => 'Currency must match the accounting book currency.']),
+        );
     }
 
     private function assertSameBillPayload(AccountingSupplierBill $bill, array $data): void
@@ -309,6 +325,8 @@ class AccountsPayableService
         if (! preg_match('/^\\d+(?:\\.\\d{1,' . $scale . '})?$/', $value)) {
             throw ValidationException::withMessages(['amount' => 'Invalid decimal value.']);
         }
-        [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, ''); return $whole . '.' . str_pad($fraction, $scale, '0');
+        [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
+
+        return $whole . '.' . str_pad($fraction, $scale, '0');
     }
 }

@@ -7,6 +7,7 @@ use App\Models\AccountingBook;
 use App\Models\AccountingSupplierBill;
 use App\Models\AccountingSupplierPayment;
 use App\Models\AccountingSupplierPaymentAllocation;
+use App\Services\Authorization\AccountingAuthorization;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 class AccountsPayableService
 {
     public function __construct(
-        private readonly \App\Services\Authorization\AccountingAuthorization $authorization,
+        private readonly AccountingAuthorization $authorization,
         private readonly ActivityLogger $activity,
     ) {}
 

@@ -16,30 +16,53 @@ use Illuminate\Validation\ValidationException;
 class SupplierPayables extends BaseAccountingPage
 {
     protected string $view = 'filament.pages.finance.supplier-payables';
+
     protected static ?string $slug = 'finance/accounting/supplier-payables';
+
     protected static ?string $navigationLabel = 'Supplier Payables';
+
     protected static ?int $navigationSort = 35;
+
     protected static AccountingPermission $requiredPermission = AccountingPermission::ViewPayables;
 
     public string $bookId = '';
+
     public string $supplierId = '';
+
     public string $billNumber = '';
+
     public string $billDate = '';
+
     public string $dueDate = '';
+
     public string $billDescription = '';
+
     public string $billQuantity = '1';
+
     public string $billUnitCost = '';
+
     public string $billVatRate = '0';
+
     public string $paymentDate = '';
+
     public string $paymentAmount = '';
+
     public string $paymentReference = '';
+
     public string $adjustmentKind = 'credit';
+
     public string $adjustmentDate = '';
+
     public string $adjustmentAmount = '';
+
     public string $adjustmentReference = '';
+
     public string $adjustmentReason = '';
+
     public string $allocationPaymentId = '';
+
     public string $allocationBillId = '';
+
     public string $allocationAmount = '';
 
     public function mount(): void

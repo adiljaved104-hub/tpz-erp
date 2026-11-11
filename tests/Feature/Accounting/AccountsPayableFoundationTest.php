@@ -61,7 +61,7 @@ class AccountsPayableFoundationTest extends TestCase
 
         $service->allocatePayment($payment, [['bill_id' => $bill->id, 'amount' => '60.00']], $owner);
 
-        $this->assertSame('45.00', $service->supplierBalance($book, $supplier->id));
+        $this->assertSame('45.00', $service->draftExposure($book, $supplier->id, $owner));
         $this->assertFalse($book->refresh()->posting_enabled);
     }
 
@@ -113,7 +113,7 @@ class AccountsPayableFoundationTest extends TestCase
         ], $owner);
 
         $this->assertSame('draft', $credit->status);
-        $this->assertSame('80.00', $service->supplierBalance($book, $supplier->id));
+        $this->assertSame('80.00', $service->draftExposure($book, $supplier->id, $owner));
         $this->assertFalse($book->refresh()->posting_enabled);
     }
 

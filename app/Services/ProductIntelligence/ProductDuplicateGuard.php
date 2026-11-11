@@ -5,6 +5,7 @@ namespace App\Services\ProductIntelligence;
 use App\DTOs\ProductIntelligence\ProductMatchReason;
 use App\DTOs\ProductIntelligence\ProductMatchRequest;
 use App\DTOs\ProductIntelligence\ProductMatchResult;
+use App\Enums\EmployeeRole;
 use App\Enums\ProductMatchClassification;
 use App\Enums\ProductMatchContext;
 use App\Enums\ProductPermission;
@@ -77,6 +78,8 @@ class ProductDuplicateGuard
             'condition' => $attributes['condition'] ?? null,
         ];
 
+        $exactTitleProductIds = $this->normalizedTitleMatches($name, $excludeProductId)->pluck('id');
+
         $matches = $this->matcher->match(new ProductMatchRequest(
             query: $name,
             context: $excludeProductId === null ? ProductMatchContext::ProductCreation : ProductMatchContext::ProductUpdate,
@@ -88,7 +91,11 @@ class ProductDuplicateGuard
             ProductMatchClassification::Exact,
             ProductMatchClassification::VeryHigh,
             ProductMatchClassification::PossibleDuplicate,
-        ], true))->values();
+        ], true))
+            // Exact-title variants are resolved only by sameStructuredVariant; do not let fuzzy
+            // scoring reintroduce a rejected color, touch, or condition variant.
+            ->reject(fn ($result): bool => $exactTitleProductIds->contains($result->productId))
+            ->values();
 
         $products = Product::query()->whereIn('id', $matches->pluck('productId'))->get()->keyBy('id');
 
@@ -104,13 +111,20 @@ class ProductDuplicateGuard
     {
         $candidates = $this->candidates($actor, $attributes, $excludeProductId);
         $hiddenExactMatch = $this->hasUnreviewableExactTitle($actor, (string) ($attributes['name'] ?? ''), $excludeProductId);
-        if (($candidates->isNotEmpty() || $hiddenExactMatch)
-            && (! $confirmed || blank($attributes['duplicate_override_reason'] ?? null))) {
-            throw ValidationException::withMessages([
-                'duplicate_override_reason' => $hiddenExactMatch && $candidates->isEmpty()
-                    ? 'An exact title match exists outside your Product visibility scope. Ask an authorized reviewer to inspect it, then confirm and explain why a separate Product is required.'
-                    : 'Review the matching Products, confirm Save Anyway, and explain why a separate Product should be kept.',
-            ]);
+        if ($candidates->isNotEmpty() || $hiddenExactMatch) {
+            if (! $confirmed || blank($attributes['duplicate_override_reason'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'duplicate_override_reason' => $hiddenExactMatch && $candidates->isEmpty()
+                        ? 'An exact title match exists outside your Product visibility scope. Ask an authorized reviewer to inspect it, then confirm and explain why a separate Product is required.'
+                        : 'Review the matching Products, confirm Save Anyway, and explain why a separate Product should be kept.',
+                ]);
+            }
+
+            if ($actor->employee?->role !== EmployeeRole::Owner) {
+                throw ValidationException::withMessages([
+                    'duplicate_override_reason' => 'Only an Owner may authorize creating an exact or likely duplicate Product.',
+                ]);
+            }
         }
 
         return $candidates;
@@ -163,7 +177,10 @@ class ProductDuplicateGuard
         $patterns = $tokens->map(fn (string $token): string => '%'.implode('%', mb_str_split($token)).'%');
 
         $matches = collect();
-        Product::query()->select(['id', 'name', 'sku', 'inventory_item_type'])
+        Product::query()->select([
+            'id', 'name', 'sku', 'inventory_item_type', 'model', 'processor_model', 'ram', 'storage',
+            'graphics', 'screen_size', 'color', 'touch_screen', 'is_convertible_360', 'condition',
+        ])
             ->when($excludeProductId !== null, fn (Builder $query) => $query->whereKeyNot($excludeProductId))
             ->where(function (Builder $query) use ($patterns): void {
                 foreach ($patterns as $pattern) {
@@ -199,6 +216,7 @@ class ProductDuplicateGuard
 
         foreach (['model', 'processor_model', 'ram', 'storage', 'graphics', 'screen_size', 'color'] as $field) {
             if (filled($attributes[$field] ?? null)
+                && filled($product->{$field})
                 && mb_strtolower(trim((string) $attributes[$field])) !== mb_strtolower(trim((string) $product->{$field}))) {
                 return false;
             }
@@ -208,7 +226,9 @@ class ProductDuplicateGuard
                 return false;
             }
         }
-        if (filled($attributes['condition'] ?? null) && (string) $attributes['condition'] !== $product->condition?->value) {
+        if (filled($attributes['condition'] ?? null)
+            && filled($product->condition?->value)
+            && (string) $attributes['condition'] !== $product->condition?->value) {
             return false;
         }
 

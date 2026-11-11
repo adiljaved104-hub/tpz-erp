@@ -33,8 +33,9 @@ class ProductDuplicateGuard
             return collect();
         }
 
-        $exactTitleMatches = $this->normalizedTitleMatches($name, $excludeProductId)
-            ->filter(fn (Product $product): bool => $this->sameStructuredVariant($product, $attributes));
+        // A normalized title match is authoritative even when optional structured fields are absent
+        // or stale on either record; the title itself must always raise a duplicate warning.
+        $exactTitleMatches = $this->normalizedTitleMatches($name, $excludeProductId);
         $visibleExactMatches = $this->visibleProducts($actor, $exactTitleMatches)
             ->map(fn (Product $product): ProductMatchResult => new ProductMatchResult(
                 productId: $product->id,

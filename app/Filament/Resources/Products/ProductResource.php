@@ -32,9 +32,9 @@ class ProductResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Products';
+    protected static string|\UnitEnum|null $navigationGroup = 'Purchasing';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 99;
 
     public static function getEloquentQuery(): Builder
     {

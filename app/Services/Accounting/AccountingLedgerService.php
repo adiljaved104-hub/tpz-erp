@@ -43,7 +43,9 @@ class AccountingLedgerService
         return DB::transaction(function () use ($validated, $actor): AccountingJournal {
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($validated['book_id']);
             $existing = AccountingJournal::query()->where('accounting_book_id', $book->id)->where('idempotency_key', $validated['idempotency_key'])->with('lines')->first();
+
             if ($existing !== null) {
+
                 if ($this->sameDraftPayload($existing, $validated) === false) {
                     throw ValidationException::withMessages(['idempotency_key' => 'This idempotency key was already used with different journal content.']);
                 }
@@ -78,16 +80,19 @@ class AccountingLedgerService
 
         return DB::transaction(function () use ($journal, $actor): AccountingJournal {
             $journal = AccountingJournal::query()->with('lines')->lockForUpdate()->findOrFail($journal->id);
+
             if ($journal->status === AccountingJournalStatus::Posted) {
                 return $journal;
             }
 
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($journal->accounting_book_id);
+
             if ($book->active === false || $book->posting_enabled === false) {
                 throw ValidationException::withMessages(['book' => 'This accounting book is inactive or posting is not enabled.']);
             }
 
             $period = AccountingPeriod::query()->lockForUpdate()->findOrFail($journal->accounting_period_id);
+
             if ($period->status !== AccountingPeriodStatus::Open) {
                 throw ValidationException::withMessages(['posting_date' => 'The accounting period is closed or locked.']);
             }
@@ -104,28 +109,33 @@ class AccountingLedgerService
     {
         $this->authorization->authorize($actor, AccountingPermission::ReverseJournal);
         $reason = trim($reason);
+
         if (mb_strlen($reason) < 5) {
             throw ValidationException::withMessages(['reason' => 'Enter a reversal reason of at least 5 characters.']);
         }
 
         return DB::transaction(function () use ($journal, $reason, $actor, $targetPostingDate): AccountingJournal {
             $journal = AccountingJournal::query()->with('lines')->lockForUpdate()->findOrFail($journal->id);
+
             if ($journal->status !== AccountingJournalStatus::Posted) {
                 throw ValidationException::withMessages(['journal' => 'Only a posted journal can be reversed.']);
             }
 
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($journal->accounting_book_id);
+
             if ($book->active === false || $book->posting_enabled === false) {
                 throw ValidationException::withMessages(['book' => 'This accounting book is inactive or posting is not enabled.']);
             }
 
             $targetDate = $targetPostingDate ?? now('UTC')->toDateString();
             $period = $this->periodForDate($book, $targetDate);
+
             if ($period->status !== AccountingPeriodStatus::Open) {
                 throw ValidationException::withMessages(['posting_date' => 'The reversal target period is closed or locked.']);
             }
 
             $existing = AccountingJournal::query()->where('reversal_of_journal_id', $journal->id)->lockForUpdate()->first();
+
             if ($existing !== null) {
                 return $existing->load('lines');
             }
@@ -159,12 +169,14 @@ class AccountingLedgerService
     public function enablePosting(AccountingBook $book, User $actor): AccountingBook
     {
         $this->authorization->authorize($actor, AccountingPermission::ManagePeriods);
+
         if ($actor->employee?->role !== EmployeeRole::Owner || config('accounting.posting_activation_approved', false) !== true) {
             throw ValidationException::withMessages(['posting' => 'Posting activation requires explicit Owner approval and remains disabled until the activation gate is enabled.']);
         }
 
         return DB::transaction(function () use ($book, $actor): AccountingBook {
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($book->id);
+
             if ($book->active === false) {
                 throw ValidationException::withMessages(['book' => 'An inactive accounting book cannot be enabled for posting.']);
             }
@@ -182,6 +194,7 @@ class AccountingLedgerService
 
         return DB::transaction(function () use ($period, $actor): AccountingPeriod {
             $period = AccountingPeriod::query()->lockForUpdate()->findOrFail($period->id);
+
             if ($period->status !== AccountingPeriodStatus::Open) {
                 throw ValidationException::withMessages(['period' => 'Only an open accounting period can be closed.']);
             }
@@ -229,6 +242,7 @@ class AccountingLedgerService
             ->orderBy('journal_id')->orderBy('line_number')->get();
 
         $opening = [];
+
         if ($lines->isNotEmpty()) {
             $opening = DB::table('accounting_journal_lines as line')
                 ->join('accounting_journals as journal', 'journal.id', '=', 'line.journal_id')
@@ -244,6 +258,7 @@ class AccountingLedgerService
         $running = [];
         return $lines->map(function ($line) use (&$opening, &$running): mixed {
             $accountId = $line->account_id;
+
             if (array_key_exists($accountId, $opening) === false) {
                 $opening[$accountId] = '0.00';
             }
@@ -302,11 +317,13 @@ class AccountingLedgerService
         $accounts = AccountingAccount::query()->where('accounting_book_id', $book->id)->whereIn('id', collect($lines)->pluck('account_id'))->get()->keyBy('id');
         foreach ($lines as $index => $line) {
             $account = $accounts[(int) $line['account_id']] ?? null;
+
             if ($account === null || $account->active === false || $account->is_posting === false || $account->is_control) {
                 throw ValidationException::withMessages(['lines' => 'Every journal line must use an active posting account in the selected book.']);
             }
             $debit = $this->decimal($line['debit'] ?? '0');
             $credit = $this->decimal($line['credit'] ?? '0');
+
             if (($debit === '0.00' && $credit === '0.00') || ($debit !== '0.00' && $credit !== '0.00')) {
                 throw ValidationException::withMessages(['lines' => 'Each line must contain either a positive debit or a positive credit.']);
             }
@@ -324,6 +341,7 @@ class AccountingLedgerService
         $credit = '0.00';
         foreach ($lines as $line) {
             $account = AccountingAccount::query()->where('accounting_book_id', $book->id)->find($line->account_id);
+
             if ($account === null || $account->active === false || $account->is_posting === false || $account->is_control) {
                 throw ValidationException::withMessages(['lines' => 'Journal lines must use active posting accounts in the selected book.']);
             }
@@ -339,11 +357,13 @@ class AccountingLedgerService
     private function decimal(string|int|float|null $value): string
     {
         $value = trim((string) ($value ?? '0'));
+
         if (preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $value) !== 1) {
             throw ValidationException::withMessages(['lines' => 'Amounts must be non-negative decimal values with at most two places.']);
         }
         [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
         $whole = ltrim($whole, '0') ?: '0';
+
         if (strlen($whole) > 16) {
             throw ValidationException::withMessages(['lines' => 'Amount exceeds the DECIMAL(18,2) accounting limit.']);
         }
@@ -362,6 +382,7 @@ class AccountingLedgerService
 
         $existing = $journal->lines->sortBy('line_number')->values();
         $incoming = collect($validated['lines'])->values();
+
         if ($existing->count() !== $incoming->count()) {
             return false;
         }

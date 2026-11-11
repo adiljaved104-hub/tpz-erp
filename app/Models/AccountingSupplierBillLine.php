@@ -21,7 +21,18 @@ class AccountingSupplierBillLine extends Model
         ];
     }
 
-    public function bill(): BelongsTo { return $this->belongsTo(AccountingSupplierBill::class, 'bill_id'); }
-    public function product(): BelongsTo { return $this->belongsTo(Product::class); }
-    public function purchaseItem(): BelongsTo { return $this->belongsTo(PurchaseItem::class); }
+    public function bill(): BelongsTo
+    {
+        return $this->belongsTo(AccountingSupplierBill::class, 'bill_id');
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
+    }
+
+    public function purchaseItem(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseItem::class);
+    }
 }

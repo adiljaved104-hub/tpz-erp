@@ -155,7 +155,8 @@ class AccountsPayableService
             throw_if($payment->status === 'voided', ValidationException::withMessages(['payment' => 'Voided payments cannot be allocated.']));
             $seen = [];
             foreach ($allocations as $allocation) {
-                $billId = $allocation['bill_id'] ?? null; $input = $allocation['amount'] ?? null;
+                $billId = $allocation['bill_id'] ?? null;
+                $input = $allocation['amount'] ?? null;
                 throw_if(is_numeric($billId) === false || is_string((string) $input) === false || preg_match('/^\\d+(?:\\.\\d{1,2})?$/', (string) $input) !== 1, ValidationException::withMessages(['allocations' => 'Each allocation needs a positive decimal amount and bill.']));
                 $amount = self::decimal((string) $input, 2);
                 throw_if(bccomp($amount, '0.00', 2) <= 0, ValidationException::withMessages(['allocations' => 'Allocation amounts must be positive.']));
@@ -275,7 +276,9 @@ class AccountsPayableService
         return AccountingSupplierBill::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->whereIn('status', ['approved', 'posted'])->withSum('allocations', 'amount')->orderBy('due_date')->get()->map(function (AccountingSupplierBill $bill) use ($asOf): AccountingSupplierBill {
             $allocated = (string) ($bill->allocations_sum_amount ?? '0.00');
             $bill->setAttribute('outstanding_amount', bcsub((string) $bill->grand_total, $allocated, 2));
-            $bill->setAttribute('days_overdue', $bill->due_date && $bill->due_date->lt($asOf) ? $bill->due_date->diffInDays($asOf) : 0); return $bill;
+            $bill->setAttribute('days_overdue', $bill->due_date && $bill->due_date->lt($asOf) ? $bill->due_date->diffInDays($asOf) : 0);
+
+            return $bill;
         })
             ->filter(fn (AccountingSupplierBill $bill): bool => bccomp((string) $bill->outstanding_amount, '0.00', 2) > 0)
             ->values();

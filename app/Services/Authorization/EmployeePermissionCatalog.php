@@ -199,6 +199,7 @@ class EmployeePermissionCatalog
                 $this->item(AccountingPermission::RecordSupplierPayment, 'Record Supplier Payments', true, true),
                 $this->item(AccountingPermission::AllocateSupplierPayment, 'Allocate Supplier Payments', true, true),
                 $this->item(AccountingPermission::ManageSupplierCredits, 'Manage Supplier Credits and Debit Notes', true, true),
+                $this->item(AccountingPermission::ApproveSupplierPayables, 'Approve Supplier Payables', true, true),
                 $this->item(ExpensePermission::View, 'View Expenses', true, true),
                 $this->item(ExpensePermission::Create, 'Create Expenses', true, true),
                 $this->item(ExpensePermission::Update, 'Update Expenses', true, true),

@@ -134,6 +134,7 @@ class AccountsPayableService
             if ($existing) {
                 $matches = (int) $existing->supplier_id === (int) $validated['supplier_id'] && $existing->payment_date?->format('Y-m-d') === $validated['payment_date'] && strtoupper((string) $existing->currency) === strtoupper($validated['currency']) && bccomp((string) $existing->amount, self::decimal($validated['amount'], 2), 2) === 0 && (string) $existing->reference === (string) $validated['reference'];
                 throw_unless($matches, ValidationException::withMessages(['idempotency_key' => 'Conflicting payment replay for this idempotency key.']));
+
                 return $existing;
             }
             $payment = AccountingSupplierPayment::query()->create([

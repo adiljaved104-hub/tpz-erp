@@ -2,6 +2,7 @@
 
 namespace App\Services\Authorization;
 
+use App\Enums\AccountingPermission;
 use App\Enums\AuthSecurityPermission;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;
@@ -116,6 +117,11 @@ class AccessControlModuleRegistry
 
             $this->module('expenses', 'Business Expenses (AED)', 'finance', [ExpensePermission::View], [ExpensePermission::Create, ExpensePermission::Update], [ExpensePermission::ViewAll, ExpensePermission::ViewAmount, ExpensePermission::DeleteOrVoid, ExpensePermission::ViewNetProfit], 'UAE / Web Sales / Marketplace operating expenses. Financial fields remain separately protected.'),
             $this->module('office_finance', 'Pakistan Office Finance (PKR)', 'finance', [OfficeFinancePermission::View], [OfficeFinancePermission::Create, OfficeFinancePermission::Update], [OfficeFinancePermission::ViewAll, OfficeFinancePermission::ViewBalances, OfficeFinancePermission::ViewFunding, OfficeFinancePermission::ViewLoans, OfficeFinancePermission::ManageLoans, OfficeFinancePermission::Void, OfficeFinancePermission::Export], 'PKR office funding, expenses, employee loans, accounts, and cashbook.'),
+            $this->module('accounting_chart', 'UAE Chart of Accounts', 'finance', [AccountingPermission::ViewChart], [AccountingPermission::ManageChart], [AccountingPermission::Export], 'AED legal-entity chart and account hierarchy.'),
+            $this->module('accounting_journals', 'UAE General Journals', 'finance', [AccountingPermission::ViewJournals], [AccountingPermission::CreateJournal], [AccountingPermission::PostJournal, AccountingPermission::ReverseJournal, AccountingPermission::Export], 'Draft, validate, post, and reverse manual journals. Posting remains separately gated.'),
+            $this->module('accounting_periods', 'UAE Accounting Periods', 'finance', [AccountingPermission::ViewPeriods], [AccountingPermission::ManagePeriods], [AccountingPermission::Export], 'Open, close, and lock fiscal periods under Owner controls.'),
+            $this->module('accounting_ledger', 'UAE General Ledger', 'finance', [AccountingPermission::ViewGeneralLedger], [], [AccountingPermission::Export], 'Book-scoped ledger with opening, activity, and closing balances.'),
+            $this->module('accounting_trial_balance', 'UAE Trial Balance', 'finance', [AccountingPermission::ViewTrialBalance], [], [AccountingPermission::Export], 'Book-scoped, as-of trial balance reconciliation.'),
 
             $this->module('tasks', 'Tasks', 'tasks_chat', [TaskPermission::View], [TaskPermission::Create, TaskPermission::Update, TaskPermission::ChangeStatus, TaskPermission::Complete], [TaskPermission::Assign, TaskPermission::Cancel, TaskPermission::ViewTeam, TaskPermission::ManageAll]),
             $this->derived('my_work', 'My Work', 'tasks_chat', 'Personal work access derives from Task access and each source module’s permission and Responsibility scope.'),

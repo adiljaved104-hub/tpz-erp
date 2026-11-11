@@ -15,6 +15,7 @@ use App\Contracts\ProductQueryInterpreterInterface;
 use App\Contracts\PurchasePermissionResolver;
 use App\Contracts\ResponsibilityPermissionResolver;
 use App\Contracts\StockTransferPermissionResolver;
+use App\Enums\AccountingPermission;
 use App\Enums\AuthSecurityPermission;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;
@@ -46,6 +47,11 @@ use App\Enums\WarrantyRepairPermission;
 use App\Enums\WebSalesPermission;
 use App\Filament\Navigation\PersonalizedNavigationManager;
 use App\Http\Responses\Auth\LoginResponse;
+use App\Models\AccountingAccount;
+use App\Models\AccountingBook;
+use App\Models\AccountingJournal;
+use App\Models\AccountingJournalLine;
+use App\Models\AccountingPeriod;
 use App\Models\ActivityLog;
 use App\Models\AttendancePolicy;
 use App\Models\BackupSetting;
@@ -201,6 +207,7 @@ use App\Policies\SupplierPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\TeamPolicy;
 use App\Policies\WarehousePolicy;
+use App\Services\Authorization\AccountingAuthorization;
 use App\Services\Authorization\AuthSecurityAuthorization;
 use App\Services\Authorization\BackupSettingsAuthorization;
 use App\Services\Authorization\CatalogAuthorization;
@@ -501,6 +508,9 @@ class AppServiceProvider extends ServiceProvider
         foreach (InvoicePermission::cases() as $permission) {
             Gate::define($permission->value, fn (User $user, ?TaxInvoice $invoice = null): bool => app(InvoiceAuthorization::class)->allows($user, $permission, $invoice));
         }
+        foreach (AccountingPermission::cases() as $permission) {
+            Gate::define($permission->value, fn (User $user): bool => app(AccountingAuthorization::class)->allows($user, $permission));
+        }
         foreach (QuotationPermission::cases() as $permission) {
             Gate::define($permission->value, fn (User $user, ?Quotation $quotation = null): bool => app(QuotationAuthorization::class)->allows($user, $permission, $quotation));
         }
@@ -634,6 +644,11 @@ class AppServiceProvider extends ServiceProvider
             'expense' => Expense::class,
             'office_finance_account' => OfficeFinanceAccount::class,
             'office_finance_transaction' => OfficeFinanceTransaction::class,
+            'accounting_book' => AccountingBook::class,
+            'accounting_account' => AccountingAccount::class,
+            'accounting_period' => AccountingPeriod::class,
+            'accounting_journal' => AccountingJournal::class,
+            'accounting_journal_line' => AccountingJournalLine::class,
             'employee_loan' => EmployeeLoan::class,
             'employee_loan_repayment' => EmployeeLoanRepayment::class,
             'backup_setting' => BackupSetting::class,

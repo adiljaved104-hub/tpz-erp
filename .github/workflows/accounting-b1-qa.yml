@@ -1,0 +1,74 @@
+name: Accounting B1 QA
+
+on:
+  push:
+    branches:
+      - integration/accounting-b1-staging-20261111
+  pull_request:
+    branches:
+      - integration/accounting-b1-staging-20261111
+
+permissions:
+  contents: read
+
+jobs:
+  accounting-b1:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_erp_accounting_test
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      APP_ENV: testing
+      APP_DEBUG: false
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: tpz_erp_accounting_test
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, mbstring, mysql, pdo_mysql, sqlite, zip
+          coverage: none
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Bootstrap Laravel
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+      - name: Migrate disposable MySQL database
+        run: php artisan migrate --force --no-interaction
+      - name: Focused accounting tests
+        run: >-
+          php artisan test
+          tests/Feature/Accounting/AccountingFoundationTest.php
+          tests/Feature/AccessControl/AccessControlMatrixTest.php
+          tests/Feature/AccessControl/EmployeeAccessControlTest.php
+          tests/Feature/Orders/WebSalesDashboardPermissionTest.php
+          --compact
+      - name: PHP syntax
+        run: |
+          php -l app/Services/Accounting/AccountingLedgerService.php
+          php -l database/migrations/2026_11_09_180000_create_accounting_b1_foundation.php
+      - name: Pint changed PHP files
+        run: vendor/bin/pint --test app/Enums/AccountingAccountType.php app/Enums/AccountingJournalStatus.php app/Enums/AccountingPeriodStatus.php app/Enums/AccountingPermission.php app/Models/AccountingAccount.php app/Models/AccountingBook.php app/Models/AccountingJournal.php app/Models/AccountingJournalLine.php app/Models/AccountingPeriod.php app/Services/Accounting/AccountingLedgerService.php app/Services/Authorization/AccountingAuthorization.php app/Filament/Pages/Finance/BaseAccountingPage.php app/Filament/Pages/Finance/AccountingChartOfAccounts.php app/Filament/Pages/Finance/AccountingJournals.php app/Filament/Pages/Finance/AccountingGeneralLedger.php app/Filament/Pages/Finance/AccountingPeriods.php app/Filament/Pages/Finance/AccountingTrialBalance.php app/Providers/AppServiceProvider.php app/Services/Authorization/EmployeePermissionCatalog.php tests/Feature/Accounting/AccountingFoundationTest.php
+      - name: Blade compilation
+        run: php artisan view:cache

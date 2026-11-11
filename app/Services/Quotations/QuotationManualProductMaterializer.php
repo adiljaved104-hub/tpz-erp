@@ -124,4 +124,3 @@ class QuotationManualProductMaterializer
         return $products;
     }
 }
-

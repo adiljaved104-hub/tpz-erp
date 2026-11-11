@@ -184,4 +184,3 @@ class UpdateProduct
         return filled($value) ? trim($value) : null;
     }
 }
-

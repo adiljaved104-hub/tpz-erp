@@ -235,4 +235,3 @@ class ProductDuplicateGuard
         return true;
     }
 }
-

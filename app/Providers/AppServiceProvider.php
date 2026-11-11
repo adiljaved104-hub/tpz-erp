@@ -52,6 +52,8 @@ use App\Models\AccountingBook;
 use App\Models\AccountingJournal;
 use App\Models\AccountingJournalLine;
 use App\Models\AccountingPeriod;
+use App\Models\AccountingSupplierBill;
+use App\Models\AccountingSupplierPayment;
 use App\Models\ActivityLog;
 use App\Models\AttendancePolicy;
 use App\Models\BackupSetting;
@@ -647,6 +649,8 @@ class AppServiceProvider extends ServiceProvider
             'accounting_book' => AccountingBook::class,
             'accounting_account' => AccountingAccount::class,
             'accounting_period' => AccountingPeriod::class,
+            'accounting_supplier_bill' => AccountingSupplierBill::class,
+            'accounting_supplier_payment' => AccountingSupplierPayment::class,
             'accounting_journal' => AccountingJournal::class,
             'accounting_journal_line' => AccountingJournalLine::class,
             'employee_loan' => EmployeeLoan::class,

@@ -25,7 +25,8 @@ class AccountingLedgerService
     public function __construct(
         private readonly AccountingAuthorization $authorization,
         private readonly ActivityLogger $activity,
-    ) {}
+    ) {
+    }
 
     /** @param array<string,mixed> $data */
     public function createDraft(array $data, User $actor): AccountingJournal

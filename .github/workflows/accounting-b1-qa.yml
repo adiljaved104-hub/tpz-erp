@@ -62,6 +62,11 @@ jobs:
         run: |
           php -l app/Services/Accounting/AccountingLedgerService.php
           php -l database/migrations/2026_11_09_180000_create_accounting_b1_foundation.php
+      - name: Pint diagnostic diff
+        run: |
+          vendor/bin/pint app/Services/Accounting/AccountingLedgerService.php
+          git diff -- app/Services/Accounting/AccountingLedgerService.php
+
       - name: Pint changed PHP files
         run: vendor/bin/pint --test app/Enums/AccountingAccountType.php app/Enums/AccountingJournalStatus.php app/Enums/AccountingPeriodStatus.php app/Enums/AccountingPermission.php app/Models/AccountingAccount.php app/Models/AccountingBook.php app/Models/AccountingJournal.php app/Models/AccountingJournalLine.php app/Models/AccountingPeriod.php app/Services/Accounting/AccountingLedgerService.php app/Services/Authorization/AccountingAuthorization.php app/Filament/Pages/Finance/BaseAccountingPage.php app/Filament/Pages/Finance/AccountingChartOfAccounts.php app/Filament/Pages/Finance/AccountingJournals.php app/Filament/Pages/Finance/AccountingGeneralLedger.php app/Filament/Pages/Finance/AccountingPeriods.php app/Filament/Pages/Finance/AccountingTrialBalance.php app/Providers/AppServiceProvider.php app/Services/Authorization/EmployeePermissionCatalog.php tests/Feature/Accounting/AccountingFoundationTest.php
       - name: Blade compilation

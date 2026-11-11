@@ -391,6 +391,7 @@ class AccountingLedgerService
 
         return $existing->values()->zip($incoming)->every(function ($pair): bool {
             [$line, $input] = $pair;
+
             return (int) $line->account_id === (int) $input['account_id']
                 && bccomp((string) $line->debit, $this->decimal($input['debit'] ?? '0'), 2) === 0
                 && bccomp((string) $line->credit, $this->decimal($input['credit'] ?? '0'), 2) === 0

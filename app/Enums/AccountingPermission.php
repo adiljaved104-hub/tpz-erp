@@ -22,4 +22,5 @@ enum AccountingPermission: string
     case RecordSupplierPayment = 'accounting.record_supplier_payment';
     case AllocateSupplierPayment = 'accounting.allocate_supplier_payment';
     case ManageSupplierCredits = 'accounting.manage_supplier_credits';
+    case ApproveSupplierPayables = 'accounting.approve_supplier_payables';
 }

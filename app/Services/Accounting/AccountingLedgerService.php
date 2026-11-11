@@ -22,10 +22,17 @@ use Illuminate\Validation\ValidationException;
 
 class AccountingLedgerService
 {
+    private readonly AccountingAuthorization $authorization;
+
+    private readonly ActivityLogger $activity;
+
     public function __construct(
-        private readonly AccountingAuthorization $authorization,
-        private readonly ActivityLogger $activity,
-    ) {}
+        AccountingAuthorization $authorization,
+        ActivityLogger $activity,
+    ) {
+        $this->authorization = $authorization;
+        $this->activity = $activity;
+    }
 
     /** @param array<string,mixed> $data */
     public function createDraft(array $data, User $actor): AccountingJournal

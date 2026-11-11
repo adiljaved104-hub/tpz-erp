@@ -50,6 +50,7 @@ class AccountingLedgerService
 
                 return $existing;
             }
+
             $period = $this->periodForDate($book, $validated['posting_date']);
 
             $journal = AccountingJournal::query()->create([
@@ -80,10 +81,12 @@ class AccountingLedgerService
             if ($journal->status === AccountingJournalStatus::Posted) {
                 return $journal;
             }
+
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($journal->accounting_book_id);
             if ($book->active === false || $book->posting_enabled === false) {
                 throw ValidationException::withMessages(['book' => 'This accounting book is inactive or posting is not enabled.']);
             }
+
             $period = AccountingPeriod::query()->lockForUpdate()->findOrFail($journal->accounting_period_id);
             if ($period->status !== AccountingPeriodStatus::Open) {
                 throw ValidationException::withMessages(['posting_date' => 'The accounting period is closed or locked.']);
@@ -109,15 +112,18 @@ class AccountingLedgerService
             if ($journal->status !== AccountingJournalStatus::Posted) {
                 throw ValidationException::withMessages(['journal' => 'Only a posted journal can be reversed.']);
             }
+
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($journal->accounting_book_id);
             if ($book->active === false || $book->posting_enabled === false) {
                 throw ValidationException::withMessages(['book' => 'This accounting book is inactive or posting is not enabled.']);
             }
+
             $targetDate = $targetPostingDate ?? now('UTC')->toDateString();
             $period = $this->periodForDate($book, $targetDate);
             if ($period->status !== AccountingPeriodStatus::Open) {
                 throw ValidationException::withMessages(['posting_date' => 'The reversal target period is closed or locked.']);
             }
+
             $existing = AccountingJournal::query()->where('reversal_of_journal_id', $journal->id)->lockForUpdate()->first();
             if ($existing !== null) {
                 return $existing->load('lines');

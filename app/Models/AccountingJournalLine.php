@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AccountingJournalStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
@@ -14,6 +15,12 @@ class AccountingJournalLine extends Model
 
     protected static function booted(): void
     {
+        static::creating(function (self $line): void {
+            $journal = AccountingJournal::query()->find($line->journal_id);
+            if ($journal?->status === AccountingJournalStatus::Posted) {
+                throw new LogicException('Posted accounting journals cannot receive additional lines.');
+            }
+        });
         static::updating(fn (): never => throw new LogicException('Accounting journal lines are immutable.'));
         static::deleting(fn (): never => throw new LogicException('Accounting journal lines are immutable.'));
     }

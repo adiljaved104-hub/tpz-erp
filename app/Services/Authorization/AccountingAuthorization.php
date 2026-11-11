@@ -18,9 +18,24 @@ class AccountingAuthorization
             return false;
         }
 
-        $roleDefault = in_array($user->employee->role, [EmployeeRole::Owner, EmployeeRole::Admin], true);
+        $ownerOnly = [
+            AccountingPermission::ManagePeriods,
+            AccountingPermission::PostJournal,
+            AccountingPermission::ReverseJournal,
+        ];
+        $roleDefault = $user->employee->role === EmployeeRole::Owner
+            || ($user->employee->role === EmployeeRole::Admin && ! in_array($permission, $ownerOnly, true));
 
-        return $roleDefault || ($this->overrides->decision($user, $permission->value) ?? false);
+        // Owner protections are not revocable through employee overrides.
+        if ($user->employee->role === EmployeeRole::Owner) {
+            return true;
+        }
+
+        // An explicit employee Deny must override role defaults, while an
+        // explicit Allow may grant a normally restricted capability.
+        $override = $this->overrides->decision($user, $permission->value);
+
+        return $override ?? $roleDefault;
     }
 
     public function authorize(User $user, AccountingPermission $permission): void

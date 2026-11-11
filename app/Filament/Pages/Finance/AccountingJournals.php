@@ -20,7 +20,7 @@ class AccountingJournals extends BaseAccountingPage
 
     protected static ?int $navigationSort = 20;
 
-    protected static AccountingPermission $requiredPermission = AccountingPermission::View;
+    protected static AccountingPermission $requiredPermission = AccountingPermission::ViewJournals;
 
     public string $bookId = '';
 

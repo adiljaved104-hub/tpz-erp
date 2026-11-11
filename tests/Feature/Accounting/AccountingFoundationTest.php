@@ -5,12 +5,16 @@ namespace Tests\Feature\Accounting;
 use App\Enums\AccountingJournalStatus;
 use App\Enums\AccountingPeriodStatus;
 use App\Enums\AccountingPermission;
+use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Models\AccountingBook;
+use App\Models\AccountingJournal;
 use App\Models\AccountingPeriod;
 use App\Models\Employee;
+use App\Models\EmployeePermissionOverride;
 use App\Models\User;
 use App\Services\Accounting\AccountingLedgerService;
+use App\Services\Authorization\AccessControlModuleRegistry;
 use App\Services\Authorization\AccountingAuthorization;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -54,6 +58,13 @@ class AccountingFoundationTest extends TestCase
         ], $owner);
 
         $this->assertSame(AccountingJournalStatus::Draft, $draft->status);
+        try {
+            $service->enablePosting($book, $owner);
+            $this->fail('Posting activation must remain gated until explicit approval.');
+        } catch (ValidationException) {
+            $this->assertFalse($book->refresh()->posting_enabled);
+        }
+        config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
         $posted = $service->post($draft, $owner);
 
@@ -115,6 +126,7 @@ class AccountingFoundationTest extends TestCase
         $cash = $book->accounts()->where('number', '1100')->firstOrFail();
         $equity = $book->accounts()->where('number', '3000')->firstOrFail();
         $draft = $service->createDraft(['book_id' => $book->id, 'posting_date' => now()->toDateString(), 'narration' => 'Reversible journal', 'idempotency_key' => (string) Str::uuid(), 'lines' => [['account_id' => $cash->id, 'debit' => '50.00'], ['account_id' => $equity->id, 'credit' => '50.00']]], $owner);
+        config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
         $posted = $service->post($draft, $owner);
 
@@ -133,15 +145,105 @@ class AccountingFoundationTest extends TestCase
         $owner = $this->user(EmployeeRole::Owner);
         $book = AccountingBook::query()->firstOrFail();
         $period = AccountingPeriod::query()->where('accounting_book_id', $book->id)->firstOrFail();
-        $period->forceFill(['status' => AccountingPeriodStatus::Closed])->saveQuietly();
         $service = app(AccountingLedgerService::class);
         $cash = $book->accounts()->where('number', '1100')->firstOrFail();
         $equity = $book->accounts()->where('number', '3000')->firstOrFail();
         $draft = $service->createDraft(['book_id' => $book->id, 'posting_date' => now()->toDateString(), 'narration' => 'Closed period journal', 'idempotency_key' => (string) Str::uuid(), 'lines' => [['account_id' => $cash->id, 'debit' => '50.00'], ['account_id' => $equity->id, 'credit' => '50.00']]], $owner);
+        $period->forceFill(['status' => AccountingPeriodStatus::Closed])->saveQuietly();
+        config()->set('accounting.posting_activation_approved', true);
         $service->enablePosting($book, $owner);
 
         $this->expectException(ValidationException::class);
         $service->post($draft, $owner);
+    }
+
+    public function test_posting_controls_are_owner_only_and_idempotency_conflicts_are_rejected(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $admin = $this->user(EmployeeRole::Admin);
+        $book = AccountingBook::query()->firstOrFail();
+        $cash = $book->accounts()->where('number', '1100')->firstOrFail();
+        $equity = $book->accounts()->where('number', '3000')->firstOrFail();
+        $service = app(AccountingLedgerService::class);
+        $key = (string) Str::uuid();
+        $payload = [
+            'book_id' => $book->id,
+            'posting_date' => now()->toDateString(),
+            'narration' => 'Idempotent journal',
+            'idempotency_key' => $key,
+            'lines' => [
+                ['account_id' => $cash->id, 'debit' => '1234567890123456.78', 'credit' => '0'],
+                ['account_id' => $equity->id, 'debit' => '0', 'credit' => '1234567890123456.78'],
+            ],
+        ];
+
+        $draft = $service->createDraft($payload, $owner);
+        $retry = $service->createDraft($payload, $owner);
+        $this->assertSame($draft->id, $retry->id);
+        $this->assertFalse(app(AccountingAuthorization::class)->allows($admin, AccountingPermission::PostJournal));
+
+        $this->expectException(ValidationException::class);
+        $service->createDraft([...$payload, 'narration' => 'Conflicting replay'], $owner);
+    }
+
+    public function test_decimal_overflow_and_negative_amounts_are_rejected_without_records(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $book = AccountingBook::query()->firstOrFail();
+        $cash = $book->accounts()->where('number', '1100')->firstOrFail();
+        $equity = $book->accounts()->where('number', '3000')->firstOrFail();
+        $before = AccountingJournal::query()->count();
+
+        try {
+            app(AccountingLedgerService::class)->createDraft([
+                'book_id' => $book->id,
+                'posting_date' => now()->toDateString(),
+                'narration' => 'Overflow journal',
+                'idempotency_key' => (string) Str::uuid(),
+                'lines' => [
+                    ['account_id' => $cash->id, 'debit' => '12345678901234567.89'],
+                    ['account_id' => $equity->id, 'credit' => '12345678901234567.89'],
+                ],
+            ], $owner);
+            $this->fail('Overflow should be rejected.');
+        } catch (ValidationException) {
+            $this->assertSame($before, AccountingJournal::query()->count());
+        }
+    }
+
+    public function test_access_control_registers_accounting_modules_without_granting_posting_to_admin(): void
+    {
+        $registry = app(AccessControlModuleRegistry::class);
+        $modules = $registry->keyed();
+
+        $this->assertSame(['accounting.view_chart'], $modules['accounting_chart']['view_keys']);
+        $this->assertSame(['accounting.view_journals'], $modules['accounting_journals']['view_keys']);
+        $this->assertSame(['accounting.view_periods'], $modules['accounting_periods']['view_keys']);
+        $this->assertSame(['accounting.view_ledger'], $modules['accounting_ledger']['view_keys']);
+        $this->assertContains('accounting.post_journal', $modules['accounting_journals']['advanced_keys']);
+        $this->assertContains('accounting.manage_periods', $modules['accounting_periods']['edit_keys']);
+        $this->assertNotSame($modules['accounting_journals']['edit_keys'], $modules['accounting_journals']['advanced_keys']);
+    }
+
+    public function test_accounting_view_permissions_are_independent_and_explicit_deny_overrides_role_defaults(): void
+    {
+        $admin = $this->user(EmployeeRole::Admin);
+        $owner = $this->user(EmployeeRole::Owner);
+        $adminEmployee = $admin->employee;
+
+        EmployeePermissionOverride::create([
+            'employee_id' => $adminEmployee->id,
+            'permission_key' => AccountingPermission::ViewLedger->value,
+            'effect' => EmployeePermissionEffect::Deny,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Focused accounting access test',
+        ]);
+
+        $authorization = app(AccountingAuthorization::class);
+
+        $this->assertTrue($authorization->allows($admin, AccountingPermission::ViewChart));
+        $this->assertFalse($authorization->allows($admin, AccountingPermission::ViewLedger));
+        $this->assertTrue($authorization->allows($owner, AccountingPermission::ViewLedger));
     }
 
     private function user(EmployeeRole $role): User

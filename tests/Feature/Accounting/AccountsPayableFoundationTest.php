@@ -83,6 +83,40 @@ class AccountsPayableFoundationTest extends TestCase
         ], $staff);
     }
 
+    public function test_supplier_credit_is_draft_only_and_reduces_outstanding_balance(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $book = AccountingBook::query()->firstOrFail();
+        $supplier = Supplier::factory()->create();
+        $service = app(AccountsPayableService::class);
+
+        $bill = $service->createDraftBill([
+            'accounting_book_id' => $book->id,
+            'supplier_id' => $supplier->id,
+            'bill_date' => '2026-11-11',
+            'currency' => 'AED',
+            'idempotency_key' => (string) Str::uuid(),
+            'lines' => [['description' => 'Laptop', 'quantity' => 1, 'unit_cost' => '100.00']],
+        ], $owner);
+
+        $credit = $service->recordDraftAdjustment([
+            'accounting_book_id' => $book->id,
+            'supplier_id' => $supplier->id,
+            'bill_id' => $bill->id,
+            'kind' => 'credit',
+            'adjustment_date' => '2026-11-11',
+            'currency' => 'AED',
+            'amount' => '20.00',
+            'reference' => 'CN-1001',
+            'idempotency_key' => (string) Str::uuid(),
+            'reason' => 'Supplier credit for returned item',
+        ], $owner);
+
+        $this->assertSame('draft', $credit->status);
+        $this->assertSame('80.00', $service->supplierBalance($book, $supplier->id));
+        $this->assertFalse($book->refresh()->posting_enabled);
+    }
+
     public function test_payment_cannot_allocate_more_than_bill_total(): void
     {
         $owner = $this->user(EmployeeRole::Owner);

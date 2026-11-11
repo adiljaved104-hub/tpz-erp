@@ -4,6 +4,7 @@ namespace App\Services\Accounting;
 
 use App\Enums\AccountingPermission;
 use App\Models\AccountingBook;
+use App\Models\AccountingSupplierAdjustment;
 use App\Models\AccountingSupplierBill;
 use App\Models\AccountingSupplierPayment;
 use App\Models\AccountingSupplierPaymentAllocation;
@@ -153,15 +154,55 @@ class AccountsPayableService
         });
     }
 
+    public function recordDraftAdjustment(array $data, User $actor): AccountingSupplierAdjustment
+    {
+        $this->authorization->authorize($actor, AccountingPermission::ManageSupplierCredits);
+        $validated = Validator::make($data, [
+            'accounting_book_id' => ['required', 'integer', 'exists:accounting_books,id'],
+            'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
+            'bill_id' => ['nullable', 'integer', 'exists:accounting_supplier_bills,id'],
+            'kind' => ['required', 'in:credit,debit'],
+            'adjustment_date' => ['required', 'date_format:Y-m-d'],
+            'currency' => ['required', 'size:3'],
+            'amount' => ['required', 'regex:/^\\d+(?:\\.\\d{1,2})?$/', 'not_regex:/^0+(?:\\.0{1,2})?$/'],
+            'reference' => ['required', 'string', 'max:100'],
+            'idempotency_key' => ['required', 'string', 'max:100'],
+            'reason' => ['required', 'string', 'min:5', 'max:1000'],
+        ])->validate();
+
+        return DB::transaction(function () use ($validated, $actor): AccountingSupplierAdjustment {
+            $existing = AccountingSupplierAdjustment::query()
+                ->where('accounting_book_id', $validated['accounting_book_id'])
+                ->where('idempotency_key', $validated['idempotency_key'])
+                ->first();
+
+            if ($existing) {
+                return $existing;
+            }
+
+            $adjustment = AccountingSupplierAdjustment::query()->create([
+                ...$validated,
+                'currency' => strtoupper($validated['currency']),
+                'status' => 'draft',
+                'created_by_user_id' => $actor->id,
+            ]);
+            $this->activity->log('accounting.supplier_adjustment_draft_created', $actor, $adjustment, ['reference' => $adjustment->reference]);
+
+            return $adjustment;
+        });
+    }
+
     public function supplierBalance(AccountingBook $book, int $supplierId): string
     {
         $billed = (string) AccountingSupplierBill::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->whereNotIn('status', ['voided'])->sum('grand_total');
+        $credits = (string) AccountingSupplierAdjustment::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->where('kind', 'credit')->whereNotIn('status', ['voided'])->sum('amount');
+        $debits = (string) AccountingSupplierAdjustment::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->where('kind', 'debit')->whereNotIn('status', ['voided'])->sum('amount');
         $paid = (string) DB::table('accounting_supplier_payment_allocations as allocation')
             ->join('accounting_supplier_payments as payment', 'payment.id', '=', 'allocation.payment_id')
             ->where('payment.accounting_book_id', $book->id)
             ->where('payment.supplier_id', $supplierId)
             ->sum('allocation.amount');
 
-        return bcsub($billed, $paid, 2);
+        return bcsub(bcadd(bcsub($billed, $credits, 2), $debits, 2), $paid, 2);
     }
 }

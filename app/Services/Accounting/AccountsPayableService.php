@@ -174,6 +174,7 @@ class AccountsPayableService
             return $payment->load('allocations');
         });
     }
+
     public function approveBill(AccountingSupplierBill $bill, User $actor): AccountingSupplierBill
     {
         $this->authorization->authorize($actor, AccountingPermission::ApproveSupplierPayables);
@@ -204,6 +205,7 @@ class AccountsPayableService
             $adjustment->update(['status' => 'approved']); return $adjustment;
         });
     }
+
     public function recordDraftAdjustment(array $data, User $actor): AccountingSupplierAdjustment
     {
         $this->authorization->authorize($actor, AccountingPermission::ManageSupplierCredits);

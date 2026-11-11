@@ -163,7 +163,7 @@ class AccountsPayableService
             }
             $allocated = (string) $payment->allocations()->sum('amount');
             throw_if(bccomp($allocated, (string) $payment->amount, 2) > 0, ValidationException::withMessages(['allocations' => 'Allocations exceed the supplier payment amount.']));
-            $this->activity->log('accounting.supplier_payment_allocated', $actor, $payment, ['allocation_total' => $allocated]);
+            $this->activity->log('accounting.supplier_payment_allocated', $actor, $payment, ['allocation_recorded' => true]);
             return $payment->load('allocations');
         });
     }

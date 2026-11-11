@@ -228,7 +228,7 @@ class AccountingLedgerService
         $running = [];
         return $lines->map(function ($line) use (&$opening, &$running): mixed {
             $accountId = $line->account_id;
-            if (! array_key_exists($accountId, $opening)) {
+            if (array_key_exists($accountId, $opening) === false) {
                 $opening[$accountId] = '0.00';
             }
             $running[$accountId] = bcadd((string) ($running[$accountId] ?? $opening[$accountId]), bcsub((string) $line->debit, (string) $line->credit, 2), 2);
@@ -285,7 +285,7 @@ class AccountingLedgerService
         $accounts = AccountingAccount::query()->where('accounting_book_id', $book->id)->whereIn('id', collect($lines)->pluck('account_id'))->get()->keyBy('id');
         foreach ($lines as $index => $line) {
             $account = $accounts[(int) $line['account_id']] ?? null;
-            if (! $account || ! $account->active || ! $account->is_posting || $account->is_control) {
+            if ($account === null || $account->active === false || $account->is_posting === false || $account->is_control) {
                 throw ValidationException::withMessages(['lines' => 'Every journal line must use an active posting account in the selected book.']);
             }
             $debit = $this->decimal($line['debit'] ?? '0');
@@ -321,7 +321,7 @@ class AccountingLedgerService
     private function decimal(string|int|float|null $value): string
     {
         $value = trim((string) ($value ?? '0'));
-        if (! preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $value)) {
+        if (preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $value) !== 1) {
             throw ValidationException::withMessages(['lines' => 'Amounts must be non-negative decimal values with at most two places.']);
         }
         [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');

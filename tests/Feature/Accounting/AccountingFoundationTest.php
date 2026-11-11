@@ -5,11 +5,13 @@ namespace Tests\Feature\Accounting;
 use App\Enums\AccountingJournalStatus;
 use App\Enums\AccountingPeriodStatus;
 use App\Enums\AccountingPermission;
+use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Models\AccountingBook;
 use App\Models\AccountingJournal;
 use App\Models\AccountingPeriod;
 use App\Models\Employee;
+use App\Models\EmployeePermissionOverride;
 use App\Models\User;
 use App\Services\Accounting\AccountingLedgerService;
 use App\Services\Authorization\AccessControlModuleRegistry;
@@ -214,10 +216,34 @@ class AccountingFoundationTest extends TestCase
         $registry = app(AccessControlModuleRegistry::class);
         $modules = $registry->keyed();
 
-        $this->assertContains('accounting.view', $modules['accounting_ledger']['view_keys']);
+        $this->assertSame(['accounting.view_chart'], $modules['accounting_chart']['view_keys']);
+        $this->assertSame(['accounting.view_journals'], $modules['accounting_journals']['view_keys']);
+        $this->assertSame(['accounting.view_periods'], $modules['accounting_periods']['view_keys']);
+        $this->assertSame(['accounting.view_ledger'], $modules['accounting_ledger']['view_keys']);
         $this->assertContains('accounting.post_journal', $modules['accounting_journals']['advanced_keys']);
         $this->assertContains('accounting.manage_periods', $modules['accounting_periods']['edit_keys']);
         $this->assertNotSame($modules['accounting_journals']['edit_keys'], $modules['accounting_journals']['advanced_keys']);
+    }
+
+    public function test_accounting_view_permissions_are_independent_and_explicit_deny_overrides_role_defaults(): void
+    {
+        $admin = $this->user(EmployeeRole::Admin);
+        $owner = $this->user(EmployeeRole::Owner);
+        $adminEmployee = $admin->employee;
+
+        EmployeePermissionOverride::create([
+            'employee_id' => $adminEmployee->id,
+            'permission_key' => AccountingPermission::ViewLedger->value,
+            'effect' => EmployeePermissionEffect::Deny,
+            'granted_by_user_id' => $owner->id,
+            'reason' => 'Focused accounting access test',
+        ]);
+
+        $authorization = app(AccountingAuthorization::class);
+
+        $this->assertTrue($authorization->allows($admin, AccountingPermission::ViewChart));
+        $this->assertFalse($authorization->allows($admin, AccountingPermission::ViewLedger));
+        $this->assertTrue($authorization->allows($owner, AccountingPermission::ViewLedger));
     }
 
     private function user(EmployeeRole $role): User

@@ -22,7 +22,7 @@ class AccountingChartOfAccounts extends BaseAccountingPage
 
     protected static ?int $navigationSort = 10;
 
-    protected static AccountingPermission $requiredPermission = AccountingPermission::View;
+    protected static AccountingPermission $requiredPermission = AccountingPermission::ViewChart;
 
     public string $bookId = '';
 

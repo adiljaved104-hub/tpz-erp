@@ -1,0 +1,72 @@
+name: Accounting B2 QA
+
+on:
+  push:
+    branches:
+      - codex/accounting-b2-ap-purchasing-20261111
+  pull_request:
+    branches:
+      - codex/accounting-b2-ap-purchasing-20261111
+
+permissions:
+  contents: read
+
+jobs:
+  accounting-b2:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_erp_accounting_b2_test
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      APP_ENV: testing
+      APP_DEBUG: false
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: tpz_erp_accounting_b2_test
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, mbstring, mysql, pdo_mysql, sqlite, zip
+          coverage: none
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Bootstrap Laravel
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+      - name: Migrate disposable MySQL database
+        run: php artisan migrate --force --no-interaction
+      - name: Focused B2 AP tests
+        run: php artisan test tests/Feature/Accounting/AccountingFoundationTest.php tests/Feature/Accounting/AccountsPayableFoundationTest.php --compact
+      - name: PHP syntax
+        run: |
+          php -l app/Services/Accounting/AccountsPayableService.php
+          php -l app/Models/AccountingSupplierBill.php
+          php -l app/Models/AccountingSupplierBillLine.php
+          php -l app/Models/AccountingSupplierPayment.php
+          php -l app/Models/AccountingSupplierPaymentAllocation.php
+          php -l database/migrations/2026_11_11_120000_create_accounting_supplier_payables.php
+      - name: Pint changed PHP files
+        run: vendor/bin/pint --test app/Enums/AccountingPermission.php app/Models/AccountingSupplierBill.php app/Models/AccountingSupplierBillLine.php app/Models/AccountingSupplierPayment.php app/Models/AccountingSupplierPaymentAllocation.php app/Services/Accounting/AccountsPayableService.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php tests/Feature/Accounting/AccountsPayableFoundationTest.php database/migrations/2026_11_11_120000_create_accounting_supplier_payables.php
+      - name: Blade compilation
+        run: php artisan view:cache

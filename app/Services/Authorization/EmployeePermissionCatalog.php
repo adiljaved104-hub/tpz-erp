@@ -184,7 +184,6 @@ class EmployeePermissionCatalog
                 $this->item(PurchasePermission::QuickReceive, 'Quick Stock Purchase', true),
             ],
             'Finance' => [
-                $this->item(AccountingPermission::View, 'View UAE General Ledger', true, true),
                 $this->item(AccountingPermission::ViewChart, 'View UAE Chart of Accounts', true, true),
                 $this->item(AccountingPermission::ViewJournals, 'View UAE General Journals', true, true),
                 $this->item(AccountingPermission::ViewPeriods, 'View UAE Accounting Periods', true, true),
@@ -195,7 +194,6 @@ class EmployeePermissionCatalog
                 $this->item(AccountingPermission::PostJournal, 'Post UAE Journals', true, true),
                 $this->item(AccountingPermission::ReverseJournal, 'Reverse UAE Journals', true, true),
                 $this->item(AccountingPermission::ViewTrialBalance, 'View UAE Trial Balance', true, true),
-                $this->item(AccountingPermission::Export, 'Export UAE Accounting Reports', true, true),
                 $this->item(ExpensePermission::View, 'View Expenses', true, true),
                 $this->item(ExpensePermission::Create, 'Create Expenses', true, true),
                 $this->item(ExpensePermission::Update, 'Update Expenses', true, true),

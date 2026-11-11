@@ -114,7 +114,7 @@ class AccountingFoundationTest extends TestCase
             'lines' => [['account_id' => $cash->id, 'debit' => '1.00'], ['account_id' => $equity->id, 'credit' => '1.00']],
         ], $staff);
 
-        $this->assertFalse(app(AccountingAuthorization::class)->allows($staff, AccountingPermission::View));
+        $this->assertFalse(app(AccountingAuthorization::class)->allows($staff, AccountingPermission::ViewGeneralLedger));
     }
 
     public function test_posted_journals_are_immutable_and_reversal_is_a_balanced_compensating_entry(): void

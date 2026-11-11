@@ -11,7 +11,7 @@ abstract class BaseAccountingPage extends Page
 {
     protected static string|\UnitEnum|null $navigationGroup = 'Finance';
 
-    protected static AccountingPermission $requiredPermission = AccountingPermission::View;
+    protected static AccountingPermission $requiredPermission = AccountingPermission::ViewGeneralLedger;
 
     public static function canAccess(): bool
     {

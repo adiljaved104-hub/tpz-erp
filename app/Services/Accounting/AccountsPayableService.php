@@ -19,8 +19,7 @@ class AccountsPayableService
     public function __construct(
         private readonly AccountingAuthorization $authorization,
         private readonly ActivityLogger $activity,
-    ) {
-    }
+    ) {}
 
     public function createDraftBill(array $data, User $actor): AccountingSupplierBill
     {
@@ -98,6 +97,7 @@ class AccountsPayableService
             ]);
             $bill->lines()->createMany($lines);
             $this->activity->log('accounting.supplier_bill_draft_created', $actor, $bill, ['reference' => $bill->bill_number]);
+
             return $bill->load('lines');
         });
     }
@@ -121,6 +121,7 @@ class AccountsPayableService
                 [...$validated, 'currency' => strtoupper($validated['currency']), 'status' => 'draft', 'created_by_user_id' => $actor->id],
             );
             $this->activity->log('accounting.supplier_payment_draft_created', $actor, $payment, ['reference' => $payment->reference]);
+
             return $payment;
         });
     }

@@ -256,7 +256,9 @@ class AccountsPayableService
             $bill->setAttribute('outstanding_amount', bcsub((string) $bill->grand_total, $allocated, 2));
             $bill->setAttribute('days_overdue', $bill->due_date && $bill->due_date->lt($asOf) ? $bill->due_date->diffInDays($asOf) : 0); return $bill;
         })->filter(fn (AccountingSupplierBill $bill): bool => bccomp((string) $bill->outstanding_amount, '0.00', 2) > 0)->values();
-        private function sumBalance(AccountingBook $book, int $supplierId, array $statuses): string
+    }
+
+    private function sumBalance(AccountingBook $book, int $supplierId, array $statuses): string
     {
         $billed = (string) AccountingSupplierBill::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->whereIn('status', $statuses)->sum('grand_total');
         $credits = (string) AccountingSupplierAdjustment::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->where('kind', 'credit')->whereIn('status', $statuses)->sum('amount');

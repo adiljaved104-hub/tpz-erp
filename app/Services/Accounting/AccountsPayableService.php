@@ -156,7 +156,7 @@ class AccountsPayableService
             $seen = [];
             foreach ($allocations as $allocation) {
                 $billId = $allocation['bill_id'] ?? null; $input = $allocation['amount'] ?? null;
-                throw_if(! is_numeric($billId) || ! is_string((string) $input) || ! preg_match('/^\\d+(?:\\.\\d{1,2})?$/', (string) $input), ValidationException::withMessages(['allocations' => 'Each allocation needs a positive decimal amount and bill.']));
+                throw_if(is_numeric($billId) === false || is_string((string) $input) === false || preg_match('/^\\d+(?:\\.\\d{1,2})?$/', (string) $input) !== 1, ValidationException::withMessages(['allocations' => 'Each allocation needs a positive decimal amount and bill.']));
                 $amount = self::decimal((string) $input, 2);
                 throw_if(bccomp($amount, '0.00', 2) <= 0, ValidationException::withMessages(['allocations' => 'Allocation amounts must be positive.']));
                 $billId = (int) $billId;
@@ -322,11 +322,11 @@ class AccountsPayableService
     private static function decimal(string|int|float $value, int $scale): string
     {
         $value = trim((string) $value);
-        if (! preg_match('/^\\d+(?:\\.\\d{1,' . $scale . '})?$/', $value)) {
+        if (preg_match(sprintf('/^\\d+(?:\\.\\d{1,%d})?$/', $scale), $value) !== 1) {
             throw ValidationException::withMessages(['amount' => 'Invalid decimal value.']);
         }
         [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
 
-        return $whole . '.' . str_pad($fraction, $scale, '0');
+        return implode('.', [$whole, str_pad($fraction, $scale, '0')]);
     }
 }

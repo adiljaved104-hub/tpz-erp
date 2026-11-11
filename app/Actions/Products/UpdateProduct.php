@@ -38,13 +38,17 @@ class UpdateProduct
                 'responsibility_override_confirmed' => 'Review the Product visibility warning and explicitly confirm Save Anyway.',
             ]);
         }
-        $duplicateCandidates = $this->duplicates->validateContinuation($actor, [
-            ...$validated,
-            'duplicate_override_reason' => $data->duplicateOverrideReason,
-        ], $product->id, $data->duplicateOverrideConfirmed);
-        $hiddenExactTitleMatch = $this->duplicates->hasUnreviewableExactTitle($actor, $validated['name'], $product->id);
 
-        return DB::transaction(function () use ($product, $data, $validated, $actor, $duplicateCandidates, $hiddenExactTitleMatch, $withinResponsibility): Product {
+        return DB::transaction(function () use ($product, $data, $validated, $actor, $withinResponsibility): Product {
+            // Serialize Product updates with creation validation to prevent concurrent duplicate variants.
+            DB::table('reference_sequences')->where('key', 'product_sku')->lockForUpdate()->first();
+
+            $duplicateCandidates = $this->duplicates->validateContinuation($actor, [
+                ...$validated,
+                'duplicate_override_reason' => $data->duplicateOverrideReason,
+            ], $product->id, $data->duplicateOverrideConfirmed);
+            $hiddenExactTitleMatch = $this->duplicates->hasUnreviewableExactTitle($actor, $validated['name'], $product->id);
+
             $product = Product::query()->lockForUpdate()->findOrFail($product->getKey());
             $brand = ProductBrand::query()->lockForUpdate()->findOrFail($validated['brand_id']);
             $category = ProductCategory::query()->lockForUpdate()->findOrFail($validated['category_id']);

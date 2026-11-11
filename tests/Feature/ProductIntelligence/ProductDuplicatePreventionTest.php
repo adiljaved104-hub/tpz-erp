@@ -64,6 +64,39 @@ class ProductDuplicatePreventionTest extends TestCase
         $this->assertSame('Possible Duplicate', $matches->sole()->classification->label());
     }
 
+    public function test_exact_title_with_missing_model_still_matches_existing_product(): void
+    {
+        [$owner, $brand, $category, $existing] = $this->foundation();
+
+        $matches = app(ProductDuplicateGuard::class)->candidates($owner, [
+            'name' => $existing->name,
+            'brand_id' => $brand->id,
+            'category_id' => $category->id,
+            'model' => null,
+            'condition' => $existing->condition->value,
+        ]);
+
+        $this->assertSame([$existing->id], $matches->pluck('productId')->all());
+    }
+
+    public function test_non_owner_cannot_authorize_an_exact_duplicate(): void
+    {
+        [, $brand, $category, $existing] = $this->foundation();
+        $email = 'duplicate-staff-'.Str::lower(Str::random(8)).'@example.com';
+        $staff = User::factory()->create(['email' => $email]);
+        Employee::factory()->for($staff)->role(EmployeeRole::Staff)->create(['email' => $email]);
+
+        $this->expectException(ValidationException::class);
+        app(ProductDuplicateGuard::class)->validateContinuation($staff, [
+            'name' => $existing->name,
+            'brand_id' => $brand->id,
+            'category_id' => $category->id,
+            'model' => null,
+            'condition' => $existing->condition->value,
+            'duplicate_override_reason' => 'Duplicate supplier listing.',
+        ], confirmed: true);
+    }
+
     public function test_likely_duplicate_requires_reason_and_never_auto_merges_or_creates(): void
     {
         [$owner, $brand, $category, $existing] = $this->foundation();

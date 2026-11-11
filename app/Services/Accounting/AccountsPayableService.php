@@ -19,11 +19,17 @@ use Illuminate\Validation\ValidationException;
 
 class AccountsPayableService
 {
+    private readonly AccountingAuthorization $authorization;
+
+    private readonly ActivityLogger $activity;
 
     public function __construct(
-        private readonly AccountingAuthorization $authorization,
-        private readonly ActivityLogger $activity,
-    ) {}
+        AccountingAuthorization $authorization,
+        ActivityLogger $activity,
+    ) {
+        $this->authorization = $authorization;
+        $this->activity = $activity;
+    }
 
     public function createDraftBill(array $data, User $actor): AccountingSupplierBill
     {

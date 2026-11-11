@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/product-duplicate-prevention-20261111
+      - integration/product-duplicate-prevention-main-20261111
   workflow_dispatch:
 
 permissions:

@@ -285,6 +285,7 @@ class AccountingLedgerService
         if ($period === null) {
             throw ValidationException::withMessages(['posting_date' => 'The posting date is outside the selected accounting book periods.']);
         }
+
         if ($period->status !== AccountingPeriodStatus::Open) {
             throw ValidationException::withMessages(['posting_date' => 'The accounting period is closed or locked.']);
         }

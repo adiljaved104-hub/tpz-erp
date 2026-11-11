@@ -12,8 +12,8 @@ use App\Models\Quotation;
 use App\Models\QuotationItem;
 use App\Models\User;
 use App\Services\ActivityLogger;
-use App\Services\ProductIntelligence\ProductDuplicateGuard;
 use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\ProductIntelligence\ProductDuplicateGuard;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -124,3 +124,4 @@ class QuotationManualProductMaterializer
         return $products;
     }
 }
+

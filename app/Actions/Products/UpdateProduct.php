@@ -38,6 +38,7 @@ class UpdateProduct
                 'responsibility_override_confirmed' => 'Review the Product visibility warning and explicitly confirm Save Anyway.',
             ]);
         }
+
         return DB::transaction(function () use ($product, $data, $validated, $actor, $withinResponsibility): Product {
             // Serialize Product updates with creation validation to prevent concurrent duplicate variants.
             DB::table('reference_sequences')->where('key', 'product_sku')->lockForUpdate()->first();
@@ -183,3 +184,4 @@ class UpdateProduct
         return filled($value) ? trim($value) : null;
     }
 }
+

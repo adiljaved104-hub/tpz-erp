@@ -157,7 +157,9 @@ class SupplierPayables extends BaseAccountingPage
     {
         $books = AccountingBook::query()->orderBy('name')->get();
         $book = $this->book();
-        if ($book && $this->bookId === '') $this->bookId = (string) $book->id;
+        if ($book && $this->bookId === '') {
+            $this->bookId = (string) $book->id;
+        }
 
         return [
             'books' => $books, 'book' => $book, 'suppliers' => Supplier::query()->orderBy('name')->get(),
@@ -175,6 +177,8 @@ class SupplierPayables extends BaseAccountingPage
 
     private function applyErrors(ValidationException $exception): void
     {
-        foreach ($exception->errors() as $field => $messages) $this->addError($field, $messages[0]);
+        foreach ($exception->errors() as $field => $messages) {
+            $this->addError($field, $messages[0]);
+        }
     }
 }

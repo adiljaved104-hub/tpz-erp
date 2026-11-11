@@ -74,7 +74,7 @@ class AccountingLedgerService
                 return $journal;
             }
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($journal->accounting_book_id);
-            if (! $book->active || ! $book->posting_enabled) {
+            if ($book->active === false || $book->posting_enabled === false) {
                 throw ValidationException::withMessages(['book' => 'This accounting book is inactive or posting is not enabled.']);
             }
             $period = AccountingPeriod::query()->lockForUpdate()->findOrFail($journal->accounting_period_id);
@@ -151,7 +151,7 @@ class AccountingLedgerService
 
         return DB::transaction(function () use ($book, $actor): AccountingBook {
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($book->id);
-            if (! $book->active) {
+            if ($book->active === false) {
                 throw ValidationException::withMessages(['book' => 'An inactive accounting book cannot be enabled for posting.']);
             }
             $book->forceFill(['posting_enabled' => true])->save();

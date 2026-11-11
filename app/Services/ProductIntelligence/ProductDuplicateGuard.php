@@ -33,9 +33,8 @@ class ProductDuplicateGuard
             return collect();
         }
 
-        // A normalized title match is authoritative even when optional structured fields are absent
-        // or stale on either record; the title itself must always raise a duplicate warning.
-        $exactTitleMatches = $this->normalizedTitleMatches($name, $excludeProductId);
+        $exactTitleMatches = $this->normalizedTitleMatches($name, $excludeProductId)
+            ->filter(fn (Product $product): bool => $this->sameStructuredVariant($product, $attributes));
         $visibleExactMatches = $this->visibleProducts($actor, $exactTitleMatches)
             ->map(fn (Product $product): ProductMatchResult => new ProductMatchResult(
                 productId: $product->id,
@@ -208,6 +207,7 @@ class ProductDuplicateGuard
 
         foreach (['model', 'processor_model', 'ram', 'storage', 'graphics', 'screen_size', 'color'] as $field) {
             if (filled($attributes[$field] ?? null)
+                && filled($product->{$field})
                 && mb_strtolower(trim((string) $attributes[$field])) !== mb_strtolower(trim((string) $product->{$field}))) {
                 return false;
             }
@@ -217,7 +217,9 @@ class ProductDuplicateGuard
                 return false;
             }
         }
-        if (filled($attributes['condition'] ?? null) && (string) $attributes['condition'] !== $product->condition?->value) {
+        if (filled($attributes['condition'] ?? null)
+            && filled($product->condition?->value)
+            && (string) $attributes['condition'] !== $product->condition?->value) {
             return false;
         }
 

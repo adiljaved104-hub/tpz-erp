@@ -55,7 +55,6 @@ class AccountsPayableService
             'lines.*.purchase_item_id' => ['nullable', 'integer', 'exists:purchase_items,id'],
         ])->validate();
 
-
         return DB::transaction(function () use ($validated, $actor): AccountingSupplierBill {
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($validated['accounting_book_id']);
             $existing = AccountingSupplierBill::query()->where('accounting_book_id', $book->id)->where('idempotency_key', $validated['idempotency_key'])->with('lines')->first();
@@ -111,7 +110,6 @@ class AccountsPayableService
             $bill->lines()->createMany($lines);
             $this->activity->log('accounting.supplier_bill_draft_created', $actor, $bill, ['reference' => $bill->bill_number]);
 
-
             return $bill->load('lines');
         });
     }
@@ -128,7 +126,6 @@ class AccountsPayableService
             'reference' => ['required', 'string', 'max:100'],
             'idempotency_key' => ['required', 'string', 'max:100'],
         ])->validate();
-
 
         return DB::transaction(function () use ($validated, $actor): AccountingSupplierPayment {
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($validated['accounting_book_id']);
@@ -247,7 +244,6 @@ class AccountsPayableService
             'reason' => ['required', 'string', 'min:5', 'max:1000'],
         ])->validate();
 
-
         return DB::transaction(function () use ($validated, $actor): AccountingSupplierAdjustment {
             $existing = AccountingSupplierAdjustment::query()
                 ->where('accounting_book_id', $validated['accounting_book_id'])
@@ -265,7 +261,6 @@ class AccountsPayableService
                 'created_by_user_id' => $actor->id,
             ]);
             $this->activity->log('accounting.supplier_adjustment_draft_created', $actor, $adjustment, ['reference' => $adjustment->reference]);
-
 
             return $adjustment;
         });
@@ -294,7 +289,6 @@ class AccountsPayableService
             $allocated = (string) ($bill->allocations_sum_amount ?? '0.00');
             $bill->setAttribute('outstanding_amount', bcsub((string) $bill->grand_total, $allocated, 2));
             $bill->setAttribute('days_overdue', $bill->due_date && $bill->due_date->lt($asOf) ? $bill->due_date->diffInDays($asOf) : 0);
-
 
             return $bill;
         })
@@ -348,7 +342,6 @@ class AccountsPayableService
             throw ValidationException::withMessages(['amount' => 'Invalid decimal value.']);
         }
         [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
-
 
         return implode('.', [$whole, str_pad($fraction, $scale, '0')]);
     }

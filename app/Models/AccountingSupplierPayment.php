@@ -18,8 +18,23 @@ class AccountingSupplierPayment extends Model
         return ['payment_date' => 'date', 'amount' => 'decimal:2'];
     }
 
-    public function book(): BelongsTo { return $this->belongsTo(AccountingBook::class, 'accounting_book_id'); }
-    public function supplier(): BelongsTo { return $this->belongsTo(Supplier::class); }
-    public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by_user_id'); }
-    public function allocations(): HasMany { return $this->hasMany(AccountingSupplierPaymentAllocation::class, 'payment_id'); }
+    public function book(): BelongsTo
+    {
+        return $this->belongsTo(AccountingBook::class, 'accounting_book_id');
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(AccountingSupplierPaymentAllocation::class, 'payment_id');
+    }
 }

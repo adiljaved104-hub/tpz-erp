@@ -55,6 +55,7 @@ class AccountsPayableService
             'lines.*.purchase_item_id' => ['nullable', 'integer', 'exists:purchase_items,id'],
         ])->validate();
 
+
         return DB::transaction(function () use ($validated, $actor): AccountingSupplierBill {
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($validated['accounting_book_id']);
             $existing = AccountingSupplierBill::query()->where('accounting_book_id', $book->id)->where('idempotency_key', $validated['idempotency_key'])->with('lines')->first();
@@ -110,6 +111,7 @@ class AccountsPayableService
             $bill->lines()->createMany($lines);
             $this->activity->log('accounting.supplier_bill_draft_created', $actor, $bill, ['reference' => $bill->bill_number]);
 
+
             return $bill->load('lines');
         });
     }
@@ -127,6 +129,7 @@ class AccountsPayableService
             'idempotency_key' => ['required', 'string', 'max:100'],
         ])->validate();
 
+
         return DB::transaction(function () use ($validated, $actor): AccountingSupplierPayment {
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($validated['accounting_book_id']);
             $this->assertCurrency($book, $validated['currency']);
@@ -142,6 +145,7 @@ class AccountsPayableService
                 'status' => 'draft', 'idempotency_key' => $validated['idempotency_key'], 'created_by_user_id' => $actor->id,
             ]);
             $this->activity->log('accounting.supplier_payment_draft_created', $actor, $payment, ['reference' => $payment->reference]);
+
             return $payment;
         });
     }
@@ -150,6 +154,7 @@ class AccountsPayableService
     {
         $this->authorization->authorize($actor, AccountingPermission::AllocateSupplierPayment);
         throw_if($allocations === [], ValidationException::withMessages(['allocations' => 'At least one allocation is required.']));
+
         return DB::transaction(function () use ($payment, $allocations, $actor): AccountingSupplierPayment {
             $payment = AccountingSupplierPayment::query()->lockForUpdate()->with('allocations')->findOrFail($payment->id);
             throw_if($payment->status === 'voided', ValidationException::withMessages(['payment' => 'Voided payments cannot be allocated.']));
@@ -181,6 +186,7 @@ class AccountsPayableService
             $allocated = (string) $payment->allocations()->sum('amount');
             throw_if(bccomp($allocated, (string) $payment->amount, 2) > 0, ValidationException::withMessages(['allocations' => 'Allocations exceed the supplier payment amount.']));
             $this->activity->log('accounting.supplier_payment_allocated', $actor, $payment, ['allocation_recorded' => true]);
+
             return $payment->load('allocations');
         });
     }
@@ -188,11 +194,13 @@ class AccountsPayableService
     public function approveBill(AccountingSupplierBill $bill, User $actor): AccountingSupplierBill
     {
         $this->authorization->authorize($actor, AccountingPermission::ApproveSupplierPayables);
+
         return DB::transaction(function () use ($bill, $actor): AccountingSupplierBill {
             $bill = AccountingSupplierBill::query()->lockForUpdate()->findOrFail($bill->id);
             throw_if($bill->status !== 'draft', ValidationException::withMessages(['bill' => 'Only draft bills can be approved.']));
             $bill->forceFill(['status' => 'approved', 'approved_by_user_id' => $actor->id, 'approved_at' => now()])->save();
             $this->activity->log('accounting.supplier_bill_approved', $actor, $bill);
+
             return $bill;
         });
     }
@@ -200,10 +208,12 @@ class AccountsPayableService
     public function approvePayment(AccountingSupplierPayment $payment, User $actor): AccountingSupplierPayment
     {
         $this->authorization->authorize($actor, AccountingPermission::ApproveSupplierPayables);
+
         return DB::transaction(function () use ($payment): AccountingSupplierPayment {
             $payment = AccountingSupplierPayment::query()->lockForUpdate()->findOrFail($payment->id);
             throw_if($payment->status !== 'draft', ValidationException::withMessages(['payment' => 'Only draft payments can be approved.']));
             $payment->update(['status' => 'approved']);
+
             return $payment;
         });
     }
@@ -211,10 +221,12 @@ class AccountsPayableService
     public function approveAdjustment(AccountingSupplierAdjustment $adjustment, User $actor): AccountingSupplierAdjustment
     {
         $this->authorization->authorize($actor, AccountingPermission::ApproveSupplierPayables);
+
         return DB::transaction(function () use ($adjustment): AccountingSupplierAdjustment {
             $adjustment = AccountingSupplierAdjustment::query()->lockForUpdate()->findOrFail($adjustment->id);
             throw_if($adjustment->status !== 'draft', ValidationException::withMessages(['adjustment' => 'Only draft adjustments can be approved.']));
             $adjustment->update(['status' => 'approved']);
+
             return $adjustment;
         });
     }
@@ -235,6 +247,7 @@ class AccountsPayableService
             'reason' => ['required', 'string', 'min:5', 'max:1000'],
         ])->validate();
 
+
         return DB::transaction(function () use ($validated, $actor): AccountingSupplierAdjustment {
             $existing = AccountingSupplierAdjustment::query()
                 ->where('accounting_book_id', $validated['accounting_book_id'])
@@ -253,6 +266,7 @@ class AccountsPayableService
             ]);
             $this->activity->log('accounting.supplier_adjustment_draft_created', $actor, $adjustment, ['reference' => $adjustment->reference]);
 
+
             return $adjustment;
         });
     }
@@ -260,12 +274,14 @@ class AccountsPayableService
     public function supplierBalance(AccountingBook $book, int $supplierId, User $actor): string
     {
         $this->authorization->authorize($actor, AccountingPermission::ViewPayables);
+
         return $this->sumBalance($book, $supplierId, ['approved', 'posted']);
     }
 
     public function draftExposure(AccountingBook $book, int $supplierId, User $actor): string
     {
         $this->authorization->authorize($actor, AccountingPermission::ViewPayables);
+
         return $this->sumBalance($book, $supplierId, ['draft', 'approved', 'posted']);
     }
 
@@ -273,10 +289,12 @@ class AccountsPayableService
     {
         $this->authorization->authorize($actor, AccountingPermission::ViewPayables);
         $asOf = CarbonImmutable::createFromFormat('Y-m-d', $asOfDate)->startOfDay();
+
         return AccountingSupplierBill::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->whereIn('status', ['approved', 'posted'])->withSum('allocations', 'amount')->orderBy('due_date')->get()->map(function (AccountingSupplierBill $bill) use ($asOf): AccountingSupplierBill {
             $allocated = (string) ($bill->allocations_sum_amount ?? '0.00');
             $bill->setAttribute('outstanding_amount', bcsub((string) $bill->grand_total, $allocated, 2));
             $bill->setAttribute('days_overdue', $bill->due_date && $bill->due_date->lt($asOf) ? $bill->due_date->diffInDays($asOf) : 0);
+
 
             return $bill;
         })
@@ -295,6 +313,7 @@ class AccountsPayableService
             ->where('payment.supplier_id', $supplierId)
             ->whereIn('payment.status', $statuses)
             ->sum('allocation.amount');
+
         return bcsub(bcadd(bcsub($billed, $credits, 2), $debits, 2), $paid, 2);
     }
 
@@ -329,6 +348,7 @@ class AccountsPayableService
             throw ValidationException::withMessages(['amount' => 'Invalid decimal value.']);
         }
         [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
+
 
         return implode('.', [$whole, str_pad($fraction, $scale, '0')]);
     }

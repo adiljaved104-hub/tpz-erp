@@ -45,13 +45,15 @@ class ReportRegistryIntegrationTest extends TestCase
         $owner = $this->user(EmployeeRole::Owner, 'Owner');
         $reports = app(ReportCatalog::class)->available($owner);
 
-        $this->assertCount(46, $reports);
-        $this->assertCount(46, array_unique(array_keys($reports)));
+        $this->assertCount(47, $reports);
+        $this->assertCount(47, array_unique(array_keys($reports)));
         $this->assertSame('Sales & Orders', $reports['orders']['group']);
         $this->assertSame('Web Sales', $reports['web_sales.orders']['group']);
         $this->assertSame('Finance', $reports['finance.expenses']['group']);
         $this->assertSame('Finance', $reports['office_finance.cashbook']['group']);
         $this->assertSame('Sales', $reports['sales.quotations']['group']);
+        $this->assertSame('Quality Control', $reports['qc_operations']['group']);
+        $this->assertSame([], $reports['qc_operations']['formats']);
         $this->assertSame('Business Expenses (AED)', $reports['finance.expenses']['title']);
         $this->assertSame('Pakistan Office Expenses (PKR)', $reports['office_finance.expenses']['title']);
         $this->assertNotEmpty($reports['finance.expenses']['pdf_columns']);

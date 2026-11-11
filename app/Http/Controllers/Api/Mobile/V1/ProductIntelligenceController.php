@@ -2,13 +2,18 @@
 
 namespace App\Http\Controllers\Api\Mobile\V1;
 
+use App\Enums\CatalogPermission;
 use App\Enums\ComponentPermission;
 use App\Enums\InventoryPermission;
 use App\Enums\ProductPermission;
+use App\Enums\RecoveryValuationMethod;
 use App\Enums\UpgradePermission;
+use App\Enums\UpgradeRecipeOperation;
+use App\Models\Component;
 use App\Models\Product;
 use App\Models\SalesConfiguration;
 use App\Models\UpgradeRecipe;
+use App\Services\Authorization\CatalogAuthorization;
 use App\Services\Authorization\ComponentAuthorization;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
@@ -90,11 +95,14 @@ class ProductIntelligenceController extends MobileController
                         'build_summary' => $validation->buildSummary,
                         ...($cost ? ['labour_unit_cost' => $recipe->labour_unit_cost] : []),
                         'lines' => $recipe->lines->map(fn ($line): array => [
+                            'id' => $line->id,
                             'sequence' => $line->sequence,
                             'operation' => $line->operation->value,
                             'source_slot_key' => $line->source_slot_key,
                             'target_slot_key' => $line->target_slot_key,
+                            'install_component_id' => $line->install_component_id,
                             'install_component' => $line->installComponent?->product?->name,
+                            'recovered_component_id' => $line->recovered_component_id,
                             'recovered_component' => $line->recoveredComponent?->product?->name,
                             'quantity_per_laptop' => $line->quantity_per_laptop,
                             'recovery_valuation_method' => $line->recovery_valuation_method->value,
@@ -132,6 +140,8 @@ class ProductIntelligenceController extends MobileController
                 'manage_configurations' => $upgrades->allows($user, UpgradePermission::ManageConfigurations),
                 'manage_recipes' => $upgrades->allows($user, UpgradePermission::ManageRecipes),
                 'manage_selling_addons' => $selling,
+                'manage_catalog' => app(CatalogAuthorization::class)->allows($user, CatalogPermission::BrandManage)
+                    || app(CatalogAuthorization::class)->allows($user, CatalogPermission::CategoryManage),
             ],
         ]]);
     }
@@ -141,6 +151,28 @@ class ProductIntelligenceController extends MobileController
         app(HardwareProfileService::class)->save($this->product($request, $product), $request->all(), $request->user());
 
         return $this->show($request, $product);
+    }
+
+    public function profileOptions(Request $request, int $product): JsonResponse
+    {
+        $this->product($request, $product);
+        $user = $request->user();
+        app(UpgradeAuthorization::class)->authorize($user, UpgradePermission::ManageHardwareProfiles);
+        app(ComponentAuthorization::class)->authorize($user, ComponentPermission::View);
+
+        return response()->json(['data' => [
+            'subsystems' => [
+                ['value' => 'ram', 'label' => 'RAM'],
+                ['value' => 'storage', 'label' => 'Storage'],
+            ],
+            'components' => Component::query()->with('product:id,sku,name,status')
+                ->whereHas('product', fn ($query) => $query->where('status', 'active'))
+                ->orderBy('id')->limit(200)->get()->map(fn (Component $component): array => [
+                    'id' => $component->id,
+                    'label' => $component->product->sku.' · '.$component->specification,
+                    'component_type' => $component->component_type->value,
+                ])->values(),
+        ]]);
     }
 
     public function storeConfiguration(Request $request, int $product): JsonResponse
@@ -165,6 +197,53 @@ class ProductIntelligenceController extends MobileController
         $product = $this->product($request, $product);
         $configuration = SalesConfiguration::query()->where('product_id', $product->id)->findOrFail($configuration);
         app(UpgradeRecipeService::class)->revalidateConfiguration($configuration, $request->user());
+
+        return $this->show($request, $product->id);
+    }
+
+    public function recipeOptions(Request $request, int $product, int $configuration): JsonResponse
+    {
+        $product = $this->product($request, $product)->load('hardwareProfile.slots');
+        SalesConfiguration::query()->where('product_id', $product->id)->findOrFail($configuration);
+        $user = $request->user();
+        app(UpgradeAuthorization::class)->authorize($user, UpgradePermission::ManageRecipes);
+        app(ComponentAuthorization::class)->authorize($user, ComponentPermission::View);
+        $components = Component::query()->with('product:id,sku,name,status')
+            ->whereHas('product', fn ($query) => $query->where('status', 'active'))
+            ->orderBy('id')->limit(200)->get();
+
+        return response()->json(['data' => [
+            'operations' => collect(UpgradeRecipeOperation::options())->map(fn (string $label, string $value): array => compact('value', 'label'))->values(),
+            'recovery_methods' => collect(RecoveryValuationMethod::options())->map(fn (string $label, string $value): array => compact('value', 'label'))->values(),
+            'slots' => $product->hardwareProfile?->slots->map(fn ($slot): array => [
+                'value' => $slot->slot_key,
+                'label' => $slot->slot_key.' · '.$slot->subsystem->label(),
+                'subsystem' => $slot->subsystem->value,
+            ])->values() ?? [],
+            'components' => $components->map(fn (Component $component): array => [
+                'id' => $component->id,
+                'label' => $component->product->sku.' · '.$component->specification,
+                'component_type' => $component->component_type->value,
+            ])->values(),
+            'can_set_labour_cost' => app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewFinancials),
+            'can_override_recovery' => app(UpgradeAuthorization::class)->allows($user, UpgradePermission::ApproveRecoveryOverride),
+        ]]);
+    }
+
+    public function storeRecipe(Request $request, int $product, int $configuration): JsonResponse
+    {
+        $product = $this->product($request, $product);
+        $configuration = SalesConfiguration::query()->where('product_id', $product->id)->findOrFail($configuration);
+        app(UpgradeRecipeService::class)->create($configuration, $request->all(), $request->user());
+
+        return $this->show($request, $product->id);
+    }
+
+    public function updateRecipe(Request $request, int $product, int $recipe): JsonResponse
+    {
+        $product = $this->product($request, $product);
+        $recipe = UpgradeRecipe::query()->whereHas('salesConfiguration', fn ($query) => $query->where('product_id', $product->id))->findOrFail($recipe);
+        app(UpgradeRecipeService::class)->update($recipe, $request->all(), $request->user());
 
         return $this->show($request, $product->id);
     }

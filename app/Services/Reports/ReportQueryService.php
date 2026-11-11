@@ -30,6 +30,7 @@ use App\Services\Dashboard\DashboardInventoryIntelligenceService;
 use App\Services\Hr\AttendanceQueryService;
 use App\Services\Hr\HrScopeService;
 use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Qc\QcInspectionService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Returns\CustomerReturnReadService;
 use App\Services\Tasks\TaskQueryService;
@@ -63,6 +64,7 @@ class ReportQueryService
         private readonly HrScopeService $hrScope,
         private readonly HrAuthorization $hrAuth,
         private readonly PerformanceAuthorization $performanceAuth,
+        private readonly QcInspectionService $qcInspections,
     ) {}
 
     /** @param array<string, mixed> $filters */
@@ -408,6 +410,35 @@ class ReportQueryService
         $columns = $this->columns(['task_reference' => 'Task Reference', 'title' => 'Title', 'priority' => 'Priority', 'status' => 'Status', 'assigned_employee' => 'Assigned Employee', 'assigned_team' => 'Assigned Team', 'due_at' => 'Due At', 'started_at' => 'Started At', 'completed_at' => 'Completed At', 'linked_type' => 'Linked Module', 'created_at' => 'Created At']);
 
         return [$q, $columns, []];
+    }
+
+    private function qcInspections(User $user, array $f): array
+    {
+        $ids = $this->qcInspections->visible($user)->select('qc_inspections.id');
+        $query = DB::table('qc_inspections as qi')
+            ->join('qc_devices as qd', 'qd.id', '=', 'qi.device_id')
+            ->leftJoin('warehouses as qw', 'qw.id', '=', 'qi.warehouse_id')
+            ->leftJoin('users as qu', 'qu.id', '=', 'qi.technician_user_id')
+            ->leftJoin('employees as qe', 'qe.user_id', '=', 'qu.id')
+            ->whereIn('qi.id', $ids)
+            ->where('qi.created_at', '>=', $f['from_utc'])
+            ->where('qi.created_at', '<', $f['until_utc'])
+            ->when($f['status'], fn (Builder $query) => $query->where('qi.status', $f['status']))
+            ->select([
+                'qi.id as _target_id', 'qd.reference as qc_reference', 'qd.serial',
+                'qi.status', 'qi.version', 'qi.grade', 'qw.name as warehouse',
+                'qe.name as technician', 'qi.qc_source', 'qi.created_at', 'qi.completed_at',
+            ])
+            ->selectRaw("'qc/inspections' AS _target_module")
+            ->orderByDesc('qi.created_at');
+        $columns = $this->columns([
+            'qc_reference' => 'QC Reference', 'serial' => 'Serial', 'status' => 'Status',
+            'version' => 'Version', 'grade' => 'Grade', 'warehouse' => 'Warehouse',
+            'technician' => 'Technician', 'qc_source' => 'Source', 'created_at' => 'Started At',
+            'completed_at' => 'Completed At',
+        ], ['version']);
+
+        return [$query, $columns, []];
     }
 
     private function attendance(User $user, array $f): array

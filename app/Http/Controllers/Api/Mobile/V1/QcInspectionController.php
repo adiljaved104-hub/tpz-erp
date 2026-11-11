@@ -10,6 +10,7 @@ use App\Models\Warehouse;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\BusinessTimezone;
 use App\Services\Products\ProductTitleService;
+use App\Services\Qc\QcDocumentService;
 use App\Services\Qc\QcEvidenceService;
 use App\Services\Qc\QcInspectionReadService;
 use App\Services\Qc\QcInspectionService;
@@ -125,10 +126,12 @@ class QcInspectionController extends MobileController
         $canComplete = $authorization->allows($actor, QcPermission::Complete, $inspection);
         $canViewCustomerEvidence = $authorization->allows($actor, QcPermission::ViewCustomerEvidence, $inspection);
         $canViewInternal = $authorization->allows($actor, QcPermission::ViewInternalEvidence, $inspection);
+        $canPrintCertificate = $authorization->allows($actor, QcPermission::PrintCertificate, $inspection);
         $progress = $evidence->progress($inspection, $inspection->final_configuration);
 
         return response()->json(['inspection' => [
             'inspection_id' => $inspection->id,
+            'device_id' => $inspection->device?->id,
             'qc_id' => $inspection->device?->reference,
             'serial' => $inspection->device?->serial,
             'status' => $inspection->status->value,
@@ -166,7 +169,28 @@ class QcInspectionController extends MobileController
             ])->values(),
             'evidence_progress' => ['required' => $progress['required'], 'completed' => $progress['complete'], 'missing' => $progress['missing']],
             'evidence' => $progress['proofs']->filter(fn ($proof) => $proof->customer_visible ? $canViewCustomerEvidence : $canViewInternal)
-                ->map(fn ($proof): array => ['public_id' => $proof->public_id, 'kind' => $proof->kind, 'customer_visible' => (bool) $proof->customer_visible, 'uploaded_at' => $timezone->iso($proof->uploaded_at)])->values(),
+                ->map(fn ($proof): array => [
+                    'id' => $proof->id,
+                    'public_id' => $proof->public_id,
+                    'kind' => $proof->kind,
+                    'customer_visible' => (bool) $proof->customer_visible,
+                    'uploaded_at' => $timezone->iso($proof->uploaded_at),
+                    'customer_file' => $proof->customer_visible && $canViewCustomerEvidence
+                        ? "/workspace/qc/inspections/{$inspection->id}/evidence/{$proof->id}"
+                        : null,
+                    'original_file' => $canViewInternal
+                        ? "/workspace/qc/inspections/{$inspection->id}/evidence/{$proof->id}?original=1"
+                        : null,
+                ])->values(),
+            'certificate' => $inspection->certificate === null ? null : [
+                'id' => $inspection->certificate->id,
+                'version' => $inspection->certificate->version,
+                'current' => $inspection->certificate->isCurrent(),
+                'certified_at' => $timezone->iso($inspection->certificate->certified_at),
+                'grade' => data_get($inspection->certificate->snapshot, 'grade'),
+                'fingerprint' => app(QcDocumentService::class)->fingerprint($inspection->certificate),
+                'download_path' => $canPrintCertificate ? "/workspace/qc/inspections/{$inspection->id}/certificate" : null,
+            ],
             'can_update' => $canUpdate && $inspection->status !== QcInspectionStatus::Completed,
             'can_upload_evidence' => $canUpdate && $inspection->status !== QcInspectionStatus::Completed,
             'can_complete' => $canComplete && $inspection->status !== QcInspectionStatus::Completed,

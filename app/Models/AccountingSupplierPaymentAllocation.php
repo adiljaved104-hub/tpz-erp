@@ -14,6 +14,13 @@ class AccountingSupplierPaymentAllocation extends Model
         return ['amount' => 'decimal:2'];
     }
 
-    public function payment(): BelongsTo { return $this->belongsTo(AccountingSupplierPayment::class, 'payment_id'); }
-    public function bill(): BelongsTo { return $this->belongsTo(AccountingSupplierBill::class, 'bill_id'); }
+    public function payment(): BelongsTo
+    {
+        return $this->belongsTo(AccountingSupplierPayment::class, 'payment_id');
+    }
+
+    public function bill(): BelongsTo
+    {
+        return $this->belongsTo(AccountingSupplierBill::class, 'bill_id');
+    }
 }

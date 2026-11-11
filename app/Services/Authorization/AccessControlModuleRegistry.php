@@ -121,6 +121,7 @@ class AccessControlModuleRegistry
             $this->module('accounting_periods', 'UAE Accounting Periods', 'finance', [AccountingPermission::ViewPeriods], [AccountingPermission::ManagePeriods], [AccountingPermission::Export], 'Open, close, and lock fiscal periods under Owner controls.'),
             $this->module('accounting_ledger', 'UAE General Ledger', 'finance', [AccountingPermission::ViewLedger], [], [AccountingPermission::Export], 'Book-scoped ledger with opening, activity, and closing balances.'),
             $this->module('accounting_trial_balance', 'UAE Trial Balance', 'finance', [AccountingPermission::ViewTrialBalance], [], [AccountingPermission::Export], 'Book-scoped, as-of trial balance reconciliation.'),
+            $this->module('supplier_payables', 'Supplier Payables', 'finance', [AccountingPermission::ViewPayables], [AccountingPermission::CreateSupplierBill], [AccountingPermission::RecordSupplierPayment, AccountingPermission::AllocateSupplierPayment, AccountingPermission::ManageSupplierCredits, AccountingPermission::Export], 'Draft-only AP source records until Owner-approved posting policy is enabled.'),
 
 
             $this->module('tasks', 'Tasks', 'tasks_chat', [TaskPermission::View], [TaskPermission::Create, TaskPermission::Update, TaskPermission::ChangeStatus, TaskPermission::Complete], [TaskPermission::Assign, TaskPermission::Cancel, TaskPermission::ViewTeam, TaskPermission::ManageAll]),

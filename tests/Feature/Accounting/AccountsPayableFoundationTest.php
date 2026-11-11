@@ -8,6 +8,7 @@ use App\Models\Employee;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Accounting\AccountsPayableService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -70,7 +71,7 @@ class AccountsPayableFoundationTest extends TestCase
         $book = AccountingBook::query()->firstOrFail();
         $supplier = Supplier::factory()->create();
 
-        $this->expectException(\Illuminate\Auth\Access\AuthorizationException::class);
+        $this->expectException(AuthorizationException::class);
 
         app(AccountsPayableService::class)->createDraftBill([
             'accounting_book_id' => $book->id,

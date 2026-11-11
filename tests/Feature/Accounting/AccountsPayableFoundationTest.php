@@ -145,6 +145,77 @@ class AccountsPayableFoundationTest extends TestCase
         $service->allocatePayment($payment, [['bill_id' => $bill->id, 'amount' => '200.00']], $owner);
     }
 
+    public function test_conflicting_idempotency_replay_is_rejected(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $book = AccountingBook::query()->firstOrFail();
+        $supplier = Supplier::factory()->create();
+        $service = app(AccountsPayableService::class);
+        $key = (string) Str::uuid();
+        $payload = [
+            'accounting_book_id' => $book->id,
+            'supplier_id' => $supplier->id,
+            'bill_date' => '2026-11-11',
+            'currency' => 'AED',
+            'idempotency_key' => $key,
+            'lines' => [['description' => 'Laptop', 'quantity' => '1', 'unit_cost' => '100.00']],
+        ];
+
+        $service->createDraftBill($payload, $owner);
+
+        $this->expectException(ValidationException::class);
+        $service->createDraftBill([...$payload, 'lines' => [['description' => 'Laptop', 'quantity' => '2', 'unit_cost' => '100.00']]], $owner);
+    }
+
+    public function test_negative_allocations_are_rejected(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $book = AccountingBook::query()->firstOrFail();
+        $supplier = Supplier::factory()->create();
+        $service = app(AccountsPayableService::class);
+        $bill = $service->createDraftBill([
+            'accounting_book_id' => $book->id,
+            'supplier_id' => $supplier->id,
+            'bill_date' => '2026-11-11',
+            'currency' => 'AED',
+            'idempotency_key' => (string) Str::uuid(),
+            'lines' => [['description' => 'Laptop', 'quantity' => '1', 'unit_cost' => '100.00']],
+        ], $owner);
+        $payment = $service->recordDraftPayment([
+            'accounting_book_id' => $book->id,
+            'supplier_id' => $supplier->id,
+            'payment_date' => '2026-11-11',
+            'currency' => 'AED',
+            'amount' => '100.00',
+            'reference' => 'PAY-NEG',
+            'idempotency_key' => (string) Str::uuid(),
+        ], $owner);
+
+        $this->expectException(ValidationException::class);
+        $service->allocatePayment($payment, [['bill_id' => $bill->id, 'amount' => '-1.00']], $owner);
+    }
+
+    public function test_approved_balance_excludes_drafts_until_approval(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $book = AccountingBook::query()->firstOrFail();
+        $supplier = Supplier::factory()->create();
+        $service = app(AccountsPayableService::class);
+        $bill = $service->createDraftBill([
+            'accounting_book_id' => $book->id,
+            'supplier_id' => $supplier->id,
+            'bill_date' => '2026-11-11',
+            'currency' => 'AED',
+            'idempotency_key' => (string) Str::uuid(),
+            'lines' => [['description' => 'Laptop', 'quantity' => '1', 'unit_cost' => '100.00']],
+        ], $owner);
+
+        $this->assertSame('0.00', $service->supplierBalance($book, $supplier->id, $owner));
+        $service->approveBill($bill, $owner);
+        $this->assertSame('100.00', $service->supplierBalance($book, $supplier->id, $owner));
+        $this->assertFalse($book->refresh()->posting_enabled);
+    }
+
     private function user(EmployeeRole $role): User
     {
         $user = User::factory()->create();

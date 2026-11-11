@@ -37,7 +37,7 @@ class AccountingLedgerService
             $book = AccountingBook::query()->lockForUpdate()->findOrFail($validated['book_id']);
             $existing = AccountingJournal::query()->where('accounting_book_id', $book->id)->where('idempotency_key', $validated['idempotency_key'])->with('lines')->first();
             if ($existing !== null) {
-                if (! $this->sameDraftPayload($existing, $validated)) {
+                if ($this->sameDraftPayload($existing, $validated) === false) {
                     throw ValidationException::withMessages(['idempotency_key' => 'This idempotency key was already used with different journal content.']);
                 }
 

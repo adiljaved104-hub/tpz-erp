@@ -163,7 +163,11 @@ class AccountsPayableService
                 throw_if($bill->status === 'voided', ValidationException::withMessages(['allocations' => 'Voided bills cannot be allocated.']));
                 if ($bill->accounting_book_id !== $payment->accounting_book_id || $bill->supplier_id !== $payment->supplier_id || strtoupper((string) $bill->currency) !== strtoupper((string) $payment->currency)) throw ValidationException::withMessages(['allocations' => 'Payment and bill must belong to the same book, supplier, and currency.']);
                 $existing = $payment->allocations()->where('bill_id', $billId)->first();
-                if ($existing) { throw_unless(bccomp((string) $existing->amount, $amount, 2) === 0, ValidationException::withMessages(['allocations' => 'Conflicting allocation replay for this payment and bill.'])); continue; }
+                if ($existing) {
+                    throw_unless(bccomp((string) $existing->amount, $amount, 2) === 0, ValidationException::withMessages(['allocations' => 'Conflicting allocation replay for this payment and bill.']));
+
+                    continue;
+                }
                 $already = (string) ($bill->allocations_sum_amount ?? '0.00');
                 throw_if(bccomp(bcadd($already, $amount, 2), (string) $bill->grand_total, 2) > 0, ValidationException::withMessages(['allocations' => 'Allocation exceeds the supplier bill balance.']));
                 AccountingSupplierPaymentAllocation::query()->create(['payment_id' => $payment->id, 'bill_id' => $bill->id, 'amount' => $amount]);
@@ -284,14 +288,25 @@ class AccountsPayableService
     private function assertSameBillPayload(AccountingSupplierBill $bill, array $data): void
     {
         $matches = (int) $bill->supplier_id === (int) $data['supplier_id'] && (int) ($bill->purchase_id ?? 0) === (int) ($data['purchase_id'] ?? 0) && $bill->bill_date?->format('Y-m-d') === $data['bill_date'] && strtoupper((string) $bill->currency) === strtoupper($data['currency']) && count($bill->lines) === count($data['lines']);
-        if ($matches) foreach ($bill->lines as $index => $line) { $input = $data['lines'][$index]; $matches = $matches && (string) $line->description === trim($input['description']) && (string) $line->quantity === self::decimal($input['quantity'], 3) && (string) $line->unit_cost === self::decimal($input['unit_cost'], 2) && (string) $line->vat_rate === self::decimal($input['vat_rate'] ?? '0', 4); }
+        if ($matches) {
+            foreach ($bill->lines as $index => $line) {
+                $input = $data['lines'][$index];
+                $matches = $matches
+                    && (string) $line->description === trim($input['description'])
+                    && (string) $line->quantity === self::decimal($input['quantity'], 3)
+                    && (string) $line->unit_cost === self::decimal($input['unit_cost'], 2)
+                    && (string) $line->vat_rate === self::decimal($input['vat_rate'] ?? '0', 4);
+            }
+        }
         throw_unless($matches, ValidationException::withMessages(['idempotency_key' => 'Conflicting bill replay for this idempotency key.']));
     }
 
     private static function decimal(string|int|float $value, int $scale): string
     {
         $value = trim((string) $value);
-        if (! preg_match('/^\\d+(?:\\.\\d{1,' . $scale . '})?$/', $value)) throw ValidationException::withMessages(['amount' => 'Invalid decimal value.']);
+        if (! preg_match('/^\\d+(?:\\.\\d{1,' . $scale . '})?$/', $value)) {
+            throw ValidationException::withMessages(['amount' => 'Invalid decimal value.']);
+        }
         [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, ''); return $whole . '.' . str_pad($fraction, $scale, '0');
     }
 }

@@ -98,6 +98,12 @@ class ReturnEvidenceController extends Controller
             'marketplace_order_id' => $return->order?->external_order_number,
             'marketplace' => $return->platform?->name, 'status' => $return->status->value,
             'can_record' => app(CustomerReturnEvidenceAuthorization::class)->canRecord($request->user(), $return),
+            'video_upload' => [
+                'max_bytes' => (int) config('customer_return_evidence.max_video_kib') * 1024,
+                'max_duration_seconds' => (int) config('customer_return_evidence.max_video_seconds'),
+                'chunk_bytes' => CustomerReturnVideoUploadService::CHUNK_BYTES,
+                'allowed_mime_types' => ['video/mp4', 'video/quicktime'],
+            ],
             'items' => $return->items->map(fn (CustomerReturnItem $item) => [
                 'id' => $item->id, 'original_product' => $item->product_name_snapshot,
                 'original_sku' => $item->sku_snapshot, 'original_serial' => $this->originalSerial($item, $return->order_id),
@@ -215,7 +221,11 @@ class ReturnEvidenceController extends Controller
             'captured_at_device' => $evidence->deviceCaptureTime()?->utc()->toIso8601String(),
             'capture_timezone' => $evidence->capture_timezone,
             'label_status' => $evidence->readableLabel() !== null ? 'ready' : 'pending',
-            'original_url' => '/api/mobile/v1/workspace/qc/return-evidence/files/'.$evidence->id,
+            'original_url' => '/workspace/qc/return-evidence/files/'.$evidence->id,
+            'preview_url' => '/workspace/qc/return-evidence/files/'.$evidence->id.'/preview',
+            'labeled_url' => $evidence->readableLabel() !== null
+                ? '/workspace/qc/return-evidence/files/'.$evidence->id.'/labeled'
+                : null,
         ];
     }
 

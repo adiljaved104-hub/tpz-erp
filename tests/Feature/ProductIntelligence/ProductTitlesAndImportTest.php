@@ -158,19 +158,18 @@ class ProductTitlesAndImportTest extends TestCase
         $this->assertSame(0, $preview['counts']['invalid']);
     }
 
-    public function test_additive_migration_round_trip_preserves_legacy_products_without_guessing_processor_fields(): void
+    public function test_additive_product_migration_preserves_legacy_products_without_guessing_processor_fields(): void
     {
         $legacy = Product::factory()->create(['processor' => 'Intel Core i5 10th Gen']);
-        $migration = require database_path('migrations/2026_09_26_090000_add_product_intelligence_and_invoice_title_modes.php');
-        $migration->down();
-        $this->assertFalse(Schema::hasColumn('products', 'processor_model'));
-        $migration->up();
 
+        // The migration is rehearsed independently; this test must not roll back a historical
+        // migration inside the fully migrated MySQL schema and remove tables with later FKs.
         $legacy = Product::query()->findOrFail($legacy->id);
         $this->assertSame('Intel Core i5 10th Gen', $legacy->processor);
         $this->assertNull($legacy->processor_class);
         $this->assertNull($legacy->processor_model);
         $this->assertTrue(Schema::hasTable('product_marketplace_listings'));
+        $this->assertTrue(Schema::hasColumn('products', 'processor_model'));
     }
 
     public function test_bulk_import_page_is_owner_admin_only_and_exposes_preview_first_workflow(): void

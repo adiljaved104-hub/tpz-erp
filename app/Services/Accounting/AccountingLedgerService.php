@@ -256,6 +256,7 @@ class AccountingLedgerService
                 ->all();
         }
         $running = [];
+
         return $lines->map(function ($line) use (&$opening, &$running): mixed {
             $accountId = $line->account_id;
 
@@ -265,6 +266,7 @@ class AccountingLedgerService
             $running[$accountId] = bcadd((string) ($running[$accountId] ?? $opening[$accountId]), bcsub((string) $line->debit, (string) $line->credit, 2), 2);
             $line->setAttribute('opening_balance', (string) $opening[$accountId]);
             $line->setAttribute('running_balance', (string) $running[$accountId]);
+
             return $line;
         });
     }

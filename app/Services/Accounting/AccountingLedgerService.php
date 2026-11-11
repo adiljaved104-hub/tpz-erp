@@ -91,6 +91,7 @@ class AccountingLedgerService
             if ($period->status !== AccountingPeriodStatus::Open) {
                 throw ValidationException::withMessages(['posting_date' => 'The accounting period is closed or locked.']);
             }
+
             $this->validateBalancedLines($journal->lines, $book);
             $journal->forceFill(['status' => AccountingJournalStatus::Posted, 'posted_at' => now('UTC'), 'posted_by_user_id' => $actor->id])->saveQuietly();
             $this->activity->log('accounting.journal_posted', $actor, $journal, ['reference' => $journal->reference]);
@@ -167,6 +168,7 @@ class AccountingLedgerService
             if ($book->active === false) {
                 throw ValidationException::withMessages(['book' => 'An inactive accounting book cannot be enabled for posting.']);
             }
+
             $book->forceFill(['posting_enabled' => true])->save();
             $this->activity->log('accounting.book_posting_enabled', $actor, $book, ['book_code' => $book->code]);
 
@@ -183,6 +185,7 @@ class AccountingLedgerService
             if ($period->status !== AccountingPeriodStatus::Open) {
                 throw ValidationException::withMessages(['period' => 'Only an open accounting period can be closed.']);
             }
+
             $period->forceFill(['status' => AccountingPeriodStatus::Closed, 'closed_at' => now('UTC'), 'closed_by_user_id' => $actor->id])->save();
             $this->activity->log('accounting.period_closed', $actor, $period, ['period' => $period->name]);
 

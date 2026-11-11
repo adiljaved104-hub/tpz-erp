@@ -19,6 +19,7 @@ use Illuminate\Validation\ValidationException;
 
 class AccountsPayableService
 {
+
     public function __construct(
         private readonly AccountingAuthorization $authorization,
         private readonly ActivityLogger $activity,

@@ -7,9 +7,9 @@ use App\Models\AccountingBook;
 use App\Models\AccountingSupplierBill;
 use App\Models\AccountingSupplierPayment;
 use App\Models\AccountingSupplierPaymentAllocation;
-use App\Services\Authorization\AccountingAuthorization;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Services\Authorization\AccountingAuthorization;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -19,7 +19,8 @@ class AccountsPayableService
     public function __construct(
         private readonly AccountingAuthorization $authorization,
         private readonly ActivityLogger $activity,
-    ) {}
+    ) {
+    }
 
     public function createDraftBill(array $data, User $actor): AccountingSupplierBill
     {

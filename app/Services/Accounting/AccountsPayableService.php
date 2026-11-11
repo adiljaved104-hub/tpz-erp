@@ -129,6 +129,7 @@ class AccountsPayableService
     public function allocatePayment(AccountingSupplierPayment $payment, array $allocations, User $actor): AccountingSupplierPayment
     {
         $this->authorization->authorize($actor, AccountingPermission::AllocateSupplierPayment);
+
         return DB::transaction(function () use ($payment, $allocations): AccountingSupplierPayment {
             $payment = AccountingSupplierPayment::query()->lockForUpdate()->with('allocations')->findOrFail($payment->id);
             foreach ($allocations as $allocation) {
@@ -147,6 +148,7 @@ class AccountsPayableService
             if (bccomp($allocated, (string) $payment->amount, 2) > 0) {
                 throw ValidationException::withMessages(['allocations' => 'Allocations exceed the supplier payment amount.']);
             }
+
             return $payment->load('allocations');
         });
     }

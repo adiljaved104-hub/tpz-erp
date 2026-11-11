@@ -89,7 +89,7 @@ class AccountingLedgerService
         });
     }
 
-    public function reverse(AccountingJournal $journal, string $reason, User $actor, ?string $targetPostingDate = null): AccountingJournal
+    public function reverse(AccountingJournal $journal, string $reason, User $actor, string|null $targetPostingDate = null): AccountingJournal
     {
         $this->authorization->authorize($actor, AccountingPermission::ReverseJournal);
         $reason = trim($reason);

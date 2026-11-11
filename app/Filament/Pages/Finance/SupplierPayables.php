@@ -65,6 +65,8 @@ class SupplierPayables extends BaseAccountingPage
 
     public string $allocationAmount = '';
 
+    public string $asOfDate = '';
+
     public function mount(): void
     {
         parent::mount();
@@ -73,6 +75,7 @@ class SupplierPayables extends BaseAccountingPage
         $this->billDate = $today;
         $this->paymentDate = $today;
         $this->adjustmentDate = $today;
+        $this->asOfDate = $today;
     }
 
     public function saveBill(): void
@@ -167,6 +170,7 @@ class SupplierPayables extends BaseAccountingPage
             'payments' => $book ? AccountingSupplierPayment::query()->with('supplier')->where('accounting_book_id', $book->id)->latest()->limit(50)->get() : collect(),
             'adjustments' => $book ? AccountingSupplierAdjustment::query()->with('supplier')->where('accounting_book_id', $book->id)->latest()->limit(50)->get() : collect(),
             'postingEnabled' => (bool) ($book?->posting_enabled ?? false),
+            'ageing' => $book && $this->supplierId !== '' ? app(AccountsPayableService::class)->supplierAgeing($book, (int) $this->supplierId, $this->asOfDate, $this->user()) : collect(),
         ];
     }
 

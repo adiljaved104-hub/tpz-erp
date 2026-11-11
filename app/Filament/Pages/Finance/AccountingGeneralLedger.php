@@ -16,7 +16,7 @@ class AccountingGeneralLedger extends BaseAccountingPage
 
     protected static ?int $navigationSort = 25;
 
-    protected static AccountingPermission $requiredPermission = AccountingPermission::View;
+    protected static AccountingPermission $requiredPermission = AccountingPermission::ViewLedger;
 
     public string $bookId = '';
 

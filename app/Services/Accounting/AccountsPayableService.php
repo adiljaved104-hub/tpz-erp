@@ -161,7 +161,9 @@ class AccountsPayableService
                 $billId = (int) $billId; throw_if(isset($seen[$billId]), ValidationException::withMessages(['allocations' => 'Duplicate bill allocation rows are not allowed.'])); $seen[$billId] = true;
                 $bill = AccountingSupplierBill::query()->lockForUpdate()->withSum('allocations', 'amount')->findOrFail($billId);
                 throw_if($bill->status === 'voided', ValidationException::withMessages(['allocations' => 'Voided bills cannot be allocated.']));
-                if ($bill->accounting_book_id !== $payment->accounting_book_id || $bill->supplier_id !== $payment->supplier_id || strtoupper((string) $bill->currency) !== strtoupper((string) $payment->currency)) throw ValidationException::withMessages(['allocations' => 'Payment and bill must belong to the same book, supplier, and currency.']);
+                if ($bill->accounting_book_id !== $payment->accounting_book_id || $bill->supplier_id !== $payment->supplier_id || strtoupper((string) $bill->currency) !== strtoupper((string) $payment->currency)) {
+                    throw ValidationException::withMessages(['allocations' => 'Payment and bill must belong to the same book, supplier, and currency.']);
+                }
                 $existing = $payment->allocations()->where('bill_id', $billId)->first();
                 if ($existing) {
                     throw_unless(bccomp((string) $existing->amount, $amount, 2) === 0, ValidationException::withMessages(['allocations' => 'Conflicting allocation replay for this payment and bill.']));

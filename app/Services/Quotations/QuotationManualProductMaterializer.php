@@ -12,6 +12,7 @@ use App\Models\Quotation;
 use App\Models\QuotationItem;
 use App\Models\User;
 use App\Services\ActivityLogger;
+use App\Services\ProductIntelligence\ProductDuplicateGuard;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,7 @@ class QuotationManualProductMaterializer
         private readonly QuotationSourcingService $sourcing,
         private readonly OrderResponsibilityScopeService $responsibilities,
         private readonly ActivityLogger $activity,
+        private readonly ProductDuplicateGuard $duplicates,
     ) {}
 
     /**
@@ -69,6 +71,16 @@ class QuotationManualProductMaterializer
                     'items' => 'A manual Product Brand or Category is no longer active.',
                 ]);
             }
+
+            // Serialize manual Product materialization and recheck duplicates inside the conversion transaction.
+            DB::table('reference_sequences')->where('key', 'product_sku')->lockForUpdate()->first();
+            $this->duplicates->validateContinuation($actor, [
+                'name' => $item->product_name,
+                'brand_id' => $brand->id,
+                'category_id' => $category->id,
+                'model' => $item->model_name,
+                'condition' => $item->manual_condition instanceof \BackedEnum ? $item->manual_condition->value : $item->manual_condition,
+            ]);
 
             $product = new Product;
             $product->forceFill([

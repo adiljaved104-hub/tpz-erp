@@ -7,6 +7,7 @@ use App\DTOs\ProductIntelligence\ProductMatchRequest;
 use App\DTOs\ProductIntelligence\ProductMatchResult;
 use App\Enums\ProductMatchClassification;
 use App\Enums\ProductMatchContext;
+use App\Enums\EmployeeRole;
 use App\Enums\ProductPermission;
 use App\Models\Product;
 use App\Models\ProductBrand;
@@ -104,13 +105,20 @@ class ProductDuplicateGuard
     {
         $candidates = $this->candidates($actor, $attributes, $excludeProductId);
         $hiddenExactMatch = $this->hasUnreviewableExactTitle($actor, (string) ($attributes['name'] ?? ''), $excludeProductId);
-        if (($candidates->isNotEmpty() || $hiddenExactMatch)
-            && (! $confirmed || blank($attributes['duplicate_override_reason'] ?? null))) {
-            throw ValidationException::withMessages([
-                'duplicate_override_reason' => $hiddenExactMatch && $candidates->isEmpty()
-                    ? 'An exact title match exists outside your Product visibility scope. Ask an authorized reviewer to inspect it, then confirm and explain why a separate Product is required.'
-                    : 'Review the matching Products, confirm Save Anyway, and explain why a separate Product should be kept.',
-            ]);
+        if ($candidates->isNotEmpty() || $hiddenExactMatch) {
+            if (! $confirmed || blank($attributes['duplicate_override_reason'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'duplicate_override_reason' => $hiddenExactMatch && $candidates->isEmpty()
+                        ? 'An exact title match exists outside your Product visibility scope. Ask an authorized reviewer to inspect it, then confirm and explain why a separate Product is required.'
+                        : 'Review the matching Products, confirm Save Anyway, and explain why a separate Product should be kept.',
+                ]);
+            }
+
+            if ($actor->employee?->role !== EmployeeRole::Owner) {
+                throw ValidationException::withMessages([
+                    'duplicate_override_reason' => 'Only an Owner may authorize creating an exact or likely duplicate Product.',
+                ]);
+            }
         }
 
         return $candidates;

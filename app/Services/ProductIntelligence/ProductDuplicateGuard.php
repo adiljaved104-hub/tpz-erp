@@ -177,7 +177,10 @@ class ProductDuplicateGuard
         $patterns = $tokens->map(fn (string $token): string => '%'.implode('%', mb_str_split($token)).'%');
 
         $matches = collect();
-        Product::query()->select(['id', 'name', 'sku', 'inventory_item_type'])
+        Product::query()->select([
+                'id', 'name', 'sku', 'inventory_item_type', 'model', 'processor_model', 'ram', 'storage',
+                'graphics', 'screen_size', 'color', 'touch_screen', 'is_convertible_360', 'condition',
+            ])
             ->when($excludeProductId !== null, fn (Builder $query) => $query->whereKeyNot($excludeProductId))
             ->where(function (Builder $query) use ($patterns): void {
                 foreach ($patterns as $pattern) {

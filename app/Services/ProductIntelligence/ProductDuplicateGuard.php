@@ -78,6 +78,8 @@ class ProductDuplicateGuard
             'condition' => $attributes['condition'] ?? null,
         ];
 
+        $exactTitleProductIds = $this->normalizedTitleMatches($name, $excludeProductId)->pluck('id');
+
         $matches = $this->matcher->match(new ProductMatchRequest(
             query: $name,
             context: $excludeProductId === null ? ProductMatchContext::ProductCreation : ProductMatchContext::ProductUpdate,
@@ -89,7 +91,11 @@ class ProductDuplicateGuard
             ProductMatchClassification::Exact,
             ProductMatchClassification::VeryHigh,
             ProductMatchClassification::PossibleDuplicate,
-        ], true))->values();
+        ], true))
+            // Exact-title variants are resolved only by sameStructuredVariant; do not let fuzzy
+            // scoring reintroduce a rejected color, touch, or condition variant.
+            ->reject(fn ($result): bool => $exactTitleProductIds->contains($result->productId))
+            ->values();
 
         $products = Product::query()->whereIn('id', $matches->pluck('productId'))->get()->keyBy('id');
 

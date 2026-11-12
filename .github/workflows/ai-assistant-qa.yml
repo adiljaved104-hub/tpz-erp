@@ -60,6 +60,8 @@ jobs:
         run: npm ci
       - name: Audit frontend dependencies
         run: npm audit --audit-level=high
+      - name: Smoke-test AI chat UI interaction states
+        run: node --test tests/Browser/ai-assistant-progress.test.cjs
       - name: Build frontend
         run: npm run build
       - name: Migrate complete disposable MySQL database

@@ -3,6 +3,7 @@
 namespace App\Services\Authorization;
 
 use App\Enums\AuthSecurityPermission;
+use App\Enums\AiAssistantPermission;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;
 use App\Enums\ChatPermission;
@@ -317,6 +318,9 @@ class EmployeePermissionCatalog
                 $this->item(ChatPermission::Pin, 'Pin Messages', true),
                 $this->item(ChatPermission::Search, 'Search Chat'),
             ],
+            'AI Assistant' => [
+                $this->item(AiAssistantPermission::Use, 'Use TPZ AI Assistant'),
+            ],
         ];
     }
 
@@ -374,6 +378,7 @@ class EmployeePermissionCatalog
             ComplaintPermission::tryFrom($key) !== null => app(ComplaintAuthorization::class)->roleDefault($user, ComplaintPermission::from($key)),
             TaskPermission::tryFrom($key) !== null => app(TaskAuthorization::class)->roleDefault($user, TaskPermission::from($key)),
             ChatPermission::tryFrom($key) !== null => app(ChatAuthorization::class)->roleDefault($user, ChatPermission::from($key)),
+            AiAssistantPermission::tryFrom($key) !== null => false,
             HrPermission::tryFrom($key) !== null => app(HrAuthorization::class)->roleDefault($user, HrPermission::from($key)),
             PerformancePermission::tryFrom($key) !== null => app(PerformanceAuthorization::class)->roleDefault($user, PerformancePermission::from($key)),
             EmailSettingsPermission::tryFrom($key) !== null => app(EmailSettingsAuthorization::class)->roleDefault($user, EmailSettingsPermission::from($key)),

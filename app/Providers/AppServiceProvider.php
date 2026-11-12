@@ -16,6 +16,9 @@ use App\Contracts\PurchasePermissionResolver;
 use App\Contracts\ResponsibilityPermissionResolver;
 use App\Contracts\StockTransferPermissionResolver;
 use App\Enums\AuthSecurityPermission;
+use App\Enums\AiAssistantPermission;
+use App\Services\AiAssistant\AiAssistantAuthorization;
+use App\Services\AiAssistant\AiAssistantSettings;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;
 use App\Enums\ChatPermission;
@@ -279,6 +282,13 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(60)->by('mobile-login:ip:'.$request->ip()),
             ];
         });
+
+        RateLimiter::for('ai-assistant', function (Request $request): Limit {
+            $perMinute = max(1, (int) config('ai_assistant.requests_per_minute', 8));
+            return Limit::perMinute($perMinute)->by('ai-assistant:user:'.($request->user()?->id ?? $request->ip()));
+        });
+
+        Gate::define(AiAssistantPermission::Use->value, fn (User $user): bool => app(AiAssistantAuthorization::class)->allows($user, AiAssistantPermission::Use));
 
         Gate::policy(Employee::class, EmployeePolicy::class);
         Gate::policy(ActivityLog::class, ActivityLogPolicy::class);

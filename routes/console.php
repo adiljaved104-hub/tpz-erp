@@ -29,6 +29,11 @@ Schedule::command('inventory:send-stock-reminders')
     ->name('inventory-stock-reminder-evaluator')
     ->withoutOverlapping(30);
 
+Schedule::command('ai-assistant:prune-history')
+    ->dailyAt('02:35')
+    ->name('ai-assistant-history-retention')
+    ->withoutOverlapping(15);
+
 $hikvisionInterval = max(1, (int) config('hikvision.sync_interval_minutes', 5));
 Schedule::command('hikvision:sync-attendance')
     ->cron("*/{$hikvisionInterval} * * * *")

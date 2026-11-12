@@ -63,6 +63,10 @@ class AdminPanelProvider extends PanelProvider
                 fn () => view('filament.hooks.notification-bell'),
             )
             ->renderHook(
+                PanelsRenderHook::BODY_END,
+                fn () => view('filament.hooks.ai-assistant'),
+            )
+            ->renderHook(
                 PanelsRenderHook::AUTH_LOGIN_FORM_BEFORE,
                 fn () => view('filament.auth.login-branding'),
             )

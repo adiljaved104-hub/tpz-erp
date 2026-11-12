@@ -5,8 +5,8 @@ namespace Tests\Unit\AiAssistant;
 use App\Contracts\EmployeePermissionOverrideResolver;
 use App\Enums\AiAssistantPermission;
 use App\Enums\EmployeeRole;
-use App\Models\Employee;
 use App\Models\AiAssistantConversation;
+use App\Models\Employee;
 use App\Models\User;
 use App\Services\Authorization\AiAssistantAuthorization;
 use PHPUnit\Framework\TestCase;
@@ -45,9 +45,15 @@ class AiAssistantAuthorizationTest extends TestCase
 
     private function overrides(?bool $decision): EmployeePermissionOverrideResolver
     {
-        return new class($decision) implements EmployeePermissionOverrideResolver {
+        return new class($decision) implements EmployeePermissionOverrideResolver
+        {
             public function __construct(private readonly ?bool $decision) {}
-            public function decision(User $user, string $permissionKey): ?bool { return $permissionKey === AiAssistantPermission::Use->value ? $this->decision : null; }
+
+            public function decision(User $user, string $permissionKey): ?bool
+            {
+                return $permissionKey === AiAssistantPermission::Use->value ? $this->decision : null;
+            }
+
             public function forgetEmployee(int $employeeId): void {}
         };
     }
@@ -59,6 +65,7 @@ class AiAssistantAuthorizationTest extends TestCase
         $employee = new Employee(['status' => $active, 'role' => $role]);
         $employee->user_id = $user->id;
         $user->setRelation('employee', $employee);
+
         return $user;
     }
 }

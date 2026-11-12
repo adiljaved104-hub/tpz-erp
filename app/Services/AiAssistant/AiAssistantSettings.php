@@ -10,6 +10,7 @@ class AiAssistantSettings
     public function current(): array
     {
         $row = Schema::hasTable('ai_assistant_settings') ? AiAssistantSetting::query()->find(1) : null;
+
         return [
             'enabled' => $row?->enabled ?? (bool) config('ai_assistant.enabled'),
             'provider' => $row?->provider ?? config('ai_assistant.provider'),
@@ -19,5 +20,8 @@ class AiAssistantSettings
         ];
     }
 
-    public function enabled(): bool { return $this->current()['enabled']; }
+    public function enabled(): bool
+    {
+        return $this->current()['enabled'];
+    }
 }

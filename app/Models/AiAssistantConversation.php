@@ -15,6 +15,13 @@ class AiAssistantConversation extends Model
         return ['last_message_at' => 'immutable_datetime'];
     }
 
-    public function user(): BelongsTo { return $this->belongsTo(User::class); }
-    public function messages(): HasMany { return $this->hasMany(AiAssistantMessage::class, 'conversation_id'); }
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function messages(): HasMany
+    {
+        return $this->hasMany(AiAssistantMessage::class, 'conversation_id');
+    }
 }

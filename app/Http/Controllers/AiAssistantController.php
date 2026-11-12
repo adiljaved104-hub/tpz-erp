@@ -9,8 +9,8 @@ use App\Services\AiAssistant\AiAssistantAuthorization;
 use App\Services\AiAssistant\AiAssistantService;
 use App\Services\AiAssistant\AiAssistantSettings;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AiAssistantController
 {
@@ -20,6 +20,7 @@ class AiAssistantController
         abort_unless($user instanceof User && $authorization->allows($user, AiAssistantPermission::Use) && $settings->enabled(), 404);
         $provider = $settings->current()['provider'];
         $available = $provider !== 'openai' || filled(config('ai_assistant.api_key'));
+
         return response()->json(['conversations' => $service->conversations($user), 'settings' => ['provider' => $provider, 'available' => $available]]);
     }
 
@@ -27,6 +28,7 @@ class AiAssistantController
     {
         $user = $request->user();
         abort_unless($user instanceof User && $authorization->allows($user, AiAssistantPermission::Use) && $settings->enabled(), 403);
+
         return response()->json(['conversation' => $service->create($user)], 201);
     }
 
@@ -34,6 +36,7 @@ class AiAssistantController
     {
         $user = $request->user();
         abort_unless($user instanceof User && $authorization->owns($user, $conversation), 404);
+
         return response()->json(['messages' => $service->history($user, $conversation)]);
     }
 
@@ -42,6 +45,7 @@ class AiAssistantController
         $user = $request->user();
         abort_unless($user instanceof User && $authorization->owns($user, $conversation), 404);
         $conversation->delete();
+
         return response()->noContent();
     }
 
@@ -50,11 +54,14 @@ class AiAssistantController
         $user = $request->user();
         abort_unless($user instanceof User && $authorization->owns($user, $conversation), 404);
         $validated = $request->validate(['message' => ['required', 'string', 'max:6000']]);
+
         return response()->stream(function () use ($service, $user, $conversation, $validated): void {
             try {
                 $assistant = $service->send($user, $conversation, $validated['message'], function (string $text): void {
                     echo 'data: '.json_encode(['type' => 'delta', 'text' => $text], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)."\n\n";
-                    if (ob_get_level() > 0) ob_flush();
+                    if (ob_get_level() > 0) {
+                        ob_flush();
+                    }
                     flush();
                 });
                 echo 'data: '.json_encode(['type' => 'done', 'message_id' => $assistant->id], JSON_UNESCAPED_UNICODE)."\n\n";

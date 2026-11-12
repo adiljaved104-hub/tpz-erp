@@ -1,0 +1,139 @@
+<?php
+
+namespace Tests\Feature\AiAssistant;
+
+use App\Models\AiAssistantAudit;
+use App\Models\AiAssistantConversation;
+use App\Models\AiAssistantSetting;
+use App\Models\AiAssistantUsage;
+use App\Models\User;
+use App\Services\AiAssistant\AiAssistantService;
+use App\Services\AiAssistant\AiAssistantSettings;
+use App\Services\AiAssistant\ResponsesProvider;
+use App\Services\AiAssistant\SensitiveTextSanitizer;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
+use ReflectionMethod;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\TestCase;
+
+class AiAssistantPersistenceTest extends TestCase
+{
+    private object $migration;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->timestamps();
+        });
+
+        $this->migration = require database_path('migrations/2026_11_12_090000_create_ai_assistant_tables.php');
+        $this->migration->up();
+    }
+
+    protected function tearDown(): void
+    {
+        $this->migration->down();
+        Schema::dropIfExists('users');
+
+        parent::tearDown();
+    }
+
+    public function test_budget_reservations_count_against_the_hard_limit_for_the_next_request(): void
+    {
+        config([
+            'ai_assistant.provider' => 'openai',
+            'ai_assistant.model' => 'gpt-6-luna',
+            'ai_assistant.max_output_tokens' => 1200,
+        ]);
+        $user = User::query()->create(['name' => 'Owner', 'email' => 'owner@example.test', 'password' => 'test-password']);
+        AiAssistantSetting::query()->create([
+            'id' => 1,
+            'enabled' => true,
+            'provider' => 'openai',
+            'model' => 'gpt-6-luna',
+            'daily_budget_usd' => 0.09,
+            'monthly_budget_usd' => 0.09,
+        ]);
+        $service = new AiAssistantService(
+            $this->mock(ResponsesProvider::class),
+            app(AiAssistantSettings::class),
+            app(SensitiveTextSanitizer::class),
+        );
+        $reserve = new ReflectionMethod($service, 'reserveBudget');
+
+        $first = $reserve->invoke($service, $user);
+
+        self::assertSame('reserved', $first->status);
+        self::assertEqualsWithDelta(0.0536, (float) $first->estimated_cost_usd, 0.000001);
+        self::assertSame(1, AiAssistantUsage::query()->where('status', 'reserved')->count());
+
+        try {
+            $reserve->invoke($service, $user);
+            self::fail('The next request should be blocked by the remaining hard budget.');
+        } catch (\ReflectionException $exception) {
+            throw $exception;
+        } catch (ValidationException $exception) {
+            self::assertArrayHasKey('budget', $exception->errors());
+        }
+
+        self::assertSame(1, AiAssistantUsage::query()->where('status', 'reserved')->count());
+    }
+
+    public function test_retention_prunes_old_conversations_and_preserves_audit_history_without_orphans(): void
+    {
+        config(['ai_assistant.retention_days' => 30]);
+        $user = User::query()->create(['name' => 'Owner', 'email' => 'owner@example.test', 'password' => 'test-password']);
+        $expired = AiAssistantConversation::query()->create(['user_id' => $user->id, 'title' => 'Expired']);
+        $recent = AiAssistantConversation::query()->create(['user_id' => $user->id, 'title' => 'Recent']);
+        $expiredAt = now()->subDays(31);
+        $expired->messages()->create(['role' => 'user', 'content' => 'Old prompt']);
+        DB::table('ai_assistant_conversations')->where('id', $expired->id)->update([
+            'created_at' => $expiredAt,
+            'updated_at' => $expiredAt,
+        ]);
+        $audit = AiAssistantAudit::query()->create([
+            'user_id' => $user->id,
+            'conversation_id' => $expired->id,
+            'event' => 'message.completed',
+        ]);
+
+        Artisan::call('ai-assistant:prune-history');
+
+        self::assertDatabaseMissing('ai_assistant_conversations', ['id' => $expired->id]);
+        self::assertDatabaseHas('ai_assistant_conversations', ['id' => $recent->id]);
+        self::assertDatabaseMissing('ai_assistant_messages', ['conversation_id' => $expired->id]);
+        self::assertDatabaseHas('ai_assistant_audits', ['id' => $audit->id, 'conversation_id' => null]);
+    }
+
+    public function test_history_rejects_another_users_conversation(): void
+    {
+        $owner = User::query()->create(['name' => 'Owner', 'email' => 'owner@example.test', 'password' => 'test-password']);
+        $other = User::query()->create(['name' => 'Other', 'email' => 'other@example.test', 'password' => 'test-password']);
+        $conversation = AiAssistantConversation::query()->create(['user_id' => $owner->id, 'title' => 'Private']);
+        $conversation->messages()->create(['role' => 'user', 'content' => 'Private business question']);
+        $service = new AiAssistantService(
+            $this->mock(ResponsesProvider::class),
+            app(AiAssistantSettings::class),
+            app(SensitiveTextSanitizer::class),
+        );
+
+        try {
+            $service->history($other, $conversation);
+            self::fail('A different user must not read this conversation.');
+        } catch (HttpException $exception) {
+            self::assertSame(404, $exception->getStatusCode());
+        }
+
+        self::assertCount(1, $service->history($owner, $conversation));
+    }
+}

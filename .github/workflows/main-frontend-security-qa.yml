@@ -1,0 +1,40 @@
+name: Main Frontend Security QA
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - package-lock.json
+      - package.json
+      - .github/workflows/main-frontend-security-qa.yml
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-security:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: testing
+      APP_DEBUG: false
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, mbstring, sqlite, zip
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked Composer dependencies for Filament CSS
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Install locked frontend packages
+        run: npm ci
+      - name: Block high or critical dependency advisories
+        run: npm audit --audit-level=high
+      - name: Build Vite frontend
+        run: npm run build

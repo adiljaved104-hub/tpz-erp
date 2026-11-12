@@ -108,3 +108,67 @@ test('retry after reloading a failed reply uses its original question', async ()
     assert.equal(assistant.messages.length, 1);
     assert.ok(blade.includes("buffer.split(/\\r?\\n\\r?\\n/)"), 'SSE parser handles CRLF and LF boundaries');
 });
+
+test('streaming reply writes to the reactive Alpine message proxy without another question', async () => {
+    // Alpine proxies objects when they are read from a reactive array.
+    // Mutating a detached pre-push object skips the reactive setter and leaves
+    // the answer invisible until another UI update (e.g. the next question).
+    const writes = [];
+    const wrapped = new WeakMap();
+    const events = [
+        { type: 'delta', text: 'Hello, this is the answer.' },
+        { type: 'done', message_id: 42, metrics: { server_ms: 300 } },
+    ];
+    const stream = events.map(event => 'data: ' + JSON.stringify(event)).join('\r\n\r\n') + '\r\n\r\n';
+    let reads = 0;
+    const context = {
+        AbortController,
+        TextDecoder,
+        performance: { now: () => 300 },
+        fetch: async () => ({
+            ok: true,
+            body: {
+                getReader: () => ({
+                    read: async () => ++reads === 1
+                        ? { done: false, value: new TextEncoder().encode(stream) }
+                        : { done: true },
+                }),
+            },
+        }),
+    };
+    runInNewContext(script, context);
+    const assistant = context.tpzAssistant();
+    assistant.conversationId = 7;
+    assistant.draft = 'Hi';
+    assistant.scroll = () => {};
+    assistant.list = async () => {};
+    assistant.headers = () => ({});
+    assistant.messages = new Proxy([], {
+        get(target, key, receiver) {
+            const item = Reflect.get(target, key, receiver);
+            if (typeof key !== 'string' || !/^\d+$/.test(key) || item === null || typeof item !== 'object') {
+                return item;
+            }
+            if (!wrapped.has(item)) {
+                wrapped.set(item, new Proxy(item, {
+                    set(raw, field, value) {
+                        writes.push({ field, value });
+                        return Reflect.set(raw, field, value);
+                    },
+                }));
+            }
+            return wrapped.get(item);
+        },
+    });
+
+    await assistant.send();
+
+    assert.equal(assistant.messages.length, 2);
+    assert.equal(assistant.messages.at(-1).content, 'Hello, this is the answer.');
+    assert.equal(assistant.messages.at(-1).status, 'complete');
+    assert.equal(assistant.busy, false);
+    assert.ok(writes.some(change => change.field === 'content' && change.value === 'Hello, this is the answer.'),
+        'streamed deltas must update a reactive proxy, not the original detached object');
+    assert.ok(writes.some(change => change.field === 'status' && change.value === 'complete'),
+        'completion must be observable without waiting for a second question');
+});

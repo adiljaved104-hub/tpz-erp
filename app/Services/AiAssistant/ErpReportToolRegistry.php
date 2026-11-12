@@ -194,4 +194,3 @@ class ErpReportToolRegistry
         return $result;
     }
 }
-

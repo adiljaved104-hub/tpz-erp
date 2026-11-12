@@ -334,3 +334,103 @@
         display: none;
     }
 }
+
+
+/* TPZ Main-only Accounting-inspired shell colors.
+   Presentation only: preserve existing modules, status semantics, security,
+   accessibility, and dark mode. Filament v4.12.5 uses .fi-sidebar-item-btn. */
+html:not(.dark) body:not(.tpz-accounting-body) {
+    --tpz-shell-navy: #122b43;
+    --tpz-shell-teal: #13a68b;
+    --tpz-shell-paper: #f4f7fa;
+    --tpz-shell-line: #dbe3ea;
+    background-color: var(--tpz-shell-paper);
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) :is(.fi-main-ctn, .fi-main) {
+    background-color: var(--tpz-shell-paper);
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-topbar {
+    background-color: #fff;
+    border-bottom: 1px solid var(--tpz-shell-line);
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) :is(.fi-sidebar, .fi-sidebar-header, .fi-sidebar-nav) {
+    background-color: var(--tpz-shell-navy) !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar {
+    border-inline-end: 1px solid #ffffff19;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-group-label, .fi-sidebar-group-btn, .fi-sidebar-group-btn .fi-icon) {
+    color: #9fb5c5 !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-group-dropdown-trigger-btn {
+    color: #9fb5c5 !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn {
+    background-color: transparent !important;
+    color: #d4e0e9 !important;
+    border-radius: 8px;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #d4e0e9 !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:hover,
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:focus-visible {
+    background-color: #ffffff16 !important;
+    color: #fff !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:hover > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon),
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:focus-visible > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #fff !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item.fi-active > .fi-sidebar-item-btn,
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn[aria-current="page"] {
+    background-color: #ffffff1d !important;
+    color: #fff !important;
+    box-shadow: inset 3px 0 var(--tpz-shell-teal);
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item.fi-active > .fi-sidebar-item-btn > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon),
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn[aria-current="page"] > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #fff !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:focus-visible {
+    outline: 2px solid var(--tpz-shell-teal);
+    outline-offset: 2px;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-open-sidebar-btn, .fi-sidebar-close-sidebar-btn) {
+    color: #fff;
+}
+
+/* Selected period is navy, not cyan. Inactive periods retain standard buttons. */
+html:not(.dark) body:not(.tpz-accounting-body) .erp-dashboard-period .fi-btn[role="tab"][aria-selected="true"] {
+    background-color: var(--tpz-shell-navy) !important;
+    border-color: var(--tpz-shell-navy) !important;
+    color: #fff !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .erp-dashboard-period .fi-btn[role="tab"][aria-selected="true"] :is(.fi-btn-label, .fi-icon) {
+    color: #fff !important;
+}
+
+html:not(.dark) body:not(.tpz-accounting-body) .erp-dashboard-period .fi-btn[role="tab"][aria-selected="true"]:hover {
+    background-color: #1b3c58 !important;
+    border-color: #1b3c58 !important;
+}
+
+/* Section and card borders match the existing Accounting palette. */
+html:not(.dark) body:not(.tpz-accounting-body) .fi-section {
+    border-color: var(--tpz-shell-line);
+}

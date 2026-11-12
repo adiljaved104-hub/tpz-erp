@@ -4,7 +4,6 @@ namespace App\Filament\Pages\Finance;
 
 use App\Enums\AccountingPermission;
 use App\Models\AccountingBook;
-use App\Models\AccountingJournal;
 use App\Models\User;
 use App\Services\Authorization\AccountingAuthorization;
 

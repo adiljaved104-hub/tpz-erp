@@ -57,7 +57,21 @@ class AccountingJournals extends BaseAccountingPage
     public function saveDraft(): void
     {
         try {
-            app(AccountingLedgerService::class)->createDraft(['book_id' => $this->bookId, 'posting_date' => $this->postingDate, 'narration' => $this->narration, 'idempotency_key' => (string) Str::uuid(), 'lines' => $this->lines], $this->user());
+            $lines = array_map(static function (mixed $line): mixed {
+                if (! is_array($line)) {
+                    return $line;
+                }
+                foreach (['debit', 'credit'] as $side) {
+                    $amount = $line[$side] ?? '';
+                    if (is_scalar($amount) && trim((string) $amount) === '') {
+                        $line[$side] = '0';
+                    }
+                }
+
+                return $line;
+            }, $this->lines);
+
+            app(AccountingLedgerService::class)->createDraft(['book_id' => $this->bookId, 'posting_date' => $this->postingDate, 'narration' => $this->narration, 'idempotency_key' => (string) Str::uuid(), 'lines' => $lines], $this->user());
             Notification::make()->success()->title('Journal draft saved')->send();
             $this->reset('narration');
             $this->lines = [['account_id' => '', 'debit' => '', 'credit' => '', 'description' => ''], ['account_id' => '', 'debit' => '', 'credit' => '', 'description' => '']];

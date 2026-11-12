@@ -376,3 +376,51 @@ a.tpz-accounting-nav-item:hover,.tpz-accounting-nav-item.is-active { background:
 .tpz-accounting-document-header { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:12px;border:1px solid var(--acc-line);border-radius:9px;background:#f7f9fb; }.tpz-accounting-document-header small,.tpz-accounting-document-header strong { display:block; }.tpz-accounting-document-header small { color:var(--acc-muted);font-size:11px; }.tpz-accounting-document-header strong { margin-top:3px;font-size:13px; }
 @media(max-width:950px) { .tpz-accounting-workspace{grid-template-columns:68px minmax(0,1fr)}.tpz-accounting-sidebar{padding:16px 8px}.tpz-accounting-brand{justify-content:center;padding:4px 0 14px}.tpz-accounting-brand>span:last-child,.tpz-accounting-nav-label,.tpz-accounting-nav-item>span:not(.tpz-accounting-icon),.tpz-accounting-nav-item small,.tpz-accounting-back span{display:none}.tpz-accounting-nav-item{justify-content:center;padding:11px 4px}.tpz-accounting-back{text-align:center}.tpz-accounting-dashboard-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.tpz-accounting-panels{grid-template-columns:1fr} }
 @media(max-width:600px) { .tpz-accounting-topbar{padding:0 12px;gap:8px}.tpz-accounting-book{max-width:34%;overflow:hidden;text-overflow:ellipsis;font-size:12px}.tpz-accounting-search{width:auto;flex:1}.tpz-accounting-search kbd,.tpz-accounting-avatar,.tpz-accounting-exit{display:none}.tpz-accounting-content{padding:16px 12px}.tpz-accounting-page-head{display:grid;gap:12px}.tpz-accounting-page-head h1{font-size:21px}.tpz-accounting-dashboard-cards{gap:8px}.tpz-accounting-dashboard-card{padding:12px}.tpz-accounting-dashboard-card strong{font-size:16px}.tpz-accounting-tabs{margin-top:0}.tpz-accounting-document-header{grid-template-columns:1fr} }
+
+/* TPZ brand refresh: match the approved Accounting navy/teal palette.
+   Only brand/primary accents change; warning, danger and status colors retain meaning.
+   Kept as scoped overrides so both existing TPZ AI and Phase 2 UI can inherit safely. */
+.tpz-ai-root {
+    --tpz-brand-navy: #122b43;
+    --tpz-brand-teal: #13a68b;
+    --tpz-brand-teal-dark: #087e6a;
+    --tpz-brand-teal-soft: #dff3ef;
+}
+.tpz-ai-root .tpz-ai-launcher {
+    background: var(--tpz-brand-teal);
+    color: #fff;
+}
+.tpz-ai-root .tpz-ai-header {
+    background: var(--tpz-brand-navy);
+}
+.tpz-ai-root .tpz-ai-toolbar button,
+.tpz-ai-root .tpz-ai-copy,
+.tpz-ai-root .tpz-ai-welcome .sparkle,
+.tpz-ai-root .tpz-ai-message-actions button {
+    color: var(--tpz-brand-teal-dark);
+}
+.tpz-ai-root .tpz-ai-suggestions button:hover,
+.tpz-ai-root .tpz-ai-suggestions button:focus-visible {
+    border-color: var(--tpz-brand-teal);
+}
+.tpz-ai-root .tpz-ai-bubble.user {
+    background: var(--tpz-brand-teal-soft);
+    color: var(--tpz-brand-navy);
+}
+.tpz-ai-root .tpz-ai-history-row button.active {
+    background: var(--tpz-brand-teal-soft);
+    color: var(--tpz-brand-navy);
+}
+.tpz-ai-root .tpz-ai-composer button:not(.tpz-ai-stop) {
+    background: var(--tpz-brand-teal);
+    color: #fff;
+}
+.tpz-ai-root .tpz-ai-typing i,
+.tpz-ai-root .tpz-ai-progress i {
+    background: var(--tpz-brand-teal);
+}
+.tpz-ai-root .tpz-ai-launcher:focus-visible,
+.tpz-ai-root .tpz-ai-composer button:focus-visible {
+    outline: 2px solid var(--tpz-brand-navy);
+    outline-offset: 3px;
+}

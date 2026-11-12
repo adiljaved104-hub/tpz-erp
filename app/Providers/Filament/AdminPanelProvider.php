@@ -70,7 +70,7 @@ class AdminPanelProvider extends PanelProvider
                 app(EmailOtpAuthenticationProvider::class),
             ], isRequired: false)
             ->colors([
-                'primary' => Color::Amber,
+                'primary' => Color::hex('#13A68B'),
             ])
             ->globalSearch(false)
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')

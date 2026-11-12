@@ -6,6 +6,7 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -104,6 +105,7 @@ class ResponsesProvider
             ->timeout(config('ai_assistant.timeout'))->withOptions(['stream' => true])
             ->post(rtrim(config('ai_assistant.base_url'), '/').'/responses', $payload);
         if (! $response->successful()) {
+            Log::warning('TPZ AI Assistant provider HTTP failure', ['http_status' => $response->status(), 'model' => $payload['model'] ?? 'unknown']);
             $apiMilliseconds += (int) ((hrtime(true) - $startedAt) / 1_000_000);
             throw new RuntimeException('OpenAI request failed with HTTP '.$response->status(), $response->status());
         }
@@ -139,12 +141,26 @@ class ResponsesProvider
                         $meta['input_tokens'] = (int) ($data['response']['usage']['input_tokens'] ?? 0);
                         $meta['output_tokens'] = (int) ($data['response']['usage']['output_tokens'] ?? 0);
                     } elseif (in_array(($data['type'] ?? ''), ['error', 'response.failed', 'response.incomplete'], true)) {
+                        // Log only allowlisted machine-readable failure reasons.
+                        // Never log response bodies, conversation contents, report data, or credentials.
+                        $reason = (string) ($data['response']['incomplete_details']['reason']
+                            ?? $data['response']['error']['code']
+                            ?? $data['error']['code']
+                            ?? $data['code']
+                            ?? 'unspecified');
+                        $allowedReasons = ['max_output_tokens', 'content_filter', 'server_error', 'rate_limit_exceeded', 'insufficient_quota', 'invalid_request_error', 'unspecified'];
+                        Log::warning('TPZ AI Assistant provider stream failure', [
+                            'event_type' => $data['type'],
+                            'reason' => in_array($reason, $allowedReasons, true) ? $reason : 'other',
+                            'model' => $payload['model'] ?? 'unknown',
+                        ]);
                         throw new RuntimeException('OpenAI streaming request failed.');
                     }
                 }
             }
         }
         if (! $meta['complete']) {
+            Log::warning('TPZ AI Assistant stream ended without response.completed', ['model' => $payload['model'] ?? 'unknown']);
             $apiMilliseconds += (int) ((hrtime(true) - $startedAt) / 1_000_000);
             throw new RuntimeException('OpenAI stream ended before completion.');
         }

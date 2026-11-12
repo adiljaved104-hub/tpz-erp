@@ -117,7 +117,7 @@ class ErpReportToolRegistryTest extends TestCase
             'Disposable AI reporting fixture', (string) Str::uuid(),
         ), $foundation['owner']);
 
-        $result = app(ErpReportToolRegistry::class)->call($foundation['owner'], 'stock_requests_report', ['from' => today()->toDateString(), 'to' => today()->toDateString()]);
+        $result = app(ErpReportToolRegistry::class)->call($foundation['owner'], 'stock_requests_report', ['from' => today('Asia/Dubai')->toDateString(), 'to' => today('Asia/Dubai')->toDateString()]);
 
         $this->assertSame('stock_requests', $result['source']);
         $this->assertNotEmpty($result['rows'], json_encode($result));
@@ -154,7 +154,7 @@ class ErpReportToolRegistryTest extends TestCase
         $product = Product::factory()->create();
         ProductInventory::factory()->create(['product_id' => $product->id, 'warehouse_id' => $warehouse->id, 'available_quantity' => 3, 'average_cost' => '100.0000']);
         $order = app(SaveAsShippedOrder::class)->handle(new SaveAndReserveOrderData(
-            $warehouse->id, null, null, today()->toDateString(), $owner->employee->id, null,
+            $warehouse->id, null, null, today('Asia/Dubai')->toDateString(), $owner->employee->id, null,
             [new OrderItemData($product->id, 1, '500.00')], (string) Str::uuid(),
         ), $owner)->load('fulfillment.items');
         $return = app(CustomerReturnUnifiedWorkflowService::class)->submit([
@@ -167,7 +167,7 @@ class ErpReportToolRegistryTest extends TestCase
 
         $this->assertSame(CustomerReturnStatus::QcPending, $return->status);
         $result = app(ErpReportToolRegistry::class)->call($owner, 'customer_returns_report', [
-            'from' => today()->toDateString(), 'to' => today()->toDateString(), 'status' => CustomerReturnStatus::QcPending->value,
+            'from' => today('Asia/Dubai')->toDateString(), 'to' => today('Asia/Dubai')->toDateString(), 'status' => CustomerReturnStatus::QcPending->value,
         ]);
 
         $this->assertSame('returns', $result['source']);

@@ -56,7 +56,7 @@ class AiAssistantAuthorizationEndpointTest extends TestCase
 
         $this->actingAs($employee)
             ->get('/admin/ai-assistant')
-            ->assertForbidden();
+            ->assertNotFound();
     }
 
     private function employeeUser(EmployeeRole $role): User

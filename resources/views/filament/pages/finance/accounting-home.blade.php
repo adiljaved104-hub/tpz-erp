@@ -21,7 +21,7 @@
                 <h2>Quick access</h2>
                 <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     @foreach ($navigationLinks as $link)
-                        <a class="fi-btn fi-btn-size-md fi-btn-color-primary fi-btn-outlined" href="{{ $link['url'] }}">{{ $link['label'] }} →</a>
+                        <a class="tpz-accounting-btn" href="{{ $link['url'] }}">{{ $link['label'] }} →</a>
                     @endforeach
                 </div>
                 <h2 class="mt-6">Recent accounting activity</h2>
@@ -40,7 +40,7 @@
         <section class="tpz-accounting-panel" style="margin-top:14px">
             <h2>Operational integrations</h2>
             <div class="tpz-accounting-dashboard-cards">
-                <div class="tpz-accounting-disabled">Purchasing · integration not yet verified</div><div class="tpz-accounting-disabled">Inventory · integration not yet verified</div><div class="tpz-accounting-disabled">Sales and returns · integration not yet verified</div><div class="tpz-accounting-disabled">Financial reports · available B1 reports only</div>
+                <div class="tpz-accounting-disabled">Purchasing · integration not yet verified</div><div class="tpz-accounting-disabled">Inventory Accounting · integration not yet verified</div><div class="tpz-accounting-disabled">Sales and returns · integration not yet verified</div><div class="tpz-accounting-disabled">Financial reports · available B1 reports only</div>
             </div>
         </section>
     @endif

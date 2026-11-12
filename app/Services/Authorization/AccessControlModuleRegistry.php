@@ -3,6 +3,7 @@
 namespace App\Services\Authorization;
 
 use App\Enums\AccountingPermission;
+use App\Enums\AiAssistantPermission;
 use App\Enums\AuthSecurityPermission;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;
@@ -135,6 +136,7 @@ class AccessControlModuleRegistry
             $this->module('company_profile', 'Company Profile', 'administration', [CompanyProfilePermission::View], [CompanyProfilePermission::Manage]),
             $this->module('login_security', 'Login & Security', 'administration', [AuthSecurityPermission::View], [AuthSecurityPermission::Manage], [AuthSecurityPermission::ManageTwoFactor]),
             $this->module('backup_settings', 'Backup Settings', 'administration', [BackupSettingsPermission::View], [BackupSettingsPermission::Manage], [BackupSettingsPermission::Run, BackupSettingsPermission::Verify, BackupSettingsPermission::Download]),
+            $this->module('ai_assistant', 'TPZ AI Assistant', 'administration', [AiAssistantPermission::Use]),
             $this->module('activity_logs', 'Activity Logs', 'administration', [PeoplePermission::ActivityLogView]),
         ];
 

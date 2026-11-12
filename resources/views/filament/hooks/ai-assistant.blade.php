@@ -1,7 +1,7 @@
 @php
     $assistantUser = auth()->user();
     $assistantVisible = $assistantUser instanceof \App\Models\User
-        && app(\App\Services\AiAssistant\AiAssistantAuthorization::class)->allows($assistantUser, \App\Enums\AiAssistantPermission::Use)
+        && app(\App\Services\Authorization\AiAssistantAuthorization::class)->allows($assistantUser, \App\Enums\AiAssistantPermission::Use)
         && app(\App\Services\AiAssistant\AiAssistantSettings::class)->enabled();
 @endphp
 @if ($assistantVisible)

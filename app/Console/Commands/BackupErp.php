@@ -15,25 +15,35 @@ class BackupErp extends Command
     protected $signature = 'erp:backup
         {--database-only : Back up only the configured database}
         {--storage-only : Back up only recoverable application storage}
+        {--full : Require both database and recoverable storage regardless of UI settings}
+        {--purpose=manual : scheduled, manual, deployment, or operational_reset}
         {--retention-dry-run : Show retention candidates without deleting them}';
 
     protected $description = 'Create a verified ERP database and storage backup with a manifest';
 
     public function handle(ErpBackupService $backup, BackupRetentionService $retention, BackupSettingsService $settingsService): int
     {
-        if ($this->option('database-only') && $this->option('storage-only')) {
-            $this->error('Choose either --database-only or --storage-only, not both.');
+        if (($this->option('database-only') && $this->option('storage-only'))
+            || ($this->option('full') && ($this->option('database-only') || $this->option('storage-only')))) {
+            $this->error('Choose --database-only, --storage-only, or --full (mutually exclusive).');
 
             return self::INVALID;
         }
 
         try {
+            $purpose = (string) $this->option('purpose');
+            if (! in_array($purpose, ['scheduled', 'manual', 'deployment', 'operational_reset'], true)) {
+                $this->error('Invalid --purpose; choose scheduled, manual, deployment, or operational_reset.');
+
+                return self::INVALID;
+            }
             $settings = $settingsService->applyToRuntimeConfig();
-            $database = $this->option('database-only') || (! $this->option('storage-only') && (bool) $settings['database_enabled']);
-            $storage = $this->option('storage-only') || (! $this->option('database-only') && (bool) $settings['storage_enabled']);
+            $database = $this->option('full') || $this->option('database-only') || (! $this->option('storage-only') && (bool) $settings['database_enabled']);
+            $storage = $this->option('full') || $this->option('storage-only') || (! $this->option('database-only') && (bool) $settings['storage_enabled']);
             $result = $backup->create(
                 includeDatabase: $database,
                 includeStorage: $storage,
+                purpose: $purpose,
             );
             $retentionResult = $retention->prune((bool) $this->option('retention-dry-run'));
 

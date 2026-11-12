@@ -189,7 +189,7 @@ class BackupSettingsUiTest extends TestCase
     public function test_backup_command_records_safe_storage_access_failure_without_running_retention(): void
     {
         $backup = \Mockery::mock(ErpBackupService::class);
-        $backup->shouldReceive('create')->once()->with(false, true)->andThrow(new BackupStorageAccessException);
+        $backup->shouldReceive('create')->once()->with(false, true, 'manual')->andThrow(new BackupStorageAccessException);
         $retention = \Mockery::mock(BackupRetentionService::class);
         $retention->shouldNotReceive('prune');
         app()->instance(ErpBackupService::class, $backup);

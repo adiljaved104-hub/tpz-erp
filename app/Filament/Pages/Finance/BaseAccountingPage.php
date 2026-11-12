@@ -9,6 +9,8 @@ use Filament\Pages\Page;
 
 abstract class BaseAccountingPage extends Page
 {
+    protected array $extraBodyAttributes = ['class' => 'tpz-accounting-body'];
+
     protected static string|\UnitEnum|null $navigationGroup = 'Accounting';
 
     protected static AccountingPermission $requiredPermission = AccountingPermission::ViewGeneralLedger;

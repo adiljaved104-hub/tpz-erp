@@ -9,6 +9,7 @@ use App\Enums\EmployeeRole;
 use App\Filament\Pages\Finance\AccountingChartOfAccounts;
 use App\Filament\Pages\Finance\AccountingHome;
 use App\Filament\Pages\Finance\AccountingJournals;
+use App\Filament\Pages\Finance\AccountingPeriods;
 use App\Models\AccountingBook;
 use App\Models\AccountingJournal;
 use App\Models\Employee;
@@ -33,12 +34,12 @@ class AccountingUiPhaseOneTest extends TestCase
 
         $response->assertOk()
             ->assertSee($book->name)
-            ->assertSee('Customers &amp; Receivables', false)
-            ->assertSee('Vendors &amp; Payables', false)
-            ->assertSee('Banking')
+            ->assertSee('Customer Center')
+            ->assertSee('Vendor Center')
+            ->assertSee('Banking Center')
             ->assertSee('Inventory Accounting')
-            ->assertSee('Not connected')
-            ->assertSee('posting activation is off');
+            ->assertSee('Unavailable')
+            ->assertSee('Journal posting remains disabled');
     }
 
     public function test_chart_of_accounts_can_create_a_valid_subaccount_using_existing_parent_relationship(): void
@@ -89,7 +90,9 @@ class AccountingUiPhaseOneTest extends TestCase
             ])
             ->call('saveDraft')
             ->assertHasNoErrors()
-            ->assertSee('Posting disabled');
+            ->assertSee('Posting disabled')
+            ->assertDontSee('VAT preview')
+            ->assertDontSee('Subtotal');
 
         $draft = AccountingJournal::query()->where('narration', 'Phase one UI balanced draft')->firstOrFail();
         $this->assertSame(AccountingJournalStatus::Draft, $draft->status);
@@ -134,6 +137,18 @@ class AccountingUiPhaseOneTest extends TestCase
             ->assertSee('Draft creation is not available to your role')
             ->assertDontSee('New journal draft')
             ->assertDontSee('Save Draft');
+    }
+
+    public function test_periods_screen_does_not_offer_posting_activation_without_owner_approval(): void
+    {
+        $this->withoutVite();
+        config()->set('accounting.posting_activation_approved', false);
+        $owner = $this->employee(EmployeeRole::Owner);
+
+        $this->actingAs($owner)->get(AccountingPeriods::getUrl())
+            ->assertOk()
+            ->assertSee('Posting activation locked')
+            ->assertDontSee('Enable posting');
     }
 
     private function employee(EmployeeRole $role): User

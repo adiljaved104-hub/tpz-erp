@@ -95,9 +95,14 @@ class AccountingJournals extends BaseAccountingPage
         $authorization = app(AccountingAuthorization::class);
         $user = $this->user();
         [$debitTotal, $creditTotal, $invalidAmount] = $this->lineTotals();
+        $period = $book?->periods()
+            ->whereDate('starts_on', '<=', $this->postingDate)
+            ->whereDate('ends_on', '>=', $this->postingDate)
+            ->first();
 
         return [
             'book' => $book,
+            'period' => $period,
             'books' => AccountingBook::query()->orderBy('name')->get(),
             'accounts' => $book?->accounts()->where('active', true)->where('is_posting', true)->where('is_control', false)->orderBy('number')->get() ?? collect(),
             'journals' => $book?->journals()->with(['lines', 'reversal', 'reversalOf', 'period'])->latest('id')->limit(30)->get() ?? collect(),

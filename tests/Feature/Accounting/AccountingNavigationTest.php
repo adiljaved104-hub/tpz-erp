@@ -79,7 +79,13 @@ class AccountingNavigationTest extends TestCase
 
         $this->get(AccountingChartOfAccounts::getUrl())
             ->assertOk()
-            ->assertDontSee('Create account');
+            ->assertDontSee('Create account')
+            ->assertSee('Chart of Accounts')
+            ->assertSee('Customer Center')
+            ->assertDontSee('href="'.AccountingJournals::getUrl().'"', false)
+            ->assertDontSee('href="'.AccountingGeneralLedger::getUrl().'"', false)
+            ->assertDontSee('href="'.AccountingTrialBalance::getUrl().'"', false)
+            ->assertDontSee('href="'.AccountingPeriods::getUrl().'"', false);
     }
 
     /** @return array<int, class-string> */

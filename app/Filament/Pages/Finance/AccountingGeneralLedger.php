@@ -36,6 +36,6 @@ class AccountingGeneralLedger extends BaseAccountingPage
     {
         $book = AccountingBook::query()->find((int) $this->bookId) ?? AccountingBook::query()->first();
 
-        return ['book' => $book, 'lines' => $book ? app(AccountingLedgerService::class)->generalLedger($book, $this->from, $this->to) : collect()];
+        return ['book' => $book, 'books' => AccountingBook::query()->orderBy('name')->get(), 'lines' => $book ? app(AccountingLedgerService::class)->generalLedger($book, $this->from, $this->to) : collect()];
     }
 }

@@ -1,6 +1,13 @@
-<x-filament-panels::page>
-    <x-filament::section heading="General Ledger" description="Immutable posted journal lines for the selected date range." compact>
-        <div class="mb-4 grid gap-3 md:grid-cols-2"><label class="grid gap-1 text-sm"><span>From</span><x-filament::input.wrapper><x-filament::input type="date" wire:model.live="from" /></x-filament::input.wrapper></label><label class="grid gap-1 text-sm"><span>To</span><x-filament::input.wrapper><x-filament::input type="date" wire:model.live="to" /></x-filament::input.wrapper></label></div>
-        <div class="overflow-x-auto"><table class="w-full min-w-[54rem] text-sm"><thead><tr class="text-left"><th>Date</th><th>Journal</th><th>Account</th><th>Description</th><th class="text-right">Debit</th><th class="text-right">Credit</th></tr></thead><tbody>@forelse($lines as $line)<tr class="border-t border-gray-100 dark:border-white/5"><td>{{ $line->journal->posting_date?->format('Y-m-d') }}</td><td>{{ $line->journal->reference }}</td><td>{{ $line->account->number }} — {{ $line->account->name }}</td><td>{{ $line->description }}</td><td class="text-right">AED {{ number_format((float)$line->debit,2) }}</td><td class="text-right">AED {{ number_format((float)$line->credit,2) }}</td></tr>@empty<tr><td colspan="6" class="py-8 text-center text-gray-500">No posted journal lines.</td></tr>@endforelse</tbody></table></div>
-    </x-filament::section>
-</x-filament-panels::page>
+<x-accounting.workspace current="ledger" title="General Ledger" description="Posted journal lines for the selected date range. Drafts are not included." :books="$books" :book="$book">
+    <section class="tpz-accounting-panel">
+        <div class="tpz-accounting-toolbar">
+            <label class="grid gap-1 text-xs">From <input type="date" wire:model.live="from" aria-label="From date"></label>
+            <label class="grid gap-1 text-xs">To <input type="date" wire:model.live="to" aria-label="To date"></label>
+            <span class="ml-auto text-xs text-gray-500">{{ $book?->currency ?? 'AED' }} · posted activity only</span>
+        </div>
+        <div class="tpz-accounting-table-wrap"><table class="tpz-accounting-data-table">
+            <thead><tr><th>Date</th><th>Journal</th><th>Account</th><th>Description</th><th class="text-right">Debit</th><th class="text-right">Credit</th></tr></thead>
+            <tbody>@forelse($lines as $line)<tr><td class="whitespace-nowrap">{{ $line->journal->posting_date?->format('d M Y') }}</td><td class="font-mono">{{ $line->journal->reference }}</td><td>{{ $line->account->number }} — {{ $line->account->name }}</td><td>{{ $line->description ?: '—' }}</td><td class="text-right tabular-nums">{{ number_format((float) $line->debit, 2) }}</td><td class="text-right tabular-nums">{{ number_format((float) $line->credit, 2) }}</td></tr>@empty<tr><td colspan="6" class="py-8 text-center text-gray-500">No posted journal lines for this date range.</td></tr>@endforelse</tbody>
+        </table></div>
+    </section>
+</x-accounting.workspace>

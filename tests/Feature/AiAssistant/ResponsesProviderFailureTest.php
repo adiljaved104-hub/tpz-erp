@@ -158,4 +158,53 @@ class ResponsesProviderFailureTest extends TestCase
             self::assertStringNotContainsString('test-secret-api-key-value', $exception->getMessage());
         }
     }
+
+    public function test_incomplete_stream_records_only_safe_machine_reason(): void
+    {
+        config([
+            'ai_assistant.provider' => 'openai',
+            'ai_assistant.api_key' => 'sensitive-test-secret',
+            'ai_assistant.base_url' => 'https://api.openai.test/v1',
+        ]);
+
+        $this->mock(AiAssistantSettings::class)->shouldReceive('current')->andReturn([
+            'enabled' => true,
+            'provider' => 'openai',
+            'model' => 'gpt-6-luna',
+            'daily_budget_usd' => 2,
+            'monthly_budget_usd' => 30,
+        ]);
+        $tools = \Mockery::mock(ErpReportToolRegistry::class);
+        $tools->shouldReceive('definitions')->once()->andReturn([]);
+        \Illuminate\Support\Facades\Log::shouldReceive('warning')->once()->with(
+            'TPZ AI Assistant provider stream failure',
+            \Mockery::on(fn (array $context): bool => ($context['event_type'] ?? null) === 'response.incomplete'
+                && ($context['reason'] ?? null) === 'max_output_tokens'
+                && ! str_contains(json_encode($context), 'sensitive-test-secret')),
+        );
+
+        Http::fake([
+            'https://api.openai.test/v1/responses' => Http::response(
+                'data: '.json_encode([
+                    'type' => 'response.incomplete',
+                    'response' => ['incomplete_details' => ['reason' => 'max_output_tokens']],
+                ])."\n\n",
+                200,
+                ['Content-Type' => 'text/event-stream'],
+            ),
+        ]);
+
+        try {
+            (new ResponsesProvider($tools))->stream(
+                new User,
+                [['role' => 'user', 'content' => 'Hello']],
+                fn (): null => null,
+            );
+            self::fail('Expected incomplete response to fail safely.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('OpenAI streaming request failed.', $exception->getMessage());
+            self::assertStringNotContainsString('sensitive-test-secret', $exception->getMessage());
+        }
+    }
+
 }

@@ -90,7 +90,9 @@ class AccountingNavigationTest extends TestCase
 
     private function employee(EmployeeRole $role): Employee
     {
-        $user = User::factory()->create();
+        $user = User::factory()->create([
+            'email' => fake()->unique()->userName().'@techpointzone.com',
+        ]);
 
         return Employee::factory()->for($user)->create([
             'role' => $role,

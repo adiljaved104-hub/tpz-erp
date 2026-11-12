@@ -6,6 +6,7 @@ use App\Enums\AccountingJournalStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use LogicException;
 
 class AccountingJournal extends Model
@@ -49,6 +50,11 @@ class AccountingJournal extends Model
     public function reversalOf(): BelongsTo
     {
         return $this->belongsTo(self::class, 'reversal_of_journal_id');
+    }
+
+    public function reversal(): HasOne
+    {
+        return $this->hasOne(self::class, 'reversal_of_journal_id');
     }
 
     public function createdBy(): BelongsTo

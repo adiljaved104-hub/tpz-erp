@@ -6,6 +6,7 @@ use App\Enums\AccountingAccountType;
 use App\Enums\AccountingPermission;
 use App\Models\AccountingAccount;
 use App\Models\AccountingBook;
+use App\Services\Accounting\AccountingLedgerService;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\AccountingAuthorization;
 use Filament\Notifications\Notification;
@@ -121,6 +122,10 @@ class AccountingChartOfAccounts extends BaseAccountingPage
 
             return $matchesSearch && $matchesType && $matchesStatus;
         });
+        $canViewBalances = app(AccountingAuthorization::class)->allows($this->user(), AccountingPermission::ViewTrialBalance);
+        $balances = $book && $canViewBalances
+            ? app(AccountingLedgerService::class)->trialBalance($book, now()->toDateString())->keyBy(fn (array $row): int => $row['account']->id)
+            : collect();
 
         return [
             'book' => $book,
@@ -129,6 +134,8 @@ class AccountingChartOfAccounts extends BaseAccountingPage
             'types' => collect(AccountingAccountType::cases())->mapWithKeys(fn ($type) => [$type->value => ucfirst($type->value)]),
             'parentAccounts' => $accounts->filter(fn (AccountingAccount $account): bool => $account->active && ! $account->is_posting && $account->account_type->value === $this->type),
             'canManageChart' => app(AccountingAuthorization::class)->allows($this->user(), AccountingPermission::ManageChart),
+            'canViewBalances' => $canViewBalances,
+            'balances' => $balances,
         ];
     }
 }

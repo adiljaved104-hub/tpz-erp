@@ -1,3 +1,16 @@
-<x-filament-panels::page>
-    <div class="grid gap-4">@foreach($books as $book)<x-filament::section :heading="$book->name" :description="$book->posting_enabled ? 'Posting enabled' : 'Posting disabled by default'" compact><div class="overflow-x-auto"><table class="w-full min-w-[38rem] text-sm"><thead><tr class="text-left"><th>Period</th><th>Dates</th><th>Status</th><th></th></tr></thead><tbody>@foreach($book->periods as $period)<tr class="border-t border-gray-100 dark:border-white/5"><td>{{ $period->name }}</td><td>{{ $period->starts_on?->format('Y-m-d') }} → {{ $period->ends_on?->format('Y-m-d') }}</td><td>{{ ucfirst($period->status->value) }}</td><td>@if(! $book->posting_enabled)<x-filament::button size="xs" wire:click="enablePosting({{ $book->id }})">Enable posting</x-filament::button>@endif @if($period->status->value === 'open')<x-filament::button size="xs" color="gray" wire:click="closePeriod({{ $period->id }})">Close period</x-filament::button>@endif</td></tr>@endforeach</tbody></table></div></x-filament::section>@endforeach</div>
-</x-filament-panels::page>
+<x-accounting.workspace current="periods" title="Accounting Periods" description="Review period dates and controls. Posting activation is unavailable pending Owner approval.">
+    <div class="grid gap-4">
+        @foreach($books as $book)
+            <section class="tpz-accounting-panel">
+                <div class="mb-4 flex flex-wrap items-start justify-between gap-4"><div><h2 class="m-0 text-base font-semibold">{{ $book->name }}</h2><p class="m-0 text-sm text-gray-500">{{ $book->currency }} · posting {{ $book->posting_enabled && config('accounting.posting_activation_approved', false) === true ? 'approved' : 'disabled' }}</p></div><span class="tpz-accounting-disabled">Posting activation locked</span></div>
+                <div class="tpz-accounting-table-wrap"><table class="tpz-accounting-data-table"><thead><tr><th>Period</th><th>Dates</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+                    @forelse($book->periods as $period)
+                        <tr><td class="font-medium">{{ $period->name }}</td><td class="whitespace-nowrap">{{ $period->starts_on?->format('d M Y') }} – {{ $period->ends_on?->format('d M Y') }}</td><td><x-accounting.status-badge :status="ucfirst($period->status->value)" :tone="$period->status->value === 'open' ? 'success' : 'gray'" /></td><td>@if($period->status->value === 'open')<x-filament::button size="xs" color="gray" wire:click="closePeriod({{ $period->id }})" wire:confirm="Close this accounting period?">Close period</x-filament::button>@else<span class="text-gray-400">—</span>@endif</td></tr>
+                    @empty
+                        <tr><td colspan="4" class="py-8 text-center text-gray-500">No periods are configured for this book.</td></tr>
+                    @endforelse
+                </tbody></table></div>
+            </section>
+        @endforeach
+    </div>
+</x-accounting.workspace>

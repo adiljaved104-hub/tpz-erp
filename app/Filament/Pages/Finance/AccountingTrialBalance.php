@@ -33,6 +33,6 @@ class AccountingTrialBalance extends BaseAccountingPage
     {
         $book = AccountingBook::query()->find((int) $this->bookId) ?? AccountingBook::query()->first();
 
-        return ['book' => $book, 'rows' => $book ? app(AccountingLedgerService::class)->trialBalance($book, $this->asOfDate) : collect()];
+        return ['book' => $book, 'books' => AccountingBook::query()->orderBy('name')->get(), 'rows' => $book ? app(AccountingLedgerService::class)->trialBalance($book, $this->asOfDate) : collect()];
     }
 }

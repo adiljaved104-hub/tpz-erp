@@ -1,18 +1,5 @@
-<x-filament-panels::page>
+<x-accounting.workspace current="journal" title="General Journal" description="Prepare balanced, period-aware journal drafts. Posting remains disabled." :books="$books" :book="$book">
     <div class="space-y-6">
-        <x-accounting.page-header title="General Journal" description="Prepare balanced journal drafts with period-aware dates and a traceable review history.">
-            <x-slot:actions>
-                <label class="flex min-w-56 flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
-                    <span>Accounting book</span>
-                    <x-filament::input.wrapper>
-                        <x-filament::input.select wire:model.live="bookId" aria-label="Accounting book">
-                            @foreach ($books as $item)<option value="{{ $item->id }}">{{ $item->name }} · {{ $item->currency }}</option>@endforeach
-                        </x-filament::input.select>
-                    </x-filament::input.wrapper>
-                </label>
-            </x-slot:actions>
-        </x-accounting.page-header>
-
         @if (! $book)
             <x-accounting.empty-state title="No accounting book is configured" description="A B1 accounting book is required before journal drafts can be prepared." />
         @elseif (! $canCreateJournal)
@@ -23,6 +10,7 @@
                     <x-accounting.empty-state title="No eligible posting accounts" description="Choose active, non-control posting accounts in the selected book before creating a journal draft." />
                 @else
                     <form wire:submit="saveDraft" x-on:keydown.alt.enter.prevent="$wire.addLine()" class="space-y-5">
+                        <div class="tpz-accounting-document-header"><div><small>Reference</small><strong>Assigned when saved</strong></div><div><small>Accounting period</small><strong>{{ $period?->name ?? 'No matching period' }}</strong></div><div><small>Book / currency</small><strong>{{ $book->name }} · {{ $book->currency }}</strong></div></div>
                         <div class="grid gap-4 md:grid-cols-3">
                             <label class="grid content-start gap-1 text-sm font-medium"><span>Posting date</span><x-filament::input.wrapper><x-filament::input type="date" wire:model="postingDate" aria-describedby="journal-date-help" /></x-filament::input.wrapper><span id="journal-date-help" class="text-xs font-normal text-gray-500">Must fall within an open period.</span>@error('postingDate')<span class="text-xs text-danger-600">{{ $message }}</span>@enderror</label>
                             <label class="grid content-start gap-1 text-sm font-medium md:col-span-2"><span>Narration</span><x-filament::input.wrapper><x-filament::input wire:model="narration" maxlength="500" placeholder="Describe the purpose of this adjustment" />@error('narration')<span class="text-xs text-danger-600">{{ $message }}</span>@enderror</x-filament::input.wrapper></label>
@@ -96,4 +84,4 @@
             @endif
         </x-filament::section>
     </div>
-</x-filament-panels::page>
+</x-accounting.workspace>

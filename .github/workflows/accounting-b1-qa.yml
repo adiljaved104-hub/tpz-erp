@@ -5,9 +5,29 @@ on:
     branches:
       - integration/accounting-b1-staging-20261111
       - codex/accounting-ui-phase1-20261112
+      - codex/accounting-ui-prototype-fidelity-20261112
+      - integration/accounting-ui-prototype-staging-20261112
+    paths:
+      - '.github/workflows/accounting-b1-qa.yml'
+      - 'app/Filament/Pages/Finance/Accounting*.php'
+      - 'app/Filament/Pages/Finance/BaseAccountingPage.php'
+      - 'resources/css/filament/admin/theme.css'
+      - 'resources/views/components/accounting/**'
+      - 'resources/views/filament/pages/finance/accounting-*.blade.php'
+      - 'tests/Feature/Accounting/**'
+      - 'docs/accounting/**'
   pull_request:
     branches:
-      - integration/accounting-b1-staging-20261111
+      - staging
+    paths:
+      - '.github/workflows/accounting-b1-qa.yml'
+      - 'app/Filament/Pages/Finance/Accounting*.php'
+      - 'app/Filament/Pages/Finance/BaseAccountingPage.php'
+      - 'resources/css/filament/admin/theme.css'
+      - 'resources/views/components/accounting/**'
+      - 'resources/views/filament/pages/finance/accounting-*.blade.php'
+      - 'tests/Feature/Accounting/**'
+      - 'docs/accounting/**'
 
 permissions:
   contents: read
@@ -82,3 +102,7 @@ jobs:
         run: vendor/bin/pint --test app/Enums/AccountingAccountType.php app/Enums/AccountingJournalStatus.php app/Enums/AccountingPeriodStatus.php app/Enums/AccountingPermission.php app/Models/AccountingAccount.php app/Models/AccountingBook.php app/Models/AccountingJournal.php app/Models/AccountingJournalLine.php app/Models/AccountingPeriod.php app/Services/Accounting/AccountingLedgerService.php app/Services/Authorization/AccountingAuthorization.php app/Filament/Pages/Finance/BaseAccountingPage.php app/Filament/Pages/Finance/AccountingHome.php app/Filament/Pages/Finance/AccountingChartOfAccounts.php app/Filament/Pages/Finance/AccountingJournals.php app/Filament/Pages/Finance/AccountingGeneralLedger.php app/Filament/Pages/Finance/AccountingPeriods.php app/Filament/Pages/Finance/AccountingTrialBalance.php app/Providers/AppServiceProvider.php app/Providers/Filament/AdminPanelProvider.php app/Services/Authorization/EmployeePermissionCatalog.php tests/Feature/Accounting/AccountingFoundationTest.php tests/Feature/Accounting/AccountingNavigationTest.php tests/Feature/Accounting/AccountingUiPhaseOneTest.php
       - name: Blade compilation
         run: php artisan view:cache
+      - name: Build Accounting UI assets
+        run: |
+          npm ci
+          npm run build

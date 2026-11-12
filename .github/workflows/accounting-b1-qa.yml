@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - integration/accounting-b1-staging-20261111
+      - codex/accounting-ui-phase1-20261112
   pull_request:
     branches:
       - integration/accounting-b1-staging-20261111
@@ -61,6 +62,7 @@ jobs:
           php artisan test
           tests/Feature/Accounting/AccountingFoundationTest.php
           tests/Feature/Accounting/AccountingNavigationTest.php
+          tests/Feature/Accounting/AccountingUiPhaseOneTest.php
           tests/Feature/AccessControl/AccessControlMatrixTest.php
           tests/Feature/AccessControl/EmployeeAccessControlTest.php
           tests/Feature/Orders/WebSalesDashboardPermissionTest.php
@@ -72,8 +74,11 @@ jobs:
           php -l app/Providers/Filament/AdminPanelProvider.php
           php -l app/Filament/Pages/Finance/BaseAccountingPage.php
           php -l app/Filament/Pages/Finance/AccountingChartOfAccounts.php
+          php -l app/Filament/Pages/Finance/AccountingHome.php
+          php -l app/Filament/Pages/Finance/AccountingJournals.php
           php -l tests/Feature/Accounting/AccountingNavigationTest.php
+          php -l tests/Feature/Accounting/AccountingUiPhaseOneTest.php
       - name: Pint changed PHP files
-        run: vendor/bin/pint --test app/Enums/AccountingAccountType.php app/Enums/AccountingJournalStatus.php app/Enums/AccountingPeriodStatus.php app/Enums/AccountingPermission.php app/Models/AccountingAccount.php app/Models/AccountingBook.php app/Models/AccountingJournal.php app/Models/AccountingJournalLine.php app/Models/AccountingPeriod.php app/Services/Accounting/AccountingLedgerService.php app/Services/Authorization/AccountingAuthorization.php app/Filament/Pages/Finance/BaseAccountingPage.php app/Filament/Pages/Finance/AccountingChartOfAccounts.php app/Filament/Pages/Finance/AccountingJournals.php app/Filament/Pages/Finance/AccountingGeneralLedger.php app/Filament/Pages/Finance/AccountingPeriods.php app/Filament/Pages/Finance/AccountingTrialBalance.php app/Providers/AppServiceProvider.php app/Providers/Filament/AdminPanelProvider.php app/Services/Authorization/EmployeePermissionCatalog.php tests/Feature/Accounting/AccountingFoundationTest.php tests/Feature/Accounting/AccountingNavigationTest.php
+        run: vendor/bin/pint --test app/Enums/AccountingAccountType.php app/Enums/AccountingJournalStatus.php app/Enums/AccountingPeriodStatus.php app/Enums/AccountingPermission.php app/Models/AccountingAccount.php app/Models/AccountingBook.php app/Models/AccountingJournal.php app/Models/AccountingJournalLine.php app/Models/AccountingPeriod.php app/Services/Accounting/AccountingLedgerService.php app/Services/Authorization/AccountingAuthorization.php app/Filament/Pages/Finance/BaseAccountingPage.php app/Filament/Pages/Finance/AccountingHome.php app/Filament/Pages/Finance/AccountingChartOfAccounts.php app/Filament/Pages/Finance/AccountingJournals.php app/Filament/Pages/Finance/AccountingGeneralLedger.php app/Filament/Pages/Finance/AccountingPeriods.php app/Filament/Pages/Finance/AccountingTrialBalance.php app/Providers/AppServiceProvider.php app/Providers/Filament/AdminPanelProvider.php app/Services/Authorization/EmployeePermissionCatalog.php tests/Feature/Accounting/AccountingFoundationTest.php tests/Feature/Accounting/AccountingNavigationTest.php tests/Feature/Accounting/AccountingUiPhaseOneTest.php
       - name: Blade compilation
         run: php artisan view:cache

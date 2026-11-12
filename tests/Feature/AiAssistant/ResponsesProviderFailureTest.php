@@ -60,8 +60,10 @@ class ResponsesProviderFailureTest extends TestCase
         $result = (new ResponsesProvider($tools))->stream(
             new User,
             [['role' => 'user', 'content' => 'What were sales?']],
-            function (string $chunk) use (&$emitted): void {
-                $emitted .= $chunk;
+            function (mixed $event) use (&$emitted): void {
+                if (is_string($event)) {
+                    $emitted .= $event;
+                }
             },
         );
 
@@ -70,6 +72,8 @@ class ResponsesProviderFailureTest extends TestCase
         self::assertSame(11, $result['input_tokens']);
         self::assertSame(4, $result['output_tokens']);
         self::assertSame('resp_test', $result['response_id']);
+        self::assertSame(1, $result['api_round_trips']);
+        self::assertGreaterThanOrEqual(0, $result['api_milliseconds']);
     }
 
     public function test_responses_api_tool_calls_are_validated_and_replied_to_by_call_id(): void

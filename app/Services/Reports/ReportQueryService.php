@@ -68,10 +68,10 @@ class ReportQueryService
     ) {}
 
     /** @param array<string, mixed> $filters */
-    public function run(User $user, string $key, array $filters, int $limit = self::PREVIEW_LIMIT): ReportResult
+    public function run(User $user, string $key, array $filters, int $limit = self::PREVIEW_LIMIT, ?string $timezone = null): ReportResult
     {
         $definition = $this->catalog->resolve($user, $key);
-        $filters = $this->normalizeFilters($filters, $user);
+        $filters = $this->normalizeFilters($filters, $user, $timezone);
 
         if ($definition->handler !== self::class) {
             $handler = app($definition->handler);
@@ -550,19 +550,20 @@ class ReportQueryService
         });
     }
 
-    private function normalizeFilters(array $filters, User $user): array
+    private function normalizeFilters(array $filters, User $user, ?string $timezone = null): array
     {
-        $today = CarbonImmutable::today(app(UserTimezoneResolver::class)->resolve($user));
-        $from = CarbonImmutable::parse($filters['from'] ?? $today->startOfMonth()->toDateString());
-        $to = CarbonImmutable::parse($filters['to'] ?? $today->toDateString());
+        $timezone ??= app(UserTimezoneResolver::class)->resolve($user);
+        $today = CarbonImmutable::today($timezone);
+        $from = CarbonImmutable::parse($filters['from'] ?? $today->startOfMonth()->toDateString(), $timezone);
+        $to = CarbonImmutable::parse($filters['to'] ?? $today->toDateString(), $timezone);
         if ($to->lt($from) || $from->diffInDays($to) > 366) {
             throw ValidationException::withMessages(['to' => 'The report date range must be valid and cannot exceed 366 days.']);
         }
 
         return [
             'from' => $from->toDateString(), 'to' => $to->toDateString(),
-            'from_utc' => app(UserTimezoneResolver::class)->utcDateRange($from->toDateString(), $to->toDateString(), $user)['from']->toDateTimeString(),
-            'until_utc' => app(UserTimezoneResolver::class)->utcDateRange($from->toDateString(), $to->toDateString(), $user)['until']->toDateTimeString(),
+            'from_utc' => $from->startOfDay()->setTimezone('UTC')->toDateTimeString(),
+            'until_utc' => $to->addDay()->startOfDay()->setTimezone('UTC')->toDateTimeString(),
             'status' => filled($filters['status'] ?? null) ? (string) $filters['status'] : null,
             'employee_id' => filled($filters['employee_id'] ?? null) ? (int) $filters['employee_id'] : null,
             'team_id' => filled($filters['team_id'] ?? null) ? (int) $filters['team_id'] : null,

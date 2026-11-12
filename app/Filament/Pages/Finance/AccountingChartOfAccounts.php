@@ -34,6 +34,14 @@ class AccountingChartOfAccounts extends BaseAccountingPage
 
     public bool $posting = true;
 
+    public string $parentId = '';
+
+    public string $search = '';
+
+    public string $typeFilter = '';
+
+    public string $statusFilter = 'active';
+
     public function saveAccount(): void
     {
         try {
@@ -44,10 +52,26 @@ class AccountingChartOfAccounts extends BaseAccountingPage
                 'name' => ['required', 'string', 'min:2', 'max:160'],
                 'type' => ['required', Rule::in(array_column(AccountingAccountType::cases(), 'value'))],
                 'posting' => ['boolean'],
+                'parentId' => ['nullable', function (string $attribute, mixed $value, \Closure $fail): void {
+                    if ($value === null || $value === '') {
+                        return;
+                    }
+
+                    $parent = AccountingAccount::query()->whereKey((int) $value)
+                        ->where('accounting_book_id', (int) $this->bookId)
+                        ->where('active', true)
+                        ->where('is_posting', false)
+                        ->first();
+
+                    if (! $parent || $parent->account_type->value !== $this->type) {
+                        $fail('Choose an active, non-posting parent account of the same type in this book.');
+                    }
+                }],
             ]);
             $book = AccountingBook::query()->findOrFail((int) $validated['bookId']);
             $account = AccountingAccount::query()->create([
                 'accounting_book_id' => $book->id,
+                'parent_id' => $validated['parentId'] ?: null,
                 'number' => trim($validated['number']),
                 'name' => trim($validated['name']),
                 'account_type' => $validated['type'],
@@ -58,7 +82,7 @@ class AccountingChartOfAccounts extends BaseAccountingPage
             ]);
             app(ActivityLogger::class)->log('accounting.account_created', $this->user(), $account, ['account_number' => $account->number]);
             Notification::make()->success()->title('Account created')->send();
-            $this->reset('number', 'name');
+            $this->reset('number', 'name', 'parentId');
         } catch (ValidationException $exception) {
             foreach ($exception->errors() as $field => $messages) {
                 $this->addError($field, $messages[0]);
@@ -74,6 +98,37 @@ class AccountingChartOfAccounts extends BaseAccountingPage
             $this->bookId = (string) $book->id;
         }
 
-        return ['book' => $book, 'books' => $books, 'accounts' => $book ? $book->accounts()->with('parent')->orderBy('number')->get() : collect(), 'types' => collect(AccountingAccountType::cases())->mapWithKeys(fn ($type) => [$type->value => ucfirst($type->value)])];
+        $accounts = $book ? $book->accounts()->with('parent')->orderBy('number')->get() : collect();
+        $hierarchy = collect();
+        $visited = [];
+        $appendChildren = function (?int $parentId, int $depth) use (&$appendChildren, &$hierarchy, &$visited, $accounts): void {
+            foreach ($accounts->where('parent_id', $parentId)->sortBy('number') as $account) {
+                if (isset($visited[$account->id])) {
+                    continue;
+                }
+                $visited[$account->id] = true;
+                $account->setAttribute('hierarchy_depth', $depth);
+                $hierarchy->push($account);
+                $appendChildren((int) $account->id, $depth + 1);
+            }
+        };
+        $appendChildren(null, 0);
+        $query = mb_strtolower(trim($this->search));
+        $filteredAccounts = $hierarchy->filter(function (AccountingAccount $account) use ($query): bool {
+            $matchesSearch = $query === '' || str_contains(mb_strtolower($account->number.' '.$account->name.' '.($account->parent?->name ?? '')), $query);
+            $matchesType = $this->typeFilter === '' || $account->account_type->value === $this->typeFilter;
+            $matchesStatus = $this->statusFilter === 'all' || ($this->statusFilter === 'inactive' ? ! $account->active : $account->active);
+
+            return $matchesSearch && $matchesType && $matchesStatus;
+        });
+
+        return [
+            'book' => $book,
+            'books' => $books,
+            'accounts' => $filteredAccounts,
+            'types' => collect(AccountingAccountType::cases())->mapWithKeys(fn ($type) => [$type->value => ucfirst($type->value)]),
+            'parentAccounts' => $accounts->filter(fn (AccountingAccount $account): bool => $account->active && ! $account->is_posting && $account->account_type->value === $this->type),
+            'canManageChart' => app(AccountingAuthorization::class)->allows($this->user(), AccountingPermission::ManageChart),
+        ];
     }
 }

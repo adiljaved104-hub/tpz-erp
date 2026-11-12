@@ -9,6 +9,7 @@ use App\Enums\ExpensePermission;
 use App\Enums\OfficeFinancePermission;
 use App\Filament\Pages\Finance\AccountingChartOfAccounts;
 use App\Filament\Pages\Finance\AccountingGeneralLedger;
+use App\Filament\Pages\Finance\AccountingHome;
 use App\Filament\Pages\Finance\AccountingJournals;
 use App\Filament\Pages\Finance\AccountingPeriods;
 use App\Filament\Pages\Finance\AccountingTrialBalance;
@@ -25,6 +26,7 @@ class AccountingNavigationTest extends TestCase
     public function test_accounting_pages_use_the_separate_group_and_requested_labels(): void
     {
         $pages = [
+            AccountingHome::class => 'Accounting Home',
             AccountingChartOfAccounts::class => 'Chart of Accounts',
             AccountingJournals::class => 'General Journal',
             AccountingGeneralLedger::class => 'General Ledger',
@@ -69,17 +71,22 @@ class AccountingNavigationTest extends TestCase
 
         $this->actingAs($staff->user);
         foreach ($this->accountingPages() as $page) {
-            $allowed = $page === AccountingChartOfAccounts::class;
+            $allowed = in_array($page, [AccountingHome::class, AccountingChartOfAccounts::class], true);
             $this->assertSame($allowed, $page::shouldRegisterNavigation());
             $response = $this->get($page::getUrl());
             $allowed ? $response->assertOk() : $response->assertForbidden();
         }
+
+        $this->get(AccountingChartOfAccounts::getUrl())
+            ->assertOk()
+            ->assertDontSee('Create account');
     }
 
     /** @return array<int, class-string> */
     private function accountingPages(): array
     {
         return [
+            AccountingHome::class,
             AccountingChartOfAccounts::class,
             AccountingJournals::class,
             AccountingGeneralLedger::class,

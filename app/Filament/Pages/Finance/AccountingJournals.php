@@ -6,6 +6,7 @@ use App\Enums\AccountingPermission;
 use App\Models\AccountingBook;
 use App\Models\AccountingJournal;
 use App\Services\Accounting\AccountingLedgerService;
+use App\Services\Authorization\AccountingAuthorization;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -43,12 +44,38 @@ class AccountingJournals extends BaseAccountingPage
         $this->lines[] = ['account_id' => '', 'debit' => '', 'credit' => '', 'description' => ''];
     }
 
+    public function removeLine(int $index): void
+    {
+        if (count($this->lines) <= 2 || ! array_key_exists($index, $this->lines)) {
+            return;
+        }
+
+        unset($this->lines[$index]);
+        $this->lines = array_values($this->lines);
+    }
+
     public function saveDraft(): void
     {
         try {
-            app(AccountingLedgerService::class)->createDraft(['book_id' => $this->bookId, 'posting_date' => $this->postingDate, 'narration' => $this->narration, 'idempotency_key' => (string) Str::uuid(), 'lines' => $this->lines], $this->user());
+            $lines = array_map(static function (mixed $line): mixed {
+                if (! is_array($line)) {
+                    return $line;
+                }
+                foreach (['debit', 'credit'] as $side) {
+                    $amount = $line[$side] ?? '';
+                    if (is_scalar($amount) && trim((string) $amount) === '') {
+                        $line[$side] = '0';
+                    }
+                }
+
+                return $line;
+            }, $this->lines);
+
+            app(AccountingLedgerService::class)->createDraft(['book_id' => $this->bookId, 'posting_date' => $this->postingDate, 'narration' => $this->narration, 'idempotency_key' => (string) Str::uuid(), 'lines' => $lines], $this->user());
             Notification::make()->success()->title('Journal draft saved')->send();
             $this->reset('narration');
+            $this->lines = [['account_id' => '', 'debit' => '', 'credit' => '', 'description' => ''], ['account_id' => '', 'debit' => '', 'credit' => '', 'description' => '']];
+            $this->resetValidation();
         } catch (ValidationException $exception) {
             foreach ($exception->errors() as $field => $messages) {
                 $this->addError($field, $messages[0]);
@@ -65,7 +92,63 @@ class AccountingJournals extends BaseAccountingPage
     protected function getViewData(): array
     {
         $book = AccountingBook::query()->find((int) $this->bookId) ?? AccountingBook::query()->first();
+        $authorization = app(AccountingAuthorization::class);
+        $user = $this->user();
+        [$debitTotal, $creditTotal, $invalidAmount] = $this->lineTotals();
 
-        return ['book' => $book, 'accounts' => $book?->accounts()->where('active', true)->where('is_posting', true)->where('is_control', false)->orderBy('number')->get() ?? collect(), 'journals' => $book?->journals()->with('lines')->latest('id')->limit(30)->get() ?? collect()];
+        return [
+            'book' => $book,
+            'books' => AccountingBook::query()->orderBy('name')->get(),
+            'accounts' => $book?->accounts()->where('active', true)->where('is_posting', true)->where('is_control', false)->orderBy('number')->get() ?? collect(),
+            'journals' => $book?->journals()->with(['lines', 'reversal', 'reversalOf', 'period'])->latest('id')->limit(30)->get() ?? collect(),
+            'canCreateJournal' => $authorization->allows($user, AccountingPermission::CreateJournal),
+            'canPostJournal' => $authorization->allows($user, AccountingPermission::PostJournal) && config('accounting.posting_activation_approved', false) === true && $book?->posting_enabled === true,
+            'debitTotal' => $debitTotal,
+            'creditTotal' => $creditTotal,
+            'invalidAmount' => $invalidAmount,
+            'isBalancedPreview' => ! $invalidAmount && bccomp($debitTotal, $creditTotal, 2) === 0 && bccomp($debitTotal, '0.00', 2) > 0,
+        ];
+    }
+
+    /** @return array{string,string,bool} */
+    private function lineTotals(): array
+    {
+        $debitTotal = '0.00';
+        $creditTotal = '0.00';
+        $invalidAmount = false;
+
+        foreach ($this->lines as $line) {
+            if (! is_array($line)) {
+                $invalidAmount = true;
+
+                continue;
+            }
+
+            foreach (['debit', 'credit'] as $side) {
+                $rawAmount = $line[$side] ?? '';
+                if (! is_scalar($rawAmount)) {
+                    $invalidAmount = true;
+
+                    continue;
+                }
+                $amount = trim((string) $rawAmount);
+                if ($amount === '') {
+                    continue;
+                }
+                if (preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $amount) !== 1) {
+                    $invalidAmount = true;
+
+                    continue;
+                }
+
+                if ($side === 'debit') {
+                    $debitTotal = bcadd($debitTotal, $amount, 2);
+                } else {
+                    $creditTotal = bcadd($creditTotal, $amount, 2);
+                }
+            }
+        }
+
+        return [$debitTotal, $creditTotal, $invalidAmount];
     }
 }

@@ -61,6 +61,9 @@ class BackupHistoryService
                     'id' => basename($directory),
                     'timestamp' => $timestamp,
                     'status' => is_string($status) ? $status : 'unknown',
+                    'purpose' => is_string($manifest['purpose'] ?? null) ? $manifest['purpose'] : 'legacy_unknown',
+                    'retention_protected' => ! (($manifest['purpose'] ?? null) === 'scheduled'
+                        && ($manifest['retention_protected'] ?? null) === false),
                     'database' => collect($files)->contains(fn (array $file): bool => ($file['kind'] ?? null) === 'database'),
                     'storage' => collect($files)->contains(fn (array $file): bool => ($file['kind'] ?? null) === 'storage'),
                     'bytes' => (int) collect($files)->sum(fn (array $file): int => (int) ($file['bytes'] ?? 0)),

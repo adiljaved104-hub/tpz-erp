@@ -1,13 +1,13 @@
 <?php
 
-namespace Tests\\Feature\\AiAssistant;
+namespace Tests\Feature\AiAssistant;
 
-use App\\Enums\\EmployeeRole;
-use App\\Models\\AiAssistantSetting;
-use App\\Models\\Employee;
-use App\\Models\\User;
-use Illuminate\\Foundation\\Testing\\RefreshDatabase;
-use Tests\\TestCase;
+use App\Enums\EmployeeRole;
+use App\Models\AiAssistantSetting;
+use App\Models\Employee;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
 
 class AiAssistantAuthorizationEndpointTest extends TestCase
 {

@@ -8,7 +8,11 @@ use LogicException;
 class AiAssistantAudit extends Model
 {
     protected $fillable = ['user_id', 'conversation_id', 'event', 'tool', 'metadata', 'ip_address'];
-    protected function casts(): array { return ['metadata' => 'array']; }
+
+    protected function casts(): array
+    {
+        return ['metadata' => 'array'];
+    }
 
     protected static function booted(): void
     {

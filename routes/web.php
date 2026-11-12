@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Auth\EmailOtpAuthenticationController;
 use App\Http\Controllers\AiAssistantController;
+use App\Http\Controllers\Auth\EmailOtpAuthenticationController;
 use App\Http\Controllers\Auth\LoginBrandingAssetController;
 use App\Http\Controllers\PublicTaxInvoiceVerificationController;
 use App\Http\Controllers\QuotationPdfController;

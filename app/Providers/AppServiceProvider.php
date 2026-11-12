@@ -15,10 +15,8 @@ use App\Contracts\ProductQueryInterpreterInterface;
 use App\Contracts\PurchasePermissionResolver;
 use App\Contracts\ResponsibilityPermissionResolver;
 use App\Contracts\StockTransferPermissionResolver;
-use App\Enums\AuthSecurityPermission;
 use App\Enums\AiAssistantPermission;
-use App\Services\AiAssistant\AiAssistantAuthorization;
-use App\Services\AiAssistant\AiAssistantSettings;
+use App\Enums\AuthSecurityPermission;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;
 use App\Enums\ChatPermission;
@@ -174,6 +172,7 @@ use App\Policies\SupplierPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\TeamPolicy;
 use App\Policies\WarehousePolicy;
+use App\Services\AiAssistant\AiAssistantAuthorization;
 use App\Services\Authorization\AuthSecurityAuthorization;
 use App\Services\Authorization\BackupSettingsAuthorization;
 use App\Services\Authorization\CatalogAuthorization;
@@ -285,6 +284,7 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('ai-assistant', function (Request $request): Limit {
             $perMinute = max(1, (int) config('ai_assistant.requests_per_minute', 8));
+
             return Limit::perMinute($perMinute)->by('ai-assistant:user:'.($request->user()?->id ?? $request->ip()));
         });
 

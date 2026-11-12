@@ -39,8 +39,9 @@ class ErpReportToolRegistry
         $definition = fn (string $name, string $description): array => [
             'type' => 'function', 'name' => $name, 'description' => $description,
             'parameters' => ['type' => 'object', 'properties' => [
-                'from' => ['type' => 'string', 'description' => 'Start date YYYY-MM-DD'],
-                'to' => ['type' => 'string', 'description' => 'End date YYYY-MM-DD'],
+                'period' => ['type' => 'string', 'enum' => ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'custom'], 'description' => 'Business date period in Asia/Dubai. Use custom only with from and to.'],
+                'from' => ['type' => 'string', 'description' => 'Start date YYYY-MM-DD, required with period=custom'],
+                'to' => ['type' => 'string', 'description' => 'End date YYYY-MM-DD, required with period=custom'],
                 'status' => ['type' => 'string'], 'channel' => ['type' => 'string'], 'employee_id' => ['type' => 'integer'],
                 'platform_id' => ['type' => 'integer'], 'product_id' => ['type' => 'integer'], 'brand_id' => ['type' => 'integer'], 'warehouse_id' => ['type' => 'integer'],
             ], 'additionalProperties' => false], 'strict' => false,
@@ -61,13 +62,13 @@ class ErpReportToolRegistry
     {
         abort_unless($this->assistantSettings->enabled() && $this->assistantAuthorization->allows($user, AiAssistantPermission::Use), 403);
         $allowed = match ($tool) {
-            'sales_orders_report' => ['from', 'to', 'status', 'platform_id', 'product_id'],
-            'web_sales_report' => ['from', 'to', 'status', 'channel', 'employee_id'],
+            'sales_orders_report' => ['period', 'from', 'to', 'status', 'platform_id', 'product_id'],
+            'web_sales_report' => ['period', 'from', 'to', 'status', 'channel', 'employee_id'],
             'product_inventory_report' => ['product_id', 'brand_id', 'warehouse_id'],
             'employee_inventory_allocations' => ['employee_id'],
-            'stock_requests_report' => ['from', 'to', 'status', 'employee_id'],
-            'customer_returns_report' => ['from', 'to', 'status', 'platform_id', 'product_id'],
-            'customer_return_refunds_report' => ['from', 'to', 'status', 'platform_id', 'product_id'],
+            'stock_requests_report' => ['period', 'from', 'to', 'status', 'employee_id'],
+            'customer_returns_report' => ['period', 'from', 'to', 'status', 'platform_id', 'product_id'],
+            'customer_return_refunds_report' => ['period', 'from', 'to', 'status', 'platform_id', 'product_id'],
             default => throw ValidationException::withMessages(['tool' => 'Unknown reporting tool.']),
         };
         if (array_diff(array_keys($input), $allowed) !== []) {
@@ -78,6 +79,9 @@ class ErpReportToolRegistry
             if (in_array($field, $allowed, true)) {
                 $rules[$field] = ['sometimes', 'date_format:Y-m-d'];
             }
+        }
+        if (in_array('period', $allowed, true)) {
+            $rules['period'] = ['sometimes', 'in:today,yesterday,this_week,last_week,this_month,last_month,custom'];
         }
         foreach (['employee_id', 'platform_id', 'product_id', 'brand_id', 'warehouse_id'] as $field) {
             if (in_array($field, $allowed, true)) {
@@ -102,14 +106,14 @@ class ErpReportToolRegistry
             default => null,
         };
         if ($key !== null) {
-            $report = $this->reports->run($user, $key, $filters, 30);
+            $report = $this->reports->run($user, $key, $filters, 30, config('ai_assistant.business_timezone', 'Asia/Dubai'));
             $shipped = null;
             if ($tool === 'sales_orders_report') {
-                $shipped = $this->reports->run($user, 'sales_summary', $filters, 30);
+                $shipped = $this->reports->run($user, 'sales_summary', $filters, 30, config('ai_assistant.business_timezone', 'Asia/Dubai'));
             }
             $currentSnapshot = $tool === 'product_inventory_report';
 
-            return $this->validatedOutput(['tool' => $tool, 'title' => $report->title, 'period' => $currentSnapshot ? ['type' => 'snapshot', 'as_of' => now(config('app.timezone'))->toIso8601String(), 'timezone' => config('app.timezone')] : ['from' => $filters['from'], 'to' => $filters['to'], 'timezone' => config('app.timezone')], 'currency' => 'AED', 'filters' => $currentSnapshot ? array_intersect_key($filters, array_flip(['product_id', 'brand_id', 'warehouse_id'])) : $filters, 'total_rows' => $report->totalRows, 'summary' => $report->summary, 'rows' => $report->rows->all(), 'source' => $report->key, 'truncated' => $report->totalRows > count($report->rows), 'metric_note' => $tool === 'sales_orders_report' ? 'Order rows and order-line totals are not net sales. They do not combine VAT, refunds, cancellations, or fulfilment. Use row status to distinguish lifecycle state; limited rows are not full status counts.' : null, 'fulfilled_sales_summary' => $shipped === null ? null : ['source' => $shipped->key, 'metric_definition' => 'fulfilled units and selling value from the ERP sales summary; it is not a VAT- or refund-adjusted net figure', 'summary' => $shipped->summary, 'rows' => $shipped->rows->all()]]);
+            return $this->validatedOutput(['tool' => $tool, 'title' => $report->title, 'period' => $currentSnapshot ? ['type' => 'snapshot', 'as_of' => now(config('ai_assistant.business_timezone', 'Asia/Dubai'))->toIso8601String(), 'timezone' => config('ai_assistant.business_timezone', 'Asia/Dubai')] : ['requested' => $filters['period'], 'from' => $filters['from'], 'to' => $filters['to'], 'timezone' => config('ai_assistant.business_timezone', 'Asia/Dubai')], 'currency' => 'AED', 'filters' => $currentSnapshot ? array_intersect_key($filters, array_flip(['product_id', 'brand_id', 'warehouse_id'])) : array_diff_key($filters, ['period' => true, 'from_utc' => true, 'until_utc' => true]), 'total_rows' => $report->totalRows, 'summary' => $report->summary, 'rows' => $report->rows->all(), 'source' => $report->key, 'truncated' => $report->totalRows > count($report->rows), 'metric_note' => $tool === 'sales_orders_report' ? 'Order rows and order-line totals are not net sales. They do not combine VAT, refunds, cancellations, or fulfilment. Use row status to distinguish lifecycle state; limited rows are not full status counts.' : null, 'fulfilled_sales_summary' => $shipped === null ? null : ['source' => $shipped->key, 'metric_definition' => 'fulfilled units and selling value from the ERP sales_summary output; it is not a VAT- or refund-adjusted net figure', 'summary' => $shipped->summary, 'rows' => $shipped->rows->all()]]);
         }
         if ($tool === 'employee_inventory_allocations') {
             abort_unless($this->responsibilities->allows($user, ResponsibilityPermission::ViewAll)
@@ -120,7 +124,7 @@ class ErpReportToolRegistry
             $totalRows = (clone $assignmentQuery)->count();
             $assignments = $assignmentQuery->limit(30)->get();
 
-            return $this->validatedOutput(['tool' => $tool, 'period' => 'Current active allocations', 'timezone' => config('app.timezone'), 'currency' => 'AED', 'filters' => ['employee_id' => $input['employee_id'] ?? null], 'source' => 'authorized active responsibility assignments', 'total_rows' => $totalRows, 'truncated' => $totalRows > count($assignments), 'rows' => $assignments->map(fn ($assignment): array => [
+            return $this->validatedOutput(['tool' => $tool, 'period' => 'Current active allocations', 'timezone' => config('ai_assistant.business_timezone', 'Asia/Dubai'), 'currency' => 'AED', 'filters' => ['employee_id' => $input['employee_id'] ?? null], 'source' => 'authorized active responsibility assignments', 'total_rows' => $totalRows, 'truncated' => $totalRows > count($assignments), 'rows' => $assignments->map(fn ($assignment): array => [
                 'reference' => $assignment->reference,
                 'employee' => $assignment->employee?->name,
                 'brand' => $assignment->brandScope?->brand?->name,
@@ -134,24 +138,35 @@ class ErpReportToolRegistry
         if ($tool === 'stock_requests_report') {
             abort_unless($this->inventory->allows($user, InventoryPermission::ViewStockRequests), 403);
             $requestQuery = $this->stockRequests->visibleQuery($user)->from('stock_requests as sr')->leftJoin('employees as e', 'e.id', '=', 'sr.requested_by_employee_id')
-                ->whereBetween('sr.created_at', [$filters['from'].' 00:00:00', $filters['to'].' 23:59:59'])
+                ->where('sr.created_at', '>=', $filters['from_utc'])->where('sr.created_at', '<', $filters['until_utc'])
                 ->when(isset($filters['status']), fn ($q) => $q->where('sr.status', $filters['status']))
                 ->when(isset($filters['employee_id']), fn ($q) => $q->where('sr.requested_by_employee_id', $filters['employee_id']))
                 ->select(['sr.reference', 'sr.status', 'sr.purpose', 'sr.created_at', 'e.name as requester'])->orderByDesc('sr.created_at');
             $totalRows = (clone $requestQuery)->count();
             $rows = $requestQuery->limit(30)->get();
 
-            return $this->validatedOutput(['tool' => $tool, 'period' => ['from' => $filters['from'], 'to' => $filters['to'], 'timezone' => config('app.timezone')], 'currency' => 'AED', 'filters' => $filters, 'source' => 'stock_requests', 'total_rows' => $totalRows, 'truncated' => $totalRows > count($rows), 'rows' => $rows->map(fn ($row): array => $row instanceof Model ? $row->getAttributes() : (array) $row)->all()]);
+            return $this->validatedOutput(['tool' => $tool, 'period' => ['requested' => $filters['period'], 'from' => $filters['from'], 'to' => $filters['to'], 'timezone' => config('ai_assistant.business_timezone', 'Asia/Dubai')], 'currency' => 'AED', 'filters' => array_diff_key($filters, ['period' => true, 'from_utc' => true, 'until_utc' => true]), 'source' => 'stock_requests', 'total_rows' => $totalRows, 'truncated' => $totalRows > count($rows), 'rows' => $rows->map(fn ($row): array => $row instanceof Model ? $row->getAttributes() : (array) $row)->all()]);
         }
         throw ValidationException::withMessages(['tool' => 'Unknown reporting tool.']);
     }
 
     private function filters(array $input, string $tool): array
     {
-        $timezone = config('app.timezone', 'Asia/Dubai');
-        $today = CarbonImmutable::now($timezone)->toDateString();
-        $from = CarbonImmutable::parse($input['from'] ?? $today, $timezone);
-        $to = CarbonImmutable::parse($input['to'] ?? $today, $timezone);
+        $timezone = config('ai_assistant.business_timezone', 'Asia/Dubai');
+        $period = $input['period'] ?? (isset($input['from'], $input['to']) ? 'custom' : 'today');
+        $now = CarbonImmutable::now($timezone);
+        if ($period === 'custom' && (! isset($input['from'], $input['to']) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $input['from']) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $input['to']))) {
+            throw ValidationException::withMessages(['period' => 'Custom periods require a start and end date.']);
+        }
+        [$from, $to] = match ($period) {
+            'yesterday' => [$now->subDay()->startOfDay(), $now->subDay()->endOfDay()],
+            'this_week' => [$now->startOfWeek(), $now->endOfWeek()],
+            'last_week' => [$now->subWeek()->startOfWeek(), $now->subWeek()->endOfWeek()],
+            'this_month' => [$now->startOfMonth(), $now->endOfMonth()],
+            'last_month' => [$now->subMonthNoOverflow()->startOfMonth(), $now->subMonthNoOverflow()->endOfMonth()],
+            'custom' => [CarbonImmutable::parse($input['from'] ?? '', $timezone), CarbonImmutable::parse($input['to'] ?? '', $timezone)],
+            default => [$now->startOfDay(), $now->endOfDay()],
+        };
         if ($to->lt($from) || $from->diffInDays($to) > config('ai_assistant.max_date_range_days')) {
             throw ValidationException::withMessages(['period' => 'The report date range is invalid or too long.']);
         }
@@ -169,7 +184,7 @@ class ErpReportToolRegistry
             throw ValidationException::withMessages(['channel' => 'The requested sales channel is invalid.']);
         }
 
-        return ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'status' => $status, 'channel' => $channel,
+        return ['period' => $period, 'from' => $from->toDateString(), 'to' => $to->toDateString(), 'from_utc' => $from->startOfDay()->setTimezone('UTC')->toDateTimeString(), 'until_utc' => $to->addDay()->startOfDay()->setTimezone('UTC')->toDateTimeString(), 'status' => $status, 'channel' => $channel,
             'employee_id' => isset($input['employee_id']) ? (int) $input['employee_id'] : null,
             'platform_id' => isset($input['platform_id']) ? (int) $input['platform_id'] : null,
             'product_id' => isset($input['product_id']) ? (int) $input['product_id'] : null,

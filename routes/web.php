@@ -1,8 +1,8 @@
 <?php
 
+use App\Http\Controllers\AiAssistantController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnEvidenceController;
 use App\Http\Controllers\Auth\EmailOtpAuthenticationController;
-use App\Http\Controllers\AiAssistantController;
 use App\Http\Controllers\Auth\LoginBrandingAssetController;
 use App\Http\Controllers\Auth\WebSessionActivityController;
 use App\Http\Controllers\PublicTaxInvoiceVerificationController;
@@ -40,6 +40,7 @@ Route::middleware(['auth', 'throttle:ai-assistant'])->prefix('admin/ai-assistant
     Route::get('/', [AiAssistantController::class, 'index'])->name('index');
     Route::post('/conversations', [AiAssistantController::class, 'create'])->name('create');
     Route::get('/conversations/{conversation}', [AiAssistantController::class, 'show'])->whereNumber('conversation')->name('show');
+    Route::patch('/conversations/{conversation}', [AiAssistantController::class, 'rename'])->whereNumber('conversation')->name('rename');
     Route::delete('/conversations/{conversation}', [AiAssistantController::class, 'destroy'])->whereNumber('conversation')->name('destroy');
     Route::post('/conversations/{conversation}/messages', [AiAssistantController::class, 'send'])->whereNumber('conversation')->name('send');
 });

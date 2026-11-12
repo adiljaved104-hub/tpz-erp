@@ -25,6 +25,7 @@ use App\Services\AiAssistant\ErpReportToolRegistry;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\StockRequestService;
 use App\Services\Returns\CustomerReturnUnifiedWorkflowService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -40,7 +41,7 @@ class ErpReportToolRegistryTest extends TestCase
     {
         parent::setUp();
 
-        config(['ai_assistant.enabled' => true, 'ai_assistant.provider' => 'mock', 'app.timezone' => 'Asia/Dubai']);
+        config(['ai_assistant.enabled' => true, 'ai_assistant.provider' => 'mock', 'app.timezone' => 'UTC', 'ai_assistant.business_timezone' => 'Asia/Dubai']);
         AiAssistantSetting::query()->create(['id' => 1, 'enabled' => true, 'provider' => 'mock', 'model' => 'gpt-6-luna']);
     }
 
@@ -63,7 +64,7 @@ class ErpReportToolRegistryTest extends TestCase
 
         $result = app(ErpReportToolRegistry::class)->call($owner, 'sales_orders_report', []);
 
-        $this->assertSame(['from' => today('Asia/Dubai')->toDateString(), 'to' => today('Asia/Dubai')->toDateString(), 'timezone' => 'Asia/Dubai'], $result['period']);
+        $this->assertSame(['requested' => 'today', 'from' => today('Asia/Dubai')->toDateString(), 'to' => today('Asia/Dubai')->toDateString(), 'timezone' => 'Asia/Dubai'], $result['period']);
         $this->assertSame('AED', $result['currency']);
         $this->assertSame('orders', $result['source']);
         $this->assertStringContainsString('not net sales', $result['metric_note']);
@@ -71,6 +72,27 @@ class ErpReportToolRegistryTest extends TestCase
         $this->assertSame(['Amazon', 'Carrefour'], collect($result['rows'])->pluck('platform')->sort()->values()->all(), json_encode($result['rows']));
         $this->assertSame('sales_summary', $result['fulfilled_sales_summary']['source']);
         $this->assertSame(['Amazon', 'Carrefour'], collect($result['fulfilled_sales_summary']['rows'])->pluck('platform')->sort()->values()->all());
+    }
+
+    public function test_natural_periods_use_server_generated_dubai_date_and_boundaries(): void
+    {
+        CarbonImmutable::setTestNow('2026-11-11 20:30:00 UTC');
+        $user = $this->owner();
+        $registry = app(ErpReportToolRegistry::class);
+        $filters = new \ReflectionMethod($registry, 'filters');
+
+        $today = $filters->invoke($registry, [], 'sales_orders_report');
+        $this->assertSame('2026-11-12', $today['from']);
+        $this->assertSame('2026-11-11 20:00:00', $today['from_utc']);
+        $this->assertSame('2026-11-12 20:00:00', $today['until_utc']);
+
+        $week = $filters->invoke($registry, ['period' => 'last_week'], 'sales_orders_report');
+        $this->assertSame('2026-11-02', $week['from']);
+        $this->assertSame('2026-11-08', $week['to']);
+
+        $custom = $filters->invoke($registry, ['period' => 'custom', 'from' => '2026-11-01', 'to' => '2026-11-05'], 'sales_orders_report');
+        $this->assertSame(['2026-11-01', '2026-11-05'], [$custom['from'], $custom['to']]);
+        CarbonImmutable::setTestNow();
     }
 
     public function test_employee_allocations_tool_uses_existing_active_responsibility_assignments(): void
@@ -162,4 +184,3 @@ class ErpReportToolRegistryTest extends TestCase
         return $user->refresh();
     }
 }
-

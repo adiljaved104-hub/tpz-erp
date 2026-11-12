@@ -9,6 +9,7 @@ use App\Models\AiAssistantUsage;
 use App\Models\User;
 use App\Services\AiAssistant\AiAssistantService;
 use App\Services\AiAssistant\AiAssistantSettings;
+use App\Services\AiAssistant\AiAssistantStreamInterrupted;
 use App\Services\AiAssistant\ResponsesProvider;
 use App\Services\AiAssistant\SensitiveTextSanitizer;
 use Illuminate\Database\Schema\Blueprint;
@@ -135,5 +136,50 @@ class AiAssistantPersistenceTest extends TestCase
         }
 
         self::assertCount(1, $service->history($owner, $conversation));
+    }
+
+    public function test_rename_requires_conversation_ownership_and_persists_the_title(): void
+    {
+        $owner = User::query()->create(['name' => 'Owner', 'email' => 'rename-owner@example.test', 'password' => 'test-password']);
+        $other = User::query()->create(['name' => 'Other', 'email' => 'rename-other@example.test', 'password' => 'test-password']);
+        $conversation = AiAssistantConversation::query()->create(['user_id' => $owner->id, 'title' => 'New chat']);
+        $service = new AiAssistantService(
+            $this->mock(ResponsesProvider::class),
+            app(AiAssistantSettings::class),
+            app(SensitiveTextSanitizer::class),
+        );
+
+        self::assertSame('Monthly sales', $service->rename($owner, $conversation, '  Monthly sales  ')->title);
+        self::assertDatabaseHas('ai_assistant_conversations', ['id' => $conversation->id, 'title' => 'Monthly sales']);
+
+        try {
+            $service->rename($other, $conversation, 'Should not persist');
+            self::fail('A different user must not rename this conversation.');
+        } catch (HttpException $exception) {
+            self::assertSame(404, $exception->getStatusCode());
+        }
+    }
+
+    public function test_stopped_response_keeps_partial_content_and_marks_usage_as_reserved_failure(): void
+    {
+        config(['ai_assistant.enabled' => true, 'ai_assistant.provider' => 'mock', 'ai_assistant.model' => 'gpt-6-luna']);
+        $user = User::query()->create(['name' => 'Owner', 'email' => 'stopped-owner@example.test', 'password' => 'test-password']);
+        AiAssistantSetting::query()->create(['id' => 1, 'enabled' => true, 'provider' => 'mock', 'model' => 'gpt-6-luna']);
+        $conversation = AiAssistantConversation::query()->create(['user_id' => $user->id]);
+        $provider = $this->mock(ResponsesProvider::class);
+        $provider->shouldReceive('stream')->once()->andReturnUsing(function ($user, $history, $emit): never {
+            $emit('partial answer');
+            throw new AiAssistantStreamInterrupted('client stopped');
+        });
+        $service = new AiAssistantService($provider, app(AiAssistantSettings::class), app(SensitiveTextSanitizer::class));
+
+        try {
+            $service->send($user, $conversation, 'Show a report', fn () => null);
+            self::fail('The stopped stream should be recorded and surfaced as interrupted.');
+        } catch (AiAssistantStreamInterrupted) {
+            self::assertDatabaseHas('ai_assistant_messages', ['conversation_id' => $conversation->id, 'content' => 'partial answer', 'status' => 'interrupted', 'error_code' => 'client_stopped']);
+            self::assertDatabaseHas('ai_assistant_usage', ['user_id' => $user->id, 'status' => 'failed']);
+            self::assertDatabaseHas('ai_assistant_audits', ['user_id' => $user->id, 'event' => 'message.interrupted']);
+        }
     }
 }

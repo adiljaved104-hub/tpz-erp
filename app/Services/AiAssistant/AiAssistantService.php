@@ -26,6 +26,14 @@ class AiAssistantService
         return AiAssistantConversation::query()->create(['user_id' => $user->id]);
     }
 
+    public function rename(User $user, AiAssistantConversation $conversation, string $title): AiAssistantConversation
+    {
+        abort_unless($conversation->user_id === $user->id, 404);
+        $conversation->update(['title' => trim($title)]);
+
+        return $conversation->refresh();
+    }
+
     public function history(User $user, AiAssistantConversation $conversation): array
     {
         abort_unless($conversation->user_id === $user->id, 404);
@@ -35,6 +43,7 @@ class AiAssistantService
 
     public function send(User $user, AiAssistantConversation $conversation, string $prompt, callable $emit): AiAssistantMessage
     {
+        $startedAt = hrtime(true);
         abort_unless($this->settings->enabled(), 404);
         abort_unless($conversation->user_id === $user->id, 404);
         $prompt = trim($this->sanitizer->sanitize($prompt));
@@ -50,19 +59,24 @@ class AiAssistantService
         $history = $conversation->messages()->where('id', '<', $assistant->id)->where('status', 'complete')->latest()->limit(config('ai_assistant.max_history_messages'))->get()->reverse()->map(fn ($m) => ['role' => $m->role, 'content' => $m->content])->values()->all();
         $text = '';
         try {
-            $usage = $this->provider->stream($user, $history, function (string $chunk) use (&$text, $emit): void {
-                $text .= $chunk;
-                $emit($chunk);
+            $usage = $this->provider->stream($user, $history, function (mixed $event) use (&$text, $emit): void {
+                if (is_string($event)) {
+                    $text .= $event;
+                }
+                $emit($event);
             });
             $assistant->update(['content' => $text, 'status' => 'complete', 'response_id' => $usage['response_id'] ?? null, 'input_tokens' => $usage['input_tokens'] ?? 0, 'output_tokens' => $usage['output_tokens'] ?? 0]);
             $this->recordUsage($user, $assistant, $usage, 'complete', $reservation);
-            $this->audit($user, $conversation, 'message.completed', ['message_id' => $assistant->id]);
+            $metrics = ['server_ms' => (int) ((hrtime(true) - $startedAt) / 1_000_000), 'api_round_trips' => (int) ($usage['api_round_trips'] ?? 0), 'api_ms' => (int) ($usage['api_milliseconds'] ?? 0), 'report_query_ms' => (int) ($usage['tool_milliseconds'] ?? 0)];
+            $this->audit($user, $conversation, 'message.completed', ['message_id' => $assistant->id, 'metrics' => $metrics]);
+            $assistant->setAttribute('response_metrics', $metrics);
         } catch (Throwable $exception) {
             report($exception);
-            $assistant->update(['content' => $text, 'status' => 'failed', 'error_code' => 'provider_error']);
+            $interrupted = $exception instanceof AiAssistantStreamInterrupted;
+            $assistant->update(['content' => $text, 'status' => $interrupted ? 'interrupted' : 'failed', 'error_code' => $interrupted ? 'client_stopped' : 'provider_error']);
             // Keep the conservative reservation: an interrupted stream may still have incurred provider usage.
             $reservation->update(['message_id' => $assistant->id, 'status' => 'failed']);
-            $this->audit($user, $conversation, 'message.failed', ['message_id' => $assistant->id]);
+            $this->audit($user, $conversation, $interrupted ? 'message.interrupted' : 'message.failed', ['message_id' => $assistant->id]);
             $conversation->update(['last_message_at' => now()]);
             throw $exception;
         }

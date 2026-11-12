@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\AiAssistantPermission;
 use App\Models\AiAssistantConversation;
 use App\Models\User;
-use App\Services\AiAssistant\AiAssistantAuthorization;
+use App\Services\Authorization\AiAssistantAuthorization;
 use App\Services\AiAssistant\AiAssistantService;
 use App\Services\AiAssistant\AiAssistantSettings;
 use Illuminate\Http\Request;

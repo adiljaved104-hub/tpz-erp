@@ -209,7 +209,7 @@ use App\Policies\TaskPolicy;
 use App\Policies\TeamPolicy;
 use App\Policies\WarehousePolicy;
 use App\Services\Authorization\AccountingAuthorization;
-use App\Services\AiAssistant\AiAssistantAuthorization;
+use App\Services\Authorization\AiAssistantAuthorization;
 use App\Services\Authorization\AuthSecurityAuthorization;
 use App\Services\Authorization\BackupSettingsAuthorization;
 use App\Services\Authorization\CatalogAuthorization;

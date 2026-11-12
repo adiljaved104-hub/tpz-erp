@@ -8,6 +8,7 @@ use App\Http\Controllers\PublicTaxInvoiceVerificationController;
 use App\Http\Controllers\QcDocumentController;
 use App\Http\Controllers\QcPassportController;
 use App\Http\Controllers\QuotationPdfController;
+use App\Http\Controllers\AiAssistantController;
 use App\Http\Controllers\ReportsExportController;
 use App\Http\Controllers\TaxInvoicePdfController;
 use App\Http\Middleware\EnforceWebSecurityPolicy;
@@ -33,6 +34,15 @@ Route::get('/admin/reports/download/{report}/{format}', ReportsExportController:
 
 Route::get('/', function () {
     return redirect()->to(filament()->getPanel('admin')->getUrl());
+});
+
+Route::middleware(['auth', 'throttle:ai-assistant'])->prefix('admin/ai-assistant')->name('ai-assistant.')->group(function (): void {
+    Route::get('/', [AiAssistantController::class, 'index'])->name('index');
+    Route::post('/conversations', [AiAssistantController::class, 'create'])->name('create');
+    Route::get('/conversations/{conversation}', [AiAssistantController::class, 'show'])->whereNumber('conversation')->name('show');
+    Route::patch('/conversations/{conversation}', [AiAssistantController::class, 'rename'])->whereNumber('conversation')->name('rename');
+    Route::delete('/conversations/{conversation}', [AiAssistantController::class, 'destroy'])->whereNumber('conversation')->name('destroy');
+    Route::post('/conversations/{conversation}/messages', [AiAssistantController::class, 'send'])->whereNumber('conversation')->name('send');
 });
 
 Route::get('/admin/login/branding/logo', LoginBrandingAssetController::class)

@@ -73,6 +73,11 @@ Schedule::command('marketplace:send-summary --scheduled')
     ->withoutOverlapping(60)
     ->when(fn (): bool => (bool) app(MarketplaceMonitoringSettingsService::class)->effective()['monitoring_enabled']);
 
+Schedule::command('ai-assistant:prune-history')
+    ->dailyAt('02:35')
+    ->name('ai-assistant-history-retention')
+    ->withoutOverlapping(15);
+
 $hikvisionInterval = max(1, (int) config('hikvision.sync_interval_minutes', 5));
 Schedule::command('hikvision:sync-attendance')
     ->cron("*/{$hikvisionInterval} * * * *")

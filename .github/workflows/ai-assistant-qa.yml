@@ -59,8 +59,6 @@ jobs:
         run: php artisan package:discover --ansi
       - name: Install locked frontend dependencies
         run: npm ci
-      - name: Audit frontend dependencies
-        run: npm audit --audit-level=high
       - name: Smoke-test AI chat UI interaction states
         run: node --test tests/Browser/ai-assistant-progress.test.cjs
       - name: Build frontend
@@ -112,4 +110,8 @@ jobs:
           app/Filament/Pages/AiAssistantSettings.php
       - name: Blade compilation
         run: php artisan view:cache
+      # Security gate remains blocking; run after the functional tests so
+      # Main baseline npm advisories do not hide integration regressions.
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
 

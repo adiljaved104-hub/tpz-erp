@@ -17,6 +17,7 @@ use App\Services\Inventory\StockRequestService;
 use App\Services\Reports\ReportQueryService;
 use App\Services\Responsibilities\ResponsibilityReadService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use LogicException;
@@ -140,7 +141,7 @@ class ErpReportToolRegistry
             $totalRows = (clone $requestQuery)->count();
             $rows = $requestQuery->limit(30)->get();
 
-            return $this->validatedOutput(['tool' => $tool, 'period' => ['from' => $filters['from'], 'to' => $filters['to'], 'timezone' => config('app.timezone')], 'currency' => 'AED', 'filters' => $filters, 'source' => 'stock_requests', 'total_rows' => $totalRows, 'truncated' => $totalRows > count($rows), 'rows' => $rows->map(fn ($row): array => (array) $row)->all()]);
+            return $this->validatedOutput(['tool' => $tool, 'period' => ['from' => $filters['from'], 'to' => $filters['to'], 'timezone' => config('app.timezone')], 'currency' => 'AED', 'filters' => $filters, 'source' => 'stock_requests', 'total_rows' => $totalRows, 'truncated' => $totalRows > count($rows), 'rows' => $rows->map(fn ($row): array => $row instanceof Model ? $row->getAttributes() : (array) $row)->all()]);
         }
         throw ValidationException::withMessages(['tool' => 'Unknown reporting tool.']);
     }
@@ -193,3 +194,4 @@ class ErpReportToolRegistry
         return $result;
     }
 }
+

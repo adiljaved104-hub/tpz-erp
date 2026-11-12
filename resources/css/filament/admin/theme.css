@@ -425,3 +425,70 @@ a.tpz-accounting-nav-item:hover,.tpz-accounting-nav-item.is-active { background:
     outline: 2px solid var(--tpz-brand-navy);
     outline-offset: 3px;
 }
+
+
+/* TPZ ERP panel shell: align the standard Filament layout with Accounting. */
+/* Scope to the light-mode standard panel. The separate Accounting workspace,
+   dark mode, and semantic success/warning/danger indicators keep their rules. */
+html:not(.dark) body:not(.tpz-accounting-body) {
+    --tpz-panel-navy: #122b43;
+    --tpz-panel-teal: #13a68b;
+    --tpz-panel-ink: #182b3c;
+    --tpz-panel-paper: #f4f7fa;
+    --tpz-panel-line: #dbe3ea;
+    background: var(--tpz-panel-paper);
+}
+html:not(.dark) body:not(.tpz-accounting-body) :is(.fi-main-ctn, .fi-main) {
+    background-color: var(--tpz-panel-paper);
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-topbar {
+    background: #fff;
+    border-bottom: 1px solid var(--tpz-panel-line);
+}
+html:not(.dark) body:not(.tpz-accounting-body) :is(.fi-sidebar, .fi-sidebar-header, .fi-sidebar-nav) {
+    background-color: var(--tpz-panel-navy) !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar {
+    border-right: 1px solid #ffffff19;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-group-label, .fi-sidebar-group-button) {
+    color: #9fb5c5 !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-group-icon, .fi-sidebar-group-collapse-button, .fi-sidebar-group-collapse-button svg) {
+    color: #9fb5c5 !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item-button {
+    border-radius: 8px;
+    color: #d4e0e9 !important;
+    background-color: transparent;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #d4e0e9 !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item-button:hover {
+    background-color: #ffffff16 !important;
+    color: #fff !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item-button:hover :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #fff !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-item-active, .fi-sidebar-item.fi-active) > .fi-sidebar-item-button,
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item-button[aria-current="page"] {
+    background-color: #ffffff1d !important;
+    color: #fff !important;
+    box-shadow: inset 3px 0 var(--tpz-panel-teal);
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-item-active, .fi-sidebar-item.fi-active) :is(.fi-sidebar-item-label, .fi-sidebar-item-icon),
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item-button[aria-current="page"] :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #fff !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item-button:focus-visible {
+    outline: 2px solid var(--tpz-panel-teal);
+    outline-offset: 2px;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-header a, .fi-sidebar-header button) {
+    color: #fff;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-section {
+    border-color: var(--tpz-panel-line);
+}

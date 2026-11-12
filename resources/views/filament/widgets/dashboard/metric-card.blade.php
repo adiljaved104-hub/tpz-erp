@@ -18,9 +18,9 @@
     $_metricFormattedValue = is_int($_metricValue) ? number_format($_metricValue) : $_metricValue;
 
     $_metricAccent = $metricAccent ?? match ($_metricKey) {
-        'orders', 'low_stock' => 'amber',
+        'low_stock' => 'amber',
         'revenue' => 'emerald',
-        'inventory_units', 'sellable_inventory', 'tasks', 'notifications' => 'blue',
+        'orders', 'inventory_units', 'sellable_inventory', 'tasks', 'notifications' => 'blue',
         'inventory_value' => 'violet',
         'out_of_stock' => 'red',
         'damaged', 'complaints', 'warning_acknowledgments' => 'rose',

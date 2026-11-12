@@ -9,7 +9,7 @@ use Filament\Pages\Page;
 
 abstract class BaseAccountingPage extends Page
 {
-    protected static string|\UnitEnum|null $navigationGroup = 'Finance';
+    protected static string|\UnitEnum|null $navigationGroup = 'Accounting';
 
     protected static AccountingPermission $requiredPermission = AccountingPermission::ViewGeneralLedger;
 

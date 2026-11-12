@@ -18,7 +18,7 @@ class AccountingChartOfAccounts extends BaseAccountingPage
 
     protected static ?string $slug = 'finance/accounting/chart-of-accounts';
 
-    protected static ?string $navigationLabel = 'UAE Chart of Accounts';
+    protected static ?string $navigationLabel = 'Chart of Accounts';
 
     protected static ?int $navigationSort = 10;
 

@@ -492,3 +492,46 @@ html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar :is(.fi-sidebar-heade
 html:not(.dark) body:not(.tpz-accounting-body) .fi-section {
     border-color: var(--tpz-panel-line);
 }
+
+
+/* Filament v4.12.5 sidebar active-state correction. The actual navigation
+   anchor is .fi-sidebar-item-btn, not .fi-sidebar-item-button. */
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn {
+    background-color: transparent !important;
+    color: #d4e0e9 !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #d4e0e9 !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:hover,
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:focus-visible {
+    background-color: #ffffff16 !important;
+    color: #fff !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:hover > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon),
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn:focus-visible > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #fff !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item.fi-active > .fi-sidebar-item-btn,
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn[aria-current="page"] {
+    background-color: #ffffff1d !important;
+    color: #fff !important;
+    box-shadow: inset 3px 0 #13a68b !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item.fi-active > .fi-sidebar-item-btn > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon),
+html:not(.dark) body:not(.tpz-accounting-body) .fi-sidebar .fi-sidebar-item > .fi-sidebar-item-btn[aria-current="page"] > :is(.fi-sidebar-item-label, .fi-sidebar-item-icon) {
+    color: #fff !important;
+}
+/* The selected Dashboard Today/Week/Month/Custom tab uses navy, not cyan. */
+html:not(.dark) body:not(.tpz-accounting-body) .erp-dashboard-period .fi-btn[role="tab"][aria-selected="true"] {
+    background-color: #122b43 !important;
+    border-color: #122b43 !important;
+    color: #fff !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .erp-dashboard-period .fi-btn[role="tab"][aria-selected="true"] :is(.fi-btn-label, .fi-icon) {
+    color: #fff !important;
+}
+html:not(.dark) body:not(.tpz-accounting-body) .erp-dashboard-period .fi-btn[role="tab"][aria-selected="true"]:hover {
+    background-color: #1b3c58 !important;
+    border-color: #1b3c58 !important;
+}

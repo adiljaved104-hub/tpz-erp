@@ -1,0 +1,117 @@
+name: AI Assistant Phase 1 QA
+
+on:
+  push:
+    branches:
+      - codex/ai-assistant-staging-integration
+  pull_request:
+    branches:
+      - staging
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  ai-assistant:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_erp_ai_test
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      APP_ENV: testing
+      APP_DEBUG: false
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: tpz_erp_ai_test
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, mbstring, pdo_mysql, sqlite, zip
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Bootstrap Laravel
+        run: php artisan package:discover --ansi
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Smoke-test AI chat UI interaction states
+        run: node --test tests/Browser/ai-assistant-progress.test.cjs
+      - name: Build frontend
+        run: npm run build
+      - name: Migrate complete disposable MySQL database
+        run: php artisan migrate --force --no-interaction
+      - name: Verify AI table, index, and foreign-key structure on MySQL
+        run: |
+          TABLE_COUNT=$(mysql --host=127.0.0.1 --user=root --password=root --database=tpz_erp_ai_test --batch --skip-column-names -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('ai_assistant_settings', 'ai_assistant_conversations', 'ai_assistant_messages', 'ai_assistant_usage', 'ai_assistant_audits')")
+          INDEX_COUNT=$(mysql --host=127.0.0.1 --user=root --password=root --database=tpz_erp_ai_test --batch --skip-column-names -e "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name LIKE 'ai_assistant_%'")
+          FOREIGN_KEY_COUNT=$(mysql --host=127.0.0.1 --user=root --password=root --database=tpz_erp_ai_test --batch --skip-column-names -e "SELECT COUNT(*) FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE() AND table_name LIKE 'ai_assistant_%'")
+          test "$TABLE_COUNT" -eq 5
+          test "$INDEX_COUNT" -ge 11
+          test "$FOREIGN_KEY_COUNT" -eq 6
+      - name: Rehearse AI migration rollback in a separate disposable MySQL database
+        env:
+          DB_DATABASE: tpz_erp_ai_rollback_test
+        run: |
+          mysql --host=127.0.0.1 --user=root --password=root -e "CREATE DATABASE tpz_erp_ai_rollback_test"
+          mysql --host=127.0.0.1 --user=root --password=root --database=tpz_erp_ai_rollback_test -e "CREATE TABLE users (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY) ENGINE=InnoDB"
+          php artisan migrate --database=mysql --path=database/migrations/2026_11_12_090000_create_ai_assistant_tables.php --force --no-interaction
+          php artisan migrate:rollback --database=mysql --path=database/migrations/2026_11_12_090000_create_ai_assistant_tables.php --step=1 --force --no-interaction
+          TABLE_COUNT=$(mysql --host=127.0.0.1 --user=root --password=root --database=tpz_erp_ai_rollback_test --batch --skip-column-names -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE 'ai_assistant_%'")
+          test "$TABLE_COUNT" -eq 0
+      - name: AI Assistant authorization, persistence, tools, streaming, and budget tests
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+          DB_URL: ''
+        run: >-
+          vendor/bin/phpunit
+          tests/Feature/AiAssistant
+          tests/Unit/AiAssistant
+      - name: Reporting and existing workflow regression tests
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+          DB_URL: ''
+        run: >-
+          vendor/bin/phpunit
+          tests/Feature/Reports/ReportRegistryIntegrationTest.php
+          tests/Feature/Inventory/StockRequestFoundationTest.php
+          tests/Feature/Returns/CustomerReturnWorkflowTest.php
+      - name: Pint
+        run: >-
+          vendor/bin/pint --test
+          app/Services/AiAssistant
+          app/Http/Controllers/AiAssistantController.php
+          app/Filament/Pages/AiAssistantSettings.php
+      - name: Blade compilation
+        run: php artisan view:cache
+      # Security gate remains blocking; run after the functional tests so
+      # Main baseline npm advisories do not hide integration regressions.
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
+

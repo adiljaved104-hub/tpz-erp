@@ -109,8 +109,8 @@ class StockRequestExecutionService
                     }
                 }
                 $remaining = max(0, (int) $line->proposed_quantity - (int) $line->approved_quantity);
-                $quantity = is_array($approvedQuantities) && array_key_exists($line->id, $approvedQuantities)
-                    ? (int) $approvedQuantities[$line->id]
+                $quantity = is_array($approvedQuantities)
+                    ? (int) ($approvedQuantities[$line->id] ?? 0)
                     : min($remaining, $this->approvals->availableQuantity($line));
                 if ($quantity > $remaining) {
                     throw ValidationException::withMessages(['approved_quantities' => 'An approval quantity exceeds the remaining requested quantity.']);

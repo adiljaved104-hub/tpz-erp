@@ -30,9 +30,15 @@ class StockRequestInfolist
                     TextEntry::make('product_name')->label('Product')->columnSpan(['default' => 1, 'md' => 8]),
                     TextEntry::make('warehouse_name')->label('Warehouse')->columnSpan(['default' => 1, 'md' => 2]),
                     TextEntry::make('quantity')->label('Requested Qty')->columnSpan(['default' => 1, 'md' => 2]),
+                    TextEntry::make('approved_quantity')->label('Approved Qty')->state(fn ($record): int => (int) $record->sourceLines->sum('approved_quantity')),
+                    TextEntry::make('transferred_quantity')->label('Transferred Qty')->state(fn ($record): int => (int) $record->sourceLines->sum('transferred_quantity')),
+                    TextEntry::make('remaining_quantity')->label('Remaining Qty')->state(fn ($record): int => max(0, (int) $record->quantity - (int) $record->sourceLines->sum('transferred_quantity'))),
                     RepeatableEntry::make('sourceLines')->label('Available Sources / Approval Status')->schema([
                         TextEntry::make('source_label')->label('Source'),
                         TextEntry::make('proposed_quantity')->label('Proposed Qty'),
+                        TextEntry::make('approved_quantity')->label('Approved Qty'),
+                        TextEntry::make('transferred_quantity')->label('Transferred Qty'),
+                        TextEntry::make('remaining_quantity')->label('Remaining Qty')->state(fn ($record): int => max(0, (int) $record->approved_quantity - (int) $record->transferred_quantity)),
                         TextEntry::make('approval_route')->label('Approval Route')
                             ->state(fn (StockRequestSourceLine $record): string => $record->requiresOwnerAdminApproval() ? 'Owner/Admin' : 'Allocation Holder'),
                         TextEntry::make('status')->badge(),
@@ -59,6 +65,19 @@ class StockRequestInfolist
                 TextEntry::make('execution.executed_at')->label('Executed At')->formatStateUsing(fn ($state): ?string => app(UserTimezoneResolver::class)->format($state, 'd M Y, h:i A'))->placeholder('—'),
                 TextEntry::make('execution.executedBy.employee.name')->label('Executed By')->placeholder('—'),
                 TextEntry::make('execution.order.reference')->label('Reserved Order')->placeholder('—'),
+                RepeatableEntry::make('execution.lines')->label('Transferred From → Transferred To')->schema([
+                    TextEntry::make('item.sku')->label('SKU'),
+                    TextEntry::make('item.product_name')->label('Product'),
+                    TextEntry::make('quantity')->label('Quantity'),
+                    TextEntry::make('sourceAccount.name')->label('Transferred From')->placeholder('System / Unassigned'),
+                    TextEntry::make('destinationAccount.name')->label('Transferred To')->placeholder('—'),
+                ])->table([
+                    TableColumn::make('SKU'),
+                    TableColumn::make('Product'),
+                    TableColumn::make('Quantity'),
+                    TableColumn::make('Transferred From'),
+                    TableColumn::make('Transferred To'),
+                ])->columnSpanFull(),
             ])->visible(fn ($record): bool => $record->execution()->exists()),
         ]);
     }

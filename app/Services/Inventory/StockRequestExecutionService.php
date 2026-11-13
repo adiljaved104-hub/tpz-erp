@@ -2,6 +2,7 @@
 
 namespace App\Services\Inventory;
 
+use App\Enums\EmployeeRole;
 use App\Enums\InventoryPermission;
 use App\Enums\StockRequestPurpose;
 use App\Enums\StockRequestSourceStatus;
@@ -36,6 +37,7 @@ class StockRequestExecutionService
         private readonly ActivityLogger $activity,
         private readonly StockRequestNotificationDispatcher $notifications,
         private readonly StockRequestService $requests,
+        private readonly StockRequestApprovalService $approvals,
     ) {}
 
     public function canExecute(User $actor, StockRequest $request): bool
@@ -71,13 +73,61 @@ class StockRequestExecutionService
         return $execution;
     }
 
+    public function canApproveAndTransfer(User $actor, StockRequest $request): bool
+    {
+        return $actor->employee?->role === EmployeeRole::Owner
+            && $this->authorization->allows($actor, InventoryPermission::ExecuteStockRequests)
+            && $request->purpose === StockRequestPurpose::PermanentTransfer
+            && $request->status !== StockRequestStatus::Completed;
+    }
+
+    public function approveAndTransfer(StockRequest $request, string $idempotencyKey, User $actor): StockRequestExecution
+    {
+        if ($actor->employee?->role !== EmployeeRole::Owner
+            || ! $this->authorization->allows($actor, InventoryPermission::ExecuteStockRequests)
+            || $request->purpose !== StockRequestPurpose::PermanentTransfer) {
+            throw new AuthorizationException('Only an authorized Owner can approve and transfer this Stock Request.');
+        }
+        Validator::make(['idempotency_key' => $idempotencyKey], ['idempotency_key' => ['required', 'uuid']])->validate();
+
+        return DB::transaction(function () use ($request, $idempotencyKey, $actor): StockRequestExecution {
+            $locked = StockRequest::query()->whereKey($request->id)->lockForUpdate()->firstOrFail();
+            if ($existing = $locked->execution()->with('lines')->first()) {
+                if ($existing->lines()->where('idempotency_key', $idempotencyKey)->exists()) {
+                    return $existing;
+                }
+            }
+            if ($locked->status === StockRequestStatus::Rejected || $locked->status === StockRequestStatus::Completed) {
+                throw ValidationException::withMessages(['request' => 'This Stock Request is no longer available for transfer.']);
+            }
+
+            foreach ($locked->sourceLines()->with('item')->where('status', StockRequestSourceStatus::Pending->value)->lockForUpdate()->get() as $line) {
+                if ((int) $line->approved_quantity > 0) {
+                    continue;
+                }
+                $remaining = max(0, (int) $line->proposed_quantity - (int) $line->approved_quantity);
+                $quantity = min($remaining, $this->approvals->availableQuantity($line));
+                if ($quantity > 0) {
+                    $this->approvals->decide($line, StockRequestSourceStatus::Approved, 'Owner approved and transferred in one operation.', (string) str()->uuid(), $actor, $quantity);
+                }
+            }
+
+            $locked->refresh();
+            if (! in_array($locked->status, [StockRequestStatus::Approved, StockRequestStatus::PartiallyApproved], true)) {
+                throw ValidationException::withMessages(['request' => 'At least one approved stock source is required before transfer.']);
+            }
+
+            return $this->executePermanentTransfer($locked, $idempotencyKey, $actor);
+        }, 5);
+    }
+
     /** @return array<int, string> */
     public function summary(StockRequest $request): array
     {
         return $request->sourceLines()->with(['item', 'account'])->orderBy('id')->get()
             ->map(fn (StockRequestSourceLine $line): string => $request->purpose === StockRequestPurpose::ForOrder
                 ? "Reserve {$line->proposed_quantity} × {$line->item->sku} from {$line->source_label} for Order {$request->order?->reference}"
-                : "Transfer {$line->proposed_quantity} × {$line->item->sku} from {$line->source_label} to {$request->requester?->name}")
+                : "Transfer {$line->approved_quantity}/{$line->proposed_quantity} approved, {$line->transferred_quantity} transferred, ".max(0, (int) $line->approved_quantity - (int) $line->transferred_quantity)." remaining × {$line->item->sku} from {$line->source_label} to {$request->requester?->name}")
             ->all();
     }
 
@@ -140,31 +190,39 @@ class StockRequestExecutionService
     {
         return DB::transaction(function () use ($request, $idempotencyKey, $actor): StockRequestExecution {
             $locked = StockRequest::query()->whereKey($request->id)->lockForUpdate()->firstOrFail();
-            $this->assertApproved($locked);
-            if ($existing = $locked->execution()->first()) {
-                return $existing->load('lines');
+            if ($locked->status !== StockRequestStatus::Approved && $locked->status !== StockRequestStatus::PartiallyApproved) {
+                throw ValidationException::withMessages(['execution' => 'This Stock Request has no approved stock available for transfer.']);
             }
+            $execution = $locked->execution()->first();
             $locked->load(['requester.user', 'items.inventory', 'items.sourceLines.account']);
             if (! $locked->requester?->status || ! $locked->requester->user instanceof User) {
                 throw ValidationException::withMessages(['execution' => 'The requester is no longer an active employee with a login account.']);
             }
             $destination = $this->allocations->employeeAccount($locked->requested_by_employee_id);
-            $execution = StockRequestExecution::query()->create([
-                'stock_request_id' => $locked->id,
-                'executed_by_user_id' => $actor->id,
-                'order_id' => null,
-                'execution_type' => 'permanent_transfer',
-                'idempotency_key' => $idempotencyKey,
-                'executed_at' => now(),
+            $execution ??= StockRequestExecution::query()->create([
+                'stock_request_id' => $locked->id, 'executed_by_user_id' => $actor->id,
+                'order_id' => null, 'execution_type' => 'permanent_transfer',
+                'idempotency_key' => $idempotencyKey, 'executed_at' => now(),
             ]);
+            $operationKeyUsed = false;
             foreach ($locked->items as $item) {
-                $this->assertItemFullyApproved($item);
+                $transferable = $item->sourceLines->sum(fn (StockRequestSourceLine $source): int => max(0, (int) $source->approved_quantity - (int) $source->transferred_quantity));
+                if ($transferable < 1) {
+                    continue;
+                }
                 foreach ($item->sourceLines as $source) {
-                    $this->allocations->transferExact($item->inventory, $source->account, $destination, $source->proposed_quantity, $actor, $locked);
-                    $this->createExecutionLine($execution, $item, $source, $source->proposed_quantity, null, $destination->id, 'permanent_transfer');
+                    $quantity = max(0, (int) $source->approved_quantity - (int) $source->transferred_quantity);
+                    if ($quantity < 1) {
+                        continue;
+                    }
+                    $this->allocations->transferExact($item->inventory, $source->account, $destination, $quantity, $actor, $locked);
+                    $source->forceFill(['transferred_quantity' => (int) $source->transferred_quantity + $quantity])->save();
+                    $this->createExecutionLine($execution, $item, $source, $quantity, null, $destination->id, 'permanent_transfer', $operationKeyUsed ? null : $idempotencyKey);
+                    $operationKeyUsed = true;
                 }
             }
-            $locked->forceFill(['status' => StockRequestStatus::Completed])->save();
+            $allTransferred = $locked->items()->with('sourceLines')->get()->every(fn (StockRequestItem $item): bool => (int) $item->sourceLines->sum('transferred_quantity') >= $item->quantity);
+            $locked->forceFill(['status' => $allTransferred ? StockRequestStatus::Completed : StockRequestStatus::PartiallyApproved])->save();
             $this->activity->log('stock_request.completed', $actor, $locked, ['execution_id' => $execution->id, 'execution_type' => 'permanent_transfer']);
 
             return $execution->load('lines');
@@ -238,7 +296,7 @@ class StockRequestExecutionService
         }
     }
 
-    private function createExecutionLine(StockRequestExecution $execution, StockRequestItem $item, StockRequestSourceLine $source, int $quantity, ?InventoryReservation $reservation, ?int $destinationAccountId, string $type): void
+    private function createExecutionLine(StockRequestExecution $execution, StockRequestItem $item, StockRequestSourceLine $source, int $quantity, ?InventoryReservation $reservation, ?int $destinationAccountId, string $type, ?string $idempotencyKey = null): void
     {
         StockRequestExecutionLine::query()->create([
             'stock_request_execution_id' => $execution->id,
@@ -250,6 +308,7 @@ class StockRequestExecutionService
             'inventory_reservation_id' => $reservation?->id,
             'quantity' => $quantity,
             'execution_type' => $type,
+            'idempotency_key' => $idempotencyKey,
         ]);
     }
 }

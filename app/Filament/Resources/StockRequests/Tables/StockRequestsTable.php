@@ -27,6 +27,9 @@ class StockRequestsTable
             TextColumn::make('order.reference')->label('Order')->placeholder('—')->searchable()->toggleable(),
             TextColumn::make('requester.name')->label('Requested By')->searchable()->toggleable(),
             TextColumn::make('items_count')->label('Products')->numeric()->toggleable(),
+            TextColumn::make('requested_products')->label('Requested Products')
+                ->state(fn (StockRequest $record): string => $record->items->take(2)->map(fn ($item): string => "{$item->sku} — {$item->product_name} × {$item->quantity}")->implode("\n").($record->items->count() > 2 ? "\n+ ".($record->items->count() - 2).' more' : ''))
+                ->wrap()->toggleable(),
             TextColumn::make('status')->badge()->toggleable(),
             TextColumn::make('created_at')->label('Requested At')->dateTime('d M Y, h:i A')->sortable()->toggleable(),
         ])->filters([

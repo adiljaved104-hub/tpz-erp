@@ -7,6 +7,7 @@ use App\Enums\StockRequestSourceStatus;
 use App\Enums\StockRequestStatus;
 use App\Models\InventoryAllocationBalance;
 use App\Models\StockRequest;
+use App\Models\StockRequestSourceApprovalEvent;
 use App\Models\StockRequestSourceLine;
 use App\Models\User;
 use App\Services\ActivityLogger;
@@ -41,6 +42,17 @@ class StockRequestApprovalService
         return $line->account()->where('employee_id', $actor->employee?->id)->exists();
     }
 
+    public function availableQuantity(StockRequestSourceLine $line): int
+    {
+        $balance = InventoryAllocationBalance::query()
+            ->where('account_id', $line->inventory_allocation_account_id)
+            ->where('product_inventory_id', $line->item?->product_inventory_id)
+            ->lockForUpdate()
+            ->first();
+
+        return max(0, (int) ($balance?->availableQuantity() ?? 0));
+    }
+
     /** @return Collection<int, StockRequestSourceLine> */
     public function eligiblePendingLines(StockRequest $request, User $actor): Collection
     {
@@ -63,11 +75,13 @@ class StockRequestApprovalService
         ?string $note,
         string $idempotencyKey,
         User $actor,
+        ?int $approvedQuantity = null,
     ): StockRequestSourceLine {
         $validated = Validator::make([
             'decision' => $decision->value,
             'note' => filled($note) ? trim((string) $note) : null,
             'idempotency_key' => $idempotencyKey,
+            'approved_quantity' => $approvedQuantity,
         ], [
             'decision' => ['required', Rule::in([
                 StockRequestSourceStatus::Approved->value,
@@ -78,6 +92,7 @@ class StockRequestApprovalService
                 'nullable', 'string', 'max:2000',
             ],
             'idempotency_key' => ['required', 'uuid'],
+            'approved_quantity' => ['nullable', 'integer', 'min:1'],
         ], [
             'note.required' => 'Please enter a reason for rejecting this request.',
         ])->validate();
@@ -90,11 +105,11 @@ class StockRequestApprovalService
                 ->firstOrFail();
             $request = StockRequest::query()->whereKey($locked->stock_request_id)->lockForUpdate()->firstOrFail();
 
-            if ($locked->status !== StockRequestSourceStatus::Pending) {
-                if ($locked->decision_idempotency_key === $validated['idempotency_key']) {
-                    return $locked;
-                }
+            if ($locked->status !== StockRequestSourceStatus::Pending && $locked->decision_idempotency_key === $validated['idempotency_key']) {
+                return $locked;
+            }
 
+            if ($locked->status !== StockRequestSourceStatus::Pending) {
                 $status = strtolower($locked->status->getLabel());
                 throw ValidationException::withMessages([
                     'source_line_id' => "This stock source has already been {$status}.",
@@ -111,16 +126,40 @@ class StockRequestApprovalService
                 throw new AuthorizationException('You are not authorized to approve this stock source.');
             }
 
+            $remaining = max(0, $locked->proposed_quantity - (int) $locked->approved_quantity);
+            $quantity = $decision === StockRequestSourceStatus::Approved
+                ? (int) ($validated['approved_quantity'] ?? $remaining)
+                : 0;
             if ($decision === StockRequestSourceStatus::Approved) {
-                $this->assertCurrentlyAvailable($locked);
+                if ($quantity < 1 || $quantity > $remaining) {
+                    throw ValidationException::withMessages(['approved_quantity' => 'Enter an approval quantity within the remaining requested quantity.']);
+                }
+                $this->assertCurrentlyAvailable($locked, $quantity);
+                if (StockRequestSourceApprovalEvent::query()->where('idempotency_key', $validated['idempotency_key'])->exists()) {
+                    return $locked;
+                }
+                StockRequestSourceApprovalEvent::query()->create([
+                    'stock_request_source_line_id' => $locked->id,
+                    'actor_user_id' => $actor->id,
+                    'quantity' => $quantity,
+                    'decision' => $decision->value,
+                    'note' => $validated['note'],
+                    'idempotency_key' => $validated['idempotency_key'],
+                    'created_at' => now(),
+                ]);
             }
 
             $locked->forceFill([
-                'status' => $decision,
+                'status' => $decision === StockRequestSourceStatus::Approved
+                    ? ((int) $locked->approved_quantity + $quantity >= $locked->proposed_quantity
+                        ? StockRequestSourceStatus::Approved : StockRequestSourceStatus::Pending)
+                    : $decision,
+                'approved_quantity' => (int) $locked->approved_quantity + $quantity,
                 'decided_by_user_id' => $actor->id,
                 'decided_at' => now(),
                 'decision_note' => $validated['note'],
-                'decision_idempotency_key' => $validated['idempotency_key'],
+                'decision_idempotency_key' => $decision === StockRequestSourceStatus::Approved && (int) $locked->approved_quantity + $quantity >= $locked->proposed_quantity
+                    ? $validated['idempotency_key'] : null,
             ])->save();
 
             $this->refreshRequestStatus($request);
@@ -146,24 +185,19 @@ class StockRequestApprovalService
         return $result;
     }
 
-    private function assertCurrentlyAvailable(StockRequestSourceLine $line): void
+    private function assertCurrentlyAvailable(StockRequestSourceLine $line, int $quantity): void
     {
-        $balance = InventoryAllocationBalance::query()
-            ->where('account_id', $line->inventory_allocation_account_id)
-            ->where('product_inventory_id', $line->item->product_inventory_id)
-            ->lockForUpdate()
-            ->first();
-        $available = max(0, $balance?->availableQuantity() ?? 0);
+        $available = $this->availableQuantity($line);
 
-        if ($available >= $line->proposed_quantity) {
+        if ($available >= $quantity) {
             return;
         }
 
         $unit = $available === 1 ? 'unit is' : 'units are';
         $holderUnit = $available === 1 ? 'unit' : 'units';
         $message = $line->source_type === 'system'
-            ? "Only {$available} unassigned {$unit} currently available; this approval requires {$line->proposed_quantity}."
-            : "{$line->source_label} currently has only {$available} {$holderUnit} available; this approval requires {$line->proposed_quantity}.";
+            ? "Only {$available} unassigned {$unit} currently available; this approval requires {$quantity}."
+            : "{$line->source_label} currently has only {$available} {$holderUnit} available; this approval requires {$quantity}.";
 
         throw ValidationException::withMessages(['source_line_id' => $message]);
     }
@@ -178,7 +212,7 @@ class StockRequestApprovalService
         $status = match (true) {
             $statuses->contains(StockRequestSourceStatus::Rejected->value) => StockRequestStatus::Rejected,
             $statuses->isNotEmpty() && $statuses->every(fn (string $value): bool => $value === StockRequestSourceStatus::Approved->value) => StockRequestStatus::Approved,
-            $statuses->contains(StockRequestSourceStatus::Approved->value) => StockRequestStatus::PartiallyApproved,
+            StockRequestSourceLine::query()->where('stock_request_id', $request->id)->where('approved_quantity', '>', 0)->exists() => StockRequestStatus::PartiallyApproved,
             default => StockRequestStatus::Pending,
         };
 

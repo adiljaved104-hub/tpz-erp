@@ -13,6 +13,7 @@ use App\Enums\StockRequestPurpose;
 use App\Enums\StockRequestSourceStatus;
 use App\Enums\StockRequestStatus;
 use App\Models\InventoryAllocationBalance;
+use App\Models\InventoryAllocationEvent;
 use App\Models\InventoryAllocationReservationLine;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -63,6 +64,48 @@ class StockRequestExecutionTest extends TestCase
         $this->assertDatabaseCount('stock_request_executions', 1);
         $this->assertDatabaseCount('stock_request_execution_lines', 3);
         $this->assertDatabaseHas('inventory_allocation_events', ['event_type' => 'stock_request_transfer', 'source_id' => $request->id]);
+    }
+
+    public function test_owner_approve_and_transfer_is_atomic_and_idempotent(): void
+    {
+        $f = $this->responsibilityFoundation(6);
+        app(InventoryAllocationService::class)->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $request = $this->request($f['owner'], StockRequestPurpose::PermanentTransfer, $f['inventory']->id, 2);
+        $physicalBefore = $f['inventory']->only(['available_quantity', 'reserved_quantity']);
+        $eventsBefore = (int) InventoryAllocationEvent::query()->count();
+        $key = (string) Str::uuid();
+
+        $execution = app(StockRequestExecutionService::class)->approveAndTransfer($request, $key, $f['owner']);
+        $retry = app(StockRequestExecutionService::class)->approveAndTransfer($request->refresh(), $key, $f['owner']);
+
+        $this->assertSame($execution->id, $retry->id);
+        $this->assertSame(StockRequestStatus::Completed, $request->refresh()->status);
+        $this->assertSame($physicalBefore, $f['inventory']->refresh()->only(['available_quantity', 'reserved_quantity']));
+        $this->assertDatabaseCount('stock_request_executions', 1);
+        $this->assertSame($eventsBefore + 2, (int) InventoryAllocationEvent::query()->count());
+    }
+
+    public function test_partial_approval_and_transfer_preserves_remaining_quantity_for_later_contribution(): void
+    {
+        $f = $this->responsibilityFoundation(6);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $holder = $this->responsibilityUser(EmployeeRole::Staff);
+        $allocations->reconcile($f['inventory'], $allocations->employeeAccount($holder->employee->id), 3, $f['owner'], 'Partial source');
+        $request = $this->request($f['owner'], StockRequestPurpose::PermanentTransfer, $f['inventory']->id, 6);
+        $line = $request->sourceLines()->where('source_type', 'employee')->firstOrFail();
+
+        app(StockRequestApprovalService::class)->decide($line, StockRequestSourceStatus::Approved, null, (string) Str::uuid(), $holder, 2);
+        $this->assertSame(StockRequestStatus::PartiallyApproved, $request->refresh()->status);
+        $this->assertSame(2, (int) $line->refresh()->approved_quantity);
+
+        $execution = app(StockRequestExecutionService::class)->approveAndTransfer($request->refresh(), (string) Str::uuid(), $f['owner']);
+
+        $line->refresh();
+        $this->assertSame(2, (int) $line->transferred_quantity);
+        $this->assertSame(StockRequestStatus::PartiallyApproved, $request->refresh()->status);
+        $this->assertSame(2, (int) $execution->lines()->sum('quantity'));
+        $this->assertSame(4, (int) $request->items()->sole()->quantity - (int) $line->transferred_quantity);
     }
 
     public function test_insufficient_current_source_rolls_back_every_transfer_line(): void

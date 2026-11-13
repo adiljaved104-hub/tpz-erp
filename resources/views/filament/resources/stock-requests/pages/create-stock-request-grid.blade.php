@@ -53,6 +53,7 @@
                             @if ($this->columnVisible('holder'))<th class="min-w-44 px-3 py-2">Stock Holders</th>@endif
                             @if ($this->columnVisible('request_status'))<th class="min-w-36 px-3 py-2">Request Status</th>@endif
                             <th class="min-w-32 px-3 py-2">Request Qty</th>
+                            <th class="w-28 px-3 py-2">Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-white/5">
@@ -67,6 +68,7 @@
                                 @if ($this->columnVisible('holder'))<td class="px-3 py-3 text-xs">@forelse ($row->holder_labels as $holderLabel)<div>{{ $holderLabel }}</div>@empty<span class="text-gray-500">No allocation holder</span>@endforelse</td>@endif
                                 @if ($this->columnVisible('request_status'))<td class="px-3 py-3 text-xs">@if ($row->request_status)<a class="text-primary-600 hover:underline" href="{{ \App\Filament\Resources\StockRequests\StockRequestResource::getUrl('view', ['record' => $row->request_status->request_id]) }}">{{ $row->request_status->reference }} · {{ str_replace('_', ' ', $row->request_status->status) }}</a>@else<span class="text-gray-500">No request</span>@endif</td>@endif
                                 <td class="px-3 py-3"><x-filament::input.wrapper><x-filament::input type="number" min="0" max="{{ $row->requestable }}" step="1" wire:model.blur="quantities.{{ $row->id }}" aria-label="Request quantity for {{ $row->product->sku }}" /></x-filament::input.wrapper>@error('quantities.'.$row->id)<div class="mt-1 text-xs text-danger-600">{{ $message }}</div>@enderror</td>
+                                <td class="px-3 py-3"><x-filament::button size="sm" color="warning" wire:click="openRowRequest({{ $row->id }})" wire:loading.attr="disabled" wire:target="openRowRequest({{ $row->id }})" :disabled="$row->requestable < 1">Request</x-filament::button></td>
                             </tr>
                             <tr wire:key="request-stock-sources-{{ $row->id }}" data-stock-request-sources>
                                 <td colspan="{{ $this->visibleColumnCount() }}" class="px-3 pb-3 pt-0">
@@ -95,4 +97,27 @@
             <div class="flex justify-end"><x-filament::button type="submit" wire:loading.attr="disabled" wire:target="submit">Submit Stock Request</x-filament::button></div>
         </form>
     </x-filament::section>
+
+    @if ($rowRequestInventoryId)
+        @php($rowInventory = collect($rows->items())->firstWhere('id', $rowRequestInventoryId))
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/40 p-4" role="dialog" aria-modal="true" aria-label="Request stock">
+            <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl dark:bg-gray-900">
+                <div class="flex items-center justify-between"><h2 class="text-lg font-semibold">Request Stock</h2><button type="button" class="text-gray-500" wire:click="closeRowRequest" aria-label="Close">×</button></div>
+                @if ($rowInventory)
+                    <p class="mt-3 text-sm"><span class="font-semibold">{{ $rowInventory->product->sku }}</span> · {{ $rowInventory->product->name }}</p>
+                    <p class="mt-1 text-xs text-gray-500">Available from authorized sources: {{ $rowInventory->requestable }}</p>
+                @endif
+                <div class="mt-4 space-y-3">
+                    <label class="block text-sm font-medium">Quantity<x-filament::input.wrapper><x-filament::input type="number" min="1" max="{{ $rowInventory?->requestable ?? 1 }}" wire:model="rowRequestQuantity" /></x-filament::input.wrapper></label>
+                    <label class="block text-sm font-medium">Reason<x-filament::input.wrapper><x-filament::input type="text" maxlength="2000" wire:model="rowRequestReason" placeholder="Why is this stock needed?" /></x-filament::input.wrapper></label>
+                    @error('rowRequestQuantity')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
+                    @error('rowRequestReason')<p class="text-sm text-danger-600">{{ $message }}</p>@enderror
+                </div>
+                <div class="mt-5 flex justify-end gap-2"><x-filament::button color="gray" wire:click="closeRowRequest">Cancel</x-filament::button><x-filament::button color="warning" wire:click="submitRowRequest" wire:loading.attr="disabled" wire:target="submitRowRequest">Submit Request</x-filament::button></div>
+            </div>
+        </div>
+    @endif
+    @if ($rowRequestResultUrl)
+        <div class="mt-3 rounded-lg bg-success-50 p-3 text-sm text-success-700 dark:bg-success-950/30 dark:text-success-300">Request submitted. <a class="font-semibold underline" href="{{ $rowRequestResultUrl }}">View Stock Request</a></div>
+    @endif
 </x-filament-panels::page>

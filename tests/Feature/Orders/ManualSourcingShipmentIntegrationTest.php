@@ -45,6 +45,23 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_shipping_succeeds_when_production_reference_guard_is_enforced(): void
+    {
+        config(['reference_sequences.enforce_transaction_guard' => true]);
+        try {
+            $owner = $this->user(EmployeeRole::Owner);
+            $order = $this->createOrder($owner, [$this->directItem(Supplier::factory()->create(), 'GUARD-1')]);
+
+            $shipped = app(WebSalesService::class)->ship($order, (string) Str::uuid(), $owner);
+
+            $this->assertSame(OrderStatus::Fulfilled, $shipped->refresh()->status);
+            $this->assertDatabaseCount('order_fulfillments', 1);
+            $this->assertDatabaseCount('manual_sourcing_shipment_postings', 1);
+        } finally {
+            config(['reference_sequences.enforce_transaction_guard' => false]);
+        }
+    }
+
     public function test_manual_sourcing_shipment_is_atomic_idempotent_and_keeps_warehouse_balance_at_zero(): void
     {
         $owner = $this->user(EmployeeRole::Owner);

@@ -45,7 +45,7 @@ class UxLab extends Page
 
     public string $rolePreview = 'owner';
 
-    public string $layout = 'cards';
+    public string $demoLayout = 'cards';
 
     public bool $drawerOpen = false;
 

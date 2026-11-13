@@ -15,6 +15,7 @@ class UxLabPrototypeTest extends TestCase
 
     public function test_ux_lab_is_owner_only_and_renders_the_read_only_controls(): void
     {
+        $this->withoutVite(); // The prototype adds no new frontend assets.
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
         $staff = Employee::factory()->role(EmployeeRole::Staff)->create()->user;
 

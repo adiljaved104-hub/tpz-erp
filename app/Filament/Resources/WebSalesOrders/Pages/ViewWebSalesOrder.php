@@ -272,6 +272,10 @@ class ViewWebSalesOrder extends ViewRecord
         } catch (ValidationException|InvalidOrderTransitionException|DefaultWarehouseException $exception) {
             Notification::make()->danger()->title($title)->body($exception instanceof ValidationException ? collect($exception->errors())->flatten()->join(' ') : $exception->getMessage())->send();
             throw new Halt;
+        } catch (Throwable $exception) {
+            report($exception);
+            Notification::make()->warning()->title($title)->body('The shipment could not be completed. No changes were saved. Please contact an administrator if the problem continues.')->send();
+            throw new Halt;
         }
     }
 

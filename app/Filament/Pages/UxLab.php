@@ -77,6 +77,7 @@ class UxLab extends Page
 
     public function resetDemo(): void
     {
+        abort_unless(static::canAccess(), 403);
         $this->module = 'my-workspace';
         $this->mode = 'simple';
         $this->viewport = 'desktop';
@@ -108,6 +109,7 @@ class UxLab extends Page
 
     public function closePreview(): void
     {
+        abort_unless(static::canAccess(), 403);
         $this->drawerOpen = false;
         $this->selectedRecord = null;
     }
@@ -116,6 +118,9 @@ class UxLab extends Page
     {
         abort_unless(static::canAccess(), 403);
         abort_unless(in_array($action, ['approve', 'reserve', 'complete', 'read'], true), 422);
+        $allowed = ['Approval' => ['approve', 'read'], 'Sales Order' => ['reserve', 'read'], 'Web Sales' => ['read'], 'Transfer' => ['complete', 'read']];
+        $record = collect($this->demoQueue)->firstWhere('id', $id);
+        abort_unless($record && in_array($action, $allowed[$record['type']] ?? [], true), 422);
         $labels = ['approve' => 'Approved (demo)', 'reserve' => 'Reserved (demo)', 'complete' => 'Completed (demo)', 'read' => 'Read (demo)'];
         $this->demoQueue = array_map(function (array $item) use ($id, $action, $labels): array {
             if ($item['id'] === $id) {
@@ -129,6 +134,9 @@ class UxLab extends Page
     public function addDemoOrderLine(): void
     {
         abort_unless(static::canAccess(), 403);
+        if (count($this->demoOrderLines) >= 20) {
+            return;
+        }
         $this->demoOrderLines[] = ['sku' => 'TPZ-DEMO-'.str_pad((string) (count($this->demoOrderLines) + 1), 3, '0', STR_PAD_LEFT), 'title' => 'Simulation product', 'qty' => 1, 'price' => 100.0];
     }
 
@@ -149,6 +157,7 @@ class UxLab extends Page
 
     public function toggleLayout(): void
     {
+        abort_unless(static::canAccess(), 403);
         $this->layout = $this->layout === 'cards' ? 'table' : 'cards';
     }
 

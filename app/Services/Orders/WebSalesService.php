@@ -152,7 +152,7 @@ class WebSalesService
      * Edit Web Sale customer snapshots before dispatch, without rewriting
      * reservations, sourcing purchases, invoices or fulfillment history.
      *
-     * @param array{customer_name:string,customer_phone:string,customer_address?:?string,notes?:?string} $data
+     * @param  array{customer_name:string,customer_phone:string,customer_address?:?string,notes?:?string}  $data
      */
     public function updateDetails(Order $order, array $data, User $actor): Order
     {

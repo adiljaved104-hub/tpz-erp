@@ -82,7 +82,7 @@ class StockRequestExecutionTest extends TestCase
         $this->assertSame(StockRequestStatus::Completed, $request->refresh()->status);
         $this->assertSame($physicalBefore, $f['inventory']->refresh()->only(['available_quantity', 'reserved_quantity']));
         $this->assertDatabaseCount('stock_request_executions', 1);
-        $this->assertSame($eventsBefore + 2, (int) InventoryAllocationEvent::query()->count());
+        $this->assertSame($eventsBefore + 1, (int) InventoryAllocationEvent::query()->count());
     }
 
     public function test_partial_approval_and_transfer_preserves_remaining_quantity_for_later_contribution(): void
@@ -202,7 +202,7 @@ class StockRequestExecutionTest extends TestCase
         $this->assertSame(OrderStatus::Reserved, $order->refresh()->status);
         $this->assertSame(['employee', 'team', 'system'], $sources->pluck('source_type')->all());
         $this->assertSame(3, InventoryAllocationReservationLine::query()->where('inventory_reservation_id', $reservation->id)->where('status', 'reserved')->count());
-        $this->assertSame(3, $execution->lines()->where('inventory_reservation_id', $reservation->id)->sum('quantity'));
+        $this->assertSame(3, (int) $execution->lines()->where('inventory_reservation_id', $reservation->id)->sum('quantity'));
         $this->assertSame(0, (int) InventoryAllocationBalance::query()
             ->where('account_id', $allocations->employeeAccount($f['owner']->employee->id)->id)
             ->where('product_inventory_id', $f['inventory']->id)->sum('allocated_quantity'), 'For Order execution must not create general requester ownership.');

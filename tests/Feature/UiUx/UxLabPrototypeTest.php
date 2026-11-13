@@ -29,5 +29,8 @@ class UxLabPrototypeTest extends TestCase
         $this->assertStringContainsString('No operational records', $view);
         $this->assertStringNotContainsString('Save & Reserve', $view);
         $this->assertStringNotContainsString('Mark Shipped', $view);
+        $this->assertStringContainsString('simulateAction', $view);
+        $this->assertStringContainsString('openPreview', $view);
+        $this->assertStringContainsString('downloadFeedback', $view);
     }
 }

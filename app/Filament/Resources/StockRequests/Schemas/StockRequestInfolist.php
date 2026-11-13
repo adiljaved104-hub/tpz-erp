@@ -48,6 +48,9 @@ class StockRequestInfolist
                     ])->table([
                         TableColumn::make('Source'),
                         TableColumn::make('Proposed Qty'),
+                        TableColumn::make('Approved Qty'),
+                        TableColumn::make('Transferred Qty'),
+                        TableColumn::make('Remaining Qty'),
                         TableColumn::make('Approval Route'),
                         TableColumn::make('Status'),
                         TableColumn::make('Decided By'),

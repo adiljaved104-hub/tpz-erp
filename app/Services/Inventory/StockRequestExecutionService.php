@@ -102,6 +102,12 @@ class StockRequestExecutionService
                 throw ValidationException::withMessages(['request' => 'This Stock Request is no longer available for transfer.']);
             }
 
+            // An approval made earlier must not silently approve other pending sources.
+            // When no new quantities are selected, transfer only the already approved units.
+            if ($approvedQuantities === null && $locked->sourceLines()->where('approved_quantity', '>', 0)->exists()) {
+                $approvedQuantities = [];
+            }
+
             foreach ($locked->sourceLines()->with('item')->where('status', StockRequestSourceStatus::Pending->value)->lockForUpdate()->get() as $line) {
                 if ((int) $line->approved_quantity > 0) {
                     if (! is_array($approvedQuantities) || ! array_key_exists($line->id, $approvedQuantities)) {

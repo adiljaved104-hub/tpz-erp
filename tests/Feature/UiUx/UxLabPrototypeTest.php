@@ -25,12 +25,13 @@ class UxLabPrototypeTest extends TestCase
     {
         $view = file_get_contents(resource_path('views/filament/pages/ux-lab.blade.php'));
 
-        $this->assertStringContainsString('read-only prototypes', $view);
-        $this->assertStringContainsString('No operational records', $view);
+        $this->assertStringContainsString('Simulation live', $view);
+        $this->assertStringContainsString('Create Sales Order', $view);
+        $this->assertStringContainsString('openRecord', $view);
+        $this->assertStringContainsString('addDemoProduct', $view);
+        $this->assertStringContainsString('No operational transaction was written', $view);
         $this->assertStringNotContainsString('Save & Reserve', $view);
         $this->assertStringNotContainsString('Mark Shipped', $view);
-        $this->assertStringContainsString('simulateAction', $view);
-        $this->assertStringContainsString('openPreview', $view);
         $this->assertStringContainsString('downloadFeedback', $view);
     }
 }

@@ -79,23 +79,37 @@ class WebSalesService
     {
         $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
 
-        return DB::transaction(function () use ($order, $idempotencyKey, $actor): Order {
+        if ($order->status === OrderStatus::Fulfilled) {
+            return $this->orders->fulfill($order, $idempotencyKey, $actor);
+        }
+
+        // Reference values are intentionally reserved before the business transaction.
+        // The transaction guard must remain enabled so rolled-back values are never reused.
+        $fulfillmentReferences = $this->orders->preallocateFulfillmentReferences($order);
+        $manualReferences = $order->manualSourcingLines()->exists()
+            ? $this->manualShipment->preallocateReferences($order, $idempotencyKey)
+            : [];
+        $reservationReferences = $order->status === OrderStatus::PendingReview
+            ? $this->orders->preallocateReservationReferences($order)
+            : null;
+
+        return DB::transaction(function () use ($order, $idempotencyKey, $actor, $fulfillmentReferences, $manualReferences, $reservationReferences): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->authorization->authorize($actor, WebSalesPermission::Update, $order);
             if ($order->status === OrderStatus::Fulfilled) {
                 // Delegate replay-key ownership checks to the existing fulfillment ledger.
                 // Never materialize or revalidate already fulfilled manual sourcing lines.
-                return $this->orders->fulfill($order, $idempotencyKey, $actor);
+                return $this->orders->fulfill($order, $idempotencyKey, $actor, $fulfillmentReferences);
             }
             if ($order->manualSourcingLines()->exists()) {
-                $this->manualShipment->materialize($order, $idempotencyKey, $actor);
+                $this->manualShipment->materialize($order, $idempotencyKey, $actor, $manualReferences);
                 $order->refresh();
                 $this->manualSourcing->assertReadyForFulfilment($order);
                 if ($order->status === OrderStatus::PendingReview) {
-                    $order = $this->orders->reserveDraft($order, $actor);
+                    $order = $this->orders->reserveDraft($order, $actor, preallocatedReferences: $reservationReferences);
                 }
             }
-            $order = $this->orders->fulfill($order, $idempotencyKey, $actor);
+            $order = $this->orders->fulfill($order, $idempotencyKey, $actor, $fulfillmentReferences);
             if ($order->manualSourcingLines()->exists()) {
                 $this->manualSourcing->markFulfilled($order, $actor);
             }

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\StockRequestSourceStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use LogicException;
 
 class StockRequestSourceLine extends Model
@@ -34,7 +35,8 @@ class StockRequestSourceLine extends Model
                 throw new LogicException('Stock Request source routing is immutable.');
             }
 
-            if ($line->getRawOriginal('status') !== StockRequestSourceStatus::Pending->value) {
+            if ($line->getRawOriginal('status') !== StockRequestSourceStatus::Pending->value
+                && $line->isDirty(['status', 'approved_quantity', 'decided_by_user_id', 'decided_at', 'decision_note', 'decision_idempotency_key'])) {
                 throw new LogicException('Stock Request source decisions are immutable.');
             }
         });
@@ -60,6 +62,11 @@ class StockRequestSourceLine extends Model
     public function decidedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'decided_by_user_id');
+    }
+
+    public function approvalEvents(): HasMany
+    {
+        return $this->hasMany(StockRequestSourceApprovalEvent::class, 'stock_request_source_line_id');
     }
 
     public function requiresOwnerAdminApproval(): bool

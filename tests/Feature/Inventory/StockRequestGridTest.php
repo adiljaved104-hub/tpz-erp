@@ -104,7 +104,7 @@ class StockRequestGridTest extends TestCase
             ->assertSee('Request Qty')
             ->set('sortBy', 'highest_stock');
 
-        $this->assertSame(4, $page->instance()->visibleColumnCount());
+        $this->assertSame(5, $page->instance()->visibleColumnCount());
         $page->set("quantities.{$f['inventory']->id}", 1);
         $page->call('resetFilters');
         $this->assertSame(1, (int) $page->instance()->quantities[$f['inventory']->id]);

@@ -7,12 +7,22 @@
         </div>
         <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
             <span>{{ $modules[$module]['description'] ?? '' }}</span>
-            <div class="flex flex-wrap gap-2"><x-filament::button size="xs" color="gray" wire:click="resetDemo">Reset demo</x-filament::button><x-filament::button size="xs" color="gray" wire:click="$set('comparison', 'current')">Current</x-filament::button><x-filament::button size="xs" color="primary" wire:click="$set('comparison', 'proposed')">Proposed</x-filament::button><x-filament::button size="xs" color="gray" wire:click="toggleLayout">{{ $layout === 'cards' ? 'Table layout' : 'Card layout' }}</x-filament::button></div>
+            <div class="flex flex-wrap gap-2"><x-filament::button size="xs" color="gray" wire:click="resetDemo">Reset demo</x-filament::button><x-filament::button size="xs" :color="$comparison === 'current' ? 'primary' : 'gray'" wire:click="$set('comparison', 'current')">Current</x-filament::button><x-filament::button size="xs" :color="$comparison === 'proposed' ? 'primary' : 'gray'" wire:click="$set('comparison', 'proposed')">Proposed</x-filament::button>@if ($mode === 'advanced' && $comparison === 'proposed')<x-filament::button size="xs" color="gray" wire:click="toggleLayout">{{ $layout === 'cards' ? 'Table layout' : 'Card layout' }}</x-filament::button>@endif</div>
         </div>
     </x-filament::section>
 
     <div class="{{ $viewport === 'mobile' ? 'mx-auto max-w-md' : '' }} space-y-4">
-        <div class="grid gap-3 sm:grid-cols-3">
+        @if ($comparison === 'current')
+            <x-filament::section compact heading="Current workflow — reference" description="Illustrative navigation from the existing ERP. This preview does not modify or duplicate an operational page.">
+                <ol class="list-decimal space-y-2 pl-5 text-sm">
+                    <li>Open the relevant ERP module from navigation.</li>
+                    <li>Locate the record, then open its detailed page.</li>
+                    <li>Find a permitted action, complete its form, and confirm the result.</li>
+                </ol>
+                <p class="mt-3 text-xs text-gray-500">Selected module: {{ $modules[$module]['label'] ?? 'My Workspace' }}. Switch to Proposed to try the interactive alternative.</p>
+            </x-filament::section>
+        @else
+        <div class="grid gap-3 {{ $viewport === 'mobile' ? 'grid-cols-1' : 'sm:grid-cols-3' }}">
             @foreach ($cards as $card)
                 <x-filament::section compact>
                     <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">{{ $card['label'] }}</div>
@@ -22,13 +32,16 @@
             @endforeach
         </div>
 
-        <x-filament::section compact heading="My Workspace prototype" description="A single prioritized queue for work already visible to the signed-in employee.">
-            <div class="mb-3 grid gap-2 sm:grid-cols-3">
+        @if (in_array($module, ['my-workspace', 'dashboard'], true))
+        <x-filament::section compact heading="{{ $module === 'dashboard' ? 'Dashboard action queue' : 'My Workspace prototype' }}" description="Simulated work queue. All records, actions and statuses are demonstration data only.">
+            <div class="mb-3 grid gap-2 {{ $mode === 'advanced' ? 'sm:grid-cols-3' : '' }}">
+                @if ($mode === 'advanced')
                 <x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.250ms="queueSearch" placeholder="Search demo work…" aria-label="Search demo work" /></x-filament::input.wrapper>
                 <x-filament::input.wrapper><x-filament::input.select wire:model.live="queueFilter" aria-label="Filter demo work"><option value="all">All work</option><option value="Approval">Approvals</option><option value="Sales Order">Sales Orders</option><option value="Web Sales">Web Sales</option><option value="Transfer">Transfers</option></x-filament::input.select></x-filament::input.wrapper>
-                <div class="flex items-center justify-end text-xs text-gray-500">Role preview: <span class="ml-1 font-semibold">{{ ucfirst($rolePreview) }}</span> · permission checks remain enforced</div>
+                <div class="flex items-center justify-end text-xs text-gray-500">Illustrative role: {{ ucfirst($rolePreview) }} · actual permission checks remain enforced</div>
+                @endif
             </div>
-            @if ($layout === 'table')
+            @if ($layout === 'table' && $mode === 'advanced')
                 <div class="overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10"><table class="w-full min-w-[720px] text-sm"><thead class="bg-gray-50 text-left text-xs uppercase dark:bg-white/5"><tr><th class="px-3 py-2">Type</th><th class="px-3 py-2">Work</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Action</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-white/5">@foreach ($queue as $item)<tr wire:key="ux-queue-{{ $item['id'] }}"><td class="px-3 py-2">{{ $item['type'] }}</td><td class="px-3 py-2"><button class="font-semibold text-primary-600 hover:underline" wire:click="openPreview({{ $item['id'] }})">{{ $item['title'] }}</button><div class="text-xs text-gray-500">{{ $item['detail'] }}</div></td><td class="px-3 py-2"><x-filament::badge>{{ $item['status'] }}</x-filament::badge></td><td class="px-3 py-2"><x-filament::button size="xs" color="gray" wire:click="simulateAction({{ $item['id'] }}, 'read')">Mark read</x-filament::button></td></tr>@endforeach</tbody></table></div>
             @else
                 <div class="grid gap-3 md:grid-cols-2">
@@ -39,6 +52,7 @@
             @endif
             @if (count($queue) === 0)<div class="py-5 text-center text-sm text-gray-500">No simulated work matches these filters.</div>@endif
         </x-filament::section>
+        @endif
 
         @if ($module === 'sales-orders' || $module === 'web-sales')
             <x-filament::section compact heading="Interactive order builder" description="Search, line editing, totals, and reservation/shipment previews are simulated in memory only.">
@@ -50,7 +64,7 @@
                     <div class="rounded-xl border border-gray-200 p-4 dark:border-white/10"><div class="font-semibold">{{ $item['title'] }}</div><p class="mt-1 text-sm text-gray-500">{{ $item['body'] }}</p></div>
                 @endforeach
             </div>
-        </x-filament::section>
+        @endif
     </div>
 
     <x-filament::section compact heading="Prototype feedback" description="Feedback remains in this disposable Livewire session and is not written to ERP records.">

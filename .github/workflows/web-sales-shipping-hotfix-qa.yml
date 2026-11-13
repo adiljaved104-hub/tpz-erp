@@ -44,6 +44,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Generate temporary testing application key
+        run: echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+
       - name: Build frontend assets
         run: npm run build
 
@@ -81,3 +84,4 @@ jobs:
           tests/Feature/Orders/WebSalesWorkflowV2Test.php
           tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php
           tests/Feature/Orders/ManualSourcingShipmentProvenanceTest.php
+          tests/Feature/Orders/ManualSourcingShipmentReferenceGuardMySqlTest.php

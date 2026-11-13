@@ -108,6 +108,37 @@ class StockRequestExecutionTest extends TestCase
         $this->assertSame(4, (int) $request->items()->sole()->quantity - (int) $line->transferred_quantity);
     }
 
+    public function test_owner_can_choose_an_additional_partial_quantity_after_an_existing_execution(): void
+    {
+        $f = $this->responsibilityFoundation(8);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $holder = $this->responsibilityUser(EmployeeRole::Staff);
+        $allocations->reconcile($f['inventory'], $allocations->employeeAccount($holder->employee->id), 6, $f['owner'], 'Partial source');
+        $request = $this->request($f['owner'], StockRequestPurpose::PermanentTransfer, $f['inventory']->id, 6);
+        $line = $request->sourceLines()->where('source_type', 'employee')->firstOrFail();
+
+        app(StockRequestApprovalService::class)->decide($line, StockRequestSourceStatus::Approved, null, (string) Str::uuid(), $holder, 2);
+        app(StockRequestExecutionService::class)->approveAndTransfer($request->refresh(), (string) Str::uuid(), $f['owner']);
+        $this->assertSame(2, (int) $line->refresh()->transferred_quantity);
+
+        $execution = app(StockRequestExecutionService::class)->approveAndTransfer(
+            $request->refresh(),
+            (string) Str::uuid(),
+            $f['owner'],
+            [$line->id => 1],
+        );
+
+        $line->refresh();
+        $this->assertSame(3, (int) $line->transferred_quantity);
+        $this->assertSame(StockRequestStatus::PartiallyApproved, $request->refresh()->status);
+        $this->assertSame(3, (int) $execution->lines()->sum('quantity'));
+
+        app(StockRequestApprovalService::class)->decide($line, StockRequestSourceStatus::Rejected, 'Remaining quantity no longer required.', (string) Str::uuid(), $holder);
+        $this->assertSame(3, (int) $line->refresh()->transferred_quantity);
+        $this->assertSame(StockRequestStatus::Rejected, $request->refresh()->status);
+    }
+
     public function test_insufficient_current_source_rolls_back_every_transfer_line(): void
     {
         $f = $this->responsibilityFoundation(8);

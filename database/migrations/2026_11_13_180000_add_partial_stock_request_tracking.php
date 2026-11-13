@@ -34,7 +34,7 @@ return new class extends Migration
         });
 
         DB::statement("UPDATE stock_request_source_lines SET approved_quantity = proposed_quantity WHERE status = 'approved'");
-        DB::statement("UPDATE stock_request_source_lines AS line SET transferred_quantity = (SELECT COALESCE(SUM(quantity), 0) FROM stock_request_execution_lines AS execution_line WHERE execution_line.stock_request_source_line_id = line.id)");
+        DB::statement("UPDATE stock_request_source_lines AS line SET transferred_quantity = (SELECT COALESCE(SUM(quantity), 0) FROM stock_request_execution_lines AS execution_line WHERE execution_line.stock_request_source_line_id = line.id AND execution_line.execution_type = 'permanent_transfer')");
     }
 
     public function down(): void

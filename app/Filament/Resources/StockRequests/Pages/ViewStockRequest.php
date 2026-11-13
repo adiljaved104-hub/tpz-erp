@@ -10,6 +10,7 @@ use App\Models\StockRequestSourceLine;
 use App\Services\Inventory\StockRequestApprovalService;
 use App\Services\Inventory\StockRequestExecutionService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -39,8 +40,16 @@ class ViewStockRequest extends ViewRecord
                 ->requiresConfirmation()
                 ->modalHeading('Approve and transfer this Stock Request?')
                 ->modalDescription(fn (): string => implode("\n", app(StockRequestExecutionService::class)->summary($this->record)))
+                ->schema([
+                    Repeater::make('approvals')
+                        ->label('Quantities to approve now')
+                        ->schema([
+                            Select::make('source_line_id')->label('Stock Source')->options(fn (): array => $this->eligibleSourceOptions())->required()->searchable(),
+                            TextInput::make('quantity')->label('Quantity')->numeric()->minValue(1)->required(),
+                        ])->columns(2)->default(fn (): array => $this->approvalDefaults())->minItems(1),
+                ])
                 ->visible(fn (): bool => app(StockRequestExecutionService::class)->canApproveAndTransfer(auth()->user(), $this->record))
-                ->action(fn () => $this->approveAndTransfer()),
+                ->action(fn (array $data) => $this->approveAndTransfer($data)),
             Action::make('approveSource')
                 ->label('Approve Stock Source')
                 ->color('success')
@@ -79,10 +88,12 @@ class ViewStockRequest extends ViewRecord
         Notification::make()->success()->title('Stock request completed successfully.')->send();
     }
 
-    private function approveAndTransfer(): void
+    /** @param array<string, mixed> $data */
+    private function approveAndTransfer(array $data): void
     {
+        $quantities = collect($data['approvals'] ?? [])->mapWithKeys(fn (array $approval): array => [(int) $approval['source_line_id'] => (int) $approval['quantity']])->all();
         $result = $this->runWithActionFeedback(
-            fn (): StockRequestExecution => app(StockRequestExecutionService::class)->approveAndTransfer($this->record, (string) str()->uuid(), auth()->user()),
+            fn (): StockRequestExecution => app(StockRequestExecutionService::class)->approveAndTransfer($this->record, (string) str()->uuid(), auth()->user(), $quantities),
             'Stock Request approval and transfer was not completed',
         );
         if (! $result instanceof StockRequestExecution) {
@@ -128,5 +139,12 @@ class ViewStockRequest extends ViewRecord
             ->mapWithKeys(fn (StockRequestSourceLine $line): array => [
                 $line->id => "{$line->item->sku} — {$line->source_label} — {$line->proposed_quantity}",
             ])->all();
+    }
+
+    /** @return array<int, array{source_line_id: int, quantity: int}> */
+    private function approvalDefaults(): array
+    {
+        return app(StockRequestApprovalService::class)->eligiblePendingLines($this->record, auth()->user())
+            ->map(fn (StockRequestSourceLine $line): array => ['source_line_id' => $line->id, 'quantity' => 1])->all();
     }
 }

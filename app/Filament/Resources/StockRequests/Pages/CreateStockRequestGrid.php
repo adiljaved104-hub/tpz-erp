@@ -61,6 +61,14 @@ class CreateStockRequestGrid extends Page
 
     public string $idempotencyKey = '';
 
+    public ?int $rowRequestInventoryId = null;
+
+    public int $rowRequestQuantity = 1;
+
+    public string $rowRequestReason = '';
+
+    public string $rowRequestResultUrl = '';
+
     public function mount(): void
     {
         $this->authorizeAccess();
@@ -163,9 +171,61 @@ class CreateStockRequestGrid extends Page
         $this->visibleColumns = app(StockRequestColumnRegistry::class)->resolve(auth()->user());
     }
 
+    public function openRowRequest(int $inventoryId): void
+    {
+        $this->authorizeAccess();
+        $inventory = app(StockRequestService::class)->requestableInventory(auth()->user(), $inventoryId);
+        if ($inventory === null) {
+            Notification::make()->danger()->title('This stock is no longer available to request.')->send();
+
+            return;
+        }
+        $this->rowRequestInventoryId = $inventoryId;
+        $this->rowRequestQuantity = 1;
+        $this->rowRequestReason = '';
+        $this->rowRequestResultUrl = '';
+    }
+
+    public function closeRowRequest(): void
+    {
+        $this->rowRequestInventoryId = null;
+        $this->rowRequestReason = '';
+    }
+
+    public function submitRowRequest(): void
+    {
+        $this->authorizeAccess();
+        $this->validate([
+            'rowRequestQuantity' => ['required', 'integer', 'min:1'],
+            'rowRequestReason' => ['required', 'string', 'min:5', 'max:2000'],
+        ]);
+        $inventory = app(StockRequestService::class)->requestableInventory(auth()->user(), (int) $this->rowRequestInventoryId);
+        if ($inventory === null) {
+            throw ValidationException::withMessages(['rowRequestQuantity' => 'This stock is no longer available to request.']);
+        }
+
+        try {
+            $request = app(StockRequestService::class)->create(new CreateStockRequestData(
+                StockRequestPurpose::PermanentTransfer,
+                null,
+                [new StockRequestItemData($inventory->id, $this->rowRequestQuantity)],
+                $this->rowRequestReason,
+                $this->idempotencyKey,
+            ), auth()->user());
+        } catch (ValidationException $exception) {
+            Notification::make()->danger()->title('Stock Request was not submitted')->body(collect($exception->errors())->flatten()->first())->send();
+            throw $exception;
+        }
+
+        $this->rowRequestResultUrl = StockRequestResource::getUrl('view', ['record' => $request]);
+        $this->idempotencyKey = (string) Str::uuid();
+        $this->closeRowRequest();
+        Notification::make()->success()->title("Stock Request {$request->reference} submitted")->send();
+    }
+
     public function visibleColumnCount(): int
     {
-        return 3 + count(array_intersect($this->visibleColumns,
+        return 4 + count(array_intersect($this->visibleColumns,
             ['warehouse', 'mine', 'reserved', 'others', 'holder', 'request_status']));
     }
 

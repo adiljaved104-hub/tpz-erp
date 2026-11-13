@@ -12,6 +12,7 @@ use App\Services\Inventory\StockRequestExecutionService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 
@@ -32,6 +33,14 @@ class ViewStockRequest extends ViewRecord
                 ->modalDescription(fn (): string => implode("\n", app(StockRequestExecutionService::class)->summary($this->record)))
                 ->visible(fn (): bool => app(StockRequestExecutionService::class)->canExecute(auth()->user(), $this->record))
                 ->action(fn () => $this->executeRequest()),
+            Action::make('approveAndTransfer')
+                ->label('Approve & Transfer')
+                ->color('success')
+                ->requiresConfirmation()
+                ->modalHeading('Approve and transfer this Stock Request?')
+                ->modalDescription(fn (): string => implode("\n", app(StockRequestExecutionService::class)->summary($this->record)))
+                ->visible(fn (): bool => app(StockRequestExecutionService::class)->canApproveAndTransfer(auth()->user(), $this->record))
+                ->action(fn () => $this->approveAndTransfer()),
             Action::make('approveSource')
                 ->label('Approve Stock Source')
                 ->color('success')
@@ -39,6 +48,7 @@ class ViewStockRequest extends ViewRecord
                 ->modalDescription('This records approval only. Stock is not transferred or reserved until a later execution phase.')
                 ->schema([
                     Select::make('source_line_id')->label('Stock Source')->options(fn (): array => $this->eligibleSourceOptions())->required()->searchable(),
+                    TextInput::make('approved_quantity')->label('Quantity to Approve')->numeric()->minValue(1)->required(),
                     Textarea::make('note')->label('Approval Note')->maxLength(2000),
                 ])
                 ->visible(fn (): bool => $this->eligibleSourceOptions() !== [])
@@ -69,6 +79,19 @@ class ViewStockRequest extends ViewRecord
         Notification::make()->success()->title('Stock request completed successfully.')->send();
     }
 
+    private function approveAndTransfer(): void
+    {
+        $result = $this->runWithActionFeedback(
+            fn (): StockRequestExecution => app(StockRequestExecutionService::class)->approveAndTransfer($this->record, (string) str()->uuid(), auth()->user()),
+            'Stock Request approval and transfer was not completed',
+        );
+        if (! $result instanceof StockRequestExecution) {
+            return;
+        }
+        $this->record->refresh()->load(['items.sourceLines.decidedBy', 'execution.executedBy.employee', 'execution.lines.item', 'execution.lines.source', 'execution.lines.sourceAccount', 'execution.lines.destinationAccount']);
+        Notification::make()->success()->title('Stock request approved and transferred successfully.')->send();
+    }
+
     /** @param array<string, mixed> $data */
     private function recordDecision(array $data, StockRequestSourceStatus $decision): void
     {
@@ -81,6 +104,7 @@ class ViewStockRequest extends ViewRecord
                 $data['note'] ?? null,
                 (string) str()->uuid(),
                 auth()->user(),
+                isset($data['approved_quantity']) ? (int) $data['approved_quantity'] : null,
             );
         }, 'Stock approval was not recorded');
 

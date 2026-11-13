@@ -49,7 +49,7 @@ class StockRequestItem extends Model
                     ? 'Owner/Admin Approval Required'
                     : $line->status->getLabel();
 
-                return "{$line->source_label} — {$line->proposed_quantity} — {$approval}";
+                return "{$line->source_label} — requested {$line->proposed_quantity}, approved {$line->approved_quantity}, transferred {$line->transferred_quantity} — {$approval}";
             })
             ->join("\n");
     }

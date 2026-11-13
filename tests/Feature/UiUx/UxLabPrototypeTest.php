@@ -6,6 +6,7 @@ use App\Enums\EmployeeRole;
 use App\Filament\Pages\UxLab;
 use App\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class UxLabPrototypeTest extends TestCase
@@ -19,6 +20,30 @@ class UxLabPrototypeTest extends TestCase
 
         $this->actingAs($owner)->get(UxLab::getUrl())->assertOk()->assertSee('TPZ UX Lab')->assertSee('Reset demo');
         $this->actingAs($staff)->get(UxLab::getUrl())->assertForbidden();
+    }
+
+    public function test_owner_can_interact_with_demo_queue_and_order_lines_without_real_transactions(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+
+        Livewire::test(UxLab::class)
+            ->set('comparison', 'current')
+            ->assertSee('Current workflow')
+            ->set('comparison', 'proposed')
+            ->set('mode', 'advanced')
+            ->call('simulateAction', 1, 'approve')
+            ->assertSet('demoQueue.0.status', 'Approved (demo)')
+            ->set('module', 'sales-orders')
+            ->call('addDemoOrderLine')
+            ->assertSet('demoOrderLines.1.qty', 1)
+            ->call('updateDemoQuantity', 0, 3)
+            ->assertSet('demoOrderLines.0.qty', 3)
+            ->call('removeDemoOrderLine', 1)
+            ->assertSet('demoOrderLines.0.qty', 3);
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('stock_requests', 0);
     }
 
     public function test_prototype_contains_no_operational_write_controls(): void

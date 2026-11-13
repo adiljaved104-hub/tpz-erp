@@ -136,6 +136,23 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
         $owner = $this->user(EmployeeRole::Owner);
         $order = $this->createOrder($owner, [$this->directItem(Supplier::factory()->create(), 'ROLLBACK-1')]);
         $orders = Mockery::mock(OrderService::class);
+        $orders->shouldReceive('preallocateFulfillmentReferences')->once()->andReturn([
+            'fulfillment_reference' => 'SOF-2026-TEST',
+            'movement_references' => [],
+            'posting_keys' => [],
+            'upgrade_movement_references' => [],
+            'upgrade_posting_keys' => [],
+            'upgrade_execution_keys' => [],
+        ]);
+        $orders->shouldReceive('preallocateReservationReferences')->once()->andReturn([
+            'reservationReferences' => [],
+            'movementReferences' => [],
+            'postingKeys' => [],
+            'upgradePlans' => [],
+            'componentReservationReferences' => [],
+            'componentMovementReferences' => [],
+            'componentPostingKeys' => [],
+        ]);
         $orders->shouldReceive('reserveDraft')->once()->andThrow(new RuntimeException('Injected failure after direct receipt'));
         $this->app->instance(OrderService::class, $orders);
 

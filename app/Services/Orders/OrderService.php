@@ -643,10 +643,19 @@ class OrderService
         }
     }
 
-    public function fulfill(Order $order, string $idempotencyKey, User $actor): Order
+    /** @return array{fulfillment_reference:string,movement_references:array<int,string>,posting_keys:array<int,string>,upgrade_movement_references:array<int,array<int,string>>,upgrade_posting_keys:array<int,array<int,string>>,upgrade_execution_keys:array<int,string>} */
+    public function preallocateFulfillmentReferences(Order $order): array
+    {
+        $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->get();
+
+        return $this->allocateFulfillmentReferences($order, $items);
+    }
+
+    public function fulfill(Order $order, string $idempotencyKey, User $actor, ?array $preallocatedReferences = null): Order
     {
         return $this->fulfillCore($order, $idempotencyKey, $actor,
-            fn (Order $candidate) => $this->authorization->authorize($actor, OrderPermission::Fulfill, $candidate));
+            fn (Order $candidate) => $this->authorization->authorize($actor, OrderPermission::Fulfill, $candidate),
+            $preallocatedReferences);
     }
 
     /** Fulfill through the dedicated QC dispatch capability while sharing the normal posting transaction. */
@@ -659,7 +668,7 @@ class OrderService
     }
 
     /** @param  \Closure(Order): void  $authorize */
-    private function fulfillCore(Order $order, string $idempotencyKey, User $actor, \Closure $authorize): Order
+    private function fulfillCore(Order $order, string $idempotencyKey, User $actor, \Closure $authorize, ?array $preallocatedReferences = null): Order
     {
         $authorize($order);
 
@@ -673,27 +682,13 @@ class OrderService
 
         Validator::make(['idempotency_key' => $idempotencyKey], ['idempotency_key' => ['required', 'uuid']])->validate();
         $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->get();
-        $year = (int) $order->order_date->format('Y');
-        $fulfillmentReference = $this->references->nextOrderFulfillmentReference($year);
-        $movementReferences = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => $this->references->nextStockMovementReference()]);
-        $postingKeys = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => (string) Str::uuid()]);
-        $upgradeMovementReferences = [];
-        $upgradePostingKeys = [];
-        $upgradeExecutionKeys = [];
-        foreach ($items as $item) {
-            if ($item->upgradeSelection === null) {
-                continue;
-            }
-            $upgradeExecutionKeys[$item->id] = (string) Str::uuid();
-            foreach ($item->upgradeSelection->recipe_snapshot['lines'] ?? [] as $line) {
-                if (! in_array($line['operation'], ['install', 'remove_and_return', 'remove_as_damaged'], true)) {
-                    continue;
-                }
-                $lineId = (int) $line['upgrade_recipe_line_id'];
-                $upgradeMovementReferences[$item->id][$lineId] = $this->references->nextStockMovementReference();
-                $upgradePostingKeys[$item->id][$lineId] = (string) Str::uuid();
-            }
-        }
+        $refs = $preallocatedReferences ?? $this->allocateFulfillmentReferences($order, $items);
+        $fulfillmentReference = $refs['fulfillment_reference'];
+        $movementReferences = collect($refs['movement_references']);
+        $postingKeys = collect($refs['posting_keys']);
+        $upgradeMovementReferences = $refs['upgrade_movement_references'];
+        $upgradePostingKeys = $refs['upgrade_posting_keys'];
+        $upgradeExecutionKeys = $refs['upgrade_execution_keys'];
 
         try {
             return DB::transaction(function () use ($order, $idempotencyKey, $actor, $fulfillmentReference, $movementReferences, $postingKeys, $upgradeMovementReferences, $upgradePostingKeys, $upgradeExecutionKeys, $authorize): Order {
@@ -853,6 +848,40 @@ class OrderService
         }
     }
 
+    /** @param Collection<int, OrderItem> $items */
+    private function allocateFulfillmentReferences(Order $order, Collection $items): array
+    {
+        $year = (int) $order->order_date->format('Y');
+        $movementReferences = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => $this->references->nextStockMovementReference()])->all();
+        $postingKeys = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => (string) Str::uuid()])->all();
+        $upgradeMovementReferences = [];
+        $upgradePostingKeys = [];
+        $upgradeExecutionKeys = [];
+        foreach ($items as $item) {
+            if ($item->upgradeSelection === null) {
+                continue;
+            }
+            $upgradeExecutionKeys[$item->id] = (string) Str::uuid();
+            foreach ($item->upgradeSelection->recipe_snapshot['lines'] ?? [] as $line) {
+                if (! in_array($line['operation'], ['install', 'remove_and_return', 'remove_as_damaged'], true)) {
+                    continue;
+                }
+                $lineId = (int) $line['upgrade_recipe_line_id'];
+                $upgradeMovementReferences[$item->id][$lineId] = $this->references->nextStockMovementReference();
+                $upgradePostingKeys[$item->id][$lineId] = (string) Str::uuid();
+            }
+        }
+
+        return [
+            'fulfillment_reference' => $this->references->nextOrderFulfillmentReference($year),
+            'movement_references' => $movementReferences,
+            'posting_keys' => $postingKeys,
+            'upgrade_movement_references' => $upgradeMovementReferences,
+            'upgrade_posting_keys' => $upgradePostingKeys,
+            'upgrade_execution_keys' => $upgradeExecutionKeys,
+        ];
+    }
+
     public function cancel(Order $order, CancelOrderData $data, User $actor): Order
     {
         if ($order->status === OrderStatus::Cancelled && $order->cancellation_idempotency_key === $data->idempotencyKey) {
@@ -928,13 +957,13 @@ class OrderService
      * @param  array<int, array<int, int>>|null  $exactAllocationSourcesByItemId
      * @param  (\Closure(Order, Collection<int, OrderItem>): void)|null  $afterReserved
      */
-    public function reserveDraft(Order $order, User $actor, ?array $exactAllocationSourcesByItemId = null, ?User $scopeActor = null, ?\Closure $afterReserved = null): Order
+    /** @return array{reservation_references:array<int,string>,movement_references:array<int,string>,posting_keys:array<int,string>,upgrade_plans:array<int,mixed>,component_reservation_references:array<int,array<int,string>>,component_movement_references:array<int,array<int,string>>,component_posting_keys:array<int,array<int,string>>} */
+    public function preallocateReservationReferences(Order $order): array
     {
-        $this->authorization->authorize($actor, OrderPermission::Reserve, $order);
         $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->get();
-        $reservationReferences = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => $this->references->nextInventoryReservationReference()]);
-        $movementReferences = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => $this->references->nextStockMovementReference()]);
-        $postingKeys = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => (string) Str::uuid()]);
+        $reservationReferences = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => $this->references->nextInventoryReservationReference()])->all();
+        $movementReferences = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => $this->references->nextStockMovementReference()])->all();
+        $postingKeys = $items->mapWithKeys(fn (OrderItem $item): array => [$item->id => (string) Str::uuid()])->all();
         $upgradePlans = [];
         $componentReservationReferences = [];
         $componentMovementReferences = [];
@@ -952,6 +981,22 @@ class OrderService
                 $componentPostingKeys[$item->id][$lineId] = (string) Str::uuid();
             }
         }
+
+        return compact('reservationReferences', 'movementReferences', 'postingKeys', 'upgradePlans', 'componentReservationReferences', 'componentMovementReferences', 'componentPostingKeys');
+    }
+
+    public function reserveDraft(Order $order, User $actor, ?array $exactAllocationSourcesByItemId = null, ?User $scopeActor = null, ?\Closure $afterReserved = null, ?array $preallocatedReferences = null): Order
+    {
+        $this->authorization->authorize($actor, OrderPermission::Reserve, $order);
+        $items = $order->items()->with('upgradeSelection')->orderBy('line_number')->get();
+        $refs = $preallocatedReferences ?? $this->preallocateReservationReferences($order);
+        $reservationReferences = collect($refs['reservationReferences']);
+        $movementReferences = collect($refs['movementReferences']);
+        $postingKeys = collect($refs['postingKeys']);
+        $upgradePlans = $refs['upgradePlans'];
+        $componentReservationReferences = $refs['componentReservationReferences'];
+        $componentMovementReferences = $refs['componentMovementReferences'];
+        $componentPostingKeys = $refs['componentPostingKeys'];
 
         return DB::transaction(function () use ($order, $actor, $exactAllocationSourcesByItemId, $scopeActor, $afterReserved, $reservationReferences, $movementReferences, $postingKeys, $upgradePlans, $componentReservationReferences, $componentMovementReferences, $componentPostingKeys): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);

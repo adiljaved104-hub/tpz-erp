@@ -78,10 +78,11 @@ class StockRequestExecutionService
         return $actor->employee?->role === EmployeeRole::Owner
             && $this->authorization->allows($actor, InventoryPermission::ExecuteStockRequests)
             && $request->purpose === StockRequestPurpose::PermanentTransfer
-            && $request->status !== StockRequestStatus::Completed;
+            && ! in_array($request->status, [StockRequestStatus::Completed, StockRequestStatus::Rejected], true);
     }
 
-    public function approveAndTransfer(StockRequest $request, string $idempotencyKey, User $actor): StockRequestExecution
+    /** @param array<int, int>|null $approvedQuantities */
+    public function approveAndTransfer(StockRequest $request, string $idempotencyKey, User $actor, ?array $approvedQuantities = null): StockRequestExecution
     {
         if ($actor->employee?->role !== EmployeeRole::Owner
             || ! $this->authorization->allows($actor, InventoryPermission::ExecuteStockRequests)
@@ -90,7 +91,7 @@ class StockRequestExecutionService
         }
         Validator::make(['idempotency_key' => $idempotencyKey], ['idempotency_key' => ['required', 'uuid']])->validate();
 
-        return DB::transaction(function () use ($request, $idempotencyKey, $actor): StockRequestExecution {
+        return DB::transaction(function () use ($request, $idempotencyKey, $actor, $approvedQuantities): StockRequestExecution {
             $locked = StockRequest::query()->whereKey($request->id)->lockForUpdate()->firstOrFail();
             if ($existing = $locked->execution()->with('lines')->first()) {
                 if ($existing->lines()->where('idempotency_key', $idempotencyKey)->exists()) {
@@ -103,10 +104,17 @@ class StockRequestExecutionService
 
             foreach ($locked->sourceLines()->with('item')->where('status', StockRequestSourceStatus::Pending->value)->lockForUpdate()->get() as $line) {
                 if ((int) $line->approved_quantity > 0) {
-                    continue;
+                    if (! is_array($approvedQuantities) || ! array_key_exists($line->id, $approvedQuantities)) {
+                        continue;
+                    }
                 }
                 $remaining = max(0, (int) $line->proposed_quantity - (int) $line->approved_quantity);
-                $quantity = min($remaining, $this->approvals->availableQuantity($line));
+                $quantity = is_array($approvedQuantities) && array_key_exists($line->id, $approvedQuantities)
+                    ? (int) $approvedQuantities[$line->id]
+                    : min($remaining, $this->approvals->availableQuantity($line));
+                if ($quantity > $remaining) {
+                    throw ValidationException::withMessages(['approved_quantities' => 'An approval quantity exceeds the remaining requested quantity.']);
+                }
                 if ($quantity > 0) {
                     $this->approvals->decide($line, StockRequestSourceStatus::Approved, 'Owner approved and transferred in one operation.', (string) str()->uuid(), $actor, $quantity);
                 }

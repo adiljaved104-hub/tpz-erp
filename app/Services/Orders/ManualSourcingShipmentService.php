@@ -35,9 +35,32 @@ class ManualSourcingShipmentService
         private readonly OrderLineFulfillmentService $lineFulfillments,
     ) {}
 
-    public function materialize(Order $order, string $shipmentKey, User $actor): void
+    /** @return array<int,array{purchase_reference:string,receipt_reference:string,movement_references:array<int,string>}> */
+    public function preallocateReferences(Order $order, string $shipmentKey): array
     {
-        DB::transaction(function () use ($order, $shipmentKey, $actor): void {
+        $references = [];
+        foreach ($order->manualSourcingLines()->where('status', '!=', ManualSourcingStatus::Fulfilled->value)->orderBy('id')->get() as $line) {
+            $postingKey = $this->postingKey($shipmentKey, (int) $line->id);
+            if (ManualSourcingShipmentPosting::query()->where('idempotency_key', $postingKey)->exists()) {
+                continue;
+            }
+            $references[$line->id] = [
+                'purchase_reference' => $this->references->nextPurchaseReference(),
+                'receipt_reference' => $this->references->nextPurchaseReceiptReference(),
+                'movement_references' => [
+                    $this->references->nextStockMovementReference(),
+                    $this->references->nextStockMovementReference(),
+                ],
+            ];
+        }
+
+        return $references;
+    }
+
+    public function materialize(Order $order, string $shipmentKey, User $actor, ?array $preallocatedReferences = null): void
+    {
+        $preallocatedReferences ??= $this->preallocateReferences($order, $shipmentKey);
+        DB::transaction(function () use ($order, $shipmentKey, $actor, $preallocatedReferences): void {
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
             foreach ($locked->manualSourcingLines()->lockForUpdate()->get() as $line) {
                 if ($line->status === ManualSourcingStatus::Fulfilled) {
@@ -57,9 +80,13 @@ class ManualSourcingShipmentService
                     throw ValidationException::withMessages(['items' => 'The current purchasing ledger supports AED only.']);
                 }
                 $this->purchases->authorize($actor, PurchasePermission::QuickReceive);
-                $purchase = $this->createPurchase($locked, $line, $postingKey, $actor);
-                $receipt = $this->createDirectReceipt($purchase, $locked, $postingKey, $actor);
-                $this->recordDirectMovements($receipt, $locked, $actor, $postingKey);
+                $refs = $preallocatedReferences[$line->id] ?? null;
+                if ($refs === null) {
+                    throw ValidationException::withMessages(['items' => 'Shipment references could not be prepared for every manual sourcing line. Please retry.']);
+                }
+                $purchase = $this->createPurchase($locked, $line, $postingKey, $actor, $refs['purchase_reference']);
+                $receipt = $this->createDirectReceipt($purchase, $locked, $postingKey, $actor, $refs['receipt_reference']);
+                $this->recordDirectMovements($receipt, $locked, $actor, $postingKey, $refs['movement_references']);
                 $posting = ManualSourcingShipmentPosting::query()->create([
                     'sourcing_line_id' => $line->id, 'order_id' => $locked->id, 'order_item_id' => $line->order_item_id,
                     'purchase_id' => $purchase->id, 'purchase_receipt_id' => $receipt->id, 'quantity' => $line->quantity,
@@ -81,7 +108,7 @@ class ManualSourcingShipmentService
         }, 5);
     }
 
-    private function createPurchase(Order $order, object $line, string $idempotencyKey, User $actor): Purchase
+    private function createPurchase(Order $order, object $line, string $idempotencyKey, User $actor, string $reference): Purchase
     {
         $data = new CreatePurchaseData(
             supplierId: $line->supplier_id === null ? null : (int) $line->supplier_id, warehouseId: (int) $order->warehouse_id, purchaseDate: $line->purchased_on->toDateString(),
@@ -96,7 +123,7 @@ class ManualSourcingShipmentService
         );
         $prepared = $this->documents->prepare($data, actor: $actor, receivingScope: true);
         $purchase = Purchase::query()->create(array_merge($prepared['header'], [
-            'reference' => $this->references->nextPurchaseReference(), 'entry_type' => PurchaseEntryType::QuickStock,
+            'reference' => $reference, 'entry_type' => PurchaseEntryType::QuickStock,
             'handled_by_employee_id' => $actor->employee?->id, 'status' => PurchaseStatus::Approved, 'created_by_user_id' => $actor->id,
             'approved_by_user_id' => $actor->id, 'approved_at' => now(), 'approval_reason' => 'Direct supplier-to-customer fulfilment; physical custody remains with supplier.',
             'self_approved' => true, 'external_accounting_reference' => 'manual-sourcing:'.$idempotencyKey,
@@ -111,10 +138,10 @@ class ManualSourcingShipmentService
         return $purchase->load('items');
     }
 
-    private function createDirectReceipt(Purchase $purchase, Order $order, string $idempotencyKey, User $actor): PurchaseReceipt
+    private function createDirectReceipt(Purchase $purchase, Order $order, string $idempotencyKey, User $actor, string $reference): PurchaseReceipt
     {
         $receipt = PurchaseReceipt::query()->create([
-            'reference' => $this->references->nextPurchaseReceiptReference(), 'purchase_id' => $purchase->id, 'warehouse_id' => $purchase->warehouse_id,
+            'reference' => $reference, 'purchase_id' => $purchase->id, 'warehouse_id' => $purchase->warehouse_id,
             'supplier_delivery_note' => 'Direct-to-customer '.$order->reference, 'received_at' => now(), 'received_by_user_id' => $actor->id,
             'idempotency_key' => $idempotencyKey, 'movement_group' => (string) str()->uuid(), 'notes' => 'Direct-to-customer receipt; no warehouse custody.',
             'custody_mode' => 'direct_to_customer', 'direct_fulfillment_order_id' => $order->id, 'created_at' => now(),
@@ -131,14 +158,15 @@ class ManualSourcingShipmentService
         return $receipt->load('items');
     }
 
-    private function recordDirectMovements(PurchaseReceipt $receipt, Order $order, User $actor, string $idempotencyKey): void
+    /** @param array<int,string> $movementReferences */
+    private function recordDirectMovements(PurchaseReceipt $receipt, Order $order, User $actor, string $idempotencyKey, array $movementReferences): void
     {
         $receiptItem = $receipt->items->firstOrFail();
         $inventory = $this->balances->lockOrCreate($receiptItem->product_id, $receipt->warehouse_id);
         $before = ['available' => $inventory->available_quantity, 'reserved' => $inventory->reserved_quantity, 'damaged' => $inventory->damaged_quantity, 'average' => $inventory->average_cost];
         foreach ([StockMovementType::PurchaseReceipt, StockMovementType::OrderFulfillment] as $index => $type) {
             StockMovement::query()->create([
-                'reference' => $this->references->nextStockMovementReference(), 'movement_group' => $receipt->movement_group, 'idempotency_key' => $this->movementKey($idempotencyKey, $index),
+                'reference' => $movementReferences[$index], 'movement_group' => $receipt->movement_group, 'idempotency_key' => $this->movementKey($idempotencyKey, $index),
                 'product_inventory_id' => $inventory->id, 'product_id' => $inventory->product_id, 'warehouse_id' => $inventory->warehouse_id, 'movement_type' => $type,
                 'quantity' => $receiptItem->accepted_quantity, 'available_delta' => 0, 'reserved_delta' => 0, 'damaged_delta' => 0,
                 'available_before' => $before['available'], 'available_after' => $before['available'], 'reserved_before' => $before['reserved'], 'reserved_after' => $before['reserved'],

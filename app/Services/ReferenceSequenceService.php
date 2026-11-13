@@ -275,7 +275,8 @@ class ReferenceSequenceService
 
     public function next(string $key, int $initialValue = 1): int
     {
-        if (DB::connection()->transactionLevel() > 0 && ! app()->runningUnitTests()) {
+        $enforceGuard = (bool) config('reference_sequences.enforce_transaction_guard', ! app()->runningUnitTests());
+        if (DB::connection()->transactionLevel() > 0 && $enforceGuard) {
             throw new RuntimeException('References must be reserved before the business transaction so allocated values cannot be reused after rollback.');
         }
 

@@ -139,6 +139,29 @@ class StockRequestExecutionTest extends TestCase
         $this->assertSame(StockRequestStatus::Rejected, $request->refresh()->status);
     }
 
+    public function test_owner_partial_selection_does_not_auto_approve_unselected_sources(): void
+    {
+        $f = $this->responsibilityFoundation(6);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $holder = $this->responsibilityUser(EmployeeRole::Staff);
+        $allocations->reconcile($f['inventory'], $allocations->employeeAccount($holder->employee->id), 3, $f['owner'], 'Partial source');
+        $request = $this->request($f['owner'], StockRequestPurpose::PermanentTransfer, $f['inventory']->id, 6);
+        $chosen = $request->sourceLines()->where('source_type', 'employee')->firstOrFail();
+        $unchosen = $request->sourceLines()->whereKeyNot($chosen->id)->firstOrFail();
+
+        $execution = app(StockRequestExecutionService::class)->approveAndTransfer(
+            $request, (string) Str::uuid(), $f['owner'], [$chosen->id => 2]
+        );
+
+        $this->assertSame(2, (int) $chosen->refresh()->approved_quantity);
+        $this->assertSame(2, (int) $chosen->transferred_quantity);
+        $this->assertSame(0, (int) $unchosen->refresh()->approved_quantity);
+        $this->assertSame(0, (int) $unchosen->transferred_quantity);
+        $this->assertSame(2, (int) $execution->lines()->sum('quantity'));
+        $this->assertSame(StockRequestStatus::PartiallyApproved, $request->refresh()->status);
+    }
+
     public function test_insufficient_current_source_rolls_back_every_transfer_line(): void
     {
         $f = $this->responsibilityFoundation(8);

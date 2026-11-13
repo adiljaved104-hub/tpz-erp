@@ -7,7 +7,7 @@
         </div>
         <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
             <span>{{ $modules[$module]['description'] ?? '' }}</span>
-            <div class="flex flex-wrap gap-2"><x-filament::button size="xs" color="gray" wire:click="resetDemo">Reset demo</x-filament::button><x-filament::button size="xs" :color="$comparison === 'current' ? 'primary' : 'gray'" wire:click="$set('comparison', 'current')">Current</x-filament::button><x-filament::button size="xs" :color="$comparison === 'proposed' ? 'primary' : 'gray'" wire:click="$set('comparison', 'proposed')">Proposed</x-filament::button>@if ($mode === 'advanced' && $comparison === 'proposed')<x-filament::button size="xs" color="gray" wire:click="toggleLayout">{{ $layout === 'cards' ? 'Table layout' : 'Card layout' }}</x-filament::button>@endif</div>
+            <div class="flex flex-wrap gap-2"><x-filament::button size="xs" color="gray" wire:click="resetDemo">Reset demo</x-filament::button><x-filament::button size="xs" :color="$comparison === 'current' ? 'primary' : 'gray'" wire:click="$set('comparison', 'current')">Current</x-filament::button><x-filament::button size="xs" :color="$comparison === 'proposed' ? 'primary' : 'gray'" wire:click="$set('comparison', 'proposed')">Proposed</x-filament::button>@if ($mode === 'advanced' && $comparison === 'proposed')<x-filament::button size="xs" color="gray" wire:click="toggleLayout">{{ $demoLayout === 'cards' ? 'Table layout' : 'Card layout' }}</x-filament::button>@endif</div>
         </div>
     </x-filament::section>
 
@@ -41,7 +41,7 @@
                 <div class="flex items-center justify-end text-xs text-gray-500">Illustrative role: {{ ucfirst($rolePreview) }} · actual permission checks remain enforced</div>
                 @endif
             </div>
-            @if ($layout === 'table' && $mode === 'advanced')
+            @if ($demoLayout === 'table' && $mode === 'advanced')
                 <div class="overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10"><table class="w-full min-w-[720px] text-sm"><thead class="bg-gray-50 text-left text-xs uppercase dark:bg-white/5"><tr><th class="px-3 py-2">Type</th><th class="px-3 py-2">Work</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Action</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-white/5">@foreach ($queue as $item)<tr wire:key="ux-queue-{{ $item['id'] }}"><td class="px-3 py-2">{{ $item['type'] }}</td><td class="px-3 py-2"><button class="font-semibold text-primary-600 hover:underline" wire:click="openPreview({{ $item['id'] }})">{{ $item['title'] }}</button><div class="text-xs text-gray-500">{{ $item['detail'] }}</div></td><td class="px-3 py-2"><x-filament::badge>{{ $item['status'] }}</x-filament::badge></td><td class="px-3 py-2"><x-filament::button size="xs" color="gray" wire:click="simulateAction({{ $item['id'] }}, 'read')">Mark read</x-filament::button></td></tr>@endforeach</tbody></table></div>
             @else
                 <div class="grid gap-3 md:grid-cols-2">

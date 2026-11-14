@@ -10,6 +10,7 @@ use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
+use App\Filament\Resources\StockMovements\StockMovementResource;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
@@ -89,8 +90,16 @@ class InventoryWorkspace extends Page
         $inventory = $inventoryQuery?->latest('product_inventories.updated_at')
             ->paginate(15, pageName: 'inventory-page') ?? collect();
 
+        // Movement history must remain inside BOTH the existing responsibility scope
+        // and the independent inventory.view_movements Access Control grant.
+        $canSeeMovements = $authorization->allows($user, InventoryPermission::ViewMovements);
+        $recentMovements = $canSeeMovements
+            ? app(InventoryReadService::class)->movements($user)->latest('occurred_at')->limit(6)->get()
+            : collect();
+
         return [
             'inventory' => $inventory,
+            'recentMovements' => $recentMovements,
             'summary' => [
                 'products' => $products->count(),
                 'available' => $products->sum('available'),
@@ -105,6 +114,7 @@ class InventoryWorkspace extends Page
                 'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getUrl() : null,
                 'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getUrl() : null,
                 'adjustments' => StockAdjustments::canAccess() ? StockAdjustments::getUrl() : null,
+                'movements' => $canSeeMovements && StockMovementResource::canViewAny() ? StockMovementResource::getUrl() : null,
             ]),
             'canViewProducts' => ProductResource::canViewAny(),
         ];

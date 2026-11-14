@@ -84,6 +84,10 @@ class SalesWorkspace extends Page
         $ordersQuery = $canOrders ? app(OrderReadService::class)->orders($user) : null;
         $webSalesQuery = $canWebSales ? app(WebSalesReadService::class)->orders($user) : null;
 
+        // Quantities are operational data; selling amounts retain their
+        // independent Access Control gates inside the existing read services.
+        $ordersQuery?->withCount('items')->withSum('items as total_units', 'ordered_quantity');
+
         foreach ([$ordersQuery, $webSalesQuery] as $query) {
             if ($query === null) {
                 continue;
@@ -124,6 +128,8 @@ class SalesWorkspace extends Page
         return [
             'orders' => $orders,
             'webSales' => $webSales,
+            'canSeeOrderValues' => $canOrders && app(OrderAuthorization::class)->allows($user, OrderPermission::ViewSellingPrice),
+            'canSeeWebSalesValues' => $canWebSales && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::ViewRevenue),
             'links' => array_filter([
                 'orders' => $canOrders ? OrderResource::getUrl() : null,
                 'createOrder' => OrderResource::canCreate() ? OrderResource::getUrl('create') : null,

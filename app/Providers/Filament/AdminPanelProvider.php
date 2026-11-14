@@ -41,7 +41,7 @@ class AdminPanelProvider extends PanelProvider
             ->sidebarFullyCollapsibleOnDesktop()
             ->navigationGroups([
                 'Workspace', 'Sales', 'Purchasing', 'Inventory', 'Marketplace', 'Returns & Service',
-                'Products', 'People', 'HR', 'Finance', 'Reports', 'Administration',
+                'Products', 'People', 'HR', 'Finance', 'Accounting', 'Reports', 'Administration',
             ])
             ->navigation(function (NavigationBuilder $builder): NavigationBuilder|bool {
                 if (auth()->user()?->employee?->role !== EmployeeRole::Technician) {

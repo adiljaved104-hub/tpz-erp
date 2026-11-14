@@ -6,7 +6,7 @@
             <x-filament::input.wrapper>
                 <x-filament::input.select wire:model.live="status" aria-label="Order status">
                     <option value="all">All statuses</option>
-                    @foreach (\\App\\Enums\\OrderStatus::cases() as $orderStatus)
+                    @foreach (\App\Enums\OrderStatus::cases() as $orderStatus)
                         <option value="{{ $orderStatus->value }}">{{ $orderStatus->getLabel() }}</option>
                     @endforeach
                 </x-filament::input.select>
@@ -18,7 +18,7 @@
             <x-filament::input.wrapper>
                 <x-filament::input.select wire:model.live="channel" aria-label="Web Sales channel">
                     <option value="">All Web Sales channels</option>
-                    @foreach (\\App\\Enums\\WebSalesChannel::cases() as $salesChannel)
+                    @foreach (\App\Enums\WebSalesChannel::cases() as $salesChannel)
                         <option value="{{ $salesChannel->value }}">{{ $salesChannel->getLabel() }}</option>
                     @endforeach
                 </x-filament::input.select>

@@ -5,6 +5,7 @@ namespace Tests\Feature\UiUx;
 use App\Enums\EmployeeRole;
 use App\Filament\Pages\UxLab;
 use App\Models\Employee;
+use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -29,6 +30,7 @@ class UxLabPrototypeTest extends TestCase
         $this->actingAs($owner);
 
         Livewire::test(UxLab::class)
+            ->set('dataMode', 'demo')
             ->assertSet('direction', 'aurora')
             ->set('direction', 'executive')
             ->assertSee('Executive')
@@ -59,6 +61,7 @@ class UxLabPrototypeTest extends TestCase
         $this->actingAs($owner);
 
         Livewire::test(UxLab::class)
+            ->set('dataMode', 'demo')
             ->set('search', 'NO-RESULT-XYZ')
             ->assertDontSee('SO-DEMO-001 · Noor Electronics')
             ->set('search', '')
@@ -75,6 +78,7 @@ class UxLabPrototypeTest extends TestCase
         $this->actingAs($owner);
 
         Livewire::test(UxLab::class)
+            ->set('dataMode', 'demo')
             ->call('chooseWorkspace', 'sales')
             ->call('chooseScreen', 'web')
             ->assertSee('WS-DEMO-014')
@@ -86,6 +90,25 @@ class UxLabPrototypeTest extends TestCase
             ->call('chooseScreen', 'adjustments')
             ->assertSee('ADJ-DEMO-002')
             ->assertDontSee('ST-DEMO-004 · Warehouse receiving');
+    }
+
+    public function test_real_preview_uses_existing_product_and_never_creates_inventory_or_orders(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        Product::factory()->create(['sku' => 'TPZ-LIVE-UX-001', 'name' => 'Existing ERP stock sample']);
+        $this->actingAs($owner);
+
+        Livewire::test(UxLab::class)
+            ->assertSet('dataMode', 'live')
+            ->call('chooseWorkspace', 'inventory')
+            ->assertSee('TPZ-LIVE-UX-001')
+            ->assertSee('Existing ERP records')
+            ->assertSee('Open Products')
+            ->assertDontSee('SO-DEMO-001 · Noor Electronics');
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('stock_requests', 0);
+        $this->assertDatabaseCount('products', 1);
     }
 
     public function test_prototype_contains_no_operational_write_controls(): void
@@ -102,5 +125,7 @@ class UxLabPrototypeTest extends TestCase
         $this->assertStringContainsString('downloadFeedback', $view);
         $this->assertStringContainsString('tpz-lab-shell', $view);
         $this->assertStringContainsString('wire:model.live="viewport"', $view);
+        $this->assertStringContainsString('Existing ERP records', $view);
+        $this->assertStringContainsString('View in ERP', $view);
     }
 }

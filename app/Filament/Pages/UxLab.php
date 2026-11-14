@@ -3,7 +3,9 @@
 namespace App\Filament\Pages;
 
 use App\Enums\EmployeeRole;
+use App\Filament\Resources\Orders\OrderResource;
 use App\Models\User;
+use App\Services\UiUx\UxLabReadOnlyWorkspaceService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 
@@ -23,6 +25,8 @@ class UxLab extends Page
     protected static ?int $navigationSort = 99;
 
     public string $direction = 'aurora';
+
+    public string $dataMode = 'live';
 
     public string $workspace = 'home';
 
@@ -72,6 +76,7 @@ class UxLab extends Page
     {
         abort_unless(static::canAccess(), 403);
         $this->direction = 'aurora';
+        $this->dataMode = 'live';
         $this->workspace = 'home';
         $this->screen = 'overview';
         $this->viewport = 'desktop';
@@ -210,6 +215,11 @@ class UxLab extends Page
 
         return [
             'workspaces' => $this->workspaceCatalog(),
+            'liveSections' => $this->dataMode === 'live'
+                ? app(UxLabReadOnlyWorkspaceService::class)->sections($this->workspace, $this->screen, $this->search)
+                : [],
+            'canCreateRealOrder' => OrderResource::canCreate(),
+            'realOrderCreateUrl' => OrderResource::canCreate() ? OrderResource::getUrl('create') : null,
             'screens' => $this->screenCatalog(),
             'homeItems' => $this->searchItems($this->homeItems()),
             'salesItems' => $this->screenItems($this->salesItems(), 'sales'),

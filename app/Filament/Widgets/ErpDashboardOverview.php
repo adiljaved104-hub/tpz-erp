@@ -3,6 +3,11 @@
 namespace App\Filament\Widgets;
 
 use App\Models\User;
+use App\Filament\Resources\Orders\OrderResource;
+use App\Filament\Resources\Purchases\PurchaseResource;
+use App\Filament\Resources\StockRequests\StockRequestResource;
+use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
+use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Dashboard\DashboardPreferenceService;
 use App\Services\Dashboard\DashboardWidgetRegistry;
 use App\Services\Dashboard\ErpDashboardService;
@@ -212,7 +217,30 @@ class ErpDashboardOverview extends Widget
                 : collect($layout)->map(fn (string $key): array => $authorizedDefinitions->get($key))->filter()->values(),
             'widget_definitions' => $authorizedDefinitions,
             'customize_mode' => $this->customizeMode,
+            'quick_actions' => $this->authorizedQuickActions($user),
         ];
+    }
+
+    /** @return array<int, array{label: string, url: string, icon: string}> */
+    private function authorizedQuickActions(User $user): array
+    {
+        if (! app(NavigationPreferenceService::class)->workspaceModeEnabled($user)) {
+            return [];
+        }
+
+        $actions = [];
+        foreach ([
+            [OrderResource::class, 'Create Sales Order', 'heroicon-o-shopping-bag'],
+            [PurchaseResource::class, 'Create Purchase', 'heroicon-o-shopping-cart'],
+            [StockRequestResource::class, 'Create Stock Request', 'heroicon-o-clipboard-document-list'],
+            [CustomerReturnResource::class, 'Record Customer Return', 'heroicon-o-arrow-uturn-left'],
+        ] as [$resource, $label, $icon]) {
+            if ($resource::canCreate()) {
+                $actions[] = ['label' => $label, 'url' => $resource::getUrl('create'), 'icon' => $icon];
+            }
+        }
+
+        return $actions;
     }
 
     private function loadPreferenceState(): void

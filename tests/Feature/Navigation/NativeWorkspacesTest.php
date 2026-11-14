@@ -48,6 +48,8 @@ class NativeWorkspacesTest extends TestCase
         $olderProduct = Product::factory()->create(['sku' => 'TPZ-OLDEST-UNIQUE-SEARCH']);
         ProductInventory::factory()->create([
             'product_id' => $olderProduct->id,
+            'available_quantity' => 8,
+            'reserved_quantity' => 0,
             'updated_at' => now()->subDays(5),
         ]);
 

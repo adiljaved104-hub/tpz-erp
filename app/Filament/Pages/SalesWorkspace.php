@@ -15,9 +15,12 @@ use App\Services\Orders\OrderReadService;
 use App\Services\Orders\WebSalesReadService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Livewire\WithPagination;
 
 class SalesWorkspace extends Page
 {
+    use WithPagination;
+
     protected string $view = 'filament.pages.sales-workspace';
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedShoppingBag;
@@ -94,10 +97,16 @@ class SalesWorkspace extends Page
         if ($webSalesQuery !== null && $this->customer !== '') {
             $webSalesQuery->where('orders.customer_name', 'like', '%'.$this->customer.'%');
         }
-        $orders = $ordersQuery?->latest('orders.order_date')->limit(8)->get() ?? collect();
-        $webSales = $webSalesQuery?->latest('orders.order_date')->limit(8)->get() ?? collect();
-        $orders = $orders->filter(fn ($order): bool => $this->matches($order->reference, $order->status?->value ?? $order->status));
-        $webSales = $webSales->filter(fn ($order): bool => $this->matches($order->reference, $order->status?->value ?? $order->status));
+        if ($this->search !== '') {
+            foreach ([$ordersQuery, $webSalesQuery] as $query) {
+                $query?->where(function ($search): void {
+                    $search->where('orders.reference', 'like', '%'.$this->search.'%')
+                        ->orWhere('orders.notes', 'like', '%'.$this->search.'%');
+                });
+            }
+        }
+        $orders = $ordersQuery?->latest('orders.order_date')->paginate(10, pageName: 'sales-page') ?? collect();
+        $webSales = $webSalesQuery?->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page') ?? collect();
 
         return [
             'orders' => $orders,
@@ -109,14 +118,5 @@ class SalesWorkspace extends Page
                 'dashboard' => WebSalesDashboard::getUrl(),
             ],
         ];
-    }
-
-    private function matches(?string $reference, mixed $status): bool
-    {
-        $needle = mb_strtolower(trim($this->search));
-        $haystack = mb_strtolower(($reference ?? '').' '.(string) $status);
-        $statusMatch = $this->status === 'all' || (string) $status === $this->status;
-
-        return $statusMatch && ($needle === '' || str_contains($haystack, $needle));
     }
 }

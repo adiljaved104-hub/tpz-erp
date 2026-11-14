@@ -34,6 +34,14 @@ class SalesWorkspace extends Page
 
     public string $search = '';
 
+    public string $customer = '';
+
+    public string $channel = '';
+
+    public string $from = '';
+
+    public string $to = '';
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -58,12 +66,36 @@ class SalesWorkspace extends Page
     {
         /** @var User $user */
         $user = auth()->user();
-        $orders = app(OrderAuthorization::class)->allows($user, OrderPermission::View)
-            ? app(OrderReadService::class)->orders($user)->latest('orders.order_date')->limit(8)->get()
-            : collect();
-        $webSales = app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View)
-            ? app(WebSalesReadService::class)->orders($user)->latest('orders.order_date')->limit(8)->get()
-            : collect();
+        $ordersQuery = app(OrderAuthorization::class)->allows($user, OrderPermission::View)
+            ? app(OrderReadService::class)->orders($user)
+            : null;
+        $webSalesQuery = app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View)
+            ? app(WebSalesReadService::class)->orders($user)
+            : null;
+        foreach ([$ordersQuery, $webSalesQuery] as $query) {
+            if ($query !== null && $this->status !== 'all') {
+                $query->where('orders.status', $this->status);
+            }
+            if ($query !== null && $this->from !== '') {
+                $query->whereDate('orders.order_date', '>=', $this->from);
+            }
+            if ($query !== null && $this->to !== '') {
+                $query->whereDate('orders.order_date', '<=', $this->to);
+            }
+        }
+        if ($webSalesQuery !== null && $this->channel !== '') {
+            $webSalesQuery->where('orders.web_sales_channel', $this->channel);
+        }
+        if ($ordersQuery !== null && $this->customer !== '') {
+            $ordersQuery->where(function ($query): void {
+                $query->where('orders.reference', 'like', '%'.$this->customer.'%')->orWhere('orders.notes', 'like', '%'.$this->customer.'%');
+            });
+        }
+        if ($webSalesQuery !== null && $this->customer !== '') {
+            $webSalesQuery->where('orders.customer_name', 'like', '%'.$this->customer.'%');
+        }
+        $orders = $ordersQuery?->latest('orders.order_date')->limit(8)->get() ?? collect();
+        $webSales = $webSalesQuery?->latest('orders.order_date')->limit(8)->get() ?? collect();
         $orders = $orders->filter(fn ($order): bool => $this->matches($order->reference, $order->status?->value ?? $order->status));
         $webSales = $webSales->filter(fn ($order): bool => $this->matches($order->reference, $order->status?->value ?? $order->status));
 

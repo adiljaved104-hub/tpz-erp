@@ -11,6 +11,7 @@ use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Pages\Page;
@@ -55,12 +56,19 @@ class InventoryWorkspace extends Page
     {
         /** @var User $user */
         $user = auth()->user();
+        $products = app(InventoryLocationOverviewService::class)->forUser($user, false);
         $inventory = app(InventoryReadService::class)->inventories($user)
             ->latest('product_inventories.updated_at')->limit(10)->get()
             ->filter(fn ($row): bool => $this->search === '' || str_contains(mb_strtolower($row->product?->sku.' '.$row->product?->name), mb_strtolower($this->search)));
 
         return [
             'inventory' => $inventory,
+            'summary' => [
+                'products' => $products->count(),
+                'available' => $products->sum('available'),
+                'reserved' => $products->sum('reserved'),
+                'allocated' => $products->sum('total_owned'),
+            ],
             'links' => [
                 'products' => ProductResource::getUrl(),
                 'inventory' => InventoryOverview::getUrl(),

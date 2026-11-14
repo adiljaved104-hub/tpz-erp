@@ -87,5 +87,32 @@
                 <div class="mt-4">{{ $inventory->links() }}</div>
             @endif
         </x-filament::section>
+        @if(isset($links['movements']))
+            <x-filament::section>
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">Recent inventory activity</h2>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Movements visible within your responsibility and Access Control scope.</p>
+                    </div>
+                    <a class="text-sm font-semibold text-primary-600 hover:underline dark:text-primary-400" href="{{ $links['movements'] }}">View movement history →</a>
+                </div>
+                <div class="divide-y divide-gray-100 dark:divide-white/10">
+                    @forelse($recentMovements as $movement)
+                        <a wire:key="movement-{{ $movement->id }}" href="{{ \App\Filament\\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}" class="flex flex-wrap items-center justify-between gap-3 py-3 hover:bg-gray-50 dark:hover:bg-white/5">
+                            <div class="min-w-0">
+                                <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ $movement->product?->sku ?? $movement->reference }}</p>
+                                <p class="text-xs text-gray-500">{{ $movement->movement_type?->label() ?? 'Inventory movement' }} · {{ $movement->warehouse?->name ?? 'Warehouse' }}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ number_format($movement->quantity) }} unit(s)</p>
+                                <p class="text-xs text-gray-500">{{ $movement->occurred_at?->format('d M Y, H:i') ?? '—' }}</p>
+                            </div>
+                        </a>
+                    @empty
+                        <p class="py-5 text-sm text-gray-500">No recent movements are visible in your authorized scope.</p>
+                    @endforelse
+                </div>
+            </x-filament::section>
+        @endif
     </div>
 </x-filament-panels::page>

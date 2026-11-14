@@ -98,7 +98,7 @@
                 </div>
                 <div class="divide-y divide-gray-100 dark:divide-white/10">
                     @forelse($recentMovements as $movement)
-                        <a wire:key="movement-{{ $movement->id }}" href="{{ \App\Filament\\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}" class="flex flex-wrap items-center justify-between gap-3 py-3 hover:bg-gray-50 dark:hover:bg-white/5">
+                        <a wire:key="movement-{{ $movement->id }}" href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}" class="flex flex-wrap items-center justify-between gap-3 py-3 hover:bg-gray-50 dark:hover:bg-white/5">
                             <div class="min-w-0">
                                 <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ $movement->product?->sku ?? $movement->reference }}</p>
                                 <p class="text-xs text-gray-500">{{ $movement->movement_type?->label() ?? 'Inventory movement' }} · {{ $movement->warehouse?->name ?? 'Warehouse' }}</p>

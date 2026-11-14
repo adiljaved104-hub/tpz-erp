@@ -2,6 +2,13 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Pages\Administration\AccessControl;
+use App\Filament\Pages\Administration\BackupSettings;
+use App\Filament\Pages\Administration\CompanyProfile;
+use App\Filament\Pages\Administration\InvoiceSettings;
+use App\Filament\Pages\Administration\LoginSecuritySettings;
+use App\Filament\Pages\Administration\OrderSettings;
+use App\Filament\Pages\Administration\TimezonePreferences;
 use Filament\Support\Icons\Heroicon;
 
 class AdministrationWorkspace extends BaseOperationalWorkspace
@@ -22,25 +29,25 @@ class AdministrationWorkspace extends BaseOperationalWorkspace
             'description' => 'Company configuration, governance and access management through existing authorized pages.',
             'icon' => 'heroicon-o-squares-2x2',
             'sections' => [
-            [
-                'title' => 'Security & governance',
-                'description' => 'Controlled access and system security',
-                'links' => [
-                    ['label' => 'Access Control', 'class' => \App\Filament\Pages\Administration\AccessControl::class, 'icon' => 'heroicon-o-key'],
-                    ['label' => 'Login Security', 'class' => \App\Filament\Pages\Administration\LoginSecuritySettings::class, 'icon' => 'heroicon-o-lock-closed'],
-                    ['label' => 'Backup Settings', 'class' => \App\Filament\Pages\Administration\BackupSettings::class, 'icon' => 'heroicon-o-circle-stack'],
+                [
+                    'title' => 'Security & governance',
+                    'description' => 'Controlled access and system security',
+                    'links' => [
+                        ['label' => 'Access Control', 'class' => AccessControl::class, 'icon' => 'heroicon-o-key'],
+                        ['label' => 'Login Security', 'class' => LoginSecuritySettings::class, 'icon' => 'heroicon-o-lock-closed'],
+                        ['label' => 'Backup Settings', 'class' => BackupSettings::class, 'icon' => 'heroicon-o-circle-stack'],
+                    ],
                 ],
-            ],
-            [
-                'title' => 'Company settings',
-                'description' => 'Existing ERP configuration without changing operational data',
-                'links' => [
-                    ['label' => 'Company Profile', 'class' => \App\Filament\Pages\Administration\CompanyProfile::class, 'icon' => 'heroicon-o-building-office'],
-                    ['label' => 'Invoice Settings', 'class' => \App\Filament\Pages\Administration\InvoiceSettings::class, 'icon' => 'heroicon-o-document-text'],
-                    ['label' => 'Order Settings', 'class' => \App\Filament\Pages\Administration\OrderSettings::class, 'icon' => 'heroicon-o-adjustments-horizontal'],
-                    ['label' => 'Timezone Preferences', 'class' => \App\Filament\Pages\Administration\TimezonePreferences::class, 'icon' => 'heroicon-o-clock'],
+                [
+                    'title' => 'Company settings',
+                    'description' => 'Existing ERP configuration without changing operational data',
+                    'links' => [
+                        ['label' => 'Company Profile', 'class' => CompanyProfile::class, 'icon' => 'heroicon-o-building-office'],
+                        ['label' => 'Invoice Settings', 'class' => InvoiceSettings::class, 'icon' => 'heroicon-o-document-text'],
+                        ['label' => 'Order Settings', 'class' => OrderSettings::class, 'icon' => 'heroicon-o-adjustments-horizontal'],
+                        ['label' => 'Timezone Preferences', 'class' => TimezonePreferences::class, 'icon' => 'heroicon-o-clock'],
+                    ],
                 ],
-            ],
             ],
         ];
     }

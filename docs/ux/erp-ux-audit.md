@@ -40,3 +40,7 @@ The Owner can switch directions, workspaces, screens, role previews, and respons
 3. Sales Orders and Web Sales Orders: mixed-source context and safe action presentation.
 4. Inventory, Stock Requests, Stock Transfers, and Stock Adjustments: quantity-progress and responsibility-aware views.
 5. Purchasing, Receiving, Returns, QC, Accounting, Notifications, HR, and Mobile: shared interaction patterns and role-specific read models.
+
+## Native workspace phases
+
+Phase A adds the opt-in workspace grouping while retaining the legacy navigation fallback. Phase B adds `SalesWorkspace`, which reads through `OrderReadService` and `WebSalesReadService` and links to the existing Sales Order, Web Sales, Dashboard, and Quotation resources. Phase C adds `InventoryWorkspace`, which reads through `InventoryReadService` and links to Product, Inventory, Stock Request, Stock Transfer, and Stock Adjustment pages. Neither workspace writes operational records or replaces existing resource workflows.

@@ -4,6 +4,8 @@ namespace Tests\Feature\Navigation;
 
 use App\Enums\EmployeeRole;
 use App\Filament\Pages\CustomizeNavigation;
+use App\Filament\Pages\InventoryWorkspace;
+use App\Filament\Pages\SalesWorkspace;
 use App\Models\Employee;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Preferences\UserUiPreferenceService;
@@ -21,9 +23,13 @@ class WorkspaceNavigationOptInTest extends TestCase
 
         $this->actingAs($owner)->get(CustomizeNavigation::getUrl())->assertOk()->assertSee('Simplified workspace navigation');
         $this->actingAs($owner);
+        $this->assertFalse(SalesWorkspace::canAccess());
+        $this->assertFalse(InventoryWorkspace::canAccess());
         Livewire::test(CustomizeNavigation::class)->call('toggleWorkspaceMode');
 
         $this->assertTrue(app(NavigationPreferenceService::class)->workspaceModeEnabled($owner));
+        $this->assertTrue(SalesWorkspace::canAccess());
+        $this->assertTrue(InventoryWorkspace::canAccess());
         $this->assertSame([], app(UserUiPreferenceService::class)->get($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS));
     }
 

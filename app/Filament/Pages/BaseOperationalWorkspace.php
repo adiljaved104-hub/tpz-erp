@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\User;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Pages\Page;
+use Filament\Resources\Resource;
 use Illuminate\Support\Collection;
 
 /**
@@ -19,6 +20,12 @@ abstract class BaseOperationalWorkspace extends Page
 
     /** @return array{title: string, eyebrow: string, description: string, icon: string, sections: array<int, array{title: string, description: string, links: array<int, array{label: string, class: class-string, icon: string}>}>} */
     abstract protected static function workspaceDefinition(): array;
+
+    /** @return array<int, array{label: string, class: class-string<Resource>, icon: string}> */
+    protected static function metricResources(): array
+    {
+        return [];
+    }
 
     public static function canAccess(): bool
     {
@@ -47,7 +54,48 @@ abstract class BaseOperationalWorkspace extends Page
         return [
             'workspace' => static::workspaceDefinition(),
             'sections' => static::authorizedSections(),
+            'metrics' => static::authorizedMetrics(),
+            'quickActions' => static::authorizedQuickActions(),
         ];
+    }
+
+    /** @return Collection<int, array{label: string, value: int, icon: string, url: string}> */
+    private static function authorizedMetrics(): Collection
+    {
+        return collect(static::metricResources())
+            ->filter(fn (array $item): bool => $item['class']::canViewAny())
+            ->map(fn (array $item): array => [
+                'label' => $item['label'],
+                // Never query an unrestricted model. The Resource query carries
+                // the same responsibility and access scope as its Filament table.
+                'value' => $item['class']::getEloquentQuery()->count(),
+                'icon' => $item['icon'],
+                'url' => $item['class']::getUrl(),
+            ])
+            ->values();
+    }
+
+    /** @return Collection<int, array{label: string, icon: string, url: string}> */
+    private static function authorizedQuickActions(): Collection
+    {
+        $definition = static::workspaceDefinition();
+
+        return collect($definition['sections'])
+            ->flatMap(fn (array $section): array => $section['links'])
+            ->filter(function (array $link): bool {
+                $class = $link['class'];
+
+                return is_subclass_of($class, Resource::class)
+                    && array_key_exists('create', $class::getPages())
+                    && $class::canCreate();
+            })
+            ->take(3)
+            ->map(fn (array $link): array => [
+                'label' => 'Create '.$link['label'],
+                'icon' => $link['icon'],
+                'url' => $link['class']::getUrl('create'),
+            ])
+            ->values();
     }
 
     /** @return Collection<int, array<string, mixed>> */

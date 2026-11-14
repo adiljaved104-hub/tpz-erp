@@ -4,7 +4,7 @@
             <div>
                 <p class="tpz-workspace-eyebrow">Inventory operations</p>
                 <h1 class="tpz-workspace-title">Inventory &amp; Warehouse</h1>
-                <p class="tpz-workspace-subtitle">Available stock, reservations and actions within your authorized responsibility.</p>
+                <p class="tpz-workspace-subtitle">Available Stock, reservations and actions within your authorized responsibility.</p>
             </div>
             <div class="flex flex-wrap gap-2">
                 @if(isset($links['createRequest']))
@@ -28,12 +28,12 @@
         </nav>
 
         @if($canSeeSummary)
-            <div class="tpz-workspace-metrics">
+            <div class="tpz-workspace-metrics tpz-reference-inventory-metrics">
                 @foreach ([
-                    'products' => ['label' => 'Accessible products', 'icon' => 'heroicon-o-cube', 'accent' => 'blue'],
-                    'available' => ['label' => 'Available stock', 'icon' => 'heroicon-o-check-circle', 'accent' => 'teal'],
-                    'reserved' => ['label' => 'Reserved stock', 'icon' => 'heroicon-o-clock', 'accent' => 'amber'],
-                    'allocated' => ['label' => 'Owned / allocated view', 'icon' => 'heroicon-o-squares-2x2', 'accent' => 'violet'],
+                    'products' => ['label' => 'Accessible Products', 'icon' => 'heroicon-o-cube', 'accent' => 'blue'],
+                    'available' => ['label' => 'Available Stock', 'icon' => 'heroicon-o-check-circle', 'accent' => 'teal'],
+                    'reserved' => ['label' => 'Reserved Stock', 'icon' => 'heroicon-o-clock', 'accent' => 'amber'],
+                    'allocated' => ['label' => 'Allocated Stock', 'icon' => 'heroicon-o-squares-2x2', 'accent' => 'violet'],
                 ] as $key => $metric)
                     <div class="tpz-workspace-metric tpz-workspace-metric--{{ $metric['accent'] }}">
                         <span class="tpz-workspace-metric-icon"><x-filament::icon :icon="$metric['icon']" class="size-5" /></span>
@@ -49,7 +49,7 @@
         @if($canSeeSummary)
             <x-filament::section>
                 <div class="mb-4">
-                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Low-stock alerts</h2>
+                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Low Stock</h2>
                     <p class="text-xs text-gray-500 dark:text-gray-400">Authorized products with sellable stock at or below the configured threshold ({{ $lowStockThreshold }} units).</p>
                 </div>
                 <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -76,7 +76,7 @@
         <x-filament::section>
             <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Authorized inventory</h2>
+                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Authorized Inventory</h2>
                     <p class="text-xs text-gray-500 dark:text-gray-400">Responsibility-scoped stock quantities. Search covers all matching records.</p>
                 </div>
                 <div class="w-full sm:w-72">
@@ -120,7 +120,7 @@
             <x-filament::section>
                 <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <div>
-                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">Recent inventory activity</h2>
+                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">Recent Inventory Activity</h2>
                         <p class="text-xs text-gray-500 dark:text-gray-400">Movements visible within your responsibility and Access Control scope.</p>
                     </div>
                     <a class="text-sm font-semibold text-primary-600 hover:underline dark:text-primary-400" href="{{ $links['movements'] }}">View movement history →</a>

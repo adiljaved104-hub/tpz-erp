@@ -143,6 +143,81 @@
     @endif
 
     <div class="erp-dashboard-stack" data-dashboard-role="{{ $role_label }}" data-dashboard-customizing="{{ $customize_mode ? 'true' : 'false' }}">
+        @if (app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user()))
+            <div class="tpz-reference-home tpz-reference-home--final">
+
+                <div class="tpz-home-welcome">
+                    <div>
+                        <div class="tpz-eyebrow">TPZ ERP</div>
+                        <h1>Welcome, {{ auth()->user()->name }}</h1>
+                        <p>Your authorized operational overview.</p>
+                    </div>
+                </div>
+
+                <div class="tpz-home-kpis">
+                    @foreach ($cards->filter(fn ($card) => ($card['type'] ?? null) !== 'action' && is_numeric($card['value'] ?? null))->take(5)->values() as $index => $card)
+                        @php
+                            $tone = ['blue', 'green', 'amber', 'indigo', 'rose'][$index % 5];
+                        @endphp
+
+                        <div class="tpz-home-kpi {{ $tone }}">
+                            <div>
+                                <span>{{ $card['label'] }}</span>
+                                <strong>{{ number_format((float) $card['value']) }}</strong>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                <div class="tpz-home-panels">
+
+                    <x-filament::section compact heading="My Workspace">
+                        <div class="tpz-home-list">
+                            @forelse ($attention->take(4) as $item)
+                                <a href="{{ $item['url'] }}">
+                                    <span>{{ $item['label'] }}</span>
+                                    <b>{{ number_format($item['count']) }}</b>
+                                </a>
+                            @empty
+                                <div class="tpz-empty">No pending work.</div>
+                            @endforelse
+                        </div>
+                    </x-filament::section>
+
+                    <x-filament::section compact heading="Recent Activity">
+                        <div class="tpz-home-list">
+                            @if ($recent_activity['enabled'])
+                                @forelse ($recent_activity['movements']->take(4) as $movement)
+                                    <div class="tpz-list-row">
+                                        <span>
+                                            {{ $movement->product?->sku ?? $movement->reference }}
+                                        </span>
+                                        <small>{{ $movement->occurred_at?->format('d M, H:i') }}</small>
+                                    </div>
+                                @empty
+                                    <div class="tpz-empty">No recent inventory activity.</div>
+                                @endforelse
+                            @else
+                                <div class="tpz-empty">No authorized activity available.</div>
+                            @endif
+                        </div>
+                    </x-filament::section>
+
+                    <x-filament::section compact heading="Quick Actions">
+                        <div class="tpz-home-actions">
+                            @forelse (array_slice($quick_actions, 0, 4) as $action)
+                                <a href="{{ $action['url'] }}">
+                                    {{ $action['label'] }}
+                                </a>
+                            @empty
+                                <div class="tpz-empty">No authorized actions available.</div>
+                            @endforelse
+                        </div>
+                    </x-filament::section>
+
+                </div>
+            </div>
+        @endif
         <x-filament::section compact>
             <x-slot name="heading">Operational Overview</x-slot>
             <x-slot name="description">{{ $period_label }} · {{ $role_label }} access</x-slot>

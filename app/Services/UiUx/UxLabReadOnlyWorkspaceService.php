@@ -11,7 +11,6 @@ use App\Filament\Resources\Quotations\QuotationResource;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
 use BackedEnum;
-use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Model;
 
 /**

@@ -3,10 +3,13 @@
 namespace App\Filament\Widgets;
 
 use App\Models\User;
+use App\Enums\InventoryPermission;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Purchases\PurchaseResource;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
+use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Inventory\InventoryReadService;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Dashboard\DashboardPreferenceService;
 use App\Services\Dashboard\DashboardWidgetRegistry;
@@ -218,6 +221,21 @@ class ErpDashboardOverview extends Widget
             'widget_definitions' => $authorizedDefinitions,
             'customize_mode' => $this->customizeMode,
             'quick_actions' => $this->authorizedQuickActions($user),
+            'recent_activity' => $this->authorizedRecentActivity($user),
+        ];
+    }
+
+    /** @return array{enabled: bool, movements: \\Illuminate\\Support\\Collection} */
+    private function authorizedRecentActivity(User $user): array
+    {
+        $enabled = app(NavigationPreferenceService::class)->workspaceModeEnabled($user)
+            && app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewMovements);
+
+        return [
+            'enabled' => $enabled,
+            'movements' => $enabled
+                ? app(InventoryReadService::class)->movements($user)->latest('occurred_at')->limit(5)->get()
+                : collect(),
         ];
     }
 

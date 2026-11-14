@@ -64,8 +64,8 @@
     @endverbatim
     <div class="tpz-lab-shell {{ $direction === 'executive' ? 'tpz-lab-executive' : 'tpz-lab-aurora' }} {{ $viewport === 'mobile' ? 'mx-auto max-w-md' : '' }}">
         <header class="tpz-lab-header">
-            <div><div class="tpz-eyebrow">TPZ ERP / CONCEPT STUDIO</div><h1 class="tpz-title">A calmer way to run the business.</h1><p class="tpz-muted">Compare two premium workspace directions using isolated demonstration data.</p></div>
-            <div class="flex flex-wrap items-center gap-2"><x-filament::input.wrapper><x-filament::input.select wire:model.live="direction" aria-label="Design direction"><option value="aurora">Modern Workspace</option><option value="executive">Executive</option></x-filament::input.select></x-filament::input.wrapper><x-filament::input.wrapper><x-filament::input.select wire:model.live="rolePreview" aria-label="Role preview"><option value="owner">Owner view</option><option value="employee">Employee view</option></x-filament::input.select></x-filament::input.wrapper><x-filament::input.wrapper><x-filament::input.select wire:model.live="viewport" aria-label="Preview size"><option value="desktop">Desktop preview</option><option value="mobile">Mobile preview</option></x-filament::input.select></x-filament::input.wrapper><x-filament::button size="sm" color="gray" wire:click="resetDemo">Reset</x-filament::button></div>
+            <div><div class="tpz-eyebrow">TPZ ERP / CONCEPT STUDIO</div><h1 class="tpz-title">A calmer way to run the business.</h1><p class="tpz-muted">Review your existing ERP records in the proposed interface. Switch to simulation to test safe demonstration flows.</p></div>
+            <div class="flex flex-wrap items-center gap-2"><x-filament::input.wrapper><x-filament::input.select wire:model.live="dataMode" aria-label="Review data source"><option value="live">Existing ERP records</option><option value="demo">Simulate workflow</option></x-filament::input.select></x-filament::input.wrapper><x-filament::input.wrapper><x-filament::input.select wire:model.live="direction" aria-label="Design direction"><option value="aurora">Modern Workspace</option><option value="executive">Executive</option></x-filament::input.select></x-filament::input.wrapper><x-filament::input.wrapper><x-filament::input.select wire:model.live="rolePreview" aria-label="Role preview"><option value="owner">Owner view</option><option value="employee">Employee view</option></x-filament::input.select></x-filament::input.wrapper><x-filament::input.wrapper><x-filament::input.select wire:model.live="viewport" aria-label="Preview size"><option value="desktop">Desktop preview</option><option value="mobile">Mobile preview</option></x-filament::input.select></x-filament::input.wrapper><x-filament::button size="sm" color="gray" wire:click="resetDemo">Reset</x-filament::button></div>
         </header>
 
         <div class="tpz-lab-layout">
@@ -81,11 +81,47 @@
             </aside>
 
             <main class="tpz-lab-main">
-                <div class="tpz-topbar"><div class="tpz-search"><span>⌕</span><input wire:model.live.debounce.250ms="search" placeholder="Search demo records, SKUs, customers…" aria-label="Search demo records"></div><div class="flex items-center gap-3"><button type="button" class="tpz-icon-button" wire:click="openRecord('alert-012')" aria-label="Open demo notification">◌<span class="tpz-notification-dot"></span></button><span class="tpz-avatar" title="Demo role">{{ $rolePreview === 'owner' ? 'OW' : 'EM' }}</span></div></div>
-                <div class="tpz-breadcrumb"><span>{{ $workspaces[$workspace]['label'] }}</span><span>/</span><strong>{{ $screens[$workspace][$screen] ?? 'Overview' }}</strong><span class="ml-auto text-xs">{{ ucfirst($rolePreview) }} preview · {{ ucfirst($viewport) }}</span></div>
+                <div class="tpz-topbar"><div class="tpz-search"><span>⌕</span><input wire:model.live.debounce.250ms="search" placeholder="{{ $dataMode === 'live' ? 'Filter latest authorized records…' : 'Search demo records, SKUs, customers…' }}" aria-label="{{ $dataMode === 'live' ? 'Filter visible real records' : 'Search demonstration records' }}"></div><div class="flex items-center gap-3"><button type="button" class="tpz-icon-button" wire:click="openRecord('alert-012')" aria-label="Open demo notification">◌<span class="tpz-notification-dot"></span></button><span class="tpz-avatar" title="Demo role">{{ $rolePreview === 'owner' ? 'OW' : 'EM' }}</span></div></div>
+                <div class="tpz-breadcrumb"><span>{{ $workspaces[$workspace]['label'] }}</span><span>/</span><strong>{{ $screens[$workspace][$screen] ?? 'Overview' }}</strong><span class="ml-auto text-xs">{{ $dataMode === 'live' ? 'REAL RECORDS · READ ONLY' : 'SIMULATION ONLY' }} · {{ ucfirst($viewport) }}</span></div>
 
-                <section class="tpz-hero"><div><div class="tpz-eyebrow">{{ strtoupper($workspaces[$workspace]['label']) }}</div><h2>{{ $screens[$workspace][$screen] ?? 'Workspace' }}</h2><p>{{ $workspaces[$workspace]['description'] }}</p></div><div class="flex flex-wrap gap-2"><x-filament::button size="sm" wire:click="openCreateOrder">＋ Create Order</x-filament::button>@if ($workspace === 'home')<x-filament::button size="sm" color="gray" wire:click="chooseScreen('activity')">View activity</x-filament::button>@endif</div></section>
+                <section class="tpz-hero"><div><div class="tpz-eyebrow">{{ strtoupper($workspaces[$workspace]['label']) }}</div><h2>{{ $screens[$workspace][$screen] ?? 'Workspace' }}</h2><p>{{ $workspaces[$workspace]['description'] }}</p></div><div class="flex flex-wrap gap-2">@if ($dataMode === 'live') @if ($workspace === 'sales' && $canCreateRealOrder)<x-filament::button tag="a" :href="$realOrderCreateUrl" size="sm">＋ Create in current ERP</x-filament::button>@endif @else <x-filament::button size="sm" wire:click="openCreateOrder">＋ Create demo order</x-filament::button>@endif @if ($workspace === 'home' && $dataMode === 'demo')<x-filament::button size="sm" color="gray" wire:click="chooseScreen('activity')">View activity</x-filament::button>@endif</div></section>
 
+                @if ($dataMode === 'live')
+                    <section class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm dark:border-emerald-900 dark:bg-emerald-950/30" aria-label="Real records mode">
+                        <strong>Existing ERP records · read-only preview</strong>
+                        <p class="mt-1 text-xs">These are your actual authorized Staging records, displayed through existing ERP read scopes. The prototype cannot approve, ship, reserve, or edit them. Select a record to open its original ERP page, where existing workflows and permissions continue to apply.</p>
+                    </section>
+                    @if (in_array($workspace, ['sales', 'inventory'], true))
+                        <nav class="tpz-work-tabs mt-5 flex-wrap" aria-label="Existing ERP module views">
+                            @foreach ($screens[$workspace] as $key => $label)
+                                <button type="button" class="{{ $screen === $key ? 'is-active' : '' }}" wire:click="chooseScreen('{{ $key }}')">{{ $label }}</button>
+                            @endforeach
+                        </nav>
+                    @endif
+                    @forelse ($liveSections as $section)
+                        <div class="tpz-section-heading"><div><h3>{{ $section['label'] }}</h3><p>Latest authorized records · open the original ERP for complete filters and actions.</p></div>
+                        <a href="{{ $section['url'] }}" class="rounded-lg border border-current px-3 py-2 text-xs font-semibold">Open {{ $section['label'] }} ↗</a></div>
+                        <div class="tpz-order-table">
+                            <div class="tpz-table-head"><span>Record</span><span>Details</span><span>Status</span><span>Open</span></div>
+                            @forelse ($section['rows'] as $record)
+                                <a class="tpz-table-row" href="{{ $record['url'] }}" aria-label="Open {{ $record['title'] }} in existing ERP">
+                                    <span><strong>{{ $record['title'] }}</strong></span>
+                                    <span>{{ $record['detail'] }}</span>
+                                    <span class="tpz-status">{{ $record['status'] }}</span>
+                                    <span>View in ERP ↗</span>
+                                </a>
+                            @empty
+                                <div class="tpz-empty-search">No matching records in the latest six authorized entries. Open the full module to search all records.</div>
+                            @endforelse
+                        </div>
+                    @empty
+                        <div class="tpz-empty-concept mt-5">
+                            <h3>Existing records are not connected here yet</h3>
+                            <p>This workspace keeps its existing ERP pages. We are connecting approved modules one at a time; no historical data or workflow has been removed.</p>
+                            <x-filament::button size="sm" color="gray" wire:click="chooseWorkspace('sales')">See connected Sales modules</x-filament::button>
+                        </div>
+                    @endforelse
+                @else
                 @if ($workspace === 'home')
                     <div class="tpz-section-heading"><div><h3>{{ $rolePreview === 'owner' ? 'Good morning, Owner' : 'Your work, made simple' }}</h3><p>Here is the work that deserves attention today.</p></div><span class="tpz-live-pill"><i></i> Simulation live</span></div>
                     <div class="tpz-action-grid">@forelse ($homeItems as $item)<button class="tpz-action-row" wire:click="openRecord('{{ $item['id'] }}')"><span class="tpz-row-icon">{{ $item['type'] === 'Approval' ? '✓' : ($item['type'] === 'Transfer' ? '↔' : '↗') }}</span><span class="min-w-0 flex-1 text-left"><strong>{{ $item['title'] }}</strong><small>{{ $item['meta'] }}</small></span><span class="tpz-status">{{ $item['status'] }}</span><span>→</span></button>@empty <div class="tpz-empty-search">No matching demo tasks or alerts.</div> @endforelse</div>
@@ -102,7 +138,9 @@
                     <div class="tpz-empty-concept"><div class="tpz-empty-orbit">◈</div><h3>{{ $workspaces[$workspace]['label'] }} concept</h3><p>This workspace inherits the same TPZ navigation, tables, drawers, permissions, and responsive design language.</p><x-filament::button size="sm" color="gray" wire:click="chooseWorkspace('home')">Return Home</x-filament::button></div>
                 @endif
 
-                <section class="tpz-feedback-panel mt-8"><div><div class="tpz-eyebrow">OWNER REVIEW</div><h3>Which direction should TPZ become?</h3><p>Export your session note before employee testing.</p></div><div class="flex flex-1 flex-wrap gap-2"><textarea wire:model="feedback" rows="2" class="tpz-feedback-input" placeholder="Design feedback…"></textarea><div class="flex gap-2"><x-filament::button size="sm" wire:click="captureFeedback">Save note</x-filament::button><x-filament::button size="sm" color="gray" wire:click="downloadFeedback">Export</x-filament::button></div></div></section>
+                @endif
+
+                <section class="tpz-feedback-panel mt-8"><div><div class="tpz-eyebrow">OWNER REVIEW</div><h3>Which direction should TPZ become?</h3><p>Review navigation with live read-only records, then export your feedback.</p></div><div class="flex flex-1 flex-wrap gap-2"><textarea wire:model="feedback" rows="2" class="tpz-feedback-input" placeholder="Design feedback…"></textarea><div class="flex gap-2"><x-filament::button size="sm" wire:click="captureFeedback">Save note</x-filament::button><x-filament::button size="sm" color="gray" wire:click="downloadFeedback">Export</x-filament::button></div></div></section>
             </main>
         </div>
     </div>

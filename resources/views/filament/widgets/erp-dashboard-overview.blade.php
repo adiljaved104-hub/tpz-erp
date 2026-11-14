@@ -95,6 +95,26 @@
         </header>
     @endif
 
+    @if($quick_actions !== [])
+        <section class="mb-4" aria-label="Quick actions">
+            <div class="mb-3 flex items-center justify-between">
+                <h2 class="text-base font-bold text-gray-950 dark:text-white">Quick actions</h2>
+                <span class="text-xs text-gray-500 dark:text-gray-400">Available for your role</span>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                @foreach($quick_actions as $action)
+                    <a href="{{ $action['url'] }}" class="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-primary-400 hover:shadow-md dark:border-white/10 dark:bg-gray-900 dark:text-white">
+                        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                            <x-filament::icon :icon="$action['icon']" class="size-5" />
+                        </span>
+                        <span>{{ $action['label'] }}</span>
+                        <x-filament::icon icon="heroicon-o-arrow-up-right" class="ml-auto size-4 opacity-60" />
+                    </a>
+                @endforeach
+            </div>
+        </section>
+    @endif
+
     <div class="erp-dashboard-stack" data-dashboard-role="{{ $role_label }}" data-dashboard-customizing="{{ $customize_mode ? 'true' : 'false' }}">
         <x-filament::section compact>
             <x-slot name="heading">Operational Overview</x-slot>

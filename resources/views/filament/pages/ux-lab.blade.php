@@ -56,7 +56,11 @@
 .tpz-lab-shell .tpz-qty-control button { border:1px solid var(--tpz-line); border-radius:8px; padding:8px 10px; }
 @media (max-width:520px) { .tpz-lab-shell .tpz-lab-sidebar { width:57px; padding:12px 5px; } .tpz-lab-shell .tpz-lab-sidebar .tpz-nav-item > span:last-child, .tpz-lab-shell .tpz-lab-sidebar .tpz-brand > span:last-child { display:none; } .tpz-lab-shell .tpz-lab-main { padding:0 10px 18px; } .tpz-lab-shell .tpz-hero { padding:20px 14px; } }
 
-    </style>
+    .tpz-modal, .tpz-drawer { --tpz-panel:#fff; --tpz-ink:#12212b; --tpz-wash:#edf3f0; --tpz-line:#dbe6e1; --tpz-muted:#627780; --tpz-accent:#d9754d; --tpz-accent-strong:#b95d3a; color:var(--tpz-ink); }
+.dark .tpz-lab-shell { --tpz-wash:#17272c; --tpz-panel:#203238; --tpz-line:#385258; --tpz-glow:#2b494a; }
+.dark .tpz-lab-executive .tpz-lab-header { background:#243036; }
+.dark .tpz-modal, .dark .tpz-drawer { --tpz-panel:#1b2a31; --tpz-ink:#ecf3f0; --tpz-wash:#253b41; --tpz-line:#385258; --tpz-muted:#adc5c6; }
+</style>
     @endverbatim
     <div class="tpz-lab-shell {{ $direction === 'executive' ? 'tpz-lab-executive' : 'tpz-lab-aurora' }} {{ $viewport === 'mobile' ? 'mx-auto max-w-md' : '' }}">
         <header class="tpz-lab-header">
@@ -103,11 +107,11 @@
     </div>
 
     @if ($drawerOpen)
-        <div class="tpz-overlay" wire:click="closeDrawer"></div><aside class="tpz-drawer"><button class="tpz-drawer-close" wire:click="closeDrawer">×</button><div class="tpz-eyebrow">RECORD PREVIEW</div><h2>{{ $selected }}</h2><p class="tpz-muted">This is an isolated review drawer. Existing ERP record services are not called.</p><div class="tpz-drawer-block"><strong>Context</strong><p>Responsibility, status, customer, warehouse, and next action would appear here.</p></div><x-filament::button size="sm" color="gray" wire:click="closeDrawer">Close preview</x-filament::button></aside>
+        <div class="tpz-overlay" wire:click="closeDrawer"></div><aside class="tpz-drawer" role="dialog" aria-modal="true" aria-label="Demo record preview"><button class="tpz-drawer-close" wire:click="closeDrawer">×</button><div class="tpz-eyebrow">RECORD PREVIEW</div><h2>{{ $selected }}</h2><p class="tpz-muted">This is an isolated review drawer. Existing ERP record services are not called.</p><div class="tpz-drawer-block"><strong>Context</strong><p>Responsibility, status, customer, warehouse, and next action would appear here.</p></div><x-filament::button size="sm" color="gray" wire:click="closeDrawer">Close preview</x-filament::button></aside>
     @endif
 
     @if ($modalOpen)
-        <div class="tpz-overlay" wire:click="closeModal"></div><aside class="tpz-modal"><div class="flex items-center justify-between"><div><div class="tpz-eyebrow">SIMULATED FLOW</div><h2>Create Sales Order</h2></div><button class="tpz-drawer-close" wire:click="closeModal">×</button></div><div class="tpz-stepper">@foreach (['catalog' => 'Products', 'customer' => 'Customer', 'review' => 'Review', 'reserve' => 'Reserve', 'confirmed' => 'Done'] as $key => $label)<span class="{{ $flowStep === $key ? 'is-active' : '' }}">{{ $label }}</span>@endforeach</div>@if ($flowStep === 'catalog')<h3>Select products</h3><div class="space-y-2">@forelse ($products as $product)<button type="button" class="tpz-product-row" wire:click="addDemoProduct('{{ $product['sku'] }}')"><span><strong>{{ $product['sku'] }}</strong><small>{{ $product['title'] }}</small></span><span>{{ $product['stock'] }}</span><span>AED {{ number_format($product['price'], 0) }} →</span></button>@empty <p class="tpz-empty-search">No demo products match your search.</p> @endforelse</div>@elseif ($flowStep === 'customer')<h3>Customer and lines</h3><p class="tpz-muted">Demo customer: Noor Electronics · {{ count($demoOrderLines) }} line(s) · AED {{ number_format($orderTotal, 2) }}</p>
+        <div class="tpz-overlay" wire:click="closeModal"></div><aside class="tpz-modal" role="dialog" aria-modal="true" aria-label="Demo create sales order"><div class="flex items-center justify-between"><div><div class="tpz-eyebrow">SIMULATED FLOW</div><h2>Create Sales Order</h2></div><button class="tpz-drawer-close" wire:click="closeModal">×</button></div><div class="tpz-stepper">@foreach (['catalog' => 'Products', 'customer' => 'Customer', 'review' => 'Review', 'reserve' => 'Reserve', 'confirmed' => 'Done'] as $key => $label)<span class="{{ $flowStep === $key ? 'is-active' : '' }}">{{ $label }}</span>@endforeach</div>@if ($flowStep === 'catalog')<h3>Select products</h3><div class="space-y-2">@forelse ($products as $product)<button type="button" class="tpz-product-row" wire:click="addDemoProduct('{{ $product['sku'] }}')"><span><strong>{{ $product['sku'] }}</strong><small>{{ $product['title'] }}</small></span><span>{{ $product['stock'] }}</span><span>AED {{ number_format($product['price'], 0) }} →</span></button>@empty <p class="tpz-empty-search">No demo products match your search.</p> @endforelse</div>@elseif ($flowStep === 'customer')<h3>Customer and lines</h3><p class="tpz-muted">Demo customer: Noor Electronics · {{ count($demoOrderLines) }} line(s) · AED {{ number_format($orderTotal, 2) }}</p>
         @foreach ($demoOrderLines as $index => $line)
           <div class="tpz-qty-control" wire:key="demo-line-{{ $index }}">
             <span class="flex-1 text-sm">{{ $line['sku'] }} — {{ $line['title'] }}</span>

@@ -44,6 +44,9 @@ class NavigationPreferenceService
     /** @param array<int, NavigationGroup> $groups @return array<int, NavigationGroup> */
     public function apply(User $user, array $groups): array
     {
+        if ($this->workspaceModeEnabled($user)) {
+            $groups = $this->workspaceGroups($groups);
+        }
         $hidden = $this->hiddenItems($user, $groups);
         $order = $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_GROUP_ORDER);
 
@@ -66,10 +69,45 @@ class NavigationPreferenceService
         ])->values()->all();
     }
 
+    public function workspaceModeEnabled(User $user): bool
+    {
+        return in_array('enabled', $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE), true);
+    }
+
+    public function setWorkspaceMode(User $user, bool $enabled): void
+    {
+        $this->preferences->put($user, UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE, $enabled ? ['enabled'] : []);
+    }
+
+    /** @param array<int, NavigationGroup> $groups @return array<int, NavigationGroup> */
+    private function workspaceGroups(array $groups): array
+    {
+        $labels = [
+            'Workspace' => 'Home', 'Sales' => 'Sales', 'Marketplace' => 'Sales',
+            'Inventory' => 'Inventory & Warehouse', 'Products' => 'Inventory & Warehouse',
+            'Purchasing' => 'Purchasing', 'Returns & Service' => 'Returns & QC',
+            'Finance' => 'Finance & Accounting', 'Reports' => 'Finance & Accounting',
+            'People' => 'Team & HR', 'HR' => 'Team & HR',
+        ];
+        $result = [];
+        foreach ($groups as $group) {
+            $label = $labels[$group->getLabel() ?? ''] ?? ($group->getLabel() ?? 'Administration');
+            if (! isset($result[$label])) {
+                $result[$label] = NavigationGroup::make($label)->items([])->collapsible();
+            }
+            $result[$label]->items([...$result[$label]->getItems(), ...$group->getItems()]);
+        }
+
+        return array_values($result);
+    }
+
     /** @return array<int, array{key:string,label:string,items:array<int,array{key:string,label:string,parent:?string,hidden:bool,protected:bool}>}> */
     public function customizerGroups(User $user): array
     {
         $groups = $this->authorizedNavigation();
+        if ($this->workspaceModeEnabled($user)) {
+            $groups = $this->workspaceGroups($groups);
+        }
         $hidden = $this->hiddenItems($user, $groups);
         $order = $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_GROUP_ORDER);
         $positions = array_flip($order);
@@ -123,6 +161,7 @@ class NavigationPreferenceService
             $user,
             UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS,
             UserUiPreferenceService::NAVIGATION_GROUP_ORDER,
+            UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE,
         );
     }
 
@@ -236,6 +275,11 @@ class NavigationPreferenceService
     private function legacyGroupLabels(string $label): array
     {
         return match ($label) {
+            'Home' => ['Workspace'],
+            'Inventory & Warehouse' => ['Inventory', 'Products'],
+            'Returns & QC' => ['Returns & Service'],
+            'Finance & Accounting' => ['Finance', 'Reports'],
+            'Team & HR' => ['People', 'HR'],
             'Workspace' => ['Work', 'Account'],
             'Products' => ['Products & Catalog', 'Catalog'],
             'Products & Catalog' => ['Catalog'],

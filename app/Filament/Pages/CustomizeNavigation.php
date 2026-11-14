@@ -77,8 +77,10 @@ class CustomizeNavigation extends Page
         /** @var User $user */
         $user = auth()->user();
         app(NavigationPreferenceService::class)->setWorkspaceMode($user, ! $this->workspaceMode);
-        $this->workspaceMode = ! $this->workspaceMode;
+        $this->loadPreference();
         Notification::make()->success()->title($this->workspaceMode ? 'Workspace navigation enabled for you' : 'Legacy navigation restored')->send();
+        // Full reload is needed because Filament builds the sidebar outside this Livewire page.
+        $this->redirect(static::getUrl(), navigate: false);
     }
 
     protected function getViewData(): array

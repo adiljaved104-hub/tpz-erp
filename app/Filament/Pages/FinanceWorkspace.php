@@ -22,6 +22,13 @@ class FinanceWorkspace extends BaseOperationalWorkspace
 
     protected static ?string $slug = 'finance-workspace';
 
+    protected static function metricResources(): array
+    {
+        return [
+            ['label' => 'Business Expenses', 'class' => ExpenseResource::class, 'icon' => 'heroicon-o-banknotes'],
+        ];
+    }
+
     protected static function workspaceDefinition(): array
     {
         return [

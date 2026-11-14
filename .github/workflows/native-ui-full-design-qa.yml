@@ -67,12 +67,13 @@ jobs:
           php -l app/Providers/Filament/AdminPanelProvider.php
           php -l app/Filament/Pages/SalesWorkspace.php
           php -l app/Filament/Pages/InventoryWorkspace.php
+          php -l app/Filament/Widgets/ErpDashboardOverview.php
           php -l app/Filament/Pages/CustomizeNavigation.php
           php -l app/Services/Navigation/NavigationPreferenceService.php
           php -l app/Services/Preferences/UserUiPreferenceService.php
           php -l tests/Feature/Navigation/WorkspaceNavigationOptInTest.php
           php -l tests/Feature/Navigation/NativeWorkspacesTest.php
-          vendor/bin/pint --test app/Filament/Pages/SalesWorkspace.php app/Filament/Pages/InventoryWorkspace.php tests/Feature/Navigation/NativeWorkspacesTest.php
+          vendor/bin/pint --test app/Filament/Pages/SalesWorkspace.php app/Filament/Pages/InventoryWorkspace.php app/Filament/Widgets/ErpDashboardOverview.php tests/Feature/Navigation/NativeWorkspacesTest.php
       - name: Rehearse schema on disposable MySQL
         run: php artisan migrate --force --no-ansi
       - name: Compile Blade and Filament components

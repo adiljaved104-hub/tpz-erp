@@ -81,6 +81,20 @@
         }
     </style>
 
+    @if(app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user()))
+        <header class="tpz-workspace-header mb-4 flex flex-wrap items-start justify-between gap-4" aria-label="ERP home dashboard">
+            <div>
+                <p class="tpz-workspace-eyebrow">Tech Point Zone • Operations</p>
+                <h1 class="tpz-workspace-title">Home Dashboard</h1>
+                <p class="tpz-workspace-subtitle">Your authorized business overview, operational alerts and quick actions.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs font-semibold text-white/90">
+                <span class="rounded-full border border-white/25 px-3 py-1.5">{{ $period_label }}</span>
+                <span class="rounded-full border border-white/25 px-3 py-1.5">{{ $role_label }} access</span>
+            </div>
+        </header>
+    @endif
+
     <div class="erp-dashboard-stack" data-dashboard-role="{{ $role_label }}" data-dashboard-customizing="{{ $customize_mode ? 'true' : 'false' }}">
         <x-filament::section compact>
             <x-slot name="heading">Operational Overview</x-slot>

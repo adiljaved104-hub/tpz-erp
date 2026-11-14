@@ -18,9 +18,12 @@ use App\Services\Inventory\InventoryReadService;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Livewire\WithPagination;
 
 class InventoryWorkspace extends Page
 {
+    use WithPagination;
+
     protected string $view = 'filament.pages.inventory-workspace';
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedSquares2x2;
@@ -69,16 +72,22 @@ class InventoryWorkspace extends Page
         $products = ($canInventory && $canLocationBalances)
             ? app(InventoryLocationOverviewService::class)->forUser($user, false)
             : collect();
-        $inventory = $canInventory
+        $inventoryQuery = $canInventory
             ? app(InventoryReadService::class)->inventories($user)
-                ->latest('product_inventories.updated_at')
-                ->limit(10)
-                ->get()
-                ->filter(fn ($row): bool => trim($this->search) === '' || str_contains(
-                    mb_strtolower(($row->product?->sku ?? '').' '.($row->product?->name ?? '')),
-                    mb_strtolower(trim($this->search)),
-                ))
-            : collect();
+            : null;
+
+        if ($inventoryQuery !== null && trim($this->search) !== '') {
+            $needle = addcslashes(trim($this->search), '%_\\\\');
+            $inventoryQuery->whereHas('product', function ($query) use ($needle): void {
+                $query->where(function ($product) use ($needle): void {
+                    $product->where('sku', 'like', '%'.$needle.'%')
+                        ->orWhere('name', 'like', '%'.$needle.'%');
+                });
+            });
+        }
+
+        $inventory = $inventoryQuery?->latest('product_inventories.updated_at')
+            ->paginate(15, pageName: 'inventory-page') ?? collect();
 
         return [
             'inventory' => $inventory,
@@ -100,4 +109,9 @@ class InventoryWorkspace extends Page
             'canViewProducts' => ProductResource::canViewAny(),
         ];
     }
+    public function updatedSearch(): void
+    {
+        $this->resetPage('inventory-page');
+    }
+
 }

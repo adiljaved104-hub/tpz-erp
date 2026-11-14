@@ -44,6 +44,33 @@
             </div>
         @endif
 
+        @if($canSeeSummary)
+            <x-filament::section>
+                <div class="mb-4">
+                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Low-stock alerts</h2>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Authorized products with sellable stock at or below the configured threshold ({{ $lowStockThreshold }} units).</p>
+                </div>
+                <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    @forelse($lowStockProducts as $productRow)
+                        <div class="flex min-w-0 items-start justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50/60 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                            <div class="min-w-0">
+                                <p class="truncate text-sm font-semibold text-gray-950 dark:text-white">{{ $productRow['product']->sku }}</p>
+                                <p class="line-clamp-2 text-xs text-gray-600 dark:text-gray-300">{{ $productRow['product']->name }}</p>
+                                @if($canViewProducts && \App\Filament\Resources\Products\ProductResource::canView($productRow['product']))
+                                    <a class="mt-2 inline-block text-xs font-semibold text-primary-700 hover:underline dark:text-primary-300" href="{{ \App\Filament\Resources\Products\ProductResource::getUrl('view', ['record' => $productRow['product']]) }}">View product →</a>
+                                @endif
+                            </div>
+                            <x-filament::badge :color="$productRow['sellable'] <= 0 ? 'danger' : 'warning'">
+                                {{ $productRow['sellable'] <= 0 ? 'Out of stock' : $productRow['sellable'] . ' sellable' }}
+                            </x-filament::badge>
+                        </div>
+                    @empty
+                        <p class="py-2 text-sm text-gray-500 dark:text-gray-400">No low-stock products in your authorized view.</p>
+                    @endforelse
+                </div>
+            </x-filament::section>
+        @endif
+
         <x-filament::section>
             <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>

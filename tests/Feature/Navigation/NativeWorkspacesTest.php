@@ -12,6 +12,7 @@ use App\Filament\Pages\SalesWorkspace;
 use App\Filament\Pages\TeamHrWorkspace;
 use App\Models\Employee;
 use App\Models\Product;
+use App\Models\Purchase;
 use App\Models\ProductInventory;
 use App\Models\StockMovement;
 use App\Services\Navigation\NavigationPreferenceService;
@@ -71,6 +72,24 @@ class NativeWorkspacesTest extends TestCase
         foreach ($pages as $page) {
             $this->assertFalse($page::canAccess());
         }
+    }
+
+    public function test_purchasing_workspace_counts_actual_scoped_purchase_and_links_recent_order(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Purchase::factory()->create([
+            'reference' => 'PO-VISUAL-ACTIVITY-001',
+            'created_by_user_id' => $owner->id,
+        ]);
+
+        Livewire::test(PurchasingWorkspace::class)
+            ->assertSee('Operational overview')
+            ->assertSee('Recent authorized records')
+            ->assertSee('PO-VISUAL-ACTIVITY-001');
     }
 
     public function test_inventory_workspace_search_looks_beyond_first_page_within_owner_scope(): void

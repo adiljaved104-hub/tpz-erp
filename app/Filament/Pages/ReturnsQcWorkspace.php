@@ -20,6 +20,14 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
 
     protected static ?string $slug = 'returns-qc-workspace';
 
+    protected static function metricResources(): array
+    {
+        return [
+            ['label' => 'Customer Returns', 'class' => CustomerReturnResource::class, 'icon' => 'heroicon-o-arrow-uturn-left'],
+            ['label' => 'QC Inspections', 'class' => QcInspectionResource::class, 'icon' => 'heroicon-o-clipboard-document-check'],
+        ];
+    }
+
     protected static function workspaceDefinition(): array
     {
         return [

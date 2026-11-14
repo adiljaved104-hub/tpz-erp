@@ -133,6 +133,13 @@ class SalesWorkspace extends Page
         ];
     }
 
+    public function clearFilters(): void
+    {
+        $this->reset(['status', 'search', 'customer', 'channel', 'from', 'to']);
+        $this->resetPage('sales-page');
+        $this->resetPage('web-sales-page');
+    }
+
     public function updated(string $property): void
     {
         if (in_array($property, ['status', 'search', 'customer', 'channel', 'from', 'to'], true)) {

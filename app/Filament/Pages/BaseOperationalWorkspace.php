@@ -21,7 +21,7 @@ abstract class BaseOperationalWorkspace extends Page
     /** @return array{title: string, eyebrow: string, description: string, icon: string, sections: array<int, array{title: string, description: string, links: array<int, array{label: string, class: class-string, icon: string}>}>} */
     abstract protected static function workspaceDefinition(): array;
 
-    /** @return array<int, array{label: string, class: class-string<Resource>, icon: string}> */
+    /** @return array<int, array<string, mixed>> */
     protected static function metricResources(): array
     {
         return [];
@@ -59,7 +59,7 @@ abstract class BaseOperationalWorkspace extends Page
         ];
     }
 
-    /** @return Collection<int, array{label: string, value: int, icon: string, url: string}> */
+    /** @return Collection<int, array<string, mixed>> */
     private static function authorizedMetrics(): Collection
     {
         return collect(static::metricResources())
@@ -75,7 +75,7 @@ abstract class BaseOperationalWorkspace extends Page
             ->values();
     }
 
-    /** @return Collection<int, array{label: string, icon: string, url: string}> */
+    /** @return Collection<int, array<string, mixed>> */
     private static function authorizedQuickActions(): Collection
     {
         $definition = static::workspaceDefinition();

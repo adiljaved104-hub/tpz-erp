@@ -70,6 +70,7 @@ class UxLab extends Page
 
     public function resetDemo(): void
     {
+        abort_unless(static::canAccess(), 403);
         $this->direction = 'aurora';
         $this->workspace = 'home';
         $this->screen = 'overview';
@@ -98,18 +99,22 @@ class UxLab extends Page
     public function chooseScreen(string $screen): void
     {
         abort_unless(static::canAccess(), 403);
+        abort_unless(array_key_exists($screen, $this->screenCatalog()[$this->workspace] ?? []), 422);
         $this->screen = $screen;
     }
 
     public function openRecord(string $record): void
     {
         abort_unless(static::canAccess(), 403);
+        $ids = array_column([...$this->homeItems(), ...$this->salesItems(), ...$this->inventoryItems()], 'id');
+        abort_unless(in_array($record, $ids, true), 422);
         $this->selectedRecord = $record;
         $this->drawerOpen = true;
     }
 
     public function closeDrawer(): void
     {
+        abort_unless(static::canAccess(), 403);
         $this->drawerOpen = false;
         $this->selectedRecord = null;
     }
@@ -120,11 +125,13 @@ class UxLab extends Page
         $this->workspace = 'sales';
         $this->screen = 'create';
         $this->flowStep = 'catalog';
+        $this->demoOrderLines = [];
         $this->modalOpen = true;
     }
 
     public function closeModal(): void
     {
+        abort_unless(static::canAccess(), 403);
         $this->modalOpen = false;
     }
 
@@ -132,22 +139,51 @@ class UxLab extends Page
     {
         abort_unless(static::canAccess(), 403);
         $steps = ['catalog', 'customer', 'review', 'reserve', 'confirmed'];
+        abort_unless($this->modalOpen && $this->demoOrderLines !== [] && in_array($this->flowStep, $steps, true), 422);
         $index = array_search($this->flowStep, $steps, true);
         $this->flowStep = $steps[min(($index === false ? 0 : $index) + 1, count($steps) - 1)];
     }
 
-    public function addDemoProduct(string $sku, string $title, float $price): void
+    public function addDemoProduct(string $sku): void
     {
         abort_unless(static::canAccess(), 403);
-        $this->demoOrderLines[] = ['sku' => $sku, 'title' => $title, 'qty' => 1, 'price' => $price];
+        abort_unless($this->modalOpen && $this->flowStep === 'catalog', 422);
+        $product = collect($this->demoProducts())->firstWhere('sku', $sku);
+        abort_unless($product !== null, 422);
+        abort_if(count($this->demoOrderLines) >= 20, 422);
+
+        foreach ($this->demoOrderLines as &$line) {
+            if ($line['sku'] === $sku) {
+                $line['qty'] = min(99, $line['qty'] + 1);
+
+                return;
+            }
+        }
+        unset($line);
+
+        $this->demoOrderLines[] = [
+            'sku' => $product['sku'],
+            'title' => $product['title'],
+            'qty' => 1,
+            'price' => $product['price'],
+        ];
         $this->flowStep = 'customer';
     }
 
     public function updateDemoQuantity(int $index, int $quantity): void
     {
         abort_unless(static::canAccess(), 403);
-        if (isset($this->demoOrderLines[$index])) {
-            $this->demoOrderLines[$index]['qty'] = max(1, min(99, $quantity));
+        abort_unless($this->modalOpen && isset($this->demoOrderLines[$index]), 422);
+        $this->demoOrderLines[$index]['qty'] = max(1, min(99, $quantity));
+    }
+
+    public function removeDemoProduct(int $index): void
+    {
+        abort_unless(static::canAccess(), 403);
+        abort_unless($this->modalOpen && isset($this->demoOrderLines[$index]), 422);
+        array_splice($this->demoOrderLines, $index, 1);
+        if ($this->demoOrderLines === []) {
+            $this->flowStep = 'catalog';
         }
     }
 
@@ -175,13 +211,25 @@ class UxLab extends Page
         return [
             'workspaces' => $this->workspaceCatalog(),
             'screens' => $this->screenCatalog(),
-            'homeItems' => $this->homeItems(),
-            'salesItems' => $this->salesItems(),
-            'inventoryItems' => $this->inventoryItems(),
-            'products' => $this->demoProducts(),
+            'homeItems' => $this->searchItems($this->homeItems()),
+            'salesItems' => $this->searchItems($this->salesItems()),
+            'inventoryItems' => $this->searchItems($this->inventoryItems()),
+            'products' => $this->searchItems($this->demoProducts()),
             'orderTotal' => collect($this->demoOrderLines)->sum(fn (array $line): float => $line['qty'] * $line['price']),
             'selected' => $this->selectedRecord,
         ];
+    }
+
+    private function searchItems(array $items): array
+    {
+        $term = mb_strtolower(trim($this->search));
+        if ($term === '') {
+            return $items;
+        }
+
+        return array_values(array_filter($items, static function (array $item) use ($term): bool {
+            return str_contains(mb_strtolower(implode(' ', array_map('strval', $item))), $term);
+        }));
     }
 
     private function workspaceCatalog(): array

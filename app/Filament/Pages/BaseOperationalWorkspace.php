@@ -27,7 +27,6 @@ abstract class BaseOperationalWorkspace extends Page
         return [];
     }
 
-    /** @return array<int, class-string<Resource>> */
     protected static function recentResources(): array
     {
         return [];

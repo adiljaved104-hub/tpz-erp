@@ -40,3 +40,13 @@ The Owner can switch directions, workspaces, screens, role previews, and respons
 3. Sales Orders and Web Sales Orders: mixed-source context and safe action presentation.
 4. Inventory, Stock Requests, Stock Transfers, and Stock Adjustments: quantity-progress and responsibility-aware views.
 5. Purchasing, Receiving, Returns, QC, Accounting, Notifications, HR, and Mobile: shared interaction patterns and role-specific read models.
+
+
+## V3: existing-records-first workspace review
+
+Owner feedback from V2: visually organized categories are not useful when screens only show fake demonstration records. The next iteration uses two visibly separate modes:
+
+- **Existing ERP records (default):** Read-only lists from the original Filament resource queries and authorization scopes. Sales Orders, Web Sales Orders, Quotations, Products, Stock Requests, Stock Transfers, Purchases, and Customer Returns link back to the original record pages, preserving all existing operational actions and history. Search filters only the latest six authorized preview entries per section; the original module link opens the complete list.
+- **Simulate workflow:** The original isolated demonstration order builder and fictional sample data remain available only when explicitly selected. It must never mutate operational records.
+
+Missing workspace previews remain labeled not connected; no fake totals or empty concept screens should be represented as actual live records. The approved implementation sequence is navigation + existing records read-only first, then compare and approve UI designs, then gradually replace operational surfaces using existing business services and permission boundaries. Main/UAT remains unchanged without Owner approval.

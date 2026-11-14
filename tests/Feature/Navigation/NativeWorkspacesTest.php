@@ -8,6 +8,7 @@ use App\Filament\Pages\SalesWorkspace;
 use App\Models\Employee;
 use App\Models\Product;
 use App\Models\ProductInventory;
+use App\Models\StockMovement;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -59,6 +60,27 @@ class NativeWorkspacesTest extends TestCase
             ->assertDontSee('TPZ-OLDEST-UNIQUE-SEARCH')
             ->set('search', 'TPZ-OLDEST-UNIQUE-SEARCH')
             ->assertSee('TPZ-OLDEST-UNIQUE-SEARCH');
+    }
+
+    public function test_owner_inventory_workspace_shows_permission_scoped_recent_movement(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $inventory = ProductInventory::factory()->create();
+        StockMovement::factory()->create([
+            'reference' => 'SM-REFERENCE-DESIGN-001',
+            'product_inventory_id' => $inventory->id,
+            'product_id' => $inventory->product_id,
+            'warehouse_id' => $inventory->warehouse_id,
+            'actor_user_id' => $owner->id,
+        ]);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->assertSee('Recent inventory activity')
+            ->assertSee('View movement history');
     }
 
     public function test_owner_sees_existing_product_and_original_module_link_without_modifying_records(): void

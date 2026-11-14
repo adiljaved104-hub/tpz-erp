@@ -67,8 +67,9 @@ jobs:
       - name: Syntax and formatting
         run: |
           php -l app/Filament/Pages/UxLab.php
+          php -l app/Services/UiUx/UxLabReadOnlyWorkspaceService.php
           php -l tests/Feature/UiUx/UxLabPrototypeTest.php
-          vendor/bin/pint --test app/Filament/Pages/UxLab.php tests/Feature/UiUx/UxLabPrototypeTest.php
+          vendor/bin/pint --test app/Filament/Pages/UxLab.php app/Services/UiUx/UxLabReadOnlyWorkspaceService.php tests/Feature/UiUx/UxLabPrototypeTest.php
       - name: Rehearse schema on disposable MySQL
         run: php artisan migrate --force --no-ansi
       - name: Compile Blade and Filament components

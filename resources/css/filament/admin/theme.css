@@ -1014,3 +1014,14 @@ html.tpz-native-workspace .tpz-reference-inventory-metrics .tpz-workspace-metric
 html.dark.tpz-native-workspace .tpz-home-welcome h1, html.dark.tpz-native-workspace .tpz-home-kpi strong { color:#e8f0f7; }
 html.dark.tpz-native-workspace .tpz-home-kpi { background:#182f43; border-color:#33475b; }
 html.dark.tpz-native-workspace .tpz-home-kpi.green,html.dark.tpz-native-workspace .tpz-home-kpi.amber,html.dark.tpz-native-workspace .tpz-home-kpi.indigo,html.dark.tpz-native-workspace .tpz-home-kpi.rose { background:#182f43; border-color:#33475b; }
+
+/* Owner interface selection — visible in both classic and native themes. */
+.tpz-interface-switcher { display: inline-flex; align-items: center; gap: .5rem; margin-inline: .5rem; white-space: nowrap; }
+.tpz-interface-switcher-current { font-size: .72rem; font-weight: 700; color: #506478; }
+.tpz-interface-switcher-button { padding: .38rem .65rem; border: 1px solid #c7dae8; border-radius: .55rem; background: #edf7fc; color: #135c83; font-size: .72rem; font-weight: 700; cursor: pointer; }
+.tpz-interface-switcher-button:hover { background: #dceffb; }
+html.tpz-native-workspace .tpz-interface-switcher-current { color: #f1f7fb; }
+html.tpz-native-workspace .tpz-interface-switcher-button { color: #fff; border-color: rgb(255 255 255 / 35%); background: rgb(255 255 255 / 14%); }
+html.tpz-native-workspace .tpz-interface-switcher-button:hover { background: rgb(255 255 255 / 25%); }
+.tpz-native-period { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; padding: .5rem 0; }
+@media (max-width: 40rem) { .tpz-interface-switcher-current { display: none; } .tpz-interface-switcher { margin-inline: .2rem; } .tpz-interface-switcher-button { padding: .35rem .45rem; } }

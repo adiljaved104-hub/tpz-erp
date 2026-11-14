@@ -44,8 +44,11 @@ class NavigationPreferenceService
     /** @param array<int, NavigationGroup> $groups @return array<int, NavigationGroup> */
     public function apply(User $user, array $groups): array
     {
+        if ($this->workspaceModeEnabled($user)) {
+            $groups = $this->workspaceGroups($groups);
+        }
         $hidden = $this->hiddenItems($user, $groups);
-        $order = $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_GROUP_ORDER);
+        $order = $this->preferences->get($user, $this->groupOrderKey($user));
 
         $filtered = collect($groups)->map(function (NavigationGroup $group) use ($hidden): ?NavigationGroup {
             $group = clone $group;
@@ -66,12 +69,82 @@ class NavigationPreferenceService
         ])->values()->all();
     }
 
+    public function workspaceModeEnabled(User $user): bool
+    {
+        return $user->employee?->role === EmployeeRole::Owner
+            && in_array('enabled', $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE), true);
+    }
+
+    public function setWorkspaceMode(User $user, bool $enabled): void
+    {
+        abort_unless($user->employee?->role === EmployeeRole::Owner, 403);
+        $this->preferences->put($user, UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE, $enabled ? ['enabled'] : []);
+    }
+
+    /** @param array<int, NavigationGroup> $groups @return array<int, NavigationGroup> */
+    private function workspaceGroups(array $groups): array
+    {
+        // Preserve all native NavigationItem objects, destinations, and permission filtering.
+        $labels = [
+            'Workspace' => 'Home',
+            'Sales' => 'Sales',
+            'Marketplace' => 'Sales',
+            'Inventory' => 'Inventory & Warehouse',
+            'Products' => 'Inventory & Warehouse',
+            'Purchasing' => 'Purchasing',
+            'Returns & Service' => 'Returns & QC',
+            'Finance' => 'Finance & Accounting',
+            'Accounting' => 'Finance & Accounting',
+            'Reports' => 'Finance & Accounting',
+            'People' => 'Team & HR',
+            'HR' => 'Team & HR',
+            'Administration' => 'Administration',
+        ];
+        $canonicalOrder = [
+            'Home',
+            'Sales',
+            'Inventory & Warehouse',
+            'Purchasing',
+            'Returns & QC',
+            'Finance & Accounting',
+            'Team & HR',
+            'Administration',
+        ];
+        $result = [];
+
+        foreach ($groups as $group) {
+            $label = $labels[$group->getLabel() ?? ''] ?? ($group->getLabel() ?? 'Administration');
+            foreach ($group->getItems() as $item) {
+                // Product catalog is a Warehouse workflow in the new layout, even
+                // though its original resource is registered under Purchasing.
+                $path = trim((string) (parse_url((string) $item->getUrl(), PHP_URL_PATH) ?? ''), '/');
+                $target = $path === 'admin/products' ? 'Inventory & Warehouse' : $label;
+                if (! isset($result[$target])) {
+                    $result[$target] = NavigationGroup::make($target)->items([])->collapsible();
+                }
+
+                $result[$target]->items([...$result[$target]->getItems(), $item]);
+            }
+        }
+
+        // Unknown future groups remain visible rather than being silently lost.
+        $positions = array_flip($canonicalOrder);
+
+        return collect($result)
+            ->sortBy(fn (NavigationGroup $group, string $label): array => [$positions[$label] ?? PHP_INT_MAX, $label])
+            ->values()
+            ->all();
+    }
+
     /** @return array<int, array{key:string,label:string,items:array<int,array{key:string,label:string,parent:?string,hidden:bool,protected:bool}>}> */
     public function customizerGroups(User $user): array
     {
         $groups = $this->authorizedNavigation();
+        if ($this->workspaceModeEnabled($user)) {
+            $groups = $this->workspaceGroups($groups);
+        }
         $hidden = $this->hiddenItems($user, $groups);
-        $order = $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_GROUP_ORDER);
+        $order = $this->preferences->get($user, $this->groupOrderKey($user));
         $positions = array_flip($order);
 
         return collect($groups)->map(function (NavigationGroup $group) use ($hidden): array {
@@ -101,9 +174,10 @@ class NavigationPreferenceService
 
         // Retain choices for temporarily unauthorized items, while replacing known legacy aliases.
         $knownKeys = $this->allItemKeys($this->authorizedNavigation());
-        $previous = $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS);
+        $key = $this->hiddenItemsKey($user);
+        $previous = $this->preferences->get($user, $key);
         $retained = array_values(array_diff($previous, $knownKeys));
-        $this->preferences->put($user, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS, array_values(array_unique([...$hidden, ...$retained])));
+        $this->preferences->put($user, $key, array_values(array_unique([...$hidden, ...$retained])));
     }
 
     /** @param array<int, string> $order */
@@ -114,7 +188,7 @@ class NavigationPreferenceService
             throw ValidationException::withMessages(['group_order' => 'The navigation group order is invalid.']);
         }
 
-        $this->preferences->put($user, UserUiPreferenceService::NAVIGATION_GROUP_ORDER, array_values($order));
+        $this->preferences->put($user, $this->groupOrderKey($user), array_values($order));
     }
 
     public function reset(User $user): void
@@ -123,6 +197,9 @@ class NavigationPreferenceService
             $user,
             UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS,
             UserUiPreferenceService::NAVIGATION_GROUP_ORDER,
+            UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE,
+            UserUiPreferenceService::NAVIGATION_WORKSPACE_HIDDEN_ITEMS,
+            UserUiPreferenceService::NAVIGATION_WORKSPACE_GROUP_ORDER,
         );
     }
 
@@ -236,6 +313,12 @@ class NavigationPreferenceService
     private function legacyGroupLabels(string $label): array
     {
         return match ($label) {
+            'Home' => ['Workspace'],
+            'Sales' => ['Marketplace'],
+            'Inventory & Warehouse' => ['Inventory', 'Products', 'Purchasing'],
+            'Returns & QC' => ['Returns & Service'],
+            'Finance & Accounting' => ['Finance', 'Accounting', 'Reports'],
+            'Team & HR' => ['People', 'HR'],
             'Workspace' => ['Work', 'Account'],
             'Products' => ['Products & Catalog', 'Catalog'],
             'Products & Catalog' => ['Catalog'],
@@ -265,8 +348,30 @@ class NavigationPreferenceService
             }
         }
 
+        // The workspace view inherits existing hidden items on first enable,
+        // but edits stay independent so switching back restores the legacy layout.
+        if ($this->workspaceModeEnabled($user)) {
+            $legacy = $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS, $defaults);
+
+            return $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_WORKSPACE_HIDDEN_ITEMS, $legacy);
+        }
+
         // A saved empty list means the user explicitly chose to show every authorized item.
         return $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS, $defaults);
+    }
+
+    private function hiddenItemsKey(User $user): string
+    {
+        return $this->workspaceModeEnabled($user)
+            ? UserUiPreferenceService::NAVIGATION_WORKSPACE_HIDDEN_ITEMS
+            : UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS;
+    }
+
+    private function groupOrderKey(User $user): string
+    {
+        return $this->workspaceModeEnabled($user)
+            ? UserUiPreferenceService::NAVIGATION_WORKSPACE_GROUP_ORDER
+            : UserUiPreferenceService::NAVIGATION_GROUP_ORDER;
     }
 
     /** @param array<int, NavigationGroup> $groups @return array<int, string> */

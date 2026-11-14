@@ -109,9 +109,9 @@ class InventoryWorkspace extends Page
             'canViewProducts' => ProductResource::canViewAny(),
         ];
     }
+
     public function updatedSearch(): void
     {
         $this->resetPage('inventory-page');
     }
-
 }

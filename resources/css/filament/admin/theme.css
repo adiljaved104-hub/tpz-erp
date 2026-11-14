@@ -5,6 +5,23 @@
 @source '../../../../resources/views/qc/**/*';
 @source '../../../../resources/views/returns/**/*';
 
+/* Opt-in native workspace shell. Legacy users are unaffected. */
+.tpz-native-workspace { --tpz-navy: #122b43; --tpz-blue: #176b87; --tpz-teal: #13a68b; }
+.tpz-native-workspace .fi-sidebar { background: var(--tpz-navy); border-color: rgb(255 255 255 / 10%); }
+.tpz-native-workspace .fi-sidebar-header { background: var(--tpz-navy); border-color: rgb(255 255 255 / 10%); }
+.tpz-native-workspace .fi-sidebar-header *, .tpz-native-workspace .fi-sidebar-group-label, .tpz-native-workspace .fi-sidebar-item-label { color: rgb(226 238 244 / 86%); }
+.tpz-native-workspace .fi-sidebar-item-button { border-radius: .65rem; color: rgb(226 238 244 / 75%); }
+.tpz-native-workspace .fi-sidebar-item-button:hover { background: rgb(23 107 135 / 34%); color: #fff; }
+.tpz-native-workspace .fi-sidebar-item-active .fi-sidebar-item-button { background: var(--tpz-blue); color: #fff; box-shadow: inset 3px 0 0 var(--tpz-teal); }
+.tpz-native-workspace .fi-sidebar-group-label { letter-spacing: .06em; text-transform: uppercase; font-size: .67rem; }
+.tpz-native-workspace .fi-topbar { background: #fff; border-color: #dce6ed; }
+.dark .tpz-native-workspace .fi-topbar { background: #0f2234; border-color: rgb(255 255 255 / 10%); }
+.tpz-native-workspace .fi-main { background: #f5f8fa; }
+.dark .tpz-native-workspace .fi-main { background: #0d1c29; }
+.tpz-native-workspace .fi-section, .tpz-native-workspace .fi-ta-ctn { border-color: #dce6ed; border-radius: .75rem; box-shadow: 0 2px 12px rgb(18 43 67 / 5%); }
+.tpz-native-workspace .fi-btn-color-primary { background: var(--tpz-blue); }
+.tpz-native-workspace .fi-badge-color-success { --badge-color: var(--tpz-teal); }
+
 /* Customer Return evidence is shared by returns, claims and repair pages. */
 .tpz-return-gallery { display: grid; gap: 1.5rem; min-width: 0; }
 .tpz-return-gallery-empty { color: #6b7280; font-size: .875rem; }

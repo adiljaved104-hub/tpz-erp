@@ -28,6 +28,11 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
         ];
     }
 
+    protected static function recentResources(): array
+    {
+        return [CustomerReturnResource::class];
+    }
+
     protected static function workspaceDefinition(): array
     {
         return [

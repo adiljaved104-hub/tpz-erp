@@ -7,7 +7,9 @@
                 <p class="tpz-workspace-subtitle">Available stock, reservations and actions within your authorized responsibility.</p>
             </div>
             <div class="flex flex-wrap gap-2">
-                @if(isset($links['requests']))
+                @if(isset($links['createRequest']))
+                    <x-filament::button tag="a" :href="$links['createRequest']" icon="heroicon-o-plus">Create Stock Request</x-filament::button>
+                @elseif(isset($links['requests']))
                     <x-filament::button tag="a" :href="$links['requests']" icon="heroicon-o-clipboard-document-list">Stock Requests</x-filament::button>
                 @endif
                 @if(isset($links['transfers']))

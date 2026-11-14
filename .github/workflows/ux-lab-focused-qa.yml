@@ -5,6 +5,7 @@ on:
     branches:
       - integration/ux-lab-staging-20261113
       - integration/ux-lab-v2-staging-20261114
+      - integration/ux-lab-real-records-staging-20261114
 
 permissions:
   contents: read

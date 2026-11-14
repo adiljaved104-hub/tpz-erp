@@ -5,7 +5,6 @@ namespace Tests\Feature\Navigation;
 use App\Enums\EmployeeRole;
 use App\Filament\Pages\CustomizeNavigation;
 use App\Models\Employee;
-use App\Models\User;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Preferences\UserUiPreferenceService;
 use Filament\Navigation\NavigationGroup;
@@ -29,7 +28,6 @@ class WorkspaceNavigationOptInTest extends TestCase
         $this->assertTrue(app(NavigationPreferenceService::class)->workspaceModeEnabled($owner));
         $this->assertSame([], app(UserUiPreferenceService::class)->get($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS));
     }
-
 
     public function test_workspace_mode_uses_canonical_groups_and_keeps_all_original_destinations(): void
     {

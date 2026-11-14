@@ -81,6 +81,67 @@
         }
     </style>
 
+    @if(app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user()))
+        <header class="tpz-workspace-header mb-4 flex flex-wrap items-start justify-between gap-4" aria-label="ERP home dashboard">
+            <div>
+                <p class="tpz-workspace-eyebrow">Tech Point Zone • Operations</p>
+                <h1 class="tpz-workspace-title">Home Dashboard</h1>
+                <p class="tpz-workspace-subtitle">Your authorized business overview, operational alerts and quick actions.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs font-semibold text-white/90">
+                <span class="rounded-full border border-white/25 px-3 py-1.5">{{ $period_label }}</span>
+                <span class="rounded-full border border-white/25 px-3 py-1.5">{{ $role_label }} access</span>
+            </div>
+        </header>
+    @endif
+
+    @if($quick_actions !== [])
+        <section class="mb-4" aria-label="Quick actions">
+            <div class="mb-3 flex items-center justify-between">
+                <h2 class="text-base font-bold text-gray-950 dark:text-white">Quick actions</h2>
+                <span class="text-xs text-gray-500 dark:text-gray-400">Available for your role</span>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                @foreach($quick_actions as $action)
+                    <a href="{{ $action['url'] }}" class="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-primary-400 hover:shadow-md dark:border-white/10 dark:bg-gray-900 dark:text-white">
+                        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                            <x-filament::icon :icon="$action['icon']" class="size-5" />
+                        </span>
+                        <span>{{ $action['label'] }}</span>
+                        <x-filament::icon icon="heroicon-o-arrow-up-right" class="ml-auto size-4 opacity-60" />
+                    </a>
+                @endforeach
+            </div>
+        </section>
+    @endif
+
+    @if($recent_activity['enabled'])
+        <section class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900" aria-label="Recent inventory activity">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-base font-bold text-gray-950 dark:text-white">Recent inventory activity</h2>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Stock movements within your authorized responsibility.</p>
+                </div>
+            </div>
+            <div class="divide-y divide-gray-100 dark:divide-white/10">
+                @forelse($recent_activity['movements'] as $movement)
+                    <div class="flex flex-wrap items-center justify-between gap-3 py-3" wire:key="dashboard-movement-{{ $movement->id }}">
+                        <div class="min-w-0">
+                            <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ $movement->product?->sku ?? $movement->reference }}</p>
+                            <p class="text-xs text-gray-500">{{ $movement->movement_type?->label() ?? 'Movement' }} · {{ $movement->warehouse?->name ?? 'Warehouse' }}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm font-semibold tabular-nums">{{ number_format($movement->quantity) }} unit(s)</p>
+                            <p class="text-xs text-gray-500">{{ $movement->occurred_at?->format('d M Y H:i') ?? '—' }}</p>
+                        </div>
+                    </div>
+                @empty
+                    <p class="py-4 text-sm text-gray-500">No recent inventory movements in your scope.</p>
+                @endforelse
+            </div>
+        </section>
+    @endif
+
     <div class="erp-dashboard-stack" data-dashboard-role="{{ $role_label }}" data-dashboard-customizing="{{ $customize_mode ? 'true' : 'false' }}">
         <x-filament::section compact>
             <x-slot name="heading">Operational Overview</x-slot>

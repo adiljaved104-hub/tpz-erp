@@ -8,6 +8,7 @@ use App\Filament\Pages\Inventory\InventoryOverview;
 use App\Filament\Pages\Inventory\StockAdjustments;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Filament\Resources\Products\ProductResource;
+use App\Filament\Resources\StockMovements\StockMovementResource;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\User;
@@ -15,12 +16,16 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
+use App\Services\Mobile\StockStatus;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Livewire\WithPagination;
 
 class InventoryWorkspace extends Page
 {
+    use WithPagination;
+
     protected string $view = 'filament.pages.inventory-workspace';
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedSquares2x2;
@@ -69,19 +74,44 @@ class InventoryWorkspace extends Page
         $products = ($canInventory && $canLocationBalances)
             ? app(InventoryLocationOverviewService::class)->forUser($user, false)
             : collect();
-        $inventory = $canInventory
+        $inventoryQuery = $canInventory
             ? app(InventoryReadService::class)->inventories($user)
-                ->latest('product_inventories.updated_at')
-                ->limit(10)
-                ->get()
-                ->filter(fn ($row): bool => trim($this->search) === '' || str_contains(
-                    mb_strtolower(($row->product?->sku ?? '').' '.($row->product?->name ?? '')),
-                    mb_strtolower(trim($this->search)),
-                ))
+            : null;
+
+        if ($inventoryQuery !== null && trim($this->search) !== '') {
+            $needle = addcslashes(trim($this->search), '%_\\\\');
+            $inventoryQuery->whereHas('product', function ($query) use ($needle): void {
+                $query->where(function ($product) use ($needle): void {
+                    $product->where('sku', 'like', '%'.$needle.'%')
+                        ->orWhere('name', 'like', '%'.$needle.'%');
+                });
+            });
+        }
+
+        $inventory = $inventoryQuery?->latest('product_inventories.updated_at')
+            ->paginate(15, pageName: 'inventory-page') ?? collect();
+
+        // Movement history must remain inside BOTH the existing responsibility scope
+        // and the independent inventory.view_movements Access Control grant.
+        $canSeeMovements = $authorization->allows($user, InventoryPermission::ViewMovements);
+        $recentMovements = $canSeeMovements
+            ? app(InventoryReadService::class)->movements($user)->latest('occurred_at')->limit(6)->get()
             : collect();
+
+        // The same configurable threshold used by ERP stock intelligence;
+        // product data already comes from the responsibility-scoped overview.
+        $lowStockThreshold = app(StockStatus::class)->low();
+        $lowStockProducts = $products
+            ->filter(fn (array $product): bool => (int) $product['sellable'] <= $lowStockThreshold)
+            ->sortBy('sellable')
+            ->take(6)
+            ->values();
 
         return [
             'inventory' => $inventory,
+            'recentMovements' => $recentMovements,
+            'lowStockProducts' => $lowStockProducts,
+            'lowStockThreshold' => $lowStockThreshold,
             'summary' => [
                 'products' => $products->count(),
                 'available' => $products->sum('available'),
@@ -94,10 +124,17 @@ class InventoryWorkspace extends Page
                 'inventory' => InventoryOverview::canAccess() ? InventoryOverview::getUrl() : null,
                 'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getUrl() : null,
                 'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getUrl() : null,
+                'createRequest' => StockRequestResource::canCreate() ? StockRequestResource::getUrl('create') : null,
                 'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getUrl() : null,
                 'adjustments' => StockAdjustments::canAccess() ? StockAdjustments::getUrl() : null,
+                'movements' => $canSeeMovements && StockMovementResource::canViewAny() ? StockMovementResource::getUrl() : null,
             ]),
             'canViewProducts' => ProductResource::canViewAny(),
         ];
+    }
+
+    public function updatedSearch(): void
+    {
+        $this->resetPage('inventory-page');
     }
 }

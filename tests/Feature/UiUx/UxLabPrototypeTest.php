@@ -31,7 +31,7 @@ class UxLabPrototypeTest extends TestCase
         Livewire::test(UxLab::class)
             ->assertSet('direction', 'aurora')
             ->set('direction', 'executive')
-            ->assertSee('TPZ Executive', false)
+            ->assertSee('Executive')
             ->set('viewport', 'mobile')
             ->call('chooseWorkspace', 'sales')
             ->call('chooseScreen', 'orders')

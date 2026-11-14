@@ -19,9 +19,12 @@ use App\Services\Orders\OrderReadService;
 use App\Services\Orders\WebSalesReadService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Livewire\WithPagination;
 
 class SalesWorkspace extends Page
 {
+    use WithPagination;
+
     protected string $view = 'filament.pages.sales-workspace';
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedShoppingBag;
@@ -113,8 +116,10 @@ class SalesWorkspace extends Page
             }
         }
 
-        $orders = $ordersQuery?->latest('orders.order_date')->limit(8)->get() ?? collect();
-        $webSales = $webSalesQuery?->latest('orders.order_date')->limit(8)->get() ?? collect();
+        // Pagination executes against the pre-existing responsibility-scoped queries.
+        // Explicit page names prevent Sales and Web Sales from interfering with one another.
+        $orders = $ordersQuery?->latest('orders.order_date')->paginate(10, pageName: 'sales-page') ?? collect();
+        $webSales = $webSalesQuery?->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page') ?? collect();
 
         return [
             'orders' => $orders,
@@ -128,12 +133,11 @@ class SalesWorkspace extends Page
         ];
     }
 
-    private function matches(?string $reference, mixed $status): bool
+    public function updated(string $property): void
     {
-        $needle = mb_strtolower(trim($this->search));
-        $haystack = mb_strtolower(($reference ?? '').' '.(string) $status);
-        $statusMatch = $this->status === 'all' || (string) $status === $this->status;
-
-        return $statusMatch && ($needle === '' || str_contains($haystack, $needle));
+        if (in_array($property, ['status', 'search', 'customer', 'channel', 'from', 'to'], true)) {
+            $this->resetPage('sales-page');
+            $this->resetPage('web-sales-page');
+        }
     }
 }

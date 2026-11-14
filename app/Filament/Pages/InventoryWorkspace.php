@@ -16,6 +16,7 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
+use App\Services\Mobile\StockStatus;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -97,9 +98,20 @@ class InventoryWorkspace extends Page
             ? app(InventoryReadService::class)->movements($user)->latest('occurred_at')->limit(6)->get()
             : collect();
 
+        // The same configurable threshold used by ERP stock intelligence;
+        // product data already comes from the responsibility-scoped overview.
+        $lowStockThreshold = app(StockStatus::class)->low();
+        $lowStockProducts = $products
+            ->filter(fn (array $product): bool => (int) $product['sellable'] <= $lowStockThreshold)
+            ->sortBy('sellable')
+            ->take(6)
+            ->values();
+
         return [
             'inventory' => $inventory,
             'recentMovements' => $recentMovements,
+            'lowStockProducts' => $lowStockProducts,
+            'lowStockThreshold' => $lowStockThreshold,
             'summary' => [
                 'products' => $products->count(),
                 'available' => $products->sum('available'),

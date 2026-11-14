@@ -7,7 +7,9 @@
                 <p class="tpz-workspace-subtitle">Orders, Web Sales and quotation work within your authorized scope.</p>
             </div>
             <div class="flex flex-wrap gap-2">
-                @if(isset($links['orders']))
+                @if(isset($links['createOrder']))
+                    <x-filament::button tag="a" :href="$links['createOrder']" icon="heroicon-o-plus">Create Sales Order</x-filament::button>
+                @elseif(isset($links['orders']))
                     <x-filament::button tag="a" :href="$links['orders']" icon="heroicon-o-shopping-bag">Sales Orders</x-filament::button>
                 @endif
                 @if(isset($links['dashboard']))

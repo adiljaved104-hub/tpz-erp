@@ -71,6 +71,21 @@ Route::middleware(['guest', 'panel:admin'])->group(function (): void {
     Route::post('/admin/reset-password', [EmailOtpAuthenticationController::class, 'resetPassword'])->name('auth.password.update');
 });
 
+// Owner-only, CSRF-protected interface switch. Reuse the existing persisted workspace preference.
+Route::post('/admin/interface-mode', function (\Illuminate\Http\Request $request) {
+    $user = $request->user();
+    abort_unless($user?->employee?->role === \App\Enums\EmployeeRole::Owner, 403);
+
+    $validated = $request->validate([
+        'mode' => ['required', \Illuminate\Validation\Rule::in(['classic', 'new'])],
+    ]);
+    app(\App\Services\Navigation\NavigationPreferenceService::class)
+        ->setWorkspaceMode($user, $validated['mode'] === 'new');
+
+    // Full-page reload is required to rebuild the Filament navigation and theme.
+    return redirect()->to(filament()->getPanel('admin')->getUrl());
+})->middleware(['auth', EnforceWebSecurityPolicy::class])->name('erp.interface-mode');
+
 Route::get('/invoice/verify/{token}', PublicTaxInvoiceVerificationController::class)
     ->name('invoice.verify');
 

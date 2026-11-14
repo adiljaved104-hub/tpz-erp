@@ -3,8 +3,13 @@
 namespace Tests\Feature\Navigation;
 
 use App\Enums\EmployeeRole;
+use App\Filament\Pages\AdministrationWorkspace;
+use App\Filament\Pages\FinanceWorkspace;
 use App\Filament\Pages\InventoryWorkspace;
+use App\Filament\Pages\PurchasingWorkspace;
+use App\Filament\Pages\ReturnsQcWorkspace;
 use App\Filament\Pages\SalesWorkspace;
+use App\Filament\Pages\TeamHrWorkspace;
 use App\Models\Employee;
 use App\Models\Product;
 use App\Models\ProductInventory;
@@ -36,6 +41,36 @@ class NativeWorkspacesTest extends TestCase
         $this->actingAs($staff);
         $this->assertFalse(SalesWorkspace::canAccess());
         $this->assertFalse(InventoryWorkspace::canAccess());
+    }
+
+    public function test_owner_opt_in_controls_all_operational_workspace_routes(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $staff = Employee::factory()->role(EmployeeRole::Staff)->create()->user;
+        $pages = [
+            PurchasingWorkspace::class,
+            ReturnsQcWorkspace::class,
+            FinanceWorkspace::class,
+            TeamHrWorkspace::class,
+            AdministrationWorkspace::class,
+        ];
+
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        foreach ($pages as $page) {
+            $this->assertFalse($page::canAccess());
+        }
+
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+        foreach ($pages as $page) {
+            $this->assertTrue($page::canAccess(), $page.' should be visible only after Owner opt-in');
+            Livewire::test($page)->assertSee('Workspace');
+        }
+
+        $this->actingAs($staff);
+        foreach ($pages as $page) {
+            $this->assertFalse($page::canAccess());
+        }
     }
 
     public function test_inventory_workspace_search_looks_beyond_first_page_within_owner_scope(): void

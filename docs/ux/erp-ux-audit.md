@@ -26,6 +26,13 @@ This audit is an implementation baseline for the isolated UX Lab. It is based on
 
 `UxLab` is Owner-only and read-only. It provides module selection, Simple/Advanced mode, desktop/mobile preview, Current/Proposed comparison, reset, and session-only feedback. The first detailed prototype is My Workspace. Other modules are represented as safe preview cards until their existing read services are mapped in a subsequent approved increment.
 
+## Prototype V2 visual directions
+
+- **TPZ Executive:** warm ivory canvas, restrained copper accent, compact management tables, and decision-oriented summaries.
+- **TPZ Modern Workspace:** cool sage canvas, terracotta accent, contextual workspace navigation, action queues, drawers, and progressive order flow.
+
+The Owner can switch directions, workspaces, screens, role previews, and responsive viewport in the UX Lab. Order creation, reservation, shipment, and inventory actions are simulation-only Livewire state; no operational service is called.
+
 ## Prioritized next increments
 
 1. My Workspace: action queue and linked-record context using `MyWorkService` read methods.

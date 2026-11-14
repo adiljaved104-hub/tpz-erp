@@ -18,6 +18,7 @@ use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Widgets\Widget;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 class ErpDashboardOverview extends Widget
@@ -225,7 +226,7 @@ class ErpDashboardOverview extends Widget
         ];
     }
 
-    /** @return array{enabled: bool, movements: \Illuminate\Support\Collection} */
+    /** @return array{enabled: bool, movements: Collection} */
     private function authorizedRecentActivity(User $user): array
     {
         $enabled = app(NavigationPreferenceService::class)->workspaceModeEnabled($user)

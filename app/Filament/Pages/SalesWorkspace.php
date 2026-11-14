@@ -126,6 +126,7 @@ class SalesWorkspace extends Page
             'webSales' => $webSales,
             'links' => array_filter([
                 'orders' => $canOrders ? OrderResource::getUrl() : null,
+                'createOrder' => OrderResource::canCreate() ? OrderResource::getUrl('create') : null,
                 'webSales' => $canWebSales ? WebSalesOrderResource::getUrl() : null,
                 'quotations' => $canQuotations ? QuotationResource::getUrl() : null,
                 'dashboard' => $canDashboard ? WebSalesDashboard::getUrl() : null,

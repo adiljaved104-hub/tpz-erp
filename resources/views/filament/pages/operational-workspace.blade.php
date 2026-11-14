@@ -46,6 +46,23 @@
             </section>
         @endif
 
+        @if($recentRecords->isNotEmpty())
+            <x-filament::section>
+                <div class="mb-3">
+                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Recent authorized records</h2>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Latest visible activity in the existing ERP workflow.</p>
+                </div>
+                <div class="divide-y divide-gray-100 dark:divide-white/10">
+                    @foreach($recentRecords as $record)
+                        <a href="{{ $record['url'] }}" wire:key="recent-record-{{ $loop->index }}" class="flex flex-wrap items-center justify-between gap-3 py-3 hover:bg-gray-50 dark:hover:bg-white/5">
+                            <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ $record['reference'] }}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">{{ $record['date'] }} · Open record →</span>
+                        </a>
+                    @endforeach
+                </div>
+            </x-filament::section>
+        @endif
+
         <nav class="tpz-workspace-tabs" aria-label="{{ $workspace['title'] }} sections">
             @foreach($sections as $index => $section)
                 <a href="#workspace-section-{{ $index }}" class="tpz-workspace-tab {{ $loop->first ? 'is-active' : '' }}">{{ $section['title'] }}</a>

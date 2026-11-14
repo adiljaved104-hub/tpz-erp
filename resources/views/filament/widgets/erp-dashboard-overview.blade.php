@@ -20,6 +20,7 @@
         'warning_acknowledgments' => 'heroicon-o-exclamation-circle', 'notice_acknowledgments' => 'heroicon-o-document-check',
     ];
     $cardsByKey = $cards->keyBy('key');
+    $nativeMode = app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user());
 @endphp
 
 <x-filament-widgets::widget>
@@ -81,7 +82,7 @@
         }
     </style>
 
-    @if(app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user()))
+    @if($nativeMode)
         <header class="tpz-workspace-header mb-4 flex flex-wrap items-start justify-between gap-4" aria-label="ERP home dashboard">
             <div>
                 <p class="tpz-workspace-eyebrow">Tech Point Zone • Operations</p>
@@ -95,6 +96,7 @@
         </header>
     @endif
 
+    @unless($nativeMode)
     @if($quick_actions !== [])
         <section class="mb-4" aria-label="Quick actions">
             <div class="mb-3 flex items-center justify-between">
@@ -142,8 +144,10 @@
         </section>
     @endif
 
+    @endunless
+
     <div class="erp-dashboard-stack" data-dashboard-role="{{ $role_label }}" data-dashboard-customizing="{{ $customize_mode ? 'true' : 'false' }}">
-        @if (app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user()))
+        @if ($nativeMode)
             <div class="tpz-reference-home tpz-reference-home--final">
 
                 <div class="tpz-home-welcome">
@@ -216,8 +220,21 @@
                     </x-filament::section>
 
                 </div>
+                <div class="tpz-native-period" aria-label="Dashboard date range">
+                    @foreach (['today' => 'Today', 'week' => 'Week', 'month' => 'Month', 'custom' => 'Custom'] as $key => $label)
+                        <x-filament::button type="button" size="xs" :color="$period === $key ? 'primary' : 'gray'" :outlined="$period !== $key" wire:click="setPeriod('{{ $key }}')">{{ $label }}</x-filament::button>
+                    @endforeach
+                    @if ($period === 'custom')
+                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customFrom" aria-label="Start date" /></x-filament::input.wrapper>
+                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customTo" aria-label="End date" /></x-filament::input.wrapper>
+                        <x-filament::button type="button" size="xs" wire:click="applyCustomRange">Apply</x-filament::button>
+                        @error('customFrom') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
+                        @error('customTo') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
+                    @endif
+                </div>
             </div>
         @endif
+        @unless($nativeMode)
         <x-filament::section compact>
             <x-slot name="heading">Operational Overview</x-slot>
             <x-slot name="description">{{ $period_label }} · {{ $role_label }} access</x-slot>
@@ -352,5 +369,6 @@
                 @endforeach
             </div>
         @endif
+        @endunless
     </div>
 </x-filament-widgets::widget>

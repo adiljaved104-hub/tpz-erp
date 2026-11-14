@@ -69,6 +69,25 @@ class UxLabPrototypeTest extends TestCase
             ->assertSet('demoOrderLines', []);
     }
 
+    public function test_contextual_tabs_show_only_relevant_simulated_records(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+
+        Livewire::test(UxLab::class)
+            ->call('chooseWorkspace', 'sales')
+            ->call('chooseScreen', 'web')
+            ->assertSee('WS-DEMO-014')
+            ->assertDontSee('SO-DEMO-001 · Noor Electronics')
+            ->call('chooseScreen', 'orders')
+            ->assertSee('SO-DEMO-001 · Noor Electronics')
+            ->assertDontSee('WS-DEMO-014')
+            ->call('chooseWorkspace', 'inventory')
+            ->call('chooseScreen', 'adjustments')
+            ->assertSee('ADJ-DEMO-002')
+            ->assertDontSee('ST-DEMO-004 · Warehouse receiving');
+    }
+
     public function test_prototype_contains_no_operational_write_controls(): void
     {
         $view = file_get_contents(resource_path('views/filament/pages/ux-lab.blade.php'));

@@ -212,12 +212,29 @@ class UxLab extends Page
             'workspaces' => $this->workspaceCatalog(),
             'screens' => $this->screenCatalog(),
             'homeItems' => $this->searchItems($this->homeItems()),
-            'salesItems' => $this->searchItems($this->salesItems()),
-            'inventoryItems' => $this->searchItems($this->inventoryItems()),
+            'salesItems' => $this->screenItems($this->salesItems(), 'sales'),
+            'inventoryItems' => $this->screenItems($this->inventoryItems(), 'inventory'),
             'products' => $this->searchItems($this->demoProducts()),
             'orderTotal' => collect($this->demoOrderLines)->sum(fn (array $line): float => $line['qty'] * $line['price']),
             'selected' => $this->selectedRecord,
         ];
+    }
+
+    private function screenItems(array $items, string $workspace): array
+    {
+        if ($workspace === 'sales') {
+            $types = ['orders' => 'Sales order', 'web' => 'Web sale', 'quotations' => 'Quotation'];
+            if (isset($types[$this->screen])) {
+                $items = array_values(array_filter($items, fn (array $item): bool => $item['type'] === $types[$this->screen]));
+            }
+        } elseif ($workspace === 'inventory') {
+            $types = ['requests' => 'Stock request', 'transfers' => 'Stock transfer', 'adjustments' => 'Stock adjustment'];
+            if (isset($types[$this->screen])) {
+                $items = array_values(array_filter($items, fn (array $item): bool => $item['type'] === $types[$this->screen]));
+            }
+        }
+
+        return $this->searchItems($items);
     }
 
     private function searchItems(array $items): array
@@ -249,7 +266,7 @@ class UxLab extends Page
     {
         return [
             'home' => ['overview' => 'My Workspace', 'activity' => 'Recent activity'],
-            'sales' => ['overview' => 'Sales overview', 'orders' => 'Sales orders', 'web' => 'Web sales', 'create' => 'Create order'],
+            'sales' => ['overview' => 'Sales overview', 'orders' => 'Sales orders', 'web' => 'Web sales', 'quotations' => 'Quotations'],
             'inventory' => ['overview' => 'Inventory overview', 'requests' => 'Stock requests', 'transfers' => 'Transfers', 'adjustments' => 'Adjustments'],
             'purchasing' => ['overview' => 'Purchasing overview'], 'returns' => ['overview' => 'Returns & QC overview'],
             'finance' => ['overview' => 'Finance overview'], 'team' => ['overview' => 'Team overview'],
@@ -281,6 +298,7 @@ class UxLab extends Page
             ['id' => 'TPZ-DEMO-001', 'type' => 'Product', 'title' => 'TPZ-DEMO-001 · Simulation laptop', 'meta' => '18 sellable · Main Warehouse · M Zaid', 'status' => 'Available'],
             ['id' => 'SR-DEMO-001', 'type' => 'Stock request', 'title' => 'SR-DEMO-001 · Partial approval', 'meta' => 'Requested 6 · transferred 3 · remaining 3', 'status' => 'Partially approved'],
             ['id' => 'ST-DEMO-004', 'type' => 'Stock transfer', 'title' => 'ST-DEMO-004 · Warehouse receiving', 'meta' => '8 shipped · 7 received · 1 unresolved', 'status' => 'Exception'],
+            ['id' => 'ADJ-DEMO-002', 'type' => 'Stock adjustment', 'title' => 'ADJ-DEMO-002 · Pending count review', 'meta' => '2 draft rows · warehouse stock unchanged', 'status' => 'Draft'],
         ];
     }
 

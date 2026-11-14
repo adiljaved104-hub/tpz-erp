@@ -37,6 +37,30 @@ class NativeWorkspacesTest extends TestCase
         $this->assertFalse(InventoryWorkspace::canAccess());
     }
 
+    public function test_inventory_workspace_search_looks_beyond_first_page_within_owner_scope(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $olderProduct = Product::factory()->create(['sku' => 'TPZ-OLDEST-UNIQUE-SEARCH']);
+        ProductInventory::factory()->create([
+            'product_id' => $olderProduct->id,
+            'updated_at' => now()->subDays(5),
+        ]);
+
+        foreach (range(1, 17) as $index) {
+            $product = Product::factory()->create(['sku' => sprintf('TPZ-NEWER-%03d', $index)]);
+            ProductInventory::factory()->create(['product_id' => $product->id, 'updated_at' => now()]);
+        }
+
+        Livewire::test(InventoryWorkspace::class)
+            ->assertDontSee('TPZ-OLDEST-UNIQUE-SEARCH')
+            ->set('search', 'TPZ-OLDEST-UNIQUE-SEARCH')
+            ->assertSee('TPZ-OLDEST-UNIQUE-SEARCH');
+    }
+
     public function test_owner_sees_existing_product_and_original_module_link_without_modifying_records(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

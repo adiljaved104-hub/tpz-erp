@@ -3,7 +3,9 @@
 namespace App\Filament\Pages;
 
 use App\Enums\OrderPermission;
+use App\Enums\OrderStatus;
 use App\Enums\QuotationPermission;
+use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesPermission;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Quotations\QuotationResource;
@@ -36,6 +38,14 @@ class SalesWorkspace extends Page
 
     public string $search = '';
 
+    public string $customer = '';
+
+    public string $channel = '';
+
+    public string $from = '';
+
+    public string $to = '';
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -67,17 +77,44 @@ class SalesWorkspace extends Page
         $canQuotations = app(QuotationAuthorization::class)->allows($user, QuotationPermission::View);
         $canDashboard = app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Dashboard);
 
-        // Existing scoped read services remain the source of truth; never query
-        // raw orders or bypass team/employee responsibility restrictions.
-        $orders = $canOrders
-            ? app(OrderReadService::class)->orders($user)->latest('orders.order_date')->limit(8)->get()
-            : collect();
-        $webSales = $canWebSales
-            ? app(WebSalesReadService::class)->orders($user)->latest('orders.order_date')->limit(8)->get()
-            : collect();
+        // Always start with the existing responsibility-scoped read services.
+        $ordersQuery = $canOrders ? app(OrderReadService::class)->orders($user) : null;
+        $webSalesQuery = $canWebSales ? app(WebSalesReadService::class)->orders($user) : null;
 
-        $orders = $orders->filter(fn ($order): bool => $this->matches($order->reference, $order->status?->value ?? $order->status));
-        $webSales = $webSales->filter(fn ($order): bool => $this->matches($order->reference, $order->status?->value ?? $order->status));
+        foreach ([$ordersQuery, $webSalesQuery] as $query) {
+            if ($query === null) {
+                continue;
+            }
+
+            if ($this->status !== 'all' && in_array($this->status, array_column(OrderStatus::cases(), 'value'), true)) {
+                $query->where('orders.status', $this->status);
+            }
+            if ($this->from !== '' && preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $this->from)) {
+                $query->whereDate('orders.order_date', '>=', $this->from);
+            }
+            if ($this->to !== '' && preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $this->to)) {
+                $query->whereDate('orders.order_date', '<=', $this->to);
+            }
+            if (trim($this->search) !== '') {
+                $needle = addcslashes(trim($this->search), '%_\\\\');
+                $query->where('orders.reference', 'like', '%'.$needle.'%');
+            }
+        }
+
+        if ($webSalesQuery !== null && $this->channel !== '' && in_array($this->channel, array_column(WebSalesChannel::cases(), 'value'), true)) {
+            $webSalesQuery->where('orders.web_sales_channel', $this->channel);
+        }
+        if (trim($this->customer) !== '') {
+            $needle = addcslashes(trim($this->customer), '%_\\\\');
+            // Web Sales has a customer name on orders; ordinary Sales Orders
+            // do not share the same denormalized customer-name field.
+            if ($webSalesQuery !== null) {
+                $webSalesQuery->where('orders.customer_name', 'like', '%'.$needle.'%');
+            }
+        }
+
+        $orders = $ordersQuery?->latest('orders.order_date')->limit(8)->get() ?? collect();
+        $webSales = $webSalesQuery?->latest('orders.order_date')->limit(8)->get() ?? collect();
 
         return [
             'orders' => $orders,
@@ -95,8 +132,7 @@ class SalesWorkspace extends Page
     {
         $needle = mb_strtolower(trim($this->search));
         $haystack = mb_strtolower(($reference ?? '').' '.(string) $status);
-        $statusMatch = $this->status === 'all' || (string) $status === $this->status
-            || ($this->status === 'shipped' && (string) $status === 'fulfilled');
+        $statusMatch = $this->status === 'all' || (string) $status === $this->status;
 
         return $statusMatch && ($needle === '' || str_contains($haystack, $needle));
     }

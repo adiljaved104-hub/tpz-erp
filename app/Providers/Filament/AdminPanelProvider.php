@@ -87,6 +87,10 @@ class AdminPanelProvider extends PanelProvider
                 fn () => view('filament.hooks.global-erp-search'),
             )
             ->renderHook(
+                PanelsRenderHook::BODY_START,
+                fn () => view('filament.hooks.native-workspace-shell'),
+            )
+            ->renderHook(
                 PanelsRenderHook::GLOBAL_SEARCH_AFTER,
                 fn () => view('filament.hooks.notification-bell'),
             )

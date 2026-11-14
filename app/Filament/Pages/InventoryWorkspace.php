@@ -13,6 +13,7 @@ use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
+use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Pages\Page;
@@ -64,6 +65,10 @@ class InventoryWorkspace extends Page
         $user = auth()->user();
         $authorization = app(InventoryAuthorization::class);
         $canInventory = $authorization->allows($user, InventoryPermission::View);
+        $canLocationBalances = $authorization->allows($user, InventoryPermission::ViewLocationBalances);
+        $products = ($canInventory && $canLocationBalances)
+            ? app(InventoryLocationOverviewService::class)->forUser($user, false)
+            : collect();
         $inventory = $canInventory
             ? app(InventoryReadService::class)->inventories($user)
                 ->latest('product_inventories.updated_at')
@@ -77,6 +82,13 @@ class InventoryWorkspace extends Page
 
         return [
             'inventory' => $inventory,
+            'summary' => [
+                'products' => $products->count(),
+                'available' => $products->sum('available'),
+                'reserved' => $products->sum('reserved'),
+                'allocated' => $products->sum('total_owned'),
+            ],
+            'canSeeSummary' => $canInventory && $canLocationBalances,
             'links' => array_filter([
                 'products' => ProductResource::canViewAny() ? ProductResource::getUrl() : null,
                 'inventory' => InventoryOverview::canAccess() ? InventoryOverview::getUrl() : null,

@@ -28,6 +28,11 @@ class PurchasingWorkspace extends BaseOperationalWorkspace
         ];
     }
 
+    protected static function recentResources(): array
+    {
+        return [PurchaseResource::class];
+    }
+
     protected static function workspaceDefinition(): array
     {
         return [

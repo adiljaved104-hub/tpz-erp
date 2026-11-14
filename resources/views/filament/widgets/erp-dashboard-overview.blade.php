@@ -115,6 +115,33 @@
         </section>
     @endif
 
+    @if($recent_activity['enabled'])
+        <section class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900" aria-label="Recent inventory activity">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-base font-bold text-gray-950 dark:text-white">Recent inventory activity</h2>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Stock movements within your authorized responsibility.</p>
+                </div>
+            </div>
+            <div class="divide-y divide-gray-100 dark:divide-white/10">
+                @forelse($recent_activity['movements'] as $movement)
+                    <div class="flex flex-wrap items-center justify-between gap-3 py-3" wire:key="dashboard-movement-{{ $movement->id }}">
+                        <div class="min-w-0">
+                            <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ $movement->product?->sku ?? $movement->reference }}</p>
+                            <p class="text-xs text-gray-500">{{ $movement->movement_type?->label() ?? 'Movement' }} · {{ $movement->warehouse?->name ?? 'Warehouse' }}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm font-semibold tabular-nums">{{ number_format($movement->quantity) }} unit(s)</p>
+                            <p class="text-xs text-gray-500">{{ $movement->occurred_at?->format('d M Y H:i') ?? '—' }}</p>
+                        </div>
+                    </div>
+                @empty
+                    <p class="py-4 text-sm text-gray-500">No recent inventory movements in your scope.</p>
+                @endforelse
+            </div>
+        </section>
+    @endif
+
     <div class="erp-dashboard-stack" data-dashboard-role="{{ $role_label }}" data-dashboard-customizing="{{ $customize_mode ? 'true' : 'false' }}">
         <x-filament::section compact>
             <x-slot name="heading">Operational Overview</x-slot>

@@ -97,18 +97,20 @@
                 </div>
                 <div class="overflow-x-auto">
                     <table class="tpz-workspace-table">
-                        <thead><tr><th>Reference</th><th>Order date</th><th>Source</th><th>Status</th><th>Action</th></tr></thead>
+                        <thead><tr><th>Reference</th><th>Order date</th><th>Source</th><th class="text-right">Items / Units</th>@if($canSeeOrderValues)<th class="text-right">Order total (AED)</th>@endif<th>Status</th><th>Action</th></tr></thead>
                         <tbody>
                             @forelse($orders as $order)
                                 <tr wire:key="sales-order-{{ $order->id }}">
                                     <td class="font-semibold text-gray-950 dark:text-white">{{ $order->reference }}</td>
                                     <td>{{ $order->order_date?->format('d M Y') ?? '—' }}</td>
                                     <td>{{ $order->source ? str($order->source->value)->headline() : '—' }}</td>
+                                    <td class="text-right tabular-nums">{{ number_format($order->items_count ?? 0) }} / {{ number_format($order->total_units ?? 0) }}</td>
+                                    @if($canSeeOrderValues)<td class="text-right font-semibold tabular-nums">{{ number_format((float) ($order->grand_total ?? 0), 2) }}</td>@endif
                                     <td><x-filament::badge :color="$order->status?->getColor() ?? 'gray'">{{ $order->status?->getLabel() ?? 'Unknown' }}</x-filament::badge></td>
                                     <td><x-filament::button tag="a" size="xs" color="gray" :href="\App\Filament\Resources\Orders\OrderResource::getUrl('view', ['record' => $order])">View</x-filament::button></td>
                                 </tr>
                             @empty
-                                <tr><td colspan="5" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
+                                <tr><td colspan="{{ $canSeeOrderValues ? 7 : 6 }}" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
@@ -127,7 +129,7 @@
                 </div>
                 <div class="overflow-x-auto">
                     <table class="tpz-workspace-table">
-                        <thead><tr><th>Reference</th><th>Customer</th><th>Channel</th><th>Order date</th><th>Status</th><th>Action</th></tr></thead>
+                        <thead><tr><th>Reference</th><th>Customer</th><th>Channel</th><th>Order date</th><th class="text-right">Units</th>@if($canSeeWebSalesValues)<th class="text-right">Order total (AED)</th>@endif<th>Status</th><th>Action</th></tr></thead>
                         <tbody>
                             @forelse($webSales as $order)
                                 <tr wire:key="web-sales-order-{{ $order->id }}">
@@ -135,11 +137,13 @@
                                     <td>{{ $order->customer_name ?? '—' }}</td>
                                     <td>{{ $order->web_sales_channel?->getLabel() ?? '—' }}</td>
                                     <td>{{ $order->order_date?->format('d M Y') ?? '—' }}</td>
+                                    <td class="text-right tabular-nums">{{ number_format($order->units ?? 0) }}</td>
+                                    @if($canSeeWebSalesValues)<td class="text-right font-semibold tabular-nums">{{ number_format((float) ($order->grand_total ?? 0), 2) }}</td>@endif
                                     <td><x-filament::badge :color="$order->status?->getColor() ?? 'gray'">{{ $order->status?->getLabel() ?? 'Unknown' }}</x-filament::badge></td>
                                     <td><x-filament::button tag="a" size="xs" color="gray" :href="\App\Filament\Resources\WebSalesOrders\WebSalesOrderResource::getUrl('view', ['record' => $order])">View</x-filament::button></td>
                                 </tr>
                             @empty
-                                <tr><td colspan="6" class="py-8 text-center text-sm text-gray-500">No Web Sales Orders match these filters.</td></tr>
+                                <tr><td colspan="{{ $canSeeWebSalesValues ? 8 : 7 }}" class="py-8 text-center text-sm text-gray-500">No Web Sales Orders match these filters.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

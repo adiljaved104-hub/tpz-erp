@@ -65,6 +65,12 @@ jobs:
       - name: Syntax and formatting
         run: |
           php -l app/Providers/Filament/AdminPanelProvider.php
+          php -l app/Filament/Pages/BaseOperationalWorkspace.php
+          php -l app/Filament/Pages/PurchasingWorkspace.php
+          php -l app/Filament/Pages/ReturnsQcWorkspace.php
+          php -l app/Filament/Pages/FinanceWorkspace.php
+          php -l app/Filament/Pages/TeamHrWorkspace.php
+          php -l app/Filament/Pages/AdministrationWorkspace.php
           php -l app/Filament/Pages/SalesWorkspace.php
           php -l app/Filament/Pages/InventoryWorkspace.php
           php -l app/Filament/Widgets/ErpDashboardOverview.php
@@ -73,7 +79,7 @@ jobs:
           php -l app/Services/Preferences/UserUiPreferenceService.php
           php -l tests/Feature/Navigation/WorkspaceNavigationOptInTest.php
           php -l tests/Feature/Navigation/NativeWorkspacesTest.php
-          vendor/bin/pint --test app/Filament/Pages/SalesWorkspace.php app/Filament/Pages/InventoryWorkspace.php app/Filament/Widgets/ErpDashboardOverview.php tests/Feature/Navigation/NativeWorkspacesTest.php
+          vendor/bin/pint --test app/Filament/Pages/BaseOperationalWorkspace.php app/Filament/Pages/PurchasingWorkspace.php app/Filament/Pages/ReturnsQcWorkspace.php app/Filament/Pages/FinanceWorkspace.php app/Filament/Pages/TeamHrWorkspace.php app/Filament/Pages/AdministrationWorkspace.php app/Filament/Pages/SalesWorkspace.php app/Filament/Pages/InventoryWorkspace.php app/Filament/Widgets/ErpDashboardOverview.php tests/Feature/Navigation/NativeWorkspacesTest.php
       - name: Rehearse schema on disposable MySQL
         run: php artisan migrate --force --no-ansi
       - name: Compile Blade and Filament components

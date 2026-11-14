@@ -77,6 +77,37 @@ html.dark.tpz-native-workspace .tpz-workspace-table th { background: #1c3447; co
 html.dark.tpz-native-workspace .tpz-workspace-table td { border-color: rgb(255 255 255 / 10%); }
 html.dark.tpz-native-workspace .tpz-workspace-table tbody tr:hover { background: rgb(255 255 255 / 4%); }
 
+/* Unified operational resource styling for Purchasing, Returns/QC, Accounting, HR
+   and Administration. These are existing Filament resources, not separate copies. */
+html.tpz-native-workspace .fi-page-header { margin-bottom: 1.25rem; }
+html.tpz-native-workspace .fi-page-header-heading { color: #122b43; font-weight: 750; letter-spacing: -.025em; }
+html.tpz-native-workspace .fi-page-header-subheading { color: #607486; }
+html.tpz-native-workspace .fi-sidebar-nav { gap: .25rem; }
+html.tpz-native-workspace .fi-sidebar-group { margin-block: .25rem; }
+html.tpz-native-workspace .fi-sidebar-group-label { padding-block: .25rem; }
+html.tpz-native-workspace .fi-sidebar-item-button { min-height: 2.1rem; padding-block: .4rem; }
+html.tpz-native-workspace .fi-section-header-heading { font-size: .95rem; font-weight: 700; color: #20394e; }
+html.tpz-native-workspace .fi-section-content { min-width: 0; }
+html.tpz-native-workspace .fi-ta-header { border-bottom: 1px solid #e2ebf1; background: #fff; }
+html.tpz-native-workspace .fi-ta-header-heading { font-size: .95rem; font-weight: 700; color: #20394e; }
+html.tpz-native-workspace .fi-ta-table thead { background: #eff5f8; }
+html.tpz-native-workspace .fi-ta-table th { color: #526d83; font-size: .73rem; font-weight: 700; letter-spacing: .035em; }
+html.tpz-native-workspace .fi-ta-table tbody tr:hover { background: rgb(23 107 135 / 4%); }
+html.tpz-native-workspace .fi-ta-table tbody td { border-color: #e6edf2; }
+html.tpz-native-workspace .fi-ta-filter-indicators { padding-block: .5rem; }
+html.tpz-native-workspace .fi-btn { border-radius: .65rem; }
+html.tpz-native-workspace .fi-input-wrp { border-radius: .65rem; }
+html.tpz-native-workspace .fi-tabs { border-radius: .7rem; }
+html.dark.tpz-native-workspace .fi-page-header-heading,
+html.dark.tpz-native-workspace .fi-section-header-heading,
+html.dark.tpz-native-workspace .fi-ta-header-heading { color: #edf5fb; }
+html.dark.tpz-native-workspace .fi-page-header-subheading { color: #9db5c5; }
+html.dark.tpz-native-workspace .fi-ta-header { border-color: rgb(255 255 255 / 10%); background: #152738; }
+html.dark.tpz-native-workspace .fi-ta-table thead { background: #1c3447; }
+html.dark.tpz-native-workspace .fi-ta-table th { color: #c7d6e1; }
+html.dark.tpz-native-workspace .fi-ta-table tbody td { border-color: rgb(255 255 255 / 10%); }
+html.dark.tpz-native-workspace .fi-ta-table tbody tr:hover { background: rgb(255 255 255 / 4%); }
+
 /* Customer Return evidence is shared by returns, claims and repair pages. */
 .tpz-return-gallery { display: grid; gap: 1.5rem; min-width: 0; }
 .tpz-return-gallery-empty { color: #6b7280; font-size: .875rem; }

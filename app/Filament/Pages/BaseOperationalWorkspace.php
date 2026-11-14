@@ -27,6 +27,12 @@ abstract class BaseOperationalWorkspace extends Page
         return [];
     }
 
+    /** @return array<int, class-string<Resource>> */
+    protected static function recentResources(): array
+    {
+        return [];
+    }
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -56,7 +62,32 @@ abstract class BaseOperationalWorkspace extends Page
             'sections' => static::authorizedSections(),
             'metrics' => static::authorizedMetrics(),
             'quickActions' => static::authorizedQuickActions(),
+            'recentRecords' => static::authorizedRecentRecords(),
         ];
+    }
+
+    /** @return Collection<int, array<string, mixed>> */
+    private static function authorizedRecentRecords(): Collection
+    {
+        return collect(static::recentResources())
+            ->filter(fn (string $resource): bool => $resource::canViewAny()
+                && array_key_exists('view', $resource::getPages()))
+            ->flatMap(function (string $resource): array {
+                // Resource queries apply the existing employee and responsibility scope.
+                return $resource::getEloquentQuery()
+                    ->latest()
+                    ->limit(4)
+                    ->get()
+                    ->filter(fn ($record): bool => $resource::canView($record))
+                    ->map(fn ($record): array => [
+                        'reference' => (string) ($record->reference ?? ('Record #'.$record->getKey())),
+                        'url' => $resource::getUrl('view', ['record' => $record]),
+                        'date' => $record->created_at?->format('d M Y') ?? '—',
+                    ])
+                    ->all();
+            })
+            ->take(6)
+            ->values();
     }
 
     /** @return Collection<int, array<string, mixed>> */

@@ -19,7 +19,7 @@ class UxLabPrototypeTest extends TestCase
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
         $staff = Employee::factory()->role(EmployeeRole::Staff)->create()->user;
 
-        $this->actingAs($owner)->get(UxLab::getUrl())->assertOk()->assertSee('TPZ UX Lab')->assertSee('Reset demo');
+        $this->actingAs($owner)->get(UxLab::getUrl())->assertOk()->assertSee('TPZ ERP / CONCEPT STUDIO')->assertSee('Reset');
         $this->actingAs($staff)->get(UxLab::getUrl())->assertForbidden();
     }
 
@@ -47,7 +47,7 @@ class UxLabPrototypeTest extends TestCase
             ->call('advanceOrderFlow')
             ->call('advanceOrderFlow')
             ->assertSet('flowStep', 'confirmed')
-            ->assertSee('No operational transaction was written');
+            ->assertSee('no operational transaction was written');
 
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('stock_requests', 0);
@@ -77,7 +77,7 @@ class UxLabPrototypeTest extends TestCase
         $this->assertStringContainsString('Create Sales Order', $view);
         $this->assertStringContainsString('openRecord', $view);
         $this->assertStringContainsString('addDemoProduct', $view);
-        $this->assertStringContainsString('No operational transaction was written', $view);
+        $this->assertStringContainsString('no operational transaction was written', $view);
         $this->assertStringNotContainsString('Save & Reserve', $view);
         $this->assertStringNotContainsString('Mark Shipped', $view);
         $this->assertStringContainsString('downloadFeedback', $view);

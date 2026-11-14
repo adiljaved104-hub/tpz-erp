@@ -15,13 +15,22 @@ html.tpz-native-workspace .fi-sidebar-item-button { border-radius: .65rem; color
 html.tpz-native-workspace .fi-sidebar-item-button:hover { background: rgb(23 107 135 / 34%); color: #fff; }
 html.tpz-native-workspace .fi-sidebar-item-active .fi-sidebar-item-button { background: var(--tpz-blue); color: #fff; box-shadow: inset 3px 0 0 var(--tpz-teal); }
 html.tpz-native-workspace .fi-sidebar-group-label { letter-spacing: .06em; text-transform: uppercase; font-size: .67rem; }
-html.tpz-native-workspace .fi-topbar { background: #fff; border-color: #dce6ed; }
+html.tpz-native-workspace .fi-topbar { background: var(--tpz-navy); border-color: rgb(255 255 255 / 12%); color: #fff; }
+html.tpz-native-workspace .fi-topbar *, html.tpz-native-workspace .fi-topbar button { color: rgb(232 242 247 / 92%); }
+html.tpz-native-workspace .fi-topbar input { color: #122b43; }
+html.tpz-native-workspace .fi-topbar .fi-global-search { background: rgb(255 255 255 / 12%); border-color: rgb(255 255 255 / 18%); }
 html.dark.tpz-native-workspace .fi-topbar { background: #0f2234; border-color: rgb(255 255 255 / 10%); }
 html.tpz-native-workspace .fi-main { background: #f5f8fa; }
 html.dark.tpz-native-workspace .fi-main { background: #0d1c29; }
 html.tpz-native-workspace .fi-section, html.tpz-native-workspace .fi-ta-ctn { border-color: #dce6ed; border-radius: .75rem; box-shadow: 0 2px 12px rgb(18 43 67 / 5%); }
 html.tpz-native-workspace .fi-btn-color-primary { background: var(--tpz-blue); }
 html.tpz-native-workspace .fi-badge-color-success { --badge-color: var(--tpz-teal); }
+html.tpz-native-workspace .fi-page { max-width: 100%; }
+html.tpz-native-workspace .erp-dashboard-stack > .fi-section { border-radius: .75rem; }
+html.tpz-native-workspace .erp-dashboard-card-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 75rem) { html.tpz-native-workspace .erp-dashboard-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 48rem) { html.tpz-native-workspace .erp-dashboard-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 
 
 

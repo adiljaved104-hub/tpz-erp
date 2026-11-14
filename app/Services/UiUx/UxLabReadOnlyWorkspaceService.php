@@ -49,7 +49,7 @@ final class UxLabReadOnlyWorkspaceService
 
         $sections = [];
         foreach ($resources as $resource) {
-            if (! $resource::canViewAny()) {
+            if ($resource::canViewAny() === false) {
                 continue;
             }
 

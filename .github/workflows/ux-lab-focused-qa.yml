@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - integration/ux-lab-staging-20261113
+      - integration/ux-lab-v2-staging-20261114
 
 permissions:
   contents: read

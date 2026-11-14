@@ -20,6 +20,14 @@ class PurchasingWorkspace extends BaseOperationalWorkspace
 
     protected static ?string $slug = 'purchasing-workspace';
 
+    protected static function metricResources(): array
+    {
+        return [
+            ['label' => 'Purchase Orders', 'class' => PurchaseResource::class, 'icon' => 'heroicon-o-shopping-cart'],
+            ['label' => 'Goods Receipts', 'class' => PurchaseReceiptResource::class, 'icon' => 'heroicon-o-archive-box-arrow-down'],
+        ];
+    }
+
     protected static function workspaceDefinition(): array
     {
         return [

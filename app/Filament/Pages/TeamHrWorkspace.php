@@ -21,6 +21,14 @@ class TeamHrWorkspace extends BaseOperationalWorkspace
 
     protected static ?string $slug = 'team-hr-workspace';
 
+    protected static function metricResources(): array
+    {
+        return [
+            ['label' => 'Employees', 'class' => EmployeeResource::class, 'icon' => 'heroicon-o-users'],
+            ['label' => 'Teams', 'class' => TeamResource::class, 'icon' => 'heroicon-o-user-group'],
+        ];
+    }
+
     protected static function workspaceDefinition(): array
     {
         return [

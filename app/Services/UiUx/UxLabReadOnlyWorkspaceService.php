@@ -4,12 +4,12 @@ namespace App\Services\UiUx;
 
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\Orders\OrderResource;
-use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\Purchases\PurchaseResource;
 use App\Filament\Resources\Quotations\QuotationResource;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
+use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use BackedEnum;
 use Illuminate\Database\Eloquent\Model;
 

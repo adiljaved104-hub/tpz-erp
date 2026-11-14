@@ -17,6 +17,8 @@ class UserUiPreferenceService
 
     public const NAVIGATION_GROUP_ORDER = 'navigation.group_order';
 
+    public const NAVIGATION_WORKSPACE_MODE = 'navigation.workspace_mode';
+
     public const INVENTORY_ALERTS = 'notifications.inventory_alerts';
 
     public const STOCK_ADJUSTMENTS_COLUMNS = 'stock_adjustments.columns';
@@ -28,6 +30,7 @@ class UserUiPreferenceService
         self::MY_INVENTORY_COLLAPSED_SECTIONS,
         self::NAVIGATION_HIDDEN_ITEMS,
         self::NAVIGATION_GROUP_ORDER,
+        self::NAVIGATION_WORKSPACE_MODE,
         self::INVENTORY_ALERTS,
         self::STOCK_ADJUSTMENTS_COLUMNS,
         self::STOCK_REQUESTS_COLUMNS,

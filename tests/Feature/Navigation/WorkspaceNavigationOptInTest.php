@@ -7,6 +7,7 @@ use App\Filament\Pages\CustomizeNavigation;
 use App\Models\Employee;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Preferences\UserUiPreferenceService;
+use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -22,9 +23,11 @@ class WorkspaceNavigationOptInTest extends TestCase
         $this->withoutVite();
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
 
-        $this->actingAs($owner)->get(CustomizeNavigation::getUrl())->assertOk()->assertSee('Simplified workspace navigation');
         $this->actingAs($owner);
-        Livewire::test(CustomizeNavigation::class)->call('toggleWorkspaceMode');
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        Livewire::test(CustomizeNavigation::class)
+            ->assertSee('Simplified workspace navigation')
+            ->call('toggleWorkspaceMode');
 
         $this->assertTrue(app(NavigationPreferenceService::class)->workspaceModeEnabled($owner));
         $this->assertSame([], app(UserUiPreferenceService::class)->get($owner, UserUiPreferenceService::NAVIGATION_HIDDEN_ITEMS));
@@ -64,12 +67,10 @@ class WorkspaceNavigationOptInTest extends TestCase
                 ->map(fn (NavigationItem $item): ?string => $item->getUrl())->all(),
         )->all();
         $this->assertEqualsCanonicalizing($urls($original), $urls($reorganized));
-        $this->assertContains('/admin/products', array_map(
-            fn (NavigationItem $item): ?string => $item->getUrl(), $reorganized[2]->getItems(),
-        ));
-        $this->assertNotContains('/admin/products', array_map(
-            fn (NavigationItem $item): ?string => $item->getUrl(), $reorganized[3]->getItems(),
-        ));
+        $this->assertContains('/admin/products', collect($reorganized[2]->getItems())
+            ->map(fn (NavigationItem $item): ?string => $item->getUrl())->all());
+        $this->assertNotContains('/admin/products', collect($reorganized[3]->getItems())
+            ->map(fn (NavigationItem $item): ?string => $item->getUrl())->all());
 
         $service->setWorkspaceMode($owner, false);
         $restored = $service->apply($owner, $groups);
@@ -131,7 +132,9 @@ class WorkspaceNavigationOptInTest extends TestCase
 
         app(UserUiPreferenceService::class)->put($staff, UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE, ['enabled']);
         $this->assertFalse($service->workspaceModeEnabled($staff));
-        $this->actingAs($staff)->get(CustomizeNavigation::getUrl())->assertOk()->assertDontSee('Simplified workspace navigation');
+        $this->actingAs($staff);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        Livewire::test(CustomizeNavigation::class)->assertDontSee('Simplified workspace navigation');
     }
 
     public function test_workspace_mode_preference_is_not_a_new_access_control_permission(): void

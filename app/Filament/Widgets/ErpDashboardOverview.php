@@ -2,18 +2,18 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\User;
 use App\Enums\InventoryPermission;
+use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Purchases\PurchaseResource;
 use App\Filament\Resources\StockRequests\StockRequestResource;
-use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
+use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
-use App\Services\Inventory\InventoryReadService;
-use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Dashboard\DashboardPreferenceService;
 use App\Services\Dashboard\DashboardWidgetRegistry;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Inventory\InventoryReadService;
+use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
@@ -225,7 +225,7 @@ class ErpDashboardOverview extends Widget
         ];
     }
 
-    /** @return array{enabled: bool, movements: \\Illuminate\\Support\\Collection} */
+    /** @return array{enabled: bool, movements: \Illuminate\Support\Collection} */
     private function authorizedRecentActivity(User $user): array
     {
         $enabled = app(NavigationPreferenceService::class)->workspaceModeEnabled($user)

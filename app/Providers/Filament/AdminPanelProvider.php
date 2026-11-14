@@ -95,6 +95,10 @@ class AdminPanelProvider extends PanelProvider
                 fn () => view('filament.hooks.notification-bell'),
             )
             ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn () => view('filament.hooks.interface-mode-switcher'),
+            )
+            ->renderHook(
                 PanelsRenderHook::BODY_END,
                 fn () => view('filament.hooks.ai-assistant'),
             )

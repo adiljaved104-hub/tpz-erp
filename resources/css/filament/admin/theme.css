@@ -34,6 +34,49 @@ html.tpz-native-workspace .erp-dashboard-card-grid { grid-template-columns: repe
 
 
 
+
+/* Reference-aligned native workspaces. Applies only to the Owner opt-in shell. */
+html.tpz-native-workspace .tpz-workspace { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+html.tpz-native-workspace .tpz-workspace-header { padding: 1.25rem 1.5rem; border-radius: 1rem; background: linear-gradient(115deg, #122b43, #176b87); color: #fff; box-shadow: 0 8px 22px rgb(18 43 67 / 14%); }
+html.tpz-native-workspace .tpz-workspace-eyebrow { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #98e4d3; }
+html.tpz-native-workspace .tpz-workspace-title { margin-top: .2rem; font-size: clamp(1.35rem, 2vw, 1.8rem); line-height: 1.25; font-weight: 750; color: #fff; }
+html.tpz-native-workspace .tpz-workspace-subtitle { margin-top: .35rem; max-width: 48rem; font-size: .82rem; color: #d6e7ef; }
+html.tpz-native-workspace .tpz-workspace-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem; border-bottom: 1px solid #dce6ed; }
+html.tpz-native-workspace .tpz-workspace-tab { display: inline-flex; align-items: center; min-height: 2.75rem; padding: .55rem .9rem; border-bottom: 3px solid transparent; font-size: .85rem; font-weight: 600; color: #52677a; transition: color .15s, background .15s; }
+html.tpz-native-workspace .tpz-workspace-tab:hover { color: #176b87; background: rgb(23 107 135 / 6%); }
+html.tpz-native-workspace .tpz-workspace-tab.is-active { border-bottom-color: #13a68b; color: #176b87; }
+html.tpz-native-workspace .tpz-workspace-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+html.tpz-native-workspace .tpz-workspace-metrics--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html.tpz-native-workspace .tpz-workspace-metric { display: flex; align-items: flex-start; gap: 1rem; min-width: 0; padding: 1.25rem; border: 1px solid #dce6ed; border-radius: 1rem; background: #fff; box-shadow: 0 2px 12px rgb(18 43 67 / 5%); }
+html.tpz-native-workspace .tpz-workspace-metric-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 2.6rem; width: 2.6rem; height: 2.6rem; border-radius: .8rem; background: #e7f3f8; color: #176b87; }
+html.tpz-native-workspace .tpz-workspace-metric--teal .tpz-workspace-metric-icon { background: #ddf8f1; color: #087d66; }
+html.tpz-native-workspace .tpz-workspace-metric--amber .tpz-workspace-metric-icon { background: #fff3d7; color: #a3650c; }
+html.tpz-native-workspace .tpz-workspace-metric--violet .tpz-workspace-metric-icon { background: #f0eafd; color: #7646b1; }
+html.tpz-native-workspace .tpz-workspace-metric-label { font-size: .78rem; font-weight: 600; color: #617487; }
+html.tpz-native-workspace .tpz-workspace-metric-value { margin-top: .35rem; font-size: 1.75rem; line-height: 1.2; font-weight: 750; font-variant-numeric: tabular-nums; color: #122b43; }
+html.tpz-native-workspace .tpz-workspace-metric-link { margin-top: .5rem; color: #176b87; font-size: .85rem; font-weight: 700; }
+html.tpz-native-workspace .tpz-workspace-table { width: 100%; min-width: 670px; border-collapse: collapse; text-align: left; font-size: .82rem; }
+html.tpz-native-workspace .tpz-workspace-table th { padding: .75rem .9rem; background: #f1f6f9; color: #637688; font-size: .7rem; font-weight: 700; letter-spacing: .045em; text-transform: uppercase; }
+html.tpz-native-workspace .tpz-workspace-table td { padding: .8rem .9rem; border-bottom: 1px solid #e7edf2; vertical-align: middle; }
+html.tpz-native-workspace .tpz-workspace-table tbody tr:hover { background: #f7fbfc; }
+@media (max-width: 75rem) {
+  html.tpz-native-workspace .tpz-workspace-metrics, html.tpz-native-workspace .tpz-workspace-metrics--three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 40rem) {
+  html.tpz-native-workspace .tpz-workspace-header { padding: 1rem; }
+  html.tpz-native-workspace .tpz-workspace-metrics, html.tpz-native-workspace .tpz-workspace-metrics--three { grid-template-columns: 1fr; }
+  html.tpz-native-workspace .tpz-workspace-tab { min-height: 2.3rem; padding: .45rem .55rem; }
+}
+html.dark.tpz-native-workspace .tpz-workspace-tabs { border-color: rgb(255 255 255 / 12%); }
+html.dark.tpz-native-workspace .tpz-workspace-tab { color: #c4d2dd; }
+html.dark.tpz-native-workspace .tpz-workspace-tab.is-active { color: #86e0cb; }
+html.dark.tpz-native-workspace .tpz-workspace-metric { border-color: rgb(255 255 255 / 12%); background: #152738; }
+html.dark.tpz-native-workspace .tpz-workspace-metric-label { color: #a9b9c7; }
+html.dark.tpz-native-workspace .tpz-workspace-metric-value { color: #fff; }
+html.dark.tpz-native-workspace .tpz-workspace-table th { background: #1c3447; color: #c3d2df; }
+html.dark.tpz-native-workspace .tpz-workspace-table td { border-color: rgb(255 255 255 / 10%); }
+html.dark.tpz-native-workspace .tpz-workspace-table tbody tr:hover { background: rgb(255 255 255 / 4%); }
+
 /* Customer Return evidence is shared by returns, claims and repair pages. */
 .tpz-return-gallery { display: grid; gap: 1.5rem; min-width: 0; }
 .tpz-return-gallery-empty { color: #6b7280; font-size: .875rem; }

@@ -124,6 +124,7 @@ class InventoryWorkspace extends Page
                 'inventory' => InventoryOverview::canAccess() ? InventoryOverview::getUrl() : null,
                 'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getUrl() : null,
                 'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getUrl() : null,
+                'createRequest' => StockRequestResource::canCreate() ? StockRequestResource::getUrl('create') : null,
                 'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getUrl() : null,
                 'adjustments' => StockAdjustments::canAccess() ? StockAdjustments::getUrl() : null,
                 'movements' => $canSeeMovements && StockMovementResource::canViewAny() ? StockMovementResource::getUrl() : null,

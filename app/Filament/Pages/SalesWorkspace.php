@@ -3,6 +3,8 @@
 namespace App\Filament\Pages;
 
 use App\Enums\OrderPermission;
+use App\Enums\OrderStatus;
+use App\Enums\WebSalesChannel;
 use App\Enums\QuotationPermission;
 use App\Enums\WebSalesPermission;
 use App\Filament\Resources\Orders\OrderResource;
@@ -84,7 +86,7 @@ class SalesWorkspace extends Page
                 continue;
             }
 
-            if ($this->status !== 'all' && in_array($this->status, array_column(\\App\\Enums\\OrderStatus::cases(), 'value'), true)) {
+            if ($this->status !== 'all' && in_array($this->status, array_column(OrderStatus::cases(), 'value'), true)) {
                 $query->where('orders.status', $this->status);
             }
             if ($this->from !== '' && preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $this->from)) {
@@ -99,7 +101,7 @@ class SalesWorkspace extends Page
             }
         }
 
-        if ($webSalesQuery !== null && $this->channel !== '' && in_array($this->channel, array_column(\\App\\Enums\\WebSalesChannel::cases(), 'value'), true)) {
+        if ($webSalesQuery !== null && $this->channel !== '' && in_array($this->channel, array_column(WebSalesChannel::cases(), 'value'), true)) {
             $webSalesQuery->where('orders.web_sales_channel', $this->channel);
         }
         if (trim($this->customer) !== '') {
@@ -130,8 +132,7 @@ class SalesWorkspace extends Page
     {
         $needle = mb_strtolower(trim($this->search));
         $haystack = mb_strtolower(($reference ?? '').' '.(string) $status);
-        $statusMatch = $this->status === 'all' || (string) $status === $this->status
-            || ($this->status === 'shipped' && (string) $status === 'fulfilled');
+        $statusMatch = $this->status === 'all' || (string) $status === $this->status;
 
         return $statusMatch && ($needle === '' || str_contains($haystack, $needle));
     }

@@ -19,6 +19,7 @@ class WorkspaceNavigationOptInTest extends TestCase
 
     public function test_owner_can_opt_into_simplified_workspace_navigation_without_changing_operational_permissions(): void
     {
+        $this->withoutVite();
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
 
         $this->actingAs($owner)->get(CustomizeNavigation::getUrl())->assertOk()->assertSee('Simplified workspace navigation');
@@ -124,6 +125,7 @@ class WorkspaceNavigationOptInTest extends TestCase
 
     public function test_staff_cannot_enable_owner_navigation_even_if_preference_is_manually_written(): void
     {
+        $this->withoutVite();
         $staff = Employee::factory()->role(EmployeeRole::Staff)->create()->user;
         $service = app(NavigationPreferenceService::class);
 

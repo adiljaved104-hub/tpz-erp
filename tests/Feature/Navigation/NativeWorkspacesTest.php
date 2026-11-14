@@ -7,6 +7,7 @@ use App\Filament\Pages\InventoryWorkspace;
 use App\Filament\Pages\SalesWorkspace;
 use App\Models\Employee;
 use App\Models\Product;
+use App\Models\ProductInventory;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -43,12 +44,15 @@ class NativeWorkspacesTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
 
-        Product::factory()->create(['sku' => 'TPZ-NATIVE-LIVE-123', 'name' => 'Original catalog stock']);
+        $product = Product::factory()->create(['sku' => 'TPZ-NATIVE-LIVE-123', 'name' => 'Original catalog stock']);
+        ProductInventory::factory()->create(['product_id' => $product->id, 'available_quantity' => 7]);
 
         Livewire::test(SalesWorkspace::class)->assertSee('Sales Workspace');
         Livewire::test(InventoryWorkspace::class)
             ->assertSee('Inventory & Warehouse')
-            ->assertSee('Products');
+            ->assertSee('Products')
+            ->assertSee('TPZ-NATIVE-LIVE-123')
+            ->assertSee('Original catalog stock');
 
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('products', 1);

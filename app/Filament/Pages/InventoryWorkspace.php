@@ -11,9 +11,11 @@ use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Dashboard\DashboardInventoryIntelligenceService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Navigation\NavigationPreferenceService;
+use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 
@@ -60,6 +62,9 @@ class InventoryWorkspace extends Page
         $inventory = app(InventoryReadService::class)->inventories($user)
             ->latest('product_inventories.updated_at')->limit(10)->get()
             ->filter(fn ($row): bool => $this->search === '' || str_contains(mb_strtolower($row->product?->sku.' '.$row->product?->name), mb_strtolower($this->search)));
+        $today = CarbonImmutable::today(config('app.timezone'));
+        $intelligence = app(DashboardInventoryIntelligenceService::class)->forUser($user, $today, $today, 'company') ?? [];
+        $recentMovements = app(InventoryReadService::class)->movements($user)->latest('occurred_at')->limit(5)->get();
 
         return [
             'inventory' => $inventory,
@@ -69,6 +74,9 @@ class InventoryWorkspace extends Page
                 'reserved' => $products->sum('reserved'),
                 'allocated' => $products->sum('total_owned'),
             ],
+            'lowStock' => collect($intelligence['attention'] ?? [])->where('state', 'Low Stock')->values(),
+            'recentMovements' => $recentMovements,
+            'lowStockThreshold' => $intelligence['threshold'] ?? null,
             'links' => [
                 'products' => ProductResource::getUrl(),
                 'inventory' => InventoryOverview::getUrl(),

@@ -82,6 +82,21 @@
     </style>
 
     <div class="erp-dashboard-stack" data-dashboard-role="{{ $role_label }}" data-dashboard-customizing="{{ $customize_mode ? 'true' : 'false' }}">
+        @if (app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user()))
+            <div class="tpz-reference-home">
+                <div class="tpz-home-welcome"><div><div class="tpz-eyebrow">TPZ ERP</div><h1>Good morning, {{ auth()->user()->name }}</h1><p>Here is today's authorized operational view.</p></div><time>{{ now(app(\App\Services\UserTimezoneResolver::class)->resolve(auth()->user()))->format('D, d M Y') }}</time></div>
+                <div class="tpz-home-kpis">
+                    @foreach ([['orders', 'Sales Orders', 'heroicon-o-shopping-cart', 'blue'], ['web_sales', 'Web Sales', 'heroicon-o-shopping-cart', 'green'], ['stock_requests', 'Stock Requests', 'heroicon-o-clipboard-document-list', 'amber'], ['transfers', 'Transfers (In/Out)', 'heroicon-o-arrows-right-left', 'indigo'], ['returns', 'Returns / QC', 'heroicon-o-arrow-path', 'rose']] as [$key, $label, $icon, $tone])
+                        @if ($reference_kpis[$key] !== null)<div class="tpz-home-kpi {{ $tone }}"><x-filament::icon :icon="$icon" class="h-5 w-5" /><div><span>{{ $label }}</span><strong>{{ number_format((int) $reference_kpis[$key]) }}</strong></div></div>@endif
+                    @endforeach
+                </div>
+                <div class="tpz-home-panels">
+                    <x-filament::section compact heading="My Workspace"><div class="tpz-home-list">@forelse ($attention->take(4) as $item)<a href="{{ $item['url'] }}"><span>{{ $item['label'] }}</span><b>{{ number_format($item['count']) }}</b></a>@empty<div class="tpz-empty">No pending work in your authorized scope.</div>@endforelse</div></x-filament::section>
+                    <x-filament::section compact heading="Recent Activity"><div class="tpz-home-list">@forelse ($attention->sortBy('priority')->take(4) as $item)<a href="{{ $item['url'] }}"><span>{{ $item['label'] }}</span><small>{{ number_format($item['count']) }} requiring attention</small></a>@empty<div class="tpz-empty">No recent activity requiring attention.</div>@endforelse</div></x-filament::section>
+                    <x-filament::section compact heading="Quick Actions"><div class="tpz-home-actions">@forelse ($cards->where('type', 'action')->take(4) as $action)<a href="{{ $action['url'] }}">+ {{ $action['label'] }}</a>@empty<div class="tpz-empty">No quick actions available.</div>@endforelse</div></x-filament::section>
+                </div>
+            </div>
+        @endif
         <x-filament::section compact>
             <x-slot name="heading">Operational Overview</x-slot>
             <x-slot name="description">{{ $period_label }} · {{ $role_label }} access</x-slot>

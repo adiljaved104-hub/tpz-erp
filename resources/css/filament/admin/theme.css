@@ -29,6 +29,32 @@
 @media (max-width: 75rem) { .tpz-native-workspace .erp-dashboard-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 48rem) { .tpz-native-workspace .erp-dashboard-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+/* Reference workspace layout: restrained navy shell, compact data panels, and responsive KPIs. */
+.tpz-workspace-stack { display: grid; gap: 1rem; }
+.tpz-workspace-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.tpz-eyebrow { color: #64748b; font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.tpz-title { margin-top: .2rem; color: #102b4e; font-size: 1.65rem; font-weight: 750; letter-spacing: -.02em; }
+.tpz-subtitle { margin-top: .25rem; color: #64748b; font-size: .875rem; }
+.tpz-workspace-tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: 1rem; border-bottom: 1px solid #e2e8f0; }
+.tpz-workspace-tab { padding: .65rem .8rem; color: #475569; font-size: .8rem; font-weight: 650; border-bottom: 2px solid transparent; }
+.tpz-workspace-tab:hover, .tpz-workspace-tab.is-active { color: #087fb9; border-color: #087fb9; }
+.tpz-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+.tpz-kpi-card { display: flex; align-items: center; gap: .75rem; min-width: 0; padding: .9rem 1rem; border: 1px solid #dbe5ef; border-radius: .8rem; background: #fff; box-shadow: 0 2px 7px rgb(15 45 78 / .05); }
+.tpz-kpi-icon { display: grid; width: 2.35rem; height: 2.35rem; flex: none; place-items: center; border-radius: .65rem; }
+.tpz-kpi-card.tone-blue .tpz-kpi-icon { color: #1674c4; background: #e5f2ff; }.tpz-kpi-card.tone-green .tpz-kpi-icon { color: #16945b; background: #e6f8ee; }.tpz-kpi-card.tone-amber .tpz-kpi-icon { color: #b7791f; background: #fff4dc; }.tpz-kpi-card.tone-indigo .tpz-kpi-icon { color: #5654cb; background: #ecebff; }
+.tpz-kpi-label { color: #64748b; font-size: .72rem; font-weight: 650; }.tpz-kpi-value { margin-top: .1rem; color: #102b4e; font-size: 1.35rem; font-weight: 760; }
+.tpz-panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.tpz-list-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .65rem .1rem; border-bottom: 1px solid #edf1f5; color: #102b4e; }.tpz-list-row:last-child { border-bottom: 0; }.tpz-list-row strong { display: block; font-size: .8rem; }.tpz-list-row small { display: block; margin-top: .12rem; color: #64748b; font-size: .72rem; }.tpz-list-row time { color: #64748b; font-size: .72rem; white-space: nowrap; }.tpz-panel-note { margin-top: .5rem; color: #64748b; font-size: .7rem; }.tpz-empty { padding: 1rem 0; color: #64748b; font-size: .8rem; text-align: center; }
+.tpz-data-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: .82rem; }.tpz-data-table th { padding: .65rem .75rem; border-bottom: 1px solid #dbe5ef; color: #64748b; font-size: .68rem; font-weight: 750; letter-spacing: .04em; text-align: left; text-transform: uppercase; }.tpz-data-table td { padding: .72rem .75rem; border-bottom: 1px solid #edf1f5; color: #334155; }.tpz-data-table td strong { display: block; color: #102b4e; }.tpz-data-table td small { display: block; margin-top: .12rem; color: #64748b; font-size: .72rem; }
+@media (max-width: 64rem) { .tpz-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 40rem) { .tpz-workspace-heading { flex-direction: column; }.tpz-kpi-grid, .tpz-panel-grid { grid-template-columns: 1fr; }.tpz-title { font-size: 1.35rem; } }
+.tpz-reference-home { display: grid; gap: 1rem; }
+.tpz-home-welcome { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: .25rem .25rem 0; }.tpz-home-welcome h1 { margin-top: .2rem; color: #102b4e; font-size: 1.65rem; font-weight: 760; }.tpz-home-welcome p { margin-top: .25rem; color: #64748b; font-size: .875rem; }.tpz-home-welcome time { color: #102b4e; font-size: .8rem; font-weight: 650; }
+.tpz-home-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .7rem; }.tpz-home-kpi { display: flex; align-items: center; gap: .65rem; min-width: 0; padding: .8rem; border: 1px solid #dbe5ef; border-radius: .75rem; }.tpz-home-kpi > svg { flex: none; width: 1.35rem; height: 1.35rem; }.tpz-home-kpi span { display: block; color: #334155; font-size: .72rem; font-weight: 650; }.tpz-home-kpi strong { display: block; margin-top: .15rem; color: #102b4e; font-size: 1.35rem; }.tpz-home-kpi.blue { background: #edf7ff; color: #1674c4; }.tpz-home-kpi.green { background: #edfbf3; color: #16945b; }.tpz-home-kpi.amber { background: #fff8eb; color: #b7791f; }.tpz-home-kpi.indigo { background: #f1f0ff; color: #5654cb; }.tpz-home-kpi.rose { background: #fff0f3; color: #cf4c67; }
+.tpz-home-panels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }.tpz-home-list { display: grid; gap: .3rem; }.tpz-home-list a { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .6rem .15rem; border-bottom: 1px solid #edf1f5; color: #102b4e; font-size: .8rem; }.tpz-home-list a:last-child { border-bottom: 0; }.tpz-home-list a b { display: grid; min-width: 1.4rem; height: 1.4rem; place-items: center; border-radius: 999px; background: #ef4444; color: #fff; font-size: .7rem; }.tpz-home-list small { display: block; color: #64748b; font-size: .7rem; }.tpz-home-actions { display: grid; gap: .45rem; }.tpz-home-actions a { display: block; padding: .55rem .7rem; border: 1px solid #cbd5e1; border-radius: .5rem; color: #102b4e; font-size: .8rem; font-weight: 650; }.tpz-home-actions a:first-child { border-color: #087fb9; background: #087fb9; color: #fff; }
+@media (max-width: 72rem) { .tpz-home-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .tpz-home-panels { grid-template-columns: 1fr; } }
+@media (max-width: 40rem) { .tpz-home-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tpz-home-welcome { flex-direction: column; } }
+
 /* Customer Return evidence is shared by returns, claims and repair pages. */
 .tpz-return-gallery { display: grid; gap: 1.5rem; min-width: 0; }
 .tpz-return-gallery-empty { color: #6b7280; font-size: .875rem; }

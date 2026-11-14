@@ -2,10 +2,17 @@
 
 namespace App\Filament\Widgets;
 
+use App\Enums\InventoryPermission;
+use App\Enums\WebSalesPermission;
+use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Models\User;
+use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Dashboard\DashboardPreferenceService;
 use App\Services\Dashboard\DashboardWidgetRegistry;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Orders\WebSalesReadService;
+use App\Services\StockTransfers\StockTransferReadService;
 use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
@@ -194,7 +201,7 @@ class ErpDashboardOverview extends Widget
         $hidden = array_values(array_intersect($this->hiddenWidgets, $authorizedKeys));
         $visible = array_values(array_diff($layout, $hidden));
 
-        return app(ErpDashboardService::class)->forUser(
+        $data = app(ErpDashboardService::class)->forUser(
             $user,
             $this->period,
             $this->appliedCustomFrom,
@@ -213,6 +220,18 @@ class ErpDashboardOverview extends Widget
             'widget_definitions' => $authorizedDefinitions,
             'customize_mode' => $this->customizeMode,
         ];
+
+        $data['reference_kpis'] = [
+            'orders' => $data['cards']->firstWhere('key', 'orders')['value'] ?? 0,
+            'web_sales' => app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Dashboard)
+                ? app(WebSalesReadService::class)->orders($user)->count() : null,
+            'stock_requests' => StockRequestResource::canViewAny() ? StockRequestResource::getEloquentQuery()->count() : null,
+            'transfers' => app(InventoryAuthorization::class)->allows($user, InventoryPermission::View)
+                ? app(StockTransferReadService::class)->query($user)->count() : null,
+            'returns' => $data['cards']->firstWhere('key', 'returns')['value'] ?? null,
+        ];
+
+        return $data;
     }
 
     private function loadPreferenceState(): void

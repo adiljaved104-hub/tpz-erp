@@ -20,9 +20,21 @@
                     Open {{ $selectedModuleData['label'] }}
                 </x-filament::button>
             @elseif($quickActions->isNotEmpty())
-                <x-filament::button tag="a" :href="$quickActions->first()['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve($quickActions->first()['icon'])">
-                    {{ $quickActions->first()['label'] }}
-                </x-filament::button>
+                <div class="tpz-workspace-context-actions flex flex-wrap gap-2">
+                    <x-filament::button tag="a" :href="$quickActions->first()['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve($quickActions->first()['icon'])">
+                        {{ $quickActions->first()['label'] }}
+                    </x-filament::button>
+                    @if($quickActions->count() > 1)
+                        <details class="tpz-reference-actions-menu">
+                            <summary>More Actions <span aria-hidden="true">⌄</span></summary>
+                            <div class="tpz-reference-actions-options">
+                                @foreach($quickActions->skip(1) as $action)
+                                    <a href="{{ $action['url'] }}">{{ $action['label'] }}</a>
+                                @endforeach
+                            </div>
+                        </details>
+                    @endif
+                </div>
             @endif
         </header>
 
@@ -71,26 +83,12 @@
                 </section>
             @endif
 
-            @if($quickActions->isNotEmpty())
-                <div class="tpz-reference-action-strip" aria-label="Available actions">
-                    @foreach($quickActions as $action)
-                        <a href="{{ $action['url'] }}">
-                            <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($action['icon'])" class="size-4" />
-                            {{ $action['label'] }}
-                        </a>
-                    @endforeach
-                </div>
-            @endif
-
-            @if($workspaceAttention->isNotEmpty() || $recentRecords->isNotEmpty())
-                <div class="tpz-native-overview-columns">
-                    @if($workspaceAttention->isNotEmpty())
+            <div class="tpz-native-overview-columns">
                         <section class="tpz-native-list-panel" aria-label="Needs Attention" x-data="{ expanded: true }">
                             <div class="tpz-native-panel-title">
                                 <span class="tpz-reference-target-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" width="30" height="30"><circle cx="14" cy="17" r="11" stroke="currentColor" stroke-width="2.3"/><circle cx="14" cy="17" r="6" stroke="currentColor" stroke-width="2.2"/><circle cx="14" cy="17" r="1.7" fill="currentColor"/><path d="M14 17 24 7M22 4v6h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                                 <div class="tpz-reference-panel-heading"><h2>Needs Attention</h2><small>Priority operational items in your authorized scope.</small></div>
                                 <button type="button" class="tpz-reference-collapse" x-on:click="expanded = !expanded" x-bind:aria-expanded="expanded.toString()" aria-label="Toggle Needs Attention" aria-controls="tpz-needs-attention-items"><svg viewBox="0 0 20 20" fill="none" width="19" height="19" x-bind:class="expanded ? '' : 'is-collapsed'"><path d="m4 7 6 6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-                                <span class="tpz-reference-panel-note">Authorized operational items</span>
                             </div>
                             <div class="tpz-reference-attention-grid" id="tpz-needs-attention-items" x-show="expanded">
                                 @foreach($workspaceAttention as $alert)
@@ -101,10 +99,11 @@
                                         <small>View</small>
                                     </a>
                                 @endforeach
+                                @if($workspaceAttention->isEmpty())
+                                    <p class="tpz-native-no-preview">No urgent items in your authorized scope.</p>
+                                @endif
                             </div>
                         </section>
-                    @endif
-                    @if($recentRecords->isNotEmpty())
                         <section class="tpz-native-list-panel" aria-label="Recent activity">
                             <div class="tpz-native-panel-title">
                                 <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-clock')" class="size-5" /></span>
@@ -114,15 +113,19 @@
                                 @foreach($recentRecords as $record)
                                     <a href="{{ $record['url'] }}" wire:key="recent-{{ $loop->index }}">
                                         <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-document-text')" class="size-4" /></span>
-                                        <strong>{{ $record['reference'] }}</strong>
+                                        <span class="tpz-reference-movement-label">
+                                            <strong>{{ $record['reference'] }}</strong>
+                                            <small>{{ $record['source'] }}@if($record['status']) · {{ $record['status'] }}@endif</small>
+                                        </span>
                                         <small>{{ $record['date'] }}</small>
                                     </a>
                                 @endforeach
+                                @if($recentRecords->isEmpty())
+                                    <p class="tpz-native-no-preview">No recent records in your authorized scope.</p>
+                                @endif
                             </div>
                         </section>
-                    @endif
                 </div>
-            @endif
 
             @if($recentRecords->isNotEmpty())
                 <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent authorized records">
@@ -132,11 +135,13 @@
                     </div>
                     <div class="tpz-native-record-table-wrap">
                         <table class="tpz-native-record-table">
-                            <thead><tr><th>Reference</th><th>Created</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Reference</th><th>Module</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
                             <tbody>
                                 @foreach($recentRecords as $record)
                                     <tr wire:key="recent-workspace-table-{{ $loop->index }}">
                                         <td><strong>{{ $record['reference'] }}</strong></td>
+                                        <td>{{ $record['source'] }}</td>
+                                        <td>@if($record['status'])<span class="tpz-reference-status-badge tpz-reference-status-badge--{{ \App\Support\WorkspaceVisuals::recordTone($record['status']) }}">{{ $record['status'] }}</span>@else — @endif</td>
                                         <td>{{ $record['date'] }}</td>
                                         <td><a href="{{ $record['url'] }}">View →</a></td>
                                     </tr>

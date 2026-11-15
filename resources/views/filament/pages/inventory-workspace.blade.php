@@ -53,7 +53,7 @@
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')">Overview</button>
             @foreach (['products' => 'Products', 'inventory' => 'Inventory', 'myInventory' => 'My Inventory', 'requests' => 'Requests', 'transfers' => 'Transfers', 'adjustments' => 'Adjustments'] as $key => $label)
                 @if(isset($links[$key]))
-                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}</button>
+                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}@if(isset($tabCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($tabCounts[$key]) }}</span>@endif</button>
                 @endif
             @endforeach
             @foreach($extraModules as $index => $module)
@@ -64,23 +64,36 @@
             @endforeach
         </nav>
 
-        @if($canSeeSummary && $activeTab === 'overview')
-            <div class="tpz-workspace-metrics tpz-reference-inventory-metrics">
-                @foreach ([
-                    'products' => ['label' => 'Accessible Products', 'icon' => 'heroicon-o-cube', 'accent' => 'blue'],
-                    'available' => ['label' => 'Available Stock', 'icon' => 'heroicon-o-check-circle', 'accent' => 'teal'],
-                    'reserved' => ['label' => 'Reserved Stock', 'icon' => 'heroicon-o-clock', 'accent' => 'amber'],
-                    'allocated' => ['label' => 'Allocated Stock', 'icon' => 'heroicon-o-squares-2x2', 'accent' => 'violet'],
-                ] as $key => $metric)
-                    <div class="tpz-workspace-metric tpz-workspace-metric--{{ $metric['accent'] }}">
-                        <span class="tpz-workspace-metric-icon"><x-filament::icon :icon="$metric['icon']" class="size-5" /></span>
-                        <div class="min-w-0">
-                            <p class="tpz-workspace-metric-label">{{ $metric['label'] }}</p>
-                            <p class="tpz-workspace-metric-value">{{ number_format($summary[$key]) }}</p>
-                        </div>
-                    </div>
-                @endforeach
-            </div>
+        @if($activeTab === 'overview' && $inventoryCards->isNotEmpty())
+            <section class="tpz-unified-overview-panel" aria-label="Inventory operational overview">
+                <div class="tpz-unified-section-title">
+                    <h2>Operational Overview</h2>
+                    <span>Live, permission-scoped totals</span>
+                </div>
+                <div class="tpz-native-overview-metrics">
+                    @foreach ([
+                        ['key' => 'inventory_units', 'icon' => 'heroicon-o-cube', 'tone' => 'blue'],
+                        ['key' => 'sellable_inventory', 'icon' => 'heroicon-o-shopping-bag', 'tone' => 'green'],
+                        ['key' => 'inventory_value', 'icon' => 'heroicon-o-chart-bar', 'tone' => 'violet'],
+                        ['key' => 'low_stock', 'icon' => 'heroicon-o-exclamation-triangle', 'tone' => 'amber'],
+                        ['key' => 'out_of_stock', 'icon' => 'heroicon-o-x-circle', 'tone' => 'rose'],
+                        ['key' => 'damaged', 'icon' => 'heroicon-o-shield-exclamation', 'tone' => 'rose'],
+                        ['key' => 'qc_pending', 'icon' => 'heroicon-o-magnifying-glass', 'tone' => 'amber'],
+                        ['key' => 'marketplace_inventory', 'icon' => 'heroicon-o-building-storefront', 'tone' => 'blue'],
+                    ] as $definition)
+                        @php($card = $inventoryCards->get($definition['key']))
+                        @if($card && $card['url'])
+                            <a href="{{ $card['url'] }}"
+                                class="tpz-native-overview-metric tpz-native-overview-metric--{{ $definition['tone'] }}"
+                                title="{{ $card['description'] ?? $card['label'] }}">
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="$definition['icon']" class="size-5" /></span>
+                                <span class="tpz-native-overview-label">{{ $card['label'] }}</span>
+                                <strong>{{ $card['value'] }}</strong>
+                            </a>
+                        @endif
+                    @endforeach
+                </div>
+            </section>
         @endif
 
         @if($canSeeSummary && $activeTab === 'overview')

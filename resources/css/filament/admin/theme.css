@@ -1481,3 +1481,169 @@ html.dark.tpz-native-workspace .fi-dropdown-panel svg {
 html.dark.tpz-native-workspace .fi-dropdown-panel :is(a,button):hover {
     background: #2a465e;
 }
+
+
+/* Approved New ERP Dashboard extension — additive below existing greeting,
+   executive KPIs and three reference panels; Classic ERP remains untouched. */
+html.tpz-native-workspace .tpz-native-operations {
+    display: grid;
+    gap: .8rem;
+    min-width: 0;
+    margin-top: .4rem;
+}
+html.tpz-native-workspace .tpz-native-detail-panel {
+    min-width: 0;
+    border: 1px solid #d8e4ef;
+    border-radius: .9rem;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 3px 12px rgb(15 45 70 / 5%);
+}
+html.tpz-native-workspace .tpz-native-detail-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    min-height: 3.35rem;
+    text-align: left;
+    padding: .68rem .9rem;
+    background: transparent;
+    color: #102e4b;
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+}
+html.tpz-native-workspace .tpz-native-detail-header:hover { background: #f3f8fd; }
+html.tpz-native-workspace .tpz-native-detail-header:focus-visible { outline: 2px solid #1090bf; outline-offset: -3px; }
+html.tpz-native-workspace .tpz-native-detail-header-icon {
+    width: 2rem; height: 2rem; display: grid; place-items: center;
+    flex: none; border-radius: .57rem; background: #e9f3ff; color: #1479bc;
+}
+html.tpz-native-workspace .tpz-native-detail-header-icon.attention { background: #fff1e8; color: #d65b24; }
+html.tpz-native-workspace .tpz-native-detail-header-copy { display: grid; flex: 1; min-width: 0; gap: .13rem; }
+html.tpz-native-workspace .tpz-native-detail-header-copy strong { font-size: .95rem; line-height: 1.2; font-weight: 780; }
+html.tpz-native-workspace .tpz-native-detail-header-copy small { font-size: .72rem; color: #65788c; font-weight: 450; }
+html.tpz-native-workspace .tpz-native-detail-chevron { flex: none; transition: transform 150ms ease; }
+html.tpz-native-workspace .tpz-native-detail-chevron.is-collapsed { transform: rotate(-90deg); }
+html.tpz-native-workspace .tpz-native-detail-body { padding: .2rem .75rem .75rem; }
+html.tpz-native-workspace .tpz-native-detail-card-grid {
+    display: grid; grid-template-columns: repeat(4,minmax(0,1fr));
+    gap: .6rem; min-width: 0;
+}
+html.tpz-native-workspace .tpz-native-mini-metric {
+    min-width: 0; min-height: 6.1rem;
+    display: grid; align-content: start; align-items: start;
+    grid-template-columns: 2rem minmax(0,1fr);
+    column-gap: .6rem; row-gap: .2rem;
+    padding: .72rem; border: 1px solid #deebf5;
+    border-radius: .75rem; background: #f4f9ff;
+    color: #163754;
+    text-decoration: none;
+}
+html.tpz-native-workspace a.tpz-native-mini-metric:hover {
+    border-color: #82c6e8; transform: translateY(-1px);
+    box-shadow: 0 3px 10px rgb(16 80 110 / 10%);
+}
+html.tpz-native-workspace .tpz-native-mini-metric--teal { background: #effbf6; border-color: #d6f0e4; }
+html.tpz-native-workspace .tpz-native-mini-metric--violet { background: #f6f3ff; border-color: #e7e2f7; }
+html.tpz-native-workspace .tpz-native-mini-metric--amber { background: #fff9ed; border-color: #f4e8d1; }
+html.tpz-native-workspace .tpz-native-mini-metric--rose { background: #fff4f5; border-color: #f3dfe3; }
+html.tpz-native-workspace .tpz-native-mini-icon {
+    width: 2rem; height: 2rem; grid-row: 1 / span 3;
+    display: grid; place-items: center;
+    border-radius: .6rem; background: rgb(255 255 255 / 75%);
+    color: #187cba;
+}
+html.tpz-native-workspace .tpz-native-mini-metric--teal .tpz-native-mini-icon { color: #16875d; }
+html.tpz-native-workspace .tpz-native-mini-metric--violet .tpz-native-mini-icon { color: #7750b7; }
+html.tpz-native-workspace .tpz-native-mini-metric--amber .tpz-native-mini-icon { color: #ad7b16; }
+html.tpz-native-workspace .tpz-native-mini-metric--rose .tpz-native-mini-icon { color: #d34f61; }
+html.tpz-native-workspace .tpz-native-mini-label {
+    font-size: .74rem; line-height: 1.3; color: #4a6176;
+    font-weight: 650; overflow-wrap: anywhere;
+}
+html.tpz-native-workspace .tpz-native-mini-metric strong {
+    grid-column: 2; font-size: 1.2rem; font-weight: 790;
+    line-height: 1.28; color: #102b47;
+    overflow-wrap: anywhere;
+}
+html.tpz-native-workspace .tpz-native-mini-open {
+    grid-column: 2; color: #116f9c; font-size: .68rem; font-weight: 700;
+}
+html.tpz-native-workspace .tpz-native-operational-columns {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .8rem;
+    align-items: start;
+}
+html.tpz-native-workspace .tpz-native-operational-columns .tpz-native-detail-card-grid {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+}
+html.tpz-native-workspace .tpz-native-attention-list {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: .38rem .55rem;
+}
+html.tpz-native-workspace .tpz-native-attention-link {
+    display: flex; min-width: 0; align-items: center; gap: .38rem;
+    padding: .39rem .5rem; border: 1px solid #e3eaf3;
+    border-radius: .55rem; color: #263e54;
+    background: #fbfdff; font-size: .7rem;
+}
+html.tpz-native-workspace .tpz-native-attention-link:hover { border-color: #a2d8ea; background: #f0f9ff; }
+html.tpz-native-workspace .tpz-native-attention-link > svg { flex: none; color: #4f7b99; }
+html.tpz-native-workspace .tpz-native-attention-link > span {
+    min-width: 0; flex: 1; overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis;
+}
+html.tpz-native-workspace .tpz-native-attention-link b {
+    flex: none; padding: .08rem .32rem; border-radius: 999px;
+    background: #ef4054; color: white; font-weight: 750;
+}
+html.tpz-native-workspace .tpz-native-attention-link small {
+    flex: none; padding: .12rem .3rem; border: 1px solid #d9e3ed;
+    border-radius: .3rem; color: #176994; background: white;
+}
+html.tpz-native-workspace .tpz-home-actions a {
+    display: flex; align-items: center; gap: .48rem;
+}
+html.tpz-native-workspace .tpz-native-action-icon { flex: none; }
+html.tpz-native-workspace .tpz-home-actions a:first-child {
+    background: #087eae; color: white; border-color: #087eae;
+}
+html.tpz-native-workspace .tpz-home-actions a:first-child:hover { background: #0a668e; }
+
+@media (max-width: 75rem) {
+    html.tpz-native-workspace .tpz-native-operational-columns { grid-template-columns: 1fr; }
+}
+@media (max-width: 58rem) {
+    html.tpz-native-workspace .tpz-native-detail-card-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    html.tpz-native-workspace .tpz-native-attention-list { grid-template-columns: 1fr; }
+}
+@media (max-width: 36rem) {
+    html.tpz-native-workspace .tpz-native-detail-card-grid,
+    html.tpz-native-workspace .tpz-native-operational-columns .tpz-native-detail-card-grid {
+        grid-template-columns: 1fr;
+    }
+}
+/* Dark mode uses the same layout with readable contrast. */
+html.dark.tpz-native-workspace .tpz-native-detail-panel { background: #152738; border-color: #31495d; }
+html.dark.tpz-native-workspace .tpz-native-detail-header { color: #eaf4fc; }
+html.dark.tpz-native-workspace .tpz-native-detail-header:hover { background: #1f3b50; }
+html.dark.tpz-native-workspace .tpz-native-detail-header-copy small { color: #aec5d6; }
+html.dark.tpz-native-workspace .tpz-native-detail-header-icon { background: #23455e; color: #93d5f0; }
+html.dark.tpz-native-workspace .tpz-native-mini-metric,
+html.dark.tpz-native-workspace .tpz-native-mini-metric:is(.tpz-native-mini-metric--teal,.tpz-native-mini-metric--violet,.tpz-native-mini-metric--amber,.tpz-native-mini-metric--rose) {
+    background: #1c3548; border-color: #3a5367; color: #e9f4fc;
+}
+html.dark.tpz-native-workspace .tpz-native-mini-icon { background: #294960; color: #94d8ee; }
+html.dark.tpz-native-workspace .tpz-native-mini-label { color: #c4d8e8; }
+html.dark.tpz-native-workspace .tpz-native-mini-metric strong { color: #f5fbff; }
+html.dark.tpz-native-workspace .tpz-native-mini-open { color: #81d4f7; }
+html.dark.tpz-native-workspace .tpz-native-attention-link {
+    background: #1d364b; border-color: #37566c; color: #e6f2fa;
+}
+html.dark.tpz-native-workspace .tpz-native-attention-link:hover { background: #28475d; }
+html.dark.tpz-native-workspace .tpz-native-attention-link > svg { color: #9fdaf0; }
+html.dark.tpz-native-workspace .tpz-native-attention-link small { background: #284961; border-color: #53718a; color: #e1f6ff; }
+html.dark.tpz-native-workspace .tpz-home-actions a:first-child { background: #0c88b7; color: white; border-color: #0c88b7; }
+@media (prefers-reduced-motion: reduce) {
+    html.tpz-native-workspace .tpz-native-mini-metric:hover { transform: none; }
+    html.tpz-native-workspace .tpz-native-detail-chevron { transition: none; }
+}

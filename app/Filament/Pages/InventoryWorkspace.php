@@ -140,6 +140,12 @@ class InventoryWorkspace extends Page
             : $inventoryDashboard['attention']->take(8)->values();
 
         $tabCounts = [];
+        if ($inventory instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $tabCounts['inventory'] = $inventory->total();
+        }
+        if (ProductInventoryResource::canViewAny()) {
+            $tabCounts['myInventory'] = ProductInventoryResource::getEloquentQuery()->count();
+        }
         if (ProductResource::canViewAny()) {
             $tabCounts['products'] = ProductResource::getEloquentQuery()->count();
         }

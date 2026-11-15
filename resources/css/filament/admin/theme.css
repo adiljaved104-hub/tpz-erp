@@ -2628,3 +2628,41 @@ html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales
 html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row > small {
   color: #dff2ff; background: #28475c; border-color: #44627a;
 }
+
+
+/* Reference tabs: two-line labels/counts with small colorful line icons. */
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab .tpz-native-tab-copy {
+  display: inline-flex; flex-direction: column;
+  align-items: flex-start; gap: .12rem;
+  line-height: 1.06; white-space: nowrap;
+  font-size: .7rem; font-weight: 720;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab .tpz-native-tab-copy .tpz-native-tab-count {
+  font-size: .76rem; color: #0b2b52; font-weight: 830;
+  margin: 0; padding: 0;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-workspace-tabs > .tpz-workspace-tab .tpz-native-tab-label {
+  white-space: nowrap; font-size: .7rem; font-weight: 720;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-workspace-tabs > .tpz-workspace-tab:has(.tpz-native-tab-count) {
+  display: grid; grid-template-columns: 1.3rem auto;
+  grid-template-rows: auto auto;
+  justify-content: start; align-content: center;
+  gap: .08rem .4rem;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-workspace-tabs > .tpz-workspace-tab:has(.tpz-native-tab-count) .tpz-native-tab-icon { grid-row: 1 / 3; }
+html.tpz-native-workspace .tpz-reference-workspace .tpz-workspace-tabs > .tpz-workspace-tab:has(.tpz-native-tab-count) .tpz-native-tab-count { grid-column: 2; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-unified-overview-panel:has(.tpz-native-overview-metrics--primary) {
+  padding: .2rem .05rem .46rem;
+  background: transparent; border: 0; border-radius: 0;
+  box-shadow: none;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-unified-overview-panel:has(.tpz-native-overview-metrics--primary) .tpz-unified-section-title {
+  margin: 0 .35rem .72rem;
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-unified-overview-panel:has(.tpz-native-overview-metrics--primary) {
+  background: transparent; border: 0;
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab .tpz-native-tab-copy .tpz-native-tab-count {
+  color: #e0f3ff;
+}

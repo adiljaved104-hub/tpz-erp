@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
+use App\Services\Dashboard\ErpDashboardService;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Navigation\WorkspaceRecordPreviewService;
 use App\Services\Orders\OrderReadService;
@@ -151,6 +152,52 @@ class SalesWorkspace extends Page
             $salesCounts['taxInvoices'] = TaxInvoiceResource::getEloquentQuery()->count();
         }
 
+        // Reference-style overview panels use only already authorized
+        // read-service records. Financial values remain separately gated.
+        $salesAttention = collect();
+        $salesRecentUpdates = collect();
+        if ($this->activeTab === 'overview') {
+            $salesAttention = app(ErpDashboardService::class)
+                ->forUser($user, widgetKeys: ['attention'])['attention']
+                ->filter(fn (array $alert): bool => preg_match(
+                    '/order|sales|return|claim|complaint|invoice|payment|customer/i',
+                    (string) ($alert['label'] ?? '')
+                ) === 1)
+                ->take(8)->values();
+
+            $salesRecentUpdates = collect();
+            if ($canOrders) {
+                $salesRecentUpdates = $salesRecentUpdates->concat(
+                    $orders->getCollection()->take(5)->map(fn ($order): array => [
+                        'reference' => $order->reference,
+                        'date' => $order->order_date?->format('d M Y') ?? '—',
+                        'timestamp' => $order->updated_at?->timestamp ?? 0,
+                        'source' => 'Sales Order',
+                        'customer' => '—',
+                        'status' => $order->status?->getLabel() ?? 'Unknown',
+                        'units' => (int) ($order->total_units ?? 0),
+                        'url' => OrderResource::getUrl('view', ['record' => $order]),
+                    ])
+                );
+            }
+            if ($canWebSales) {
+                $salesRecentUpdates = $salesRecentUpdates->concat(
+                    $webSales->getCollection()->take(5)->map(fn ($order): array => [
+                        'reference' => $order->reference,
+                        'date' => $order->order_date?->format('d M Y') ?? '—',
+                        'timestamp' => $order->updated_at?->timestamp ?? 0,
+                        'source' => $order->web_sales_channel?->getLabel() ?? 'Web Sales',
+                        'customer' => $order->customer_name ?? '—',
+                        'status' => $order->status?->getLabel() ?? 'Unknown',
+                        'units' => (int) ($order->units ?? 0),
+                        'url' => WebSalesOrderResource::getUrl('view', ['record' => $order]),
+                    ])
+                );
+            }
+            $salesRecentUpdates = $salesRecentUpdates
+                ->sortByDesc('timestamp')->take(8)->values();
+        }
+
         $selectedExtra = $this->activeTab === 'extra' && $this->activeExtraModule !== null
             ? $this->extraModules()->get($this->activeExtraModule)
             : null;
@@ -161,6 +208,8 @@ class SalesWorkspace extends Page
         return [
             'extraPreview' => $extraPreview,
             'salesCounts' => $salesCounts,
+            'salesAttention' => $salesAttention,
+            'salesRecentUpdates' => $salesRecentUpdates,
             'quotations' => $quotations,
             'orders' => $orders,
             'webSales' => $webSales,

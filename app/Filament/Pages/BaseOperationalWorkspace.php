@@ -206,41 +206,90 @@ abstract class BaseOperationalWorkspace extends Page
     /** @return Collection<int, array<string, mixed>> */
     private static function authorizedRecentRecords(): Collection
     {
+        // Each record comes from an authorized, responsibility-scoped
+        // Resource. No fabricated activity or unrestricted model reads.
+        $curated = static::authorizedSections()
+            ->flatMap(fn (array $section) => $section['links'])
+            ->pluck('class')
+            ->filter(fn (string $class): bool => is_subclass_of($class, Resource::class));
+
         return collect(static::recentResources())
+            ->concat($curated)
+            ->unique()
             ->filter(fn (string $resource): bool => $resource::canViewAny()
                 && array_key_exists('view', $resource::getPages()))
+            ->take(3)
             ->flatMap(function (string $resource): array {
-                // Resource queries apply the existing employee and responsibility scope.
                 return $resource::getEloquentQuery()
                     ->latest()
-                    ->limit(4)
+                    ->limit(3)
                     ->get()
                     ->filter(fn ($record): bool => $resource::canView($record))
-                    ->map(fn ($record): array => [
-                        'reference' => (string) ($record->reference ?? ('Record #'.$record->getKey())),
-                        'url' => $resource::getUrl('view', ['record' => $record]),
-                        'date' => $record->created_at?->format('d M Y') ?? '—',
-                    ])
+                    ->map(function ($record) use ($resource): array {
+                        $status = $record->status ?? null;
+                        if ($status instanceof \BackedEnum) {
+                            $status = method_exists($status, 'getLabel')
+                                ? $status->getLabel() : str($status->value)->headline()->toString();
+                        }
+
+                        return [
+                            'reference' => (string) ($record->reference ?? $record->name ?? ('Record #'.$record->getKey())),
+                            'source' => $resource::getModelLabel(),
+                            'status' => is_string($status) ? $status : null,
+                            'url' => $resource::getUrl('view', ['record' => $record]),
+                            'date' => $record->created_at?->format('d M Y') ?? '—',
+                            'sort_key' => $record->created_at?->timestamp ?? 0,
+                        ];
+                    })
                     ->all();
             })
-            ->take(6)
+            ->sortByDesc('sort_key')
+            ->take(8)
             ->values();
     }
 
     /** @return Collection<int, array<string, mixed>> */
     private static function authorizedMetrics(): Collection
     {
-        return collect(static::metricResources())
+        // Build the same compact operational KPI row across workspaces.
+        // Use only resources from the already authorized workspace sections.
+        // A Page is not a record count and must never be presented as one.
+        $curated = static::authorizedSections()
+            ->flatMap(fn (array $section) => $section['links'])
+            ->filter(fn (array $link): bool => is_subclass_of($link['class'], Resource::class))
+            ->map(fn (array $link): array => [
+                'label' => $link['label'], 'class' => $link['class'], 'icon' => $link['icon'],
+            ]);
+
+        $resources = collect(static::metricResources())
+            ->concat($curated)
+            ->unique('class')
             ->filter(fn (array $item): bool => $item['class']::canViewAny())
-            ->map(fn (array $item): array => [
-                'label' => $item['label'],
-                // Never query an unrestricted model. The Resource query carries
-                // the same responsibility and access scope as its Filament table.
-                'value' => $item['class']::getEloquentQuery()->count(),
-                'icon' => $item['icon'],
-                'url' => $item['class']::getUrl(),
-            ])
-            ->values();
+            ->take(6);
+
+        $metrics = $resources->map(fn (array $item): array => [
+            'label' => $item['label'],
+            // Resource Eloquent query retains its existing permission / owner scope.
+            'value' => $item['class']::getEloquentQuery()->count(),
+            'icon' => $item['icon'],
+            'url' => $item['class']::getUrl(),
+        ])->values();
+
+        // Non-resource workspaces such as Administration may have no record
+        // counters. Show a clearly labeled factual navigation count instead.
+        if ($metrics->count() < 3) {
+            $modules = static::authorizedModuleTabs();
+            if ($modules->isNotEmpty()) {
+                $metrics->push([
+                    'label' => 'Available Modules',
+                    'value' => $modules->count(),
+                    'icon' => 'heroicon-o-squares-2x2',
+                    'url' => $modules->first()['url'],
+                ]);
+            }
+        }
+
+        return $metrics;
     }
 
     /** @return Collection<int, array<string, mixed>> */

@@ -159,7 +159,7 @@
                                         <td>{{ $update['source'] }}</td>
                                         <td>{{ $update['customer'] }}</td>
                                         <td>{{ number_format($update['units']) }}</td>
-                                        <td><span class="tpz-reference-status-badge">{{ $update['status'] }}</span></td>
+                                        <td><span class="tpz-reference-status-badge tpz-reference-status-badge--{{ \App\Support\WorkspaceVisuals::recordTone($update['status']) }}">{{ $update['status'] }}</span></td>
                                         <td>{{ $update['date'] }}</td>
                                         <td><a href="{{ $update['url'] }}">View →</a></td>
                                     </tr>

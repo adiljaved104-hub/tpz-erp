@@ -1,5 +1,5 @@
 @auth
-    @if(auth()->user()?->employee?->role === \App\Enums\EmployeeRole::Owner)
+    @if(app(\App\Services\Navigation\NavigationPreferenceService::class)->eligibleForWorkspaceMode(auth()->user()))
         @php($newInterface = app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user()))
         <form method="POST" action="{{ route('erp.interface-mode') }}" class="tpz-interface-switcher" aria-label="ERP interface selection">
             @csrf

@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Models\User;
 use App\Services\Navigation\NavigationPreferenceService;
+use App\Services\Dashboard\ErpDashboardService;
 use Filament\Pages\Page;
 use Filament\Resources\Resource;
 use Illuminate\Support\Collection;
@@ -66,7 +67,34 @@ abstract class BaseOperationalWorkspace extends Page
             'recentRecords' => static::authorizedRecentRecords(),
             'moduleTabs' => static::authorizedModuleTabs(),
             'selectedModuleData' => $this->selectedModuleData(),
+            'workspaceAttention' => $this->activeModule === 'overview' ? static::workspaceAttention() : collect(),
         ];
+    }
+
+    /** @return Collection<int,array{label:string,count:int,url:string,priority:int}> */
+    protected static function workspaceAttention(): Collection
+    {
+        $user = auth()->user();
+        if (! $user instanceof User) {
+            return collect();
+        }
+
+        // Reuse the Dashboard's permission-scoped operational alerts.
+        // Do not recalculate counts or bypass module policies.
+        $title = static::workspaceDefinition()['title'];
+        $pattern = match (true) {
+            str_contains($title, 'Purchasing') => '/purchas|deliver|receiv|sourc/i',
+            str_contains($title, 'Returns') => '/claim|return|qc|inspect|repair|complaint|warranty|damaged/i',
+            str_contains($title, 'Finance') => '/invoic|expense|payment|account/i',
+            str_contains($title, 'Team') => '/task|leave|warning|notice|acknowledg/i',
+            str_contains($title, 'Administration') => '/backup|security|configuration/i',
+            default => '/^$/',
+        };
+
+        return app(ErpDashboardService::class)
+            ->forUser($user, widgetKeys: ['attention'])['attention']
+            ->filter(fn (array $item): bool => preg_match($pattern, $item['label']) === 1)
+            ->take(8)->values();
     }
 
     /**

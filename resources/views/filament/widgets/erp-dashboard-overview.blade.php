@@ -183,7 +183,21 @@
                         <div class="tpz-home-list">
                             @forelse ($attention->take(4) as $item)
                                 <a href="{{ $item['url'] }}">
-                                    <span>{{ $item['label'] }}</span>
+                                    @php
+                                        $workLabel = strtolower((string) $item['label']);
+                                        $workIcon = match (true) {
+                                            str_contains($workLabel, 'approval') => 'heroicon-o-check-badge',
+                                            str_contains($workLabel, 'request') => 'heroicon-o-clipboard-document-list',
+                                            str_contains($workLabel, 'transfer') => 'heroicon-o-arrows-right-left',
+                                            str_contains($workLabel, 'order') => 'heroicon-o-shopping-bag',
+                                            str_contains($workLabel, 'task') => 'heroicon-o-clipboard-document-check',
+                                            str_contains($workLabel, 'qc') => 'heroicon-o-magnifying-glass-circle',
+                                            str_contains($workLabel, 'claim') => 'heroicon-o-shield-check',
+                                            default => 'heroicon-o-bell-alert',
+                                        };
+                                    @endphp
+                                    <x-filament::icon :icon="$workIcon" class="tpz-home-row-icon" />
+                                    <span class="tpz-home-row-label">{{ $item['label'] }}</span>
                                     <b>{{ number_format($item['count']) }}</b>
                                 </a>
                             @empty
@@ -193,14 +207,33 @@
                     </x-filament::section>
 
                     <x-filament::section compact heading="Recent Activity">
-                        <div class="tpz-home-list">
+                        @if($recent_activity['enabled'])
+                            <x-slot name="afterHeader">
+                                <a href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl() }}" class="tpz-native-view-all">View all</a>
+                            </x-slot>
+                        @endif
+                        <div class="tpz-home-list tpz-home-activity">
                             @if ($recent_activity['enabled'])
                                 @forelse ($recent_activity['movements']->take(4) as $movement)
+                                    @php
+                                        $movementType = strtolower((string) ($movement->movement_type?->value ?? $movement->movement_type?->label() ?? 'movement'));
+                                        $activityIcon = match (true) {
+                                            str_contains($movementType, 'transfer') => 'heroicon-o-arrows-right-left',
+                                            str_contains($movementType, 'request') => 'heroicon-o-clipboard-document-check',
+                                            str_contains($movementType, 'adjust') => 'heroicon-o-adjustments-horizontal',
+                                            default => 'heroicon-o-cube',
+                                        };
+                                        $activityTime = $movement->occurred_at
+                                            ? app(\App\Services\UserTimezoneResolver::class)->date($movement->occurred_at, auth()->user())
+                                            : null;
+                                    @endphp
                                     <div class="tpz-list-row">
-                                        <span>
-                                            {{ $movement->product?->sku ?? $movement->reference }}
+                                        <span class="tpz-home-activity-icon"><x-filament::icon :icon="$activityIcon" class="size-4" /></span>
+                                        <span class="tpz-home-row-label">
+                                            <strong>{{ $movement->product?->sku ?? $movement->reference }}</strong>
+                                            <small>{{ $movement->movement_type?->label() ?? 'Inventory movement' }}</small>
                                         </span>
-                                        <small>{{ $movement->occurred_at?->format('d M, H:i') }}</small>
+                                        <time datetime="{{ $activityTime?->toIso8601String() }}" title="{{ $activityTime?->format('d M Y H:i T') }}">{{ $activityTime?->diffForHumans() ?? '—' }}</time>
                                     </div>
                                 @empty
                                     <div class="tpz-empty">No recent inventory activity.</div>

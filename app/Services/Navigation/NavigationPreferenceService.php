@@ -120,7 +120,14 @@ class NavigationPreferenceService
                 $path = trim((string) (parse_url((string) $item->getUrl(), PHP_URL_PATH) ?? ''), '/');
                 $target = $path === 'admin/products' ? 'Inventory & Warehouse' : $label;
                 if (! isset($result[$target])) {
-                    $result[$target] = NavigationGroup::make($target)->items([])->collapsible();
+                    // Keep every authorized resource, but begin with compact
+                    // workspace groups. Filament lets users expand any group.
+                    $result[$target] = NavigationGroup::make($target)
+                        ->items([])
+                        ->collapsible();
+                    if ($target !== 'Home') {
+                        $result[$target]->collapsed();
+                    }
                 }
 
                 $result[$target]->items([...$result[$target]->getItems(), $item]);

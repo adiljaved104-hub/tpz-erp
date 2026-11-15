@@ -116,8 +116,8 @@
                         </div>
                         <div class="tpz-reference-attention-grid">
                             @foreach($inventoryAttention as $alert)
-                                <a href="{{ $alert['url'] }}" class="tpz-reference-attention-row">
-                                    <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-circle')" class="size-4" /></span>
+                                <a href="{{ $alert['url'] }}" class="tpz-reference-attention-row tpz-reference-attention-row--{{ \App\Support\WorkspaceVisuals::alertTone($alert['label']) }}">
+                                    <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(\App\Support\WorkspaceVisuals::alertIcon($alert['label']))" class="size-4" /></span>
                                     <span class="tpz-reference-alert-label" title="{{ $alert['label'] }}">{{ $alert['label'] }}</span>
                                     <strong>{{ number_format($alert['count']) }}</strong>
                                     <small>View</small>

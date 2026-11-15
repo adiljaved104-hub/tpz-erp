@@ -1140,3 +1140,41 @@ html.dark.tpz-native-workspace .tpz-workspace-tab[aria-selected="true"] {
 @media (prefers-reduced-motion: reduce) {
     html.tpz-native-workspace .tpz-workspace-tab { transition: none; }
 }
+
+/* Final native Dashboard reference alignment. Classic remains unchanged.
+   The dashboard widget is nested under Filament Livewire wrappers, so use
+   the page-wide :has() selector to suppress its redundant outer title. */
+html.tpz-native-workspace body:has(.tpz-reference-home--final) .fi-page-header {
+    display: none;
+}
+html.tpz-native-workspace .tpz-home-welcome--greeting {
+    min-height: 4.3rem;
+    padding: .25rem 0 .4rem;
+    align-items: center;
+    gap: 1rem;
+}
+html.tpz-native-workspace .tpz-home-welcome--greeting h1 {
+    margin: 0;
+    color: #112d49;
+    font-size: clamp(1.5rem, 2vw, 1.85rem);
+    line-height: 1.22;
+    font-weight: 780;
+    letter-spacing: -.025em;
+}
+html.tpz-native-workspace .tpz-home-welcome--greeting p {
+    margin-top: .25rem;
+    color: #51667b;
+    font-size: .82rem;
+}
+html.tpz-native-workspace .tpz-home-welcome--greeting time {
+    color: #334c64;
+    font-size: .78rem;
+    font-weight: 650;
+    white-space: nowrap;
+}
+html.dark.tpz-native-workspace .tpz-home-welcome--greeting h1 { color: #f3f9ff; }
+html.dark.tpz-native-workspace .tpz-home-welcome--greeting :is(p,time) { color: #bbcfdb; }
+@media (max-width: 40rem) {
+    html.tpz-native-workspace .tpz-home-welcome--greeting { flex-direction: column; align-items: flex-start; }
+    html.tpz-native-workspace .tpz-home-welcome--greeting h1 { font-size: 1.38rem; }
+}

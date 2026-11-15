@@ -27,6 +27,13 @@ final class SafeWorkspaceIcon
             return $fallback;
         }
 
+        // Filament Heroicon enum backing values are often "o-..." or
+        // "s-..." rather than a blade-icons set-qualified name.
+        // Expand only those known prefixes before validating the SVG.
+        if (preg_match('/^[osm]-[a-z0-9-]+$/', $icon) === 1) {
+            $icon = 'heroicon-'.$icon;
+        }
+
         if (isset(self::$resolved[$icon])) {
             return self::$resolved[$icon];
         }

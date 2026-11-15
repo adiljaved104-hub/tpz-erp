@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    <div class="tpz-workspace">
+    <div class="tpz-workspace tpz-reference-sales">
         <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-start justify-between gap-4">
             <div>
                 <nav class="tpz-native-breadcrumb" aria-label="Breadcrumb"><span>Sales</span><span aria-hidden="true">/</span><span aria-current="page">Sales Workspace</span></nav>
@@ -66,7 +66,7 @@
                     <h2>Operational Overview</h2>
                     <span>Live, permission-scoped totals</span>
                 </div>
-                <div class="tpz-native-overview-metrics">
+                <div class="tpz-native-overview-metrics tpz-native-overview-metrics--primary">
                     @php
                         $salesMetrics = [
                         ['key' => 'orders', 'label' => 'Sales Orders', 'icon' => 'heroicon-o-shopping-bag', 'tone' => 'blue', 'url' => $links['orders'] ?? null],

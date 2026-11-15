@@ -140,6 +140,8 @@ class SalesWorkspace extends Page
             'links' => array_filter([
                 'orders' => $canOrders ? OrderResource::getUrl() : null,
                 'createOrder' => OrderResource::canCreate() ? OrderResource::getUrl('create') : null,
+                'createWebSale' => WebSalesOrderResource::canCreate() ? WebSalesOrderResource::getUrl('create') : null,
+                'createQuotation' => QuotationResource::canCreate() ? QuotationResource::getUrl('create') : null,
                 'webSales' => $canWebSales ? WebSalesOrderResource::getUrl() : null,
                 'quotations' => $canQuotations ? QuotationResource::getUrl() : null,
                 'dashboard' => $canDashboard ? WebSalesDashboard::getUrl() : null,

@@ -71,44 +71,60 @@
                 </section>
             @endif
 
-            <div class="tpz-native-overview-columns">
-                @if($quickActions->isNotEmpty())
-                    <section class="tpz-native-list-panel" aria-label="Quick actions">
-                        <div class="tpz-native-panel-title">
-                            <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-bolt" class="size-5" /></span>
-                            <h2>Quick Actions</h2>
-                        </div>
-                        <div class="tpz-native-quick-actions">
-                            @foreach($quickActions as $action)
-                                <a href="{{ $action['url'] }}">
-                                    <x-filament::icon :icon="$action['icon']" class="size-4" />
-                                    <span>{{ $action['label'] }}</span>
-                                </a>
-                            @endforeach
-                        </div>
-                    </section>
-                @endif
-                @if($recentRecords->isNotEmpty())
-                    <section class="tpz-native-list-panel" aria-label="Recent records">
-                        <div class="tpz-native-panel-title">
-                            <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-clock" class="size-5" /></span>
-                            <h2>Recent Activity</h2>
-                        </div>
-                        <div class="tpz-native-recent-list">
-                            @foreach($recentRecords as $record)
-                                <a href="{{ $record['url'] }}" wire:key="recent-{{ $loop->index }}">
-                                    <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-document-text" class="size-4" /></span>
-                                    <strong>{{ $record['reference'] }}</strong>
-                                    <small>{{ $record['date'] }}</small>
-                                </a>
-                            @endforeach
-                        </div>
-                    </section>
-                @endif
-            </div>
+            @if($quickActions->isNotEmpty())
+                <div class="tpz-reference-action-strip" aria-label="Available actions">
+                    @foreach($quickActions as $action)
+                        <a href="{{ $action['url'] }}">
+                            <x-filament::icon :icon="$action['icon']" class="size-4" />
+                            {{ $action['label'] }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
+
+            @if($workspaceAttention->isNotEmpty() || $recentRecords->isNotEmpty())
+                <div class="tpz-native-overview-columns">
+                    @if($workspaceAttention->isNotEmpty())
+                        <section class="tpz-native-list-panel" aria-label="Needs Attention">
+                            <div class="tpz-native-panel-title">
+                                <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon icon="heroicon-o-exclamation-triangle" class="size-5" /></span>
+                                <h2>Needs Attention</h2>
+                                <span class="tpz-reference-panel-note">Authorized operational items</span>
+                            </div>
+                            <div class="tpz-reference-attention-grid">
+                                @foreach($workspaceAttention as $alert)
+                                    <a href="{{ $alert['url'] }}" class="tpz-reference-attention-row">
+                                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-exclamation-circle" class="size-4" /></span>
+                                        <span class="tpz-reference-alert-label" title="{{ $alert['label'] }}">{{ $alert['label'] }}</span>
+                                        <strong>{{ number_format($alert['count']) }}</strong>
+                                        <small>View</small>
+                                    </a>
+                                @endforeach
+                            </div>
+                        </section>
+                    @endif
+                    @if($recentRecords->isNotEmpty())
+                        <section class="tpz-native-list-panel" aria-label="Recent activity">
+                            <div class="tpz-native-panel-title">
+                                <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-clock" class="size-5" /></span>
+                                <h2>Recent Activity</h2>
+                            </div>
+                            <div class="tpz-native-recent-list">
+                                @foreach($recentRecords as $record)
+                                    <a href="{{ $record['url'] }}" wire:key="recent-{{ $loop->index }}">
+                                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-document-text" class="size-4" /></span>
+                                        <strong>{{ $record['reference'] }}</strong>
+                                        <small>{{ $record['date'] }}</small>
+                                    </a>
+                                @endforeach
+                            </div>
+                        </section>
+                    @endif
+                </div>
+            @endif
 
             @if($moduleTabs->isNotEmpty())
-                <section class="tpz-native-list-panel" aria-label="Authorized modules">
+                <section class="tpz-native-list-panel tpz-reference-module-index" aria-label="Authorized modules">
                     <div class="tpz-native-panel-title">
                         <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-square-3-stack-3d" class="size-5" /></span>
                         <h2>Available Modules</h2>

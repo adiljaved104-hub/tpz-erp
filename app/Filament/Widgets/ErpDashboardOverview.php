@@ -12,6 +12,15 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Dashboard\DashboardPreferenceService;
 use App\Services\Dashboard\DashboardWidgetRegistry;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Orders\OrderReadService;
+use App\Services\Orders\WebSalesReadService;
+use App\Services\Inventory\StockRequestService;
+use App\Services\StockTransfers\StockTransferReadService;
+use App\Services\Authorization\OrderAuthorization;
+use App\Services\Authorization\WebSalesAuthorization;
+use App\Enums\OrderPermission;
+use App\Enums\WebSalesPermission;
+use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\UserTimezoneResolver;
@@ -203,7 +212,7 @@ class ErpDashboardOverview extends Widget
         $hidden = array_values(array_intersect($this->hiddenWidgets, $authorizedKeys));
         $visible = array_values(array_diff($layout, $hidden));
 
-        return app(ErpDashboardService::class)->forUser(
+        $dashboardData = app(ErpDashboardService::class)->forUser(
             $user,
             $this->period,
             $this->appliedCustomFrom,
@@ -212,7 +221,10 @@ class ErpDashboardOverview extends Widget
             filled($this->inventoryTeamId) ? (int) $this->inventoryTeamId : null,
             filled($this->inventoryEmployeeId) ? (int) $this->inventoryEmployeeId : null,
             $visible,
-        ) + [
+        );
+
+        return $dashboardData + [
+            'reference_kpis' => $this->nativeReferenceKpis($user, $dashboardData['cards']),
             'widget_order' => $layout,
             'visible_widget_keys' => $visible,
             'hidden_widget_keys' => $hidden,
@@ -224,6 +236,61 @@ class ErpDashboardOverview extends Widget
             'quick_actions' => $this->authorizedQuickActions($user),
             'recent_activity' => $this->authorizedRecentActivity($user),
         ];
+    }
+
+    /** @return array<int, array{label: string, value: int, url: string, tone: string}> */
+    private function nativeReferenceKpis(User $user, Collection $cards): array
+    {
+        // Classic remains unchanged. Native preview uses each existing scoped
+        // service and independent Access Control permission before counting.
+        if (! app(NavigationPreferenceService::class)->workspaceModeEnabled($user)) {
+            return [];
+        }
+
+        $kpis = [];
+        if (app(OrderAuthorization::class)->allows($user, OrderPermission::View)) {
+            $kpis[] = [
+                'label' => 'Sales Orders',
+                'value' => app(OrderReadService::class)->orders($user)->whereNull('orders.web_sales_channel')->count(),
+                'url' => \App\Filament\Resources\Orders\OrderResource::getUrl(),
+                'tone' => 'blue',
+            ];
+        }
+        if (app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View)) {
+            $kpis[] = [
+                'label' => 'Web Sales',
+                'value' => app(WebSalesReadService::class)->orders($user)->count(),
+                'url' => \App\Filament\Resources\WebSalesOrders\WebSalesOrderResource::getUrl(),
+                'tone' => 'green',
+            ];
+        }
+        if (app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests)) {
+            $kpis[] = [
+                'label' => 'Stock Requests',
+                'value' => app(StockRequestService::class)->visibleQuery($user)->count(),
+                'url' => StockRequestResource::getUrl(),
+                'tone' => 'amber',
+            ];
+        }
+        if (StockTransferResource::canViewAny()) {
+            $kpis[] = [
+                'label' => 'Transfers (In/Out)',
+                'value' => app(StockTransferReadService::class)->query($user)->count(),
+                'url' => StockTransferResource::getUrl(),
+                'tone' => 'indigo',
+            ];
+        }
+        $returns = $cards->firstWhere('key', 'returns');
+        if ($returns !== null) {
+            $kpis[] = [
+                'label' => 'Returns / QC',
+                'value' => (int) ($returns['value'] ?? 0),
+                'url' => $returns['url'],
+                'tone' => 'rose',
+            ];
+        }
+
+        return $kpis;
     }
 
     /** @return array{enabled: bool, movements: Collection} */

@@ -16,7 +16,12 @@
                         <x-filament::button tag="a" :href="$links['createRequest']" icon="heroicon-o-plus">Create Stock Request</x-filament::button>
                     @endif
                     @if(isset($links['transfers']))
-                        <x-filament::button tag="a" color="gray" :href="$links['transfers']" icon="heroicon-o-truck">Stock Transfers</x-filament::button>
+                        <details class="tpz-reference-actions-menu">
+                            <summary>More Actions <span aria-hidden="true">⌄</span></summary>
+                            <div class="tpz-reference-actions-options">
+                                <a href="{{ $links['transfers'] }}">Stock Transfers</a>
+                            </div>
+                        </details>
                     @endif
                 @elseif($activeTab === 'products')
                     @if(isset($links['createProduct']))

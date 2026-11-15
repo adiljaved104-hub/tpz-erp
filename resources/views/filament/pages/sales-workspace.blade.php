@@ -16,7 +16,12 @@
                         <x-filament::button tag="a" :href="$links['createOrder']" icon="heroicon-o-plus">Create Sales Order</x-filament::button>
                     @endif
                     @if(isset($links['dashboard']))
-                        <x-filament::button tag="a" color="gray" :href="$links['dashboard']" icon="heroicon-o-chart-bar">Web Sales Dashboard</x-filament::button>
+                        <details class="tpz-reference-actions-menu">
+                            <summary>More Actions <span aria-hidden="true">⌄</span></summary>
+                            <div class="tpz-reference-actions-options">
+                                <a href="{{ $links['dashboard'] }}">Web Sales Dashboard</a>
+                            </div>
+                        </details>
                     @endif
                 @elseif($activeTab === 'orders')
                     @if(isset($links['createOrder']))

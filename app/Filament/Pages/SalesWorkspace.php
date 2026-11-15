@@ -9,6 +9,7 @@ use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesPermission;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Quotations\QuotationResource;
+use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\User;
 use App\Services\Authorization\OrderAuthorization;
@@ -133,7 +134,24 @@ class SalesWorkspace extends Page
             ? QuotationResource::getEloquentQuery()->latest('created_at')->paginate(10, pageName: 'quotation-page')
             : collect();
 
+        $salesCounts = [];
+        if ($canOrders) {
+            $salesCounts['orders'] = $orders instanceof \\Illuminate\\Contracts\\Pagination\\LengthAwarePaginator
+                ? $orders->total() : $orders->count();
+        }
+        if ($canWebSales) {
+            $salesCounts['webSales'] = $webSales instanceof \\Illuminate\\Contracts\\Pagination\\LengthAwarePaginator
+                ? $webSales->total() : $webSales->count();
+        }
+        if ($canQuotations) {
+            $salesCounts['quotations'] = QuotationResource::getEloquentQuery()->count();
+        }
+        if (TaxInvoiceResource::canViewAny()) {
+            $salesCounts['taxInvoices'] = TaxInvoiceResource::getEloquentQuery()->count();
+        }
+
         return [
+            'salesCounts' => $salesCounts,
             'quotations' => $quotations,
             'orders' => $orders,
             'webSales' => $webSales,

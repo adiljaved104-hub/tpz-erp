@@ -4,10 +4,8 @@ namespace App\Filament\Widgets;
 
 use App\Enums\InventoryPermission;
 use App\Enums\CustomerReturnPermission;
-use App\Models\CustomerReturn;
-use App\Models\Order;
 use App\Services\Authorization\CustomerReturnAuthorization;
-use App\Services\Orders\OrderResponsibilityScopeService;
+use App\Services\Returns\CustomerReturnReadService;
 use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\Orders\OrderResource;
@@ -301,21 +299,28 @@ class ErpDashboardOverview extends Widget
             ];
         }
         $returns = $cards->firstWhere('key', 'returns');
-        if ($returns !== null && app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View)) {
-            $scope = app(OrderResponsibilityScopeService::class);
-            $ordersForReturns = Order::query()->select('id');
-            if ($scope->requiresScope($user)) {
-                $ordersForReturns->whereHas('items');
+        if (app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View)) {
+            // Both cards share exactly the responsibility scope of the
+            // Customer Returns list. The existing Returns / QC card keeps
+            // its existing operational count, while Total Returns shows
+            // every return record, including completed and cancelled.
+            $allReturns = app(CustomerReturnReadService::class)->query($user);
+            if ($returns !== null) {
+                $activeReturns = (clone $allReturns)
+                    ->whereNotIn('status', ['completed', 'cancelled']);
+                $kpis[] = [
+                    'label' => 'Returns / QC',
+                    'value' => (int) ($returns['value'] ?? 0),
+                    'trend' => $this->nativeTrend($activeReturns, 'created_at', $lastPeriod, $thisPeriod, $end),
+                    'url' => $returns['url'],
+                    'tone' => 'rose',
+                ];
             }
-            $scope->applyOrders($ordersForReturns, $user);
-            $returnsQuery = CustomerReturn::query()
-                ->whereIn('order_id', $ordersForReturns)
-                ->whereNotIn('status', ['completed', 'cancelled']);
             $kpis[] = [
-                'label' => 'Returns / QC',
-                'value' => (int) ($returns['value'] ?? 0),
-                'trend' => $this->nativeTrend($returnsQuery, 'created_at', $lastPeriod, $thisPeriod, $end),
-                'url' => $returns['url'],
+                'label' => 'Total Returns',
+                'value' => (clone $allReturns)->count(),
+                'trend' => $this->nativeTrend($allReturns, 'created_at', $lastPeriod, $thisPeriod, $end),
+                'url' => CustomerReturnResource::getUrl(),
                 'tone' => 'rose',
             ];
         }

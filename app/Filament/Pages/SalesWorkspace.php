@@ -16,6 +16,7 @@ use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Navigation\NavigationPreferenceService;
+use App\Services\Navigation\WorkspaceRecordPreviewService;
 use App\Services\Orders\OrderReadService;
 use App\Services\Orders\WebSalesReadService;
 use Filament\Pages\Page;
@@ -150,7 +151,15 @@ class SalesWorkspace extends Page
             $salesCounts['taxInvoices'] = TaxInvoiceResource::getEloquentQuery()->count();
         }
 
+        $selectedExtra = $this->activeTab === 'extra' && $this->activeExtraModule !== null
+            ? $this->extraModules()->get($this->activeExtraModule)
+            : null;
+        $extraPreview = is_array($selectedExtra)
+            ? app(WorkspaceRecordPreviewService::class)->forLink($selectedExtra)
+            : null;
+
         return [
+            'extraPreview' => $extraPreview,
             'salesCounts' => $salesCounts,
             'quotations' => $quotations,
             'orders' => $orders,

@@ -65,6 +65,7 @@ abstract class BaseOperationalWorkspace extends Page
             'quickActions' => static::authorizedQuickActions(),
             'recentRecords' => static::authorizedRecentRecords(),
             'moduleTabs' => static::authorizedModuleTabs(),
+            'selectedModuleData' => $this->selectedModuleData(),
         ];
     }
 
@@ -95,6 +96,69 @@ abstract class BaseOperationalWorkspace extends Page
             ->workspaceModuleLinks(auth()->user(), $group);
 
         return $curated->concat($additional)->unique('url')->values();
+    }
+
+    /**
+     * Only the selected authorized Resource is queried. All record queries
+     * retain the existing Filament resource policy and responsibility scope.
+     * Pages/non-resource modules continue through their existing secure URL.
+     *
+     * @return array{total: int|null, records: Collection, label: string, url: string, icon: string}|null
+     */
+    private function selectedModuleData(): ?array
+    {
+        if ($this->activeModule === 'overview' || ! ctype_digit($this->activeModule)) {
+            return null;
+        }
+
+        $tab = static::authorizedModuleTabs()->get((int) $this->activeModule);
+        if (! is_array($tab)) {
+            return null;
+        }
+
+        $data = [
+            'label' => $tab['label'],
+            'url' => $tab['url'],
+            'icon' => $tab['icon'],
+            'total' => null,
+            'records' => collect(),
+        ];
+        $resource = $tab['class'] ?? null;
+        if (! is_string($resource) || ! is_subclass_of($resource, Resource::class)
+            || ! $resource::canViewAny()) {
+            return $data;
+        }
+
+        $scoped = $resource::getEloquentQuery();
+        $data['total'] = (clone $scoped)->count();
+
+        if (! array_key_exists('view', $resource::getPages())) {
+            return $data;
+        }
+
+        $keyName = $resource::getModel() ? (new ($resource::getModel()))->getKeyName() : 'id';
+        $data['records'] = (clone $scoped)
+            ->orderByDesc($keyName)
+            ->limit(8)
+            ->get()
+            ->filter(fn ($record): bool => $resource::canView($record))
+            ->map(function ($record) use ($resource): array {
+                $status = $record->status ?? null;
+                if ($status instanceof \\BackedEnum) {
+                    $status = $status->value;
+                }
+
+                return [
+                    'reference' => (string) ($record->reference ?? $record->sku ?? $record->name
+                        ?? $record->title ?? ('Record #'.$record->getKey())),
+                    'date' => $record->created_at?->format('d M Y') ?? '—',
+                    'status' => is_string($status) ? str($status)->headline()->toString() : null,
+                    'url' => $resource::getUrl('view', ['record' => $record]),
+                ];
+            })
+            ->values();
+
+        return $data;
     }
 
     public function selectModule(string $index): void
@@ -194,6 +258,7 @@ abstract class BaseOperationalWorkspace extends Page
                     ->map(fn (array $link): array => [
                         'label' => $link['label'],
                         'icon' => $link['icon'],
+                        'class' => $link['class'],
                         'url' => $link['class']::getUrl(),
                     ])
                     ->values();

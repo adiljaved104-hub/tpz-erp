@@ -95,6 +95,56 @@ class NavigationPreferenceService
             ], true);
     }
 
+    /** @return array<int, array{label: string, url: string, icon: string}> */
+    public function workspaceModuleLinks(User $user, string $workspace): array
+    {
+        if (! $this->workspaceModeEnabled($user)) {
+            return [];
+        }
+
+        // The source is Filament's already authorized navigation, not an
+        // unrestricted resource lookup. These are the same destinations
+        // that the Classic sidebar exposed to this account.
+        $links = [];
+        foreach ($this->authorizedNavigation() as $group) {
+            $groupLabel = $group->getLabel() ?? '';
+            $target = $this->workspaceTarget($groupLabel);
+            foreach ($group->getItems() as $item) {
+                $url = (string) $item->getUrl();
+                $path = trim((string) parse_url($url, PHP_URL_PATH), '/');
+                if ($path === 'admin/products') {
+                    $target = 'Inventory & Warehouse';
+                } else {
+                    $target = $this->workspaceTarget($groupLabel);
+                }
+                if ($target !== $workspace || $url === '' || str_contains($path, 'workspace')) {
+                    continue;
+                }
+                $links[$url] = [
+                    'label' => (string) $item->getLabel(),
+                    'url' => $url,
+                    'icon' => 'heroicon-o-arrow-up-right',
+                ];
+            }
+        }
+
+        return array_values($links);
+    }
+
+    private function workspaceTarget(string $label): string
+    {
+        return match ($label) {
+            'Workspace' => 'Home',
+            'Sales', 'Marketplace' => 'Sales',
+            'Inventory', 'Products' => 'Inventory & Warehouse',
+            'Purchasing' => 'Purchasing',
+            'Returns & Service' => 'Returns & QC',
+            'Finance', 'Accounting', 'Reports' => 'Finance & Accounting',
+            'People', 'HR' => 'Team & HR',
+            default => 'Administration',
+        };
+    }
+
     /** @param array<int, NavigationGroup> $groups @return array<int, NavigationGroup> */
     private function workspaceGroups(array $groups): array
     {
@@ -148,7 +198,30 @@ class NavigationPreferenceService
             }
         }
 
-        // Unknown future groups remain visible rather than being silently lost.
+        // In the unified opt-in UI, show one entry per workspace in the
+        // sidebar. Module links remain accessible inside the matching
+        // workspace from authorized navigation. Preserve unknown/new
+        // groups if they do not have an authorized workspace entry.
+        $workspaceNames = [
+            'Sales' => 'Sales Workspace',
+            'Inventory & Warehouse' => 'Inventory Workspace',
+            'Purchasing' => 'Purchasing Workspace',
+            'Returns & QC' => 'Returns & QC Workspace',
+            'Finance & Accounting' => 'Finance & Accounting Workspace',
+            'Team & HR' => 'Team & HR Workspace',
+            'Administration' => 'Administration Workspace',
+        ];
+        foreach ($result as $label => $group) {
+            if ($label === 'Home') {
+                continue;
+            }
+            $name = $workspaceNames[$label] ?? null;
+            $primary = $name === null ? null : collect($group->getItems())
+                ->first(fn (NavigationItem $item): bool => $item->getLabel() === $name);
+            if ($primary !== null) {
+                $group->items([$primary]);
+            }
+        }
         $positions = array_flip($canonicalOrder);
 
         return collect($result)

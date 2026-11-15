@@ -127,7 +127,12 @@ class SalesWorkspace extends Page
         $orders = $ordersQuery?->latest('orders.order_date')->paginate(10, pageName: 'sales-page') ?? collect();
         $webSales = $webSalesQuery?->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page') ?? collect();
 
+        $quotations = ($canQuotations && $this->activeTab === 'quotations')
+            ? QuotationResource::getEloquentQuery()->latest('created_at')->paginate(10, pageName: 'quotation-page')
+            : collect();
+
         return [
+            'quotations' => $quotations,
             'orders' => $orders,
             'webSales' => $webSales,
             'canSeeOrderValues' => $canOrders && app(OrderAuthorization::class)->allows($user, OrderPermission::ViewSellingPrice),
@@ -159,6 +164,7 @@ class SalesWorkspace extends Page
         $this->activeTab = $tab;
         $this->resetPage('sales-page');
         $this->resetPage('web-sales-page');
+        $this->resetPage('quotation-page');
     }
 
     public function clearFilters(): void

@@ -8,7 +8,7 @@
                     <span aria-current="page">{{ $workspace['title'] }}</span>
                 </nav>
                 <div class="tpz-native-workspace-heading-main">
-                    <span class="tpz-unified-module-icon"><x-filament::icon :icon="$workspace['icon']" class="size-6" /></span>
+                    <span class="tpz-unified-module-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($workspace['icon'])" class="size-6" /></span>
                     <div>
                         <h1 class="tpz-workspace-title">{{ $workspace['title'] }}</h1>
                         <p class="tpz-workspace-subtitle">{{ $workspace['description'] }}</p>
@@ -20,7 +20,7 @@
                     Open {{ $selectedModuleData['label'] }}
                 </x-filament::button>
             @elseif($quickActions->isNotEmpty())
-                <x-filament::button tag="a" :href="$quickActions->first()['url']" :icon="$quickActions->first()['icon']">
+                <x-filament::button tag="a" :href="$quickActions->first()['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve($quickActions->first()['icon'])">
                     {{ $quickActions->first()['label'] }}
                 </x-filament::button>
             @endif
@@ -38,7 +38,7 @@
                     wire:click="selectModule('{{ $index }}')"
                     aria-selected="{{ $activeModule === (string) $index ? 'true' : 'false' }}"
                     class="tpz-workspace-tab {{ $activeModule === (string) $index ? 'is-active' : '' }}">
-                    <x-filament::icon :icon="$tab['icon']" class="tpz-native-tab-icon size-4" />
+                    <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($tab['icon'])" class="tpz-native-tab-icon size-4" />
                     <span class="tpz-native-tab-label">{{ $tab['label'] }}</span>
                     @php
                         $matchingMetric = $metrics->firstWhere('label', $tab['label']);
@@ -62,7 +62,7 @@
                             <a href="{{ $metric['url'] }}"
                                 class="tpz-native-overview-metric tpz-native-overview-metric--{{ ['blue','green','amber','violet','rose'][$loop->index % 5] }}"
                                 wire:key="metric-{{ $loop->index }}">
-                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="$metric['icon']" class="size-5" /></span>
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($metric['icon'])" class="size-5" /></span>
                                 <span class="tpz-native-overview-label">{{ $metric['label'] }}</span>
                                 <strong>{{ number_format($metric['value']) }}</strong>
                             </a>
@@ -75,7 +75,7 @@
                 <div class="tpz-reference-action-strip" aria-label="Available actions">
                     @foreach($quickActions as $action)
                         <a href="{{ $action['url'] }}">
-                            <x-filament::icon :icon="$action['icon']" class="size-4" />
+                            <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($action['icon'])" class="size-4" />
                             {{ $action['label'] }}
                         </a>
                     @endforeach
@@ -153,7 +153,7 @@
                     <div class="tpz-native-module-list">
                         @foreach($moduleTabs as $index => $tab)
                             <button type="button" wire:key="module-jump-{{ $index }}" wire:click="selectModule('{{ $index }}')">
-                                <x-filament::icon :icon="$tab['icon']" class="size-5" />
+                                <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($tab['icon'])" class="size-5" />
                                 <span>{{ $tab['label'] }}</span>
                                 <x-filament::icon icon="heroicon-o-chevron-right" class="size-4" />
                             </button>
@@ -164,7 +164,7 @@
         @elseif($selectedModuleData)
             <section class="tpz-unified-overview-panel" aria-label="{{ $selectedModuleData['label'] }} details">
                 <div class="tpz-native-module-header">
-                    <span class="tpz-unified-module-icon"><x-filament::icon :icon="$selectedModuleData['icon']" class="size-6" /></span>
+                    <span class="tpz-unified-module-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($selectedModuleData['icon'])" class="size-6" /></span>
                     <div>
                         <h2>{{ $selectedModuleData['label'] }}</h2>
                         <p>Existing authorized records and actions for this module.</p>
@@ -179,7 +179,7 @@
                 @if($selectedModuleData['total'] !== null)
                     <div class="tpz-native-overview-metrics tpz-native-module-totals">
                         <div class="tpz-native-overview-metric tpz-native-overview-metric--blue">
-                            <span class="tpz-native-overview-icon"><x-filament::icon :icon="$selectedModuleData['icon']" class="size-5" /></span>
+                            <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($selectedModuleData['icon'])" class="size-5" /></span>
                             <span class="tpz-native-overview-label">{{ $selectedModuleData['label'] }} Records</span>
                             <strong>{{ number_format($selectedModuleData['total']) }}</strong>
                         </div>

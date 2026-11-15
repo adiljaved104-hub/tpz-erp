@@ -2666,3 +2666,22 @@ html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales
 html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab .tpz-native-tab-copy .tpz-native-tab-count {
   color: #e0f3ff;
 }
+
+
+/* Use actual workspace width, not the browser viewport, for the 8-card row. */
+html.tpz-native-workspace .tpz-reference-inventory { container: tpz-inventory / inline-size; }
+@container tpz-inventory (max-width: 1049px) {
+  .tpz-reference-inventory .tpz-native-overview-metrics--primary {
+    grid-template-columns: repeat(4,minmax(0,1fr)) !important;
+  }
+}
+@container tpz-inventory (min-width: 1050px) {
+  .tpz-reference-inventory .tpz-native-overview-metrics--primary {
+    grid-template-columns: repeat(8,minmax(0,1fr)) !important;
+  }
+}
+@container tpz-inventory (max-width: 620px) {
+  .tpz-reference-inventory .tpz-native-overview-metrics--primary {
+    grid-template-columns: repeat(2,minmax(0,1fr)) !important;
+  }
+}

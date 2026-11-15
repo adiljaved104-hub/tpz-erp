@@ -2693,3 +2693,46 @@ html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz
 html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-status-badge--neutral {
   color: #cedce8; background: #284359; border-color: #40576e;
 }
+
+
+/* Approved target-arrow attention heading with genuinely collapsible list. */
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-target-icon {
+  flex: 0 0 2.25rem; display: inline-flex; place-items: center;
+  color: #df253e; width: 2.25rem; height: 2.25rem;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-panel-heading {
+  display: grid; gap: .08rem; min-width: 0; flex: 1;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-panel-heading h2 {
+  margin: 0; font-size: .99rem; font-weight: 830; line-height: 1.12;
+  color: #0b254c;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-panel-heading small {
+  color: #48688e; font-size: .66rem; font-weight: 480; line-height: 1.25;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-collapse {
+  display: inline-grid; place-items: center;
+  width: 1.9rem; height: 1.9rem; flex: none;
+  padding: 0; border: 0; border-radius: .42rem;
+  background: transparent; color: #0d315e; cursor: pointer; margin-left: auto;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-collapse:hover,
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-collapse:focus-visible {
+  background: #eaf3ff;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-collapse svg {
+  transition: transform .15s ease;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-collapse svg.is-collapsed {
+  transform: rotate(-90deg);
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-panel-heading h2,
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-collapse {
+  color: #eff9ff;
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-panel-heading small {
+  color: #bfd4e8;
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-collapse:hover {
+  background: #294c68;
+}

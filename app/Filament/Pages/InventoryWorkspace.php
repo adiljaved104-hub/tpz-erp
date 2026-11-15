@@ -40,6 +40,8 @@ class InventoryWorkspace extends Page
 
     public string $activeTab = 'overview';
 
+    public ?int $activeExtraModule = null;
+
     public string $search = '';
 
     public static function canAccess(): bool
@@ -133,9 +135,7 @@ class InventoryWorkspace extends Page
                 'allocated' => $products->sum('total_owned'),
             ],
             'canSeeSummary' => $canInventory && $canLocationBalances,
-            'extraModules' => collect(app(NavigationPreferenceService::class)->workspaceModuleLinks($user, 'Inventory & Warehouse'))
-                ->reject(fn (array $item): bool => in_array($item['label'], ['Products', 'Inventory Overview', 'My Inventory', 'Stock Requests', 'Stock Transfers', 'Stock Adjustments', 'Inventory Workspace'], true))
-                ->values(),
+            'extraModules' => $this->extraModules(),
             'links' => array_filter([
                 'products' => ProductResource::canViewAny() ? ProductResource::getUrl() : null,
                 'createProduct' => ProductResource::canCreate() ? ProductResource::getUrl('create') : null,
@@ -150,6 +150,24 @@ class InventoryWorkspace extends Page
             ]),
             'canViewProducts' => ProductResource::canViewAny(),
         ];
+    }
+
+    private function extraModules(): \Illuminate\Support\Collection
+    {
+        return collect(app(NavigationPreferenceService::class)->workspaceModuleLinks(auth()->user(), 'Inventory & Warehouse'))
+            ->reject(fn (array $item): bool => in_array($item['label'], [
+                'Products', 'Inventory Overview', 'My Inventory',
+                'Stock Requests', 'Stock Transfers', 'Stock Adjustments',
+                'Inventory Workspace',
+            ], true))
+            ->values();
+    }
+
+    public function selectExtraModule(int $index): void
+    {
+        abort_unless(static::canAccess() && $this->extraModules()->has($index), 403);
+        $this->activeTab = 'extra';
+        $this->activeExtraModule = $index;
     }
 
     public function setTab(string $tab): void
@@ -174,6 +192,7 @@ class InventoryWorkspace extends Page
         }
 
         $this->activeTab = $tab;
+        $this->activeExtraModule = null;
         $this->resetPage('inventory-page');
         $this->resetPage('module-page');
     }

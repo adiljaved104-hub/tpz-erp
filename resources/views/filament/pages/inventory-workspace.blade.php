@@ -1,8 +1,8 @@
 <x-filament-panels::page>
     <div class="tpz-workspace">
-        <header class="tpz-workspace-header flex flex-wrap items-start justify-between gap-4">
+        <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-start justify-between gap-4">
             <div>
-                <p class="tpz-workspace-eyebrow">Inventory operations</p>
+                <nav class="tpz-native-breadcrumb" aria-label="Breadcrumb"><span>Inventory & Warehouse</span><span aria-hidden="true">/</span><span aria-current="page">Inventory Workspace</span></nav>
                 <h1 class="tpz-workspace-title">Inventory &amp; Warehouse</h1>
                 <p class="tpz-workspace-subtitle">Available Stock, reservations and actions within your authorized responsibility.</p>
             </div>

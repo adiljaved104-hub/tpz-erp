@@ -2232,3 +2232,40 @@ html.dark.tpz-native-workspace .tpz-reference-workspace .tpz-reference-panel-not
         grid-template-columns: 1fr;
     }
 }
+
+
+/* Owner reference: primary creation button + restrained More Actions menu. */
+html.tpz-native-workspace .tpz-reference-actions-menu {
+    position: relative; display: inline-flex; align-items: stretch; z-index: 20;
+}
+html.tpz-native-workspace .tpz-reference-actions-menu > summary {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: .6rem; cursor: pointer; user-select: none; list-style: none;
+    min-height: 2.4rem; border: 1px solid #c8d8e8;
+    border-radius: .65rem; padding: .45rem .8rem;
+    background: #fff; color: #163b62; font-size: .8rem;
+    font-weight: 730; box-shadow: 0 3px 10px rgb(18 68 103 / 7%);
+}
+html.tpz-native-workspace .tpz-reference-actions-menu > summary::-webkit-details-marker { display: none; }
+html.tpz-native-workspace .tpz-reference-actions-menu[open] > summary,
+html.tpz-native-workspace .tpz-reference-actions-menu > summary:hover {
+    border-color: #7dbeda; background: #f1f9fd;
+}
+html.tpz-native-workspace .tpz-reference-actions-options {
+    position: absolute; right: 0; top: calc(100% + .4rem);
+    z-index: 100; min-width: 12.5rem; padding: .3rem;
+    border-radius: .6rem; background: #fff; border: 1px solid #cfdeeb;
+    box-shadow: 0 11px 30px rgb(21 52 85 / 17%);
+}
+html.tpz-native-workspace .tpz-reference-actions-options a {
+    display: block; padding: .55rem .65rem; border-radius: .4rem;
+    font-size: .77rem; font-weight: 640; color: #14436b;
+    text-decoration: none;
+}
+html.tpz-native-workspace .tpz-reference-actions-options a:hover { background: #e6f5fd; }
+html.dark.tpz-native-workspace .tpz-reference-actions-menu > summary,
+html.dark.tpz-native-workspace .tpz-reference-actions-options {
+    background: #1f3d54; color: #f0faff; border-color: #43647a;
+}
+html.dark.tpz-native-workspace .tpz-reference-actions-options a { color: #e7f6ff; }
+html.dark.tpz-native-workspace .tpz-reference-actions-options a:hover { background: #34566b; }

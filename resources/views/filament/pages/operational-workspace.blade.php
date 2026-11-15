@@ -16,7 +16,7 @@
                 </div>
             </div>
             @if($activeModule !== 'overview' && $selectedModuleData)
-                <x-filament::button tag="a" :href="$selectedModuleData['url']" icon="heroicon-o-arrow-up-right">
+                <x-filament::button tag="a" :href="$selectedModuleData['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                     Open {{ $selectedModuleData['label'] }}
                 </x-filament::button>
             @elseif($quickActions->isNotEmpty())
@@ -30,7 +30,7 @@
             <button type="button" class="tpz-workspace-tab {{ $activeModule === 'overview' ? 'is-active' : '' }}"
                 aria-selected="{{ $activeModule === 'overview' ? 'true' : 'false' }}"
                 wire:click="selectModule('overview')">
-                <x-filament::icon icon="heroicon-o-squares-2x2" class="tpz-native-tab-icon size-4" />
+                <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" />
                 Overview
             </button>
             @foreach($moduleTabs as $index => $tab)
@@ -87,14 +87,14 @@
                     @if($workspaceAttention->isNotEmpty())
                         <section class="tpz-native-list-panel" aria-label="Needs Attention">
                             <div class="tpz-native-panel-title">
-                                <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon icon="heroicon-o-exclamation-triangle" class="size-5" /></span>
+                                <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-triangle')" class="size-5" /></span>
                                 <h2>Needs Attention</h2>
                                 <span class="tpz-reference-panel-note">Authorized operational items</span>
                             </div>
                             <div class="tpz-reference-attention-grid">
                                 @foreach($workspaceAttention as $alert)
                                     <a href="{{ $alert['url'] }}" class="tpz-reference-attention-row">
-                                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-exclamation-circle" class="size-4" /></span>
+                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-circle')" class="size-4" /></span>
                                         <span class="tpz-reference-alert-label" title="{{ $alert['label'] }}">{{ $alert['label'] }}</span>
                                         <strong>{{ number_format($alert['count']) }}</strong>
                                         <small>View</small>
@@ -106,13 +106,13 @@
                     @if($recentRecords->isNotEmpty())
                         <section class="tpz-native-list-panel" aria-label="Recent activity">
                             <div class="tpz-native-panel-title">
-                                <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-clock" class="size-5" /></span>
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-clock')" class="size-5" /></span>
                                 <h2>Recent Activity</h2>
                             </div>
                             <div class="tpz-native-recent-list">
                                 @foreach($recentRecords as $record)
                                     <a href="{{ $record['url'] }}" wire:key="recent-{{ $loop->index }}">
-                                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-document-text" class="size-4" /></span>
+                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-document-text')" class="size-4" /></span>
                                         <strong>{{ $record['reference'] }}</strong>
                                         <small>{{ $record['date'] }}</small>
                                     </a>
@@ -126,7 +126,7 @@
             @if($recentRecords->isNotEmpty())
                 <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent authorized records">
                     <div class="tpz-native-panel-title">
-                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-cube" class="size-5" /></span>
+                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-cube')" class="size-5" /></span>
                         <h2>Recent {{ str_replace(' Workspace', '', $workspace['title']) }} Records</h2>
                     </div>
                     <div class="tpz-native-record-table-wrap">
@@ -147,7 +147,7 @@
             @elseif($moduleTabs->isNotEmpty())
                 <section class="tpz-native-list-panel tpz-reference-module-index" aria-label="Authorized modules">
                     <div class="tpz-native-panel-title">
-                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-square-3-stack-3d" class="size-5" /></span>
+                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-square-3-stack-3d')" class="size-5" /></span>
                         <h2>Available Modules</h2>
                     </div>
                     <div class="tpz-native-module-list">
@@ -155,7 +155,7 @@
                             <button type="button" wire:key="module-jump-{{ $index }}" wire:click="selectModule('{{ $index }}')">
                                 <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($tab['icon'])" class="size-5" />
                                 <span>{{ $tab['label'] }}</span>
-                                <x-filament::icon icon="heroicon-o-chevron-right" class="size-4" />
+                                <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-chevron-right')" class="size-4" />
                             </button>
                         @endforeach
                     </div>
@@ -205,7 +205,7 @@
                     <p class="tpz-native-no-preview">Open the existing module to access its authorized records, filters, and actions.</p>
                 @endif
                 <div class="tpz-native-module-footer">
-                    <x-filament::button tag="a" :href="$selectedModuleData['url']" icon="heroicon-o-arrow-up-right">
+                    <x-filament::button tag="a" :href="$selectedModuleData['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                         Open full {{ $selectedModuleData['label'] }} module
                     </x-filament::button>
                 </div>

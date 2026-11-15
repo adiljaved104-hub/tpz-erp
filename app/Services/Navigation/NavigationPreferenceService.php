@@ -198,10 +198,10 @@ class NavigationPreferenceService
             }
         }
 
-        // In the unified opt-in UI, show one entry per workspace in the
-        // sidebar. Module links remain accessible inside the matching
-        // workspace from authorized navigation. Preserve unknown/new
-        // groups if they do not have an authorized workspace entry.
+        // Display each authorized workspace as one first-level sidebar link.
+        // Covered module destinations are presented in its workspace tabs.
+        // Preserve a fallback for an unusual account that has access to a
+        // resource but lacks the related workspace (never lose navigation).
         $workspaceNames = [
             'Sales' => 'Sales Workspace',
             'Inventory & Warehouse' => 'Inventory Workspace',
@@ -211,23 +211,40 @@ class NavigationPreferenceService
             'Team & HR' => 'Team & HR Workspace',
             'Administration' => 'Administration Workspace',
         ];
-        foreach ($result as $label => $group) {
+        $firstLevel = [];
+        $uncovered = [];
+        foreach ($canonicalOrder as $label) {
+            $group = $result[$label] ?? null;
+            if ($group === null) {
+                continue;
+            }
+            $items = collect($group->getItems());
             if ($label === 'Home') {
+                $dashboard = $items->first(fn (NavigationItem $item): bool => $item->getLabel() === 'Dashboard');
+                if ($dashboard !== null) {
+                    $firstLevel[] = $dashboard;
+                }
+                $uncovered = [...$uncovered, ...$items->reject(fn (NavigationItem $item): bool => $item === $dashboard)->all()];
                 continue;
             }
             $name = $workspaceNames[$label] ?? null;
-            $primary = $name === null ? null : collect($group->getItems())
-                ->first(fn (NavigationItem $item): bool => $item->getLabel() === $name);
+            $primary = $items->first(fn (NavigationItem $item): bool => $item->getLabel() === $name);
             if ($primary !== null) {
-                $group->items([$primary]);
+                $firstLevel[] = $primary;
+            } else {
+                $uncovered = [...$uncovered, ...$items->all()];
             }
         }
-        $positions = array_flip($canonicalOrder);
+        $navigation = [];
+        if ($firstLevel !== []) {
+            $navigation[] = NavigationGroup::make()->items($firstLevel);
+        }
+        if ($uncovered !== []) {
+            $navigation[] = NavigationGroup::make('Additional Modules')
+                ->items($uncovered)->collapsible()->collapsed();
+        }
 
-        return collect($result)
-            ->sortBy(fn (NavigationGroup $group, string $label): array => [$positions[$label] ?? PHP_INT_MAX, $label])
-            ->values()
-            ->all();
+        return $navigation;
     }
 
     /** @return array<int, array{key:string,label:string,items:array<int,array{key:string,label:string,parent:?string,hidden:bool,protected:bool}>}> */

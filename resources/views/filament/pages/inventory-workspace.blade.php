@@ -106,6 +106,86 @@
             </section>
         @endif
 
+        @if($activeTab === 'overview' && ($inventoryAttention->isNotEmpty() || (isset($links['movements']) && $recentMovements->isNotEmpty())))
+            <div class="tpz-native-overview-columns tpz-reference-inventory-panels">
+                @if($inventoryAttention->isNotEmpty())
+                    <section class="tpz-native-list-panel" aria-label="Needs Attention">
+                        <div class="tpz-native-panel-title">
+                            <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon icon="heroicon-o-exclamation-triangle" class="size-5" /></span>
+                            <h2>Needs Attention</h2>
+                        </div>
+                        <div class="tpz-reference-attention-grid">
+                            @foreach($inventoryAttention as $alert)
+                                <a href="{{ $alert['url'] }}" class="tpz-reference-attention-row">
+                                    <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-exclamation-circle" class="size-4" /></span>
+                                    <span class="tpz-reference-alert-label" title="{{ $alert['label'] }}">{{ $alert['label'] }}</span>
+                                    <strong>{{ number_format($alert['count']) }}</strong>
+                                    <small>View</small>
+                                </a>
+                            @endforeach
+                        </div>
+                    </section>
+                @endif
+                @if(isset($links['movements']))
+                    <section class="tpz-native-list-panel" aria-label="Recent Inventory Activity">
+                        <div class="tpz-native-panel-title">
+                            <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-clock" class="size-5" /></span>
+                            <h2>Recent Inventory Activity</h2>
+                            <a href="{{ $links['movements'] }}" class="tpz-reference-panel-view">View all →</a>
+                        </div>
+                        <div class="tpz-native-recent-list">
+                            @forelse($recentMovements->take(5) as $movement)
+                                @if(\App\Filament\Resources\StockMovements\StockMovementResource::canView($movement))
+                                    <a wire:key="reference-movement-{{ $movement->id }}" href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}">
+                                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-arrows-right-left" class="size-4" /></span>
+                                        <span class="tpz-reference-movement-label">
+                                            <strong>{{ $movement->product?->sku ?? $movement->reference ?? 'Stock movement' }}</strong>
+                                            <small>{{ $movement->movement_type?->label() ?? 'Inventory movement' }} · {{ number_format($movement->quantity) }} unit(s)</small>
+                                        </span>
+                                        <small>{{ $movement->occurred_at?->diffForHumans() ?? '—' }}</small>
+                                    </a>
+                                @endif
+                            @empty
+                                <p class="tpz-native-no-preview">No authorized movements found.</p>
+                            @endforelse
+                        </div>
+                    </section>
+                @endif
+            </div>
+        @endif
+
+        @if($activeTab === 'overview' && isset($links['movements']) && $recentMovements->isNotEmpty())
+            <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent Stock Updates">
+                <div class="tpz-native-panel-title">
+                    <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-cube" class="size-5" /></span>
+                    <h2>Recent Stock Updates</h2>
+                    <a href="{{ $links['movements'] }}" class="tpz-reference-panel-view">View Inventory →</a>
+                </div>
+                <div class="tpz-native-record-table-wrap">
+                    <table class="tpz-native-record-table">
+                        <thead>
+                            <tr><th>Reference</th><th>Product (SKU)</th><th>Warehouse</th><th>Type</th><th>Qty</th><th>Updated by</th><th>Date &amp; Time</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach($recentMovements->take(5) as $movement)
+                                @if(\App\Filament\Resources\StockMovements\StockMovementResource::canView($movement))
+                                    <tr wire:key="recent-stock-update-{{ $movement->id }}">
+                                        <td><a href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}">{{ $movement->reference ?? ('#'.$movement->id) }}</a></td>
+                                        <td>{{ $movement->product?->name ?? 'Product' }} ({{ $movement->product?->sku ?? '—' }})</td>
+                                        <td>{{ $movement->warehouse?->name ?? 'Warehouse' }}</td>
+                                        <td>{{ $movement->movement_type?->label() ?? 'Movement' }}</td>
+                                        <td>{{ number_format($movement->quantity) }}</td>
+                                        <td>{{ $movement->actor?->name ?? 'System' }}</td>
+                                        <td>{{ $movement->occurred_at?->format('d M Y, H:i') ?? '—' }}</td>
+                                    </tr>
+                                @endif
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        @endif
+
         @if($canSeeSummary && $activeTab === 'overview')
             <x-filament::section>
                 <div class="mb-4">
@@ -242,33 +322,7 @@
             </x-filament::section>
         @endif
 
-        @if($activeTab === 'overview' && isset($links['movements']))
-            <x-filament::section>
-                <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">Recent Inventory Activity</h2>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Movements visible within your responsibility and Access Control scope.</p>
-                    </div>
-                    <a class="text-sm font-semibold text-primary-600 hover:underline dark:text-primary-400" href="{{ $links['movements'] }}">View movement history →</a>
-                </div>
-                <div class="divide-y divide-gray-100 dark:divide-white/10">
-                    @forelse($recentMovements as $movement)
-                        <a wire:key="movement-{{ $movement->id }}" href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}" class="flex flex-wrap items-center justify-between gap-3 py-3 hover:bg-gray-50 dark:hover:bg-white/5">
-                            <div class="min-w-0">
-                                <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ $movement->product?->sku ?? $movement->reference }}</p>
-                                <p class="text-xs text-gray-500">{{ $movement->movement_type?->label() ?? 'Inventory movement' }} · {{ $movement->warehouse?->name ?? 'Warehouse' }}</p>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{{ number_format($movement->quantity) }} unit(s)</p>
-                                <p class="text-xs text-gray-500">{{ $movement->occurred_at?->format('d M Y, H:i') ?? '—' }}</p>
-                            </div>
-                        </a>
-                    @empty
-                        <p class="py-5 text-sm text-gray-500">No recent movements are visible in your authorized scope.</p>
-                    @endforelse
-                </div>
-            </x-filament::section>
-        @endif
+
         @if($activeTab === 'extra')
             @include('filament.pages.partials.workspace-extra-preview')
         @endif

@@ -6,14 +6,37 @@
                 <h1 class="tpz-workspace-title">Sales Workspace</h1>
                 <p class="tpz-workspace-subtitle">Orders, Web Sales and quotation work within your authorized scope.</p>
             </div>
-            <div class="flex flex-wrap gap-2">
-                @if(isset($links['createOrder']))
-                    <x-filament::button tag="a" :href="$links['createOrder']" icon="heroicon-o-plus">Create Sales Order</x-filament::button>
-                @elseif(isset($links['orders']))
-                    <x-filament::button tag="a" :href="$links['orders']" icon="heroicon-o-shopping-bag">Sales Orders</x-filament::button>
-                @endif
-                @if(isset($links['dashboard']))
-                    <x-filament::button tag="a" color="gray" :href="$links['dashboard']" icon="heroicon-o-chart-bar">Web Sales Dashboard</x-filament::button>
+            <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected sales section">
+                @if($activeTab === 'overview')
+                    @if(isset($links['createOrder']))
+                        <x-filament::button tag="a" :href="$links['createOrder']" icon="heroicon-o-plus">Create Sales Order</x-filament::button>
+                    @endif
+                    @if(isset($links['dashboard']))
+                        <x-filament::button tag="a" color="gray" :href="$links['dashboard']" icon="heroicon-o-chart-bar">Web Sales Dashboard</x-filament::button>
+                    @endif
+                @elseif($activeTab === 'orders')
+                    @if(isset($links['createOrder']))
+                        <x-filament::button tag="a" :href="$links['createOrder']" icon="heroicon-o-plus">Create Sales Order</x-filament::button>
+                    @endif
+                    @if(isset($links['orders']))
+                        <x-filament::button tag="a" color="gray" :href="$links['orders']" icon="heroicon-o-shopping-bag">All Sales Orders</x-filament::button>
+                    @endif
+                @elseif($activeTab === 'webSales')
+                    @if(isset($links['createWebSale']))
+                        <x-filament::button tag="a" :href="$links['createWebSale']" icon="heroicon-o-plus">Create Web Sale</x-filament::button>
+                    @endif
+                    @if(isset($links['dashboard']))
+                        <x-filament::button tag="a" color="gray" :href="$links['dashboard']" icon="heroicon-o-chart-bar">Web Sales Dashboard</x-filament::button>
+                    @elseif(isset($links['webSales']))
+                        <x-filament::button tag="a" color="gray" :href="$links['webSales']" icon="heroicon-o-globe-alt">All Web Sales</x-filament::button>
+                    @endif
+                @elseif($activeTab === 'quotations')
+                    @if(isset($links['createQuotation']))
+                        <x-filament::button tag="a" :href="$links['createQuotation']" icon="heroicon-o-plus">Create Quotation</x-filament::button>
+                    @endif
+                    @if(isset($links['quotations']))
+                        <x-filament::button tag="a" color="gray" :href="$links['quotations']" icon="heroicon-o-document-text">All Quotations</x-filament::button>
+                    @endif
                 @endif
             </div>
         </header>

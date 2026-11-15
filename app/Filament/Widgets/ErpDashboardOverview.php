@@ -3,6 +3,12 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\InventoryPermission;
+use App\Enums\CustomerReturnPermission;
+use App\Models\CustomerReturn;
+use App\Models\Order;
+use App\Services\Authorization\CustomerReturnAuthorization;
+use App\Services\Orders\OrderResponsibilityScopeService;
+use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Purchases\PurchaseResource;
@@ -247,50 +253,107 @@ class ErpDashboardOverview extends Widget
             return [];
         }
 
+        // Period comparisons are recent activity, NOT a percentage change
+        // in the all-time total shown on each card.
+        $today = CarbonImmutable::now(app(UserTimezoneResolver::class)->resolve($user))->startOfDay();
+        $thisPeriod = $today->subDays(6);
+        $lastPeriod = $thisPeriod->subDays(7);
+        $end = $today->addDay();
         $kpis = [];
         if (app(OrderAuthorization::class)->allows($user, OrderPermission::View)) {
+            $orders = app(OrderReadService::class)->orders($user)->whereNull('orders.web_sales_channel');
             $kpis[] = [
                 'label' => 'Sales Orders',
-                'value' => app(OrderReadService::class)->orders($user)->whereNull('orders.web_sales_channel')->count(),
+                'value' => (clone $orders)->count(),
+                'trend' => $this->nativeTrend($orders, 'orders.order_date', $lastPeriod, $thisPeriod, $end, true),
                 'url' => \App\Filament\Resources\Orders\OrderResource::getUrl(),
                 'tone' => 'blue',
             ];
         }
         if (app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View)) {
+            $webSales = app(WebSalesReadService::class)->scoped($user);
             $kpis[] = [
                 'label' => 'Web Sales',
-                'value' => app(WebSalesReadService::class)->orders($user)->count(),
+                'value' => (clone $webSales)->count(),
+                'trend' => $this->nativeTrend($webSales, 'orders.order_date', $lastPeriod, $thisPeriod, $end, true),
                 'url' => \App\Filament\Resources\WebSalesOrders\WebSalesOrderResource::getUrl(),
                 'tone' => 'green',
             ];
         }
         if (app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests)) {
+            $stockRequests = app(StockRequestService::class)->visibleQuery($user);
             $kpis[] = [
                 'label' => 'Stock Requests',
-                'value' => app(StockRequestService::class)->visibleQuery($user)->count(),
+                'value' => (clone $stockRequests)->count(),
+                'trend' => $this->nativeTrend($stockRequests, 'created_at', $lastPeriod, $thisPeriod, $end),
                 'url' => StockRequestResource::getUrl(),
                 'tone' => 'amber',
             ];
         }
         if (StockTransferResource::canViewAny()) {
+            $transfers = app(StockTransferReadService::class)->query($user);
             $kpis[] = [
                 'label' => 'Transfers (In/Out)',
-                'value' => app(StockTransferReadService::class)->query($user)->count(),
+                'value' => (clone $transfers)->count(),
+                'trend' => $this->nativeTrend($transfers, 'stock_transfers.created_at', $lastPeriod, $thisPeriod, $end),
                 'url' => StockTransferResource::getUrl(),
                 'tone' => 'indigo',
             ];
         }
         $returns = $cards->firstWhere('key', 'returns');
-        if ($returns !== null) {
+        if ($returns !== null && app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View)) {
+            $scope = app(OrderResponsibilityScopeService::class);
+            $ordersForReturns = Order::query()->select('id');
+            if ($scope->requiresScope($user)) {
+                $ordersForReturns->whereHas('items');
+            }
+            $scope->applyOrders($ordersForReturns, $user);
+            $returnsQuery = CustomerReturn::query()
+                ->whereIn('order_id', $ordersForReturns)
+                ->whereNotIn('status', ['completed', 'cancelled']);
             $kpis[] = [
                 'label' => 'Returns / QC',
                 'value' => (int) ($returns['value'] ?? 0),
+                'trend' => $this->nativeTrend($returnsQuery, 'created_at', $lastPeriod, $thisPeriod, $end),
                 'url' => $returns['url'],
                 'tone' => 'rose',
             ];
         }
 
         return $kpis;
+    }
+
+    /**
+     * Compare records dated in the most recent 7 local calendar days with the
+     * preceding 7 days, preserving the caller's responsibility-scoped query.
+     * This indicator measures recent records, not change in the all-time total.
+     *
+     * @return array{label:string, direction:string, title:string}
+     */
+    private function nativeTrend(
+        Builder $base,
+        string $column,
+        CarbonImmutable $priorStart,
+        CarbonImmutable $currentStart,
+        CarbonImmutable $end,
+        bool $dateOnly = false,
+    ): array {
+        $start = $dateOnly ? $priorStart->toDateString() : $priorStart->utc()->toDateTimeString();
+        $middle = $dateOnly ? $currentStart->toDateString() : $currentStart->utc()->toDateTimeString();
+        $finish = $dateOnly ? $end->toDateString() : $end->utc()->toDateTimeString();
+
+        $previous = (clone $base)->where($column, '>=', $start)->where($column, '<', $middle)->count();
+        $current = (clone $base)->where($column, '>=', $middle)->where($column, '<', $finish)->count();
+
+        $label = $previous === 0
+            ? ($current > 0 ? 'New' : '—')
+            : sprintf('%+.0f%%', (($current - $previous) / $previous) * 100);
+
+        return [
+            'label' => $label,
+            'direction' => $current > $previous ? 'up' : ($current < $previous ? 'down' : 'flat'),
+            'title' => "Last 7 days: {$current} · Previous 7 days: {$previous}",
+        ];
     }
 
     /** @return array{enabled: bool, movements: Collection} */

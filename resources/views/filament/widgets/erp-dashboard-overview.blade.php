@@ -146,18 +146,26 @@
                 </div>
 
                 <div class="tpz-home-kpis">
-                    @foreach ($cards->filter(fn ($card) => ($card['type'] ?? null) !== 'action' && is_numeric($card['value'] ?? null))->take(5)->values() as $index => $card)
+                    @forelse($reference_kpis as $kpi)
                         @php
-                            $tone = ['blue', 'green', 'amber', 'indigo', 'rose'][$index % 5];
+                            $icon = match($kpi['tone']) {
+                                'blue' => 'heroicon-o-shopping-bag',
+                                'green' => 'heroicon-o-globe-alt',
+                                'amber' => 'heroicon-o-clipboard-document-list',
+                                'indigo' => 'heroicon-o-arrows-right-left',
+                                default => 'heroicon-o-arrow-uturn-left',
+                            };
                         @endphp
-
-                        <div class="tpz-home-kpi {{ $tone }}">
+                        <a href="{{ $kpi['url'] }}" class="tpz-home-kpi {{ $kpi['tone'] }}" aria-label="{{ $kpi['label'] }}: {{ number_format($kpi['value']) }}">
+                            <x-filament::icon :icon="$icon" class="size-5" />
                             <div>
-                                <span>{{ $card['label'] }}</span>
-                                <strong>{{ number_format((float) $card['value']) }}</strong>
+                                <span>{{ $kpi['label'] }}</span>
+                                <strong>{{ number_format($kpi['value']) }}</strong>
                             </div>
-                        </div>
-                    @endforeach
+                        </a>
+                    @empty
+                        <p class="tpz-empty">No KPI cards are available for your permissions.</p>
+                    @endforelse
                 </div>
 
                 <div class="tpz-home-panels">

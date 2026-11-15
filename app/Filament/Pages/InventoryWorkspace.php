@@ -133,6 +133,9 @@ class InventoryWorkspace extends Page
                 'allocated' => $products->sum('total_owned'),
             ],
             'canSeeSummary' => $canInventory && $canLocationBalances,
+            'extraModules' => collect(app(NavigationPreferenceService::class)->workspaceModuleLinks($user, 'Inventory & Warehouse'))
+                ->reject(fn (array $item): bool => in_array($item['label'], ['Products', 'Inventory Overview', 'My Inventory', 'Stock Requests', 'Stock Transfers', 'Stock Adjustments', 'Inventory Workspace'], true))
+                ->values(),
             'links' => array_filter([
                 'products' => ProductResource::canViewAny() ? ProductResource::getUrl() : null,
                 'createProduct' => ProductResource::canCreate() ? ProductResource::getUrl('create') : null,

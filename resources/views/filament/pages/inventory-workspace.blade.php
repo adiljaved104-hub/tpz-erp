@@ -119,14 +119,65 @@
         </x-filament::section>
         @endif
 
-        @if(in_array($activeTab, ['products', 'myInventory', 'requests', 'transfers', 'adjustments'], true) && isset($links[$activeTab]))
+        @if(in_array($activeTab, ['products', 'myInventory', 'requests', 'transfers'], true) && isset($links[$activeTab]))
+            @php
+                $resourceClass = match ($activeTab) {
+                    'products' => \App\Filament\Resources\Products\ProductResource::class,
+                    'myInventory' => \App\Filament\Resources\ProductInventories\ProductInventoryResource::class,
+                    'requests' => \App\Filament\Resources\StockRequests\StockRequestResource::class,
+                    'transfers' => \App\Filament\Resources\StockTransfers\StockTransferResource::class,
+                };
+            @endphp
+            <x-filament::section>
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">{{ ['products' => 'Products', 'myInventory' => 'My Inventory', 'requests' => 'Stock Requests', 'transfers' => 'Stock Transfers'][$activeTab] }}</h2>
+                    <x-filament::button tag="a" size="sm" color="gray" :href="$links[$activeTab]">Open full module</x-filament::button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="tpz-workspace-table">
+                        <thead><tr><th>Reference / SKU</th><th>Details</th><th>Last updated</th><th>Action</th></tr></thead>
+                        <tbody>
+                            @forelse($moduleRecords as $record)
+                                <tr wire:key="native-module-{{ $activeTab }}-{{ $record->getKey() }}">
+                                    <td class="font-semibold text-gray-950 dark:text-white">
+                                        {{ $activeTab === 'products' ? $record->sku : ($activeTab === 'myInventory' ? ($record->product?->sku ?? '—') : ($record->reference ?? '—')) }}
+                                    </td>
+                                    <td>
+                                        @if($activeTab === 'products')
+                                            {{ $record->name }}
+                                        @elseif($activeTab === 'myInventory')
+                                            {{ $record->warehouse?->name ?? 'Warehouse' }} · {{ number_format($record->available_quantity ?? 0) }} available
+                                        @else
+                                            {{ str($record->status?->value ?? $record->status ?? 'Unknown')->headline() }}
+                                        @endif
+                                    </td>
+                                    <td>{{ $record->updated_at?->format('d M Y') ?? '—' }}</td>
+                                    <td>
+                                        @if($resourceClass::canView($record))
+                                            <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="4" class="py-8 text-center text-gray-500">No records in your authorized scope.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                @if($moduleRecords instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
+                    <div class="mt-4">{{ $moduleRecords->links() }}</div>
+                @endif
+            </x-filament::section>
+        @endif
+
+        @if($activeTab === 'adjustments' && isset($links['adjustments']))
             <x-filament::section>
                 <div class="flex flex-wrap items-center justify-between gap-4">
                     <div>
-                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">{{ ['products' => 'Products', 'myInventory' => 'My Inventory', 'requests' => 'Stock Requests', 'transfers' => 'Stock Transfers', 'adjustments' => 'Stock Adjustments'][$activeTab] }}</h2>
-                        <p class="mt-1 text-sm text-gray-500">Open the authorized module to use its complete list, filters and actions. Your native ERP styling remains enabled.</p>
+                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">Stock Adjustments</h2>
+                        <p class="mt-1 text-sm text-gray-500">Open the existing controlled adjustment form to make authorized stock changes.</p>
                     </div>
-                    <x-filament::button tag="a" :href="$links[$activeTab]" icon="heroicon-o-arrow-up-right">Open full module</x-filament::button>
+                    <x-filament::button tag="a" :href="$links['adjustments']" icon="heroicon-o-arrow-up-right">Open Stock Adjustments</x-filament::button>
                 </div>
             </x-filament::section>
         @endif

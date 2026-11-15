@@ -40,6 +40,24 @@ final class WorkspaceVisuals
         };
     }
 
+    public static function recordTone(string $status): string
+    {
+        $value = strtolower($status);
+
+        return match (true) {
+            str_contains($value, 'fulfill'), str_contains($value, 'complet'),
+                str_contains($value, 'receiv'), str_contains($value, 'approved'),
+                str_contains($value, 'posted') => 'success',
+            str_contains($value, 'cancel'), str_contains($value, 'reject'),
+                str_contains($value, 'fail'), str_contains($value, 'damage') => 'danger',
+            str_contains($value, 'pending'), str_contains($value, 'review'),
+                str_contains($value, 'await'), str_contains($value, 'hold') => 'warning',
+            str_contains($value, 'draft') => 'neutral',
+            str_contains($value, 'reserve'), str_contains($value, 'process') => 'info',
+            default => 'violet',
+        };
+    }
+
     public static function movementIcon(string $label): string
     {
         $name = strtolower($label);

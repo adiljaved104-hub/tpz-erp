@@ -1025,3 +1025,62 @@ html.tpz-native-workspace .tpz-interface-switcher-button { color: #fff; border-c
 html.tpz-native-workspace .tpz-interface-switcher-button:hover { background: rgb(255 255 255 / 25%); }
 .tpz-native-period { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; padding: .5rem 0; }
 @media (max-width: 40rem) { .tpz-interface-switcher-current { display: none; } .tpz-interface-switcher { margin-inline: .2rem; } .tpz-interface-switcher-button { padding: .35rem .45rem; } }
+
+
+/* 2026-11-15: Reference shell corrections; native opt-in only.
+   Overrides the older light-panel rule that turned the navy topbar white. */
+html:not(.dark).tpz-native-workspace body:not(.tpz-accounting-body) .fi-topbar {
+    background: #102d49 !important;
+    border-bottom: 1px solid #214c6b !important;
+    color: #f2f8ff;
+    box-shadow: 0 1px 10px rgb(16 45 73 / 12%);
+}
+html.tpz-native-workspace .fi-topbar :is(a,button,.fi-icon-btn,.fi-topbar-item-label),
+html.tpz-native-workspace .fi-topbar :is(svg,.fi-icon) { color: #f2f8ff !important; }
+html.tpz-native-workspace .fi-topbar :is(input,.fi-input) { color: #142c41 !important; }
+html.tpz-native-workspace .fi-topbar .tpz-interface-switcher-current { color: #f0f7ff !important; }
+html.tpz-native-workspace .fi-topbar .tpz-interface-switcher-button {
+    color: #fff !important;
+    background: #146992 !important;
+    border: 1px solid #3c97bc !important;
+}
+html.tpz-native-workspace .fi-topbar .tpz-interface-switcher-button:hover { background: #1986b6 !important; }
+/* The native pages already contain their own title; remove the Filament duplicate. */
+html.tpz-native-workspace .fi-page:has(.tpz-workspace) .fi-page-header,
+html.tpz-native-workspace .fi-page:has(.tpz-reference-home) .fi-page-header { display: none; }
+html.tpz-native-workspace .tpz-workspace { gap: .9rem; }
+html.tpz-native-workspace .tpz-workspace-header {
+    padding: .9rem 1.2rem;
+    border-radius: .85rem;
+    box-shadow: 0 3px 12px rgb(16 45 73 / 8%);
+}
+html.tpz-native-workspace .tpz-workspace-title { font-size: 1.4rem; }
+html.tpz-native-workspace .tpz-workspace-metrics { gap: .7rem; }
+html.tpz-native-workspace .tpz-workspace-metric { padding: .85rem .9rem; border-radius: .8rem; }
+html.tpz-native-workspace .tpz-workspace-metric-value { font-size: 1.4rem; }
+html.tpz-native-workspace .tpz-workspace-tabs { margin-top: 0; gap: .15rem; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: thin; }
+html.tpz-native-workspace .tpz-workspace-tab {
+    flex: none;
+    min-height: 2.5rem;
+    padding: .52rem .85rem;
+    border-bottom-width: 2px;
+    white-space: nowrap;
+    font-size: .81rem;
+}
+html.tpz-native-workspace button.tpz-workspace-tab { background: transparent; cursor: pointer; }
+html.tpz-native-workspace button.tpz-workspace-tab:focus-visible { outline: 2px solid #1885b7; outline-offset: -2px; }
+html.tpz-native-workspace .tpz-workspace-tab[aria-selected="true"] { color: #0b6e96; border-bottom-color: #0da18e; font-weight: 750; }
+html.tpz-native-workspace .tpz-reference-home--final { gap: .75rem; }
+html.tpz-native-workspace .tpz-home-welcome { padding: 0 .1rem; }
+html.tpz-native-workspace .tpz-home-welcome h1 { font-size: 1.35rem; }
+html.tpz-native-workspace .tpz-home-kpi { padding: .8rem .85rem; border-radius: .75rem; }
+html.tpz-native-workspace .tpz-home-kpi strong { font-size: 1.45rem; }
+html.tpz-native-workspace .tpz-home-panels { gap: .8rem; }
+html.tpz-native-workspace .tpz-home-actions { grid-template-columns: 1fr; gap: .4rem; }
+html.tpz-native-workspace .tpz-home-actions a { padding: .53rem .8rem; text-align: left; }
+html.tpz-native-workspace .fi-sidebar-nav { padding-block: .65rem; }
+html.tpz-native-workspace .fi-sidebar-item-btn { min-height: 2rem; }
+@media (max-width: 48rem) {
+  html.tpz-native-workspace .tpz-workspace-header { padding: .85rem; }
+  html.tpz-native-workspace .tpz-home-kpi strong { font-size: 1.2rem; }
+}

@@ -1894,3 +1894,50 @@ html.dark.tpz-native-workspace .tpz-native-quick-actions a:first-child { backgro
 html.dark.tpz-native-workspace .tpz-native-record-table th { background: #274359; color: #c9dbe8; }
 html.dark.tpz-native-workspace .tpz-native-record-table td { color: #e7f5ff; border-color: #385369; }
 html.dark.tpz-native-workspace .tpz-native-no-preview { color: #b9ccda; }
+
+
+/* Consistent selected-tab KPI header and honest count badges. */
+html.tpz-native-workspace .tpz-native-tab-count {
+    font-size: .67rem; border-radius: 999px; padding: .13rem .42rem;
+    background: #e6f0f8; color: #145878; font-weight: 780;
+}
+html.tpz-native-workspace .tpz-workspace-tab.is-active .tpz-native-tab-count {
+    background: #d8f2f8; color: #075776;
+}
+html.tpz-native-workspace .tpz-native-subtab-summary {
+    display: flex; align-items: center; gap: .68rem; flex-wrap: wrap;
+    padding: .8rem 1rem; border: 1px solid #d9e6f0;
+    border-radius: .78rem; background: #fff;
+    box-shadow: 0 3px 12px rgb(24 55 80 / 4%);
+}
+html.tpz-native-workspace .tpz-native-subtab-summary > div {
+    flex: 1; min-width: 10rem;
+}
+html.tpz-native-workspace .tpz-native-subtab-summary h2 {
+    font-size: 1.03rem; font-weight: 780; color: #173650;
+}
+html.tpz-native-workspace .tpz-native-subtab-summary p {
+    font-size: .73rem; color: #647b90; margin-top: .17rem;
+}
+html.tpz-native-workspace .tpz-native-subtab-total {
+    display: grid; text-align: right; gap: .06rem;
+}
+html.tpz-native-workspace .tpz-native-subtab-total small {
+    font-size: .66rem; color: #687e91;
+}
+html.tpz-native-workspace .tpz-native-subtab-total strong {
+    font-size: 1.45rem; color: #122f4b; line-height: 1.15;
+}
+html.dark.tpz-native-workspace .tpz-native-subtab-summary {
+    background: #1b3447; border-color: #3d586e;
+}
+html.dark.tpz-native-workspace .tpz-native-subtab-summary h2,
+html.dark.tpz-native-workspace .tpz-native-subtab-total strong { color: #f1faff; }
+html.dark.tpz-native-workspace .tpz-native-subtab-summary p,
+html.dark.tpz-native-workspace .tpz-native-subtab-total small { color: #b6cbdb; }
+html.dark.tpz-native-workspace .tpz-native-tab-count {
+    background: #294d67; color: #d7f4ff;
+}
+@media (prefers-reduced-motion: reduce) {
+    html.tpz-native-workspace a.tpz-native-overview-metric:hover { transform: none; }
+}

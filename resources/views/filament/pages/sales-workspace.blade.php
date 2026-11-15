@@ -1,8 +1,8 @@
 <x-filament-panels::page>
     <div class="tpz-workspace">
-        <header class="tpz-workspace-header flex flex-wrap items-start justify-between gap-4">
+        <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-start justify-between gap-4">
             <div>
-                <p class="tpz-workspace-eyebrow">Customer &amp; marketplace operations</p>
+                <nav class="tpz-native-breadcrumb" aria-label="Breadcrumb"><span>Sales</span><span aria-hidden="true">/</span><span aria-current="page">Sales Workspace</span></nav>
                 <h1 class="tpz-workspace-title">Sales Workspace</h1>
                 <p class="tpz-workspace-subtitle">Orders, Web Sales and quotation work within your authorized scope.</p>
             </div>

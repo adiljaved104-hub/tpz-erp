@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    <div class="tpz-workspace">
+    <div class="tpz-workspace tpz-reference-inventory">
         <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-start justify-between gap-4">
             <div>
                 <nav class="tpz-native-breadcrumb" aria-label="Breadcrumb"><span>Inventory & Warehouse</span><span aria-hidden="true">/</span><span aria-current="page">Inventory Workspace</span></nav>
@@ -70,7 +70,7 @@
                     <h2>Operational Overview</h2>
                     <span>Live, permission-scoped totals</span>
                 </div>
-                <div class="tpz-native-overview-metrics">
+                <div class="tpz-native-overview-metrics tpz-native-overview-metrics--primary">
                     @php
                         $cardDefinitions = [
                         ['key' => 'inventory_units', 'icon' => 'heroicon-o-cube', 'tone' => 'blue'],

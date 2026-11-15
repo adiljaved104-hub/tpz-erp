@@ -109,7 +109,19 @@ class InventoryWorkspace extends Page
             ->take(6)
             ->values();
 
+        // Read-only tab previews reuse the SAME scoped resource queries used by
+        // the existing list pages. Full edit/create workflows stay in Filament.
+        $moduleQuery = match ($this->activeTab) {
+            'products' => ProductResource::canViewAny() ? ProductResource::getEloquentQuery() : null,
+            'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getEloquentQuery() : null,
+            'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getEloquentQuery() : null,
+            'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getEloquentQuery() : null,
+            default => null,
+        };
+        $moduleRecords = $moduleQuery?->latest()->paginate(10, pageName: 'module-page') ?? collect();
+
         return [
+            'moduleRecords' => $moduleRecords,
             'inventory' => $inventory,
             'recentMovements' => $recentMovements,
             'lowStockProducts' => $lowStockProducts,
@@ -158,6 +170,7 @@ class InventoryWorkspace extends Page
 
         $this->activeTab = $tab;
         $this->resetPage('inventory-page');
+        $this->resetPage('module-page');
     }
 
     public function updatedSearch(): void

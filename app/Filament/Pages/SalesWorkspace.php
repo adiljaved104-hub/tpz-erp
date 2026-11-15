@@ -165,6 +165,37 @@ class SalesWorkspace extends Page
                 ) === 1)
                 ->take(8)->values();
 
+            // Sales-only, truthful operational alerts. Each query retains
+            // the exact existing Order / Web Sales responsibility scope.
+            if ($canOrders) {
+                foreach ([
+                    OrderStatus::PendingReview->value => 'Sales orders pending review',
+                    OrderStatus::Processing->value => 'Sales orders processing',
+                ] as $status => $label) {
+                    $count = app(OrderReadService::class)->orders($user)
+                        ->where('orders.status', $status)->count();
+                    if ($count > 0) {
+                        $salesAttention->prepend([
+                            'label' => $label, 'count' => $count,
+                            'url' => OrderResource::getUrl(), 'priority' => 10,
+                        ]);
+                    }
+                }
+            }
+            if ($canWebSales) {
+                $count = app(WebSalesReadService::class)->orders($user)
+                    ->where('orders.status', OrderStatus::PendingReview->value)->count();
+                if ($count > 0) {
+                    $salesAttention->prepend([
+                        'label' => 'Web Sales awaiting review',
+                        'count' => $count,
+                        'url' => WebSalesOrderResource::getUrl(),
+                        'priority' => 10,
+                    ]);
+                }
+            }
+            $salesAttention = $salesAttention->take(8)->values();
+
             $salesRecentUpdates = collect();
             if ($canOrders) {
                 $salesRecentUpdates = $salesRecentUpdates->concat(

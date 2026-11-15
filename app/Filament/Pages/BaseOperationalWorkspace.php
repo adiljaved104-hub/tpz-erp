@@ -145,7 +145,7 @@ abstract class BaseOperationalWorkspace extends Page
             ->filter(fn ($record): bool => $resource::canView($record))
             ->map(function ($record) use ($resource): array {
                 $status = $record->status ?? null;
-                if ($status instanceof \\BackedEnum) {
+                if ($status instanceof \BackedEnum) {
                     $status = $status->value;
                 }
 

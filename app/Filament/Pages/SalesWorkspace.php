@@ -160,7 +160,7 @@ class SalesWorkspace extends Page
             $salesAttention = app(ErpDashboardService::class)
                 ->forUser($user, widgetKeys: ['attention'])['attention']
                 ->filter(fn (array $alert): bool => preg_match(
-                    '/order|sales|return|claim|complaint|invoice|payment|customer/i',
+                    '/order|sales|shipment|dispatch|invoice|payment|customer/i',
                     (string) ($alert['label'] ?? '')
                 ) === 1)
                 ->take(8)->values();

@@ -42,7 +42,7 @@
             <p class="tpz-native-no-preview">Open the full module to access the permitted records, filters, and actions.</p>
         @endif
         <div class="tpz-native-module-footer">
-            <x-filament::button tag="a" :href="$extraPreview['url']" icon="heroicon-o-arrow-up-right">Open full module</x-filament::button>
+            <x-filament::button tag="a" :href="$extraPreview['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">Open full module</x-filament::button>
         </div>
     </section>
 @endif

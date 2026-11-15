@@ -71,10 +71,11 @@ Route::middleware(['guest', 'panel:admin'])->group(function (): void {
     Route::post('/admin/reset-password', [EmailOtpAuthenticationController::class, 'resetPassword'])->name('auth.password.update');
 });
 
-// Owner-only, CSRF-protected interface switch. Reuse the existing persisted workspace preference.
+// Employee opt-in, CSRF-protected interface switch. No module access is granted.
 Route::post('/admin/interface-mode', function (\Illuminate\Http\Request $request) {
     $user = $request->user();
-    abort_unless($user?->employee?->role === \App\Enums\EmployeeRole::Owner, 403);
+    abort_unless($user instanceof \App\Models\User
+        && app(\App\Services\Navigation\NavigationPreferenceService::class)->eligibleForWorkspaceMode($user), 403);
 
     $validated = $request->validate([
         'mode' => ['required', \Illuminate\Validation\Rule::in(['classic', 'new'])],

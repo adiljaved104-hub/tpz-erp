@@ -135,11 +135,13 @@ class InventoryWorkspace extends Page
             'canSeeSummary' => $canInventory && $canLocationBalances,
             'links' => array_filter([
                 'products' => ProductResource::canViewAny() ? ProductResource::getUrl() : null,
+                'createProduct' => ProductResource::canCreate() ? ProductResource::getUrl('create') : null,
                 'inventory' => InventoryOverview::canAccess() ? InventoryOverview::getUrl() : null,
                 'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getUrl() : null,
                 'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getUrl() : null,
                 'createRequest' => StockRequestResource::canCreate() ? StockRequestResource::getUrl('create') : null,
                 'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getUrl() : null,
+                'createTransfer' => StockTransferResource::canCreate() ? StockTransferResource::getUrl('create') : null,
                 'adjustments' => StockAdjustments::canAccess() ? StockAdjustments::getUrl() : null,
                 'movements' => $canSeeMovements && StockMovementResource::canViewAny() ? StockMovementResource::getUrl() : null,
             ]),

@@ -82,20 +82,6 @@
         }
     </style>
 
-    @if($nativeMode)
-        <header class="tpz-workspace-header mb-4 flex flex-wrap items-start justify-between gap-4" aria-label="ERP home dashboard">
-            <div>
-                <p class="tpz-workspace-eyebrow">Tech Point Zone • Operations</p>
-                <h1 class="tpz-workspace-title">Home Dashboard</h1>
-                <p class="tpz-workspace-subtitle">Your authorized business overview, operational alerts and quick actions.</p>
-            </div>
-            <div class="flex flex-wrap items-center gap-2 text-xs font-semibold text-white/90">
-                <span class="rounded-full border border-white/25 px-3 py-1.5">{{ $period_label }}</span>
-                <span class="rounded-full border border-white/25 px-3 py-1.5">{{ $role_label }} access</span>
-            </div>
-        </header>
-    @endif
-
     @unless($nativeMode)
     @if($quick_actions !== [])
         <section class="mb-4" aria-label="Quick actions">
@@ -156,6 +142,7 @@
                         <h1>Welcome, {{ auth()->user()->name }}</h1>
                         <p>Your authorized operational overview.</p>
                     </div>
+                    <time datetime="{{ now(app(\App\Services\UserTimezoneResolver::class)->resolve(auth()->user()))->toDateString() }}">{{ now(app(\App\Services\UserTimezoneResolver::class)->resolve(auth()->user()))->format('D, d M Y') }}</time>
                 </div>
 
                 <div class="tpz-home-kpis">

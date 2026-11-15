@@ -136,13 +136,22 @@
         @if ($nativeMode)
             <div class="tpz-reference-home tpz-reference-home--final">
 
-                <div class="tpz-home-welcome">
+                @php
+                    // Use the user's display timezone, falling back to the company timezone.
+                    // Time-of-day greeting changes when this Livewire dashboard refreshes.
+                    $localNow = \Carbon\CarbonImmutable::now(app(\App\Services\UserTimezoneResolver::class)->resolve(auth()->user()));
+                    $greeting = match (true) {
+                        $localNow->hour < 12 => 'Good morning',
+                        $localNow->hour < 17 => 'Good afternoon',
+                        default => 'Good evening',
+                    };
+                @endphp
+                <div class="tpz-home-welcome tpz-home-welcome--greeting">
                     <div>
-                        <div class="tpz-eyebrow">TPZ ERP</div>
-                        <h1>Welcome, {{ auth()->user()->name }}</h1>
-                        <p>Your authorized operational overview.</p>
+                        <h1>{{ $greeting }}, {{ auth()->user()->name }} <span aria-hidden="true">👋</span></h1>
+                        <p>Here's what's happening in TPZ ERP today.</p>
                     </div>
-                    <time datetime="{{ now(app(\App\Services\UserTimezoneResolver::class)->resolve(auth()->user()))->toDateString() }}">{{ now(app(\App\Services\UserTimezoneResolver::class)->resolve(auth()->user()))->format('D, d M Y') }}</time>
+                    <time datetime="{{ $localNow->toDateString() }}">{{ $localNow->format('D, d M Y') }}</time>
                 </div>
 
                 <div class="tpz-home-kpis">

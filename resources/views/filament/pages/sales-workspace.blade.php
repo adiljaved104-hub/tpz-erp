@@ -143,8 +143,7 @@
                         </section>
                 </div>
 
-            @if($salesRecentUpdates->isNotEmpty())
-                <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent Sales Updates">
+            <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent Sales Updates">
                     <div class="tpz-native-panel-title">
                         <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-document-text')" class="size-5" /></span>
                         <h2>Recent Sales Updates</h2>
@@ -165,11 +164,13 @@
                                         <td><a href="{{ $update['url'] }}">View →</a></td>
                                     </tr>
                                 @endforeach
+                                @if($salesRecentUpdates->isEmpty())
+                                    <tr><td colspan="7" class="tpz-native-no-preview">No recent authorized sales records.</td></tr>
+                                @endif
                             </tbody>
                         </table>
                     </div>
                 </section>
-            @endif
         @endif
 
         @if(in_array($activeTab, ['orders', 'webSales', 'quotations'], true))

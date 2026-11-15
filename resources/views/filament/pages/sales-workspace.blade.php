@@ -54,14 +54,14 @@
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon icon="heroicon-o-squares-2x2" class="tpz-native-tab-icon size-4" /> Overview</button>
             @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
-                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="(['orders' => 'heroicon-o-shopping-bag', 'webSales' => 'heroicon-o-globe-alt', 'quotations' => 'heroicon-o-document-text'][$key] ?? 'heroicon-o-document-text')" class="tpz-native-tab-icon size-4" /> {{ $label }}@if(isset($salesCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($salesCounts[$key]) }}</span>@endif</button>
+                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve((['orders' => 'heroicon-o-shopping-bag', 'webSales' => 'heroicon-o-globe-alt', 'quotations' => 'heroicon-o-document-text'][$key] ?? 'heroicon-o-document-text'))" class="tpz-native-tab-icon size-4" /> {{ $label }}@if(isset($salesCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($salesCounts[$key]) }}</span>@endif</button>
                 @endif
             @endforeach
             @foreach($extraModules as $index => $module)
                 <button type="button" wire:key="extra-module-tab-{{ $index }}"
                     class="tpz-workspace-tab {{ $activeTab === 'extra' && $activeExtraModule === $index ? 'is-active' : '' }}"
                     aria-selected="{{ $activeTab === 'extra' && $activeExtraModule === $index ? 'true' : 'false' }}"
-                    wire:click="selectExtraModule({{ $index }})"><x-filament::icon :icon="$module['icon']" class="tpz-native-tab-icon size-4" /> {{ $module['label'] }}</button>
+                    wire:click="selectExtraModule({{ $index }})"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($module['icon'])" class="tpz-native-tab-icon size-4" /> {{ $module['label'] }}</button>
             @endforeach
         </nav>
 
@@ -83,7 +83,7 @@
                     @foreach($salesMetrics as $metric)
                         @if(isset($salesCounts[$metric['key']]) && $metric['url'])
                             <a href="{{ $metric['url'] }}" class="tpz-native-overview-metric tpz-native-overview-metric--{{ $metric['tone'] }}">
-                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="$metric['icon']" class="size-5" /></span>
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($metric['icon'])" class="size-5" /></span>
                                 <span class="tpz-native-overview-label">{{ $metric['label'] }}</span>
                                 <strong>{{ number_format($salesCounts[$metric['key']]) }}</strong>
                             </a>
@@ -96,11 +96,11 @@
         @if(in_array($activeTab, ['orders', 'webSales', 'quotations'], true))
             <div class="tpz-native-subtab-summary">
                 <span class="tpz-native-overview-icon">
-                    <x-filament::icon :icon="match($activeTab) {
+                    <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(match($activeTab) {
                         'orders' => 'heroicon-o-shopping-bag',
                         'webSales' => 'heroicon-o-globe-alt',
                         default => 'heroicon-o-document-text',
-                    }" class="size-5" />
+                    })" class="size-5" />
                 </span>
                 <div>
                     <h2>{{ match($activeTab) {

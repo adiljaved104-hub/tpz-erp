@@ -144,12 +144,21 @@ class SalesWorkspace extends Page
 
     public function setTab(string $tab): void
     {
-        // Only allow tabs backed by an authorized module URL.
-        if ($tab !== 'overview') {
-            $links = $this->getViewData()['links'];
-            abort_unless(in_array($tab, ['orders', 'webSales', 'quotations'], true) && isset($links[$tab]), 403);
-        }
+        /** @var User $user */
+        $user = auth()->user();
+        abort_unless(static::canAccess(), 403);
+
+        $permitted = match ($tab) {
+            'overview' => true,
+            'orders' => app(OrderAuthorization::class)->allows($user, OrderPermission::View),
+            'webSales' => app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View),
+            'quotations' => app(QuotationAuthorization::class)->allows($user, QuotationPermission::View),
+            default => false,
+        };
+        abort_unless($permitted, 403);
         $this->activeTab = $tab;
+        $this->resetPage('sales-page');
+        $this->resetPage('web-sales-page');
     }
 
     public function clearFilters(): void

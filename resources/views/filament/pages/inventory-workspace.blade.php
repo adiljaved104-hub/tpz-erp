@@ -137,7 +137,7 @@
                             @forelse($recentMovements->take(5) as $movement)
                                 @if(\App\Filament\Resources\StockMovements\StockMovementResource::canView($movement))
                                     <a wire:key="reference-movement-{{ $movement->id }}" href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}">
-                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrows-right-left')" class="size-4" /></span>
+                                        <span class="tpz-native-overview-icon tpz-reference-movement-icon tpz-reference-tone--{{ \App\Support\WorkspaceVisuals::movementTone($movement->movement_type?->label() ?? 'Movement') }}"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(\App\Support\WorkspaceVisuals::movementIcon($movement->movement_type?->label() ?? 'Movement'))" class="size-4" /></span>
                                         <span class="tpz-reference-movement-label">
                                             <strong>{{ $movement->product?->sku ?? $movement->reference ?? 'Stock movement' }}</strong>
                                             <small>{{ $movement->movement_type?->label() ?? 'Inventory movement' }} · {{ number_format($movement->quantity) }} unit(s)</small>
@@ -173,7 +173,7 @@
                                         <td><a href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}">{{ $movement->reference ?? ('#'.$movement->id) }}</a></td>
                                         <td>{{ $movement->product?->name ?? 'Product' }} ({{ $movement->product?->sku ?? '—' }})</td>
                                         <td>{{ $movement->warehouse?->name ?? 'Warehouse' }}</td>
-                                        <td>{{ $movement->movement_type?->label() ?? 'Movement' }}</td>
+                                        <td><span class="tpz-reference-status-badge tpz-reference-status-badge--{{ \App\Support\WorkspaceVisuals::movementTone($movement->movement_type?->label() ?? 'Movement') }}"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(\App\Support\WorkspaceVisuals::movementIcon($movement->movement_type?->label() ?? 'Movement'))" class="size-4" />{{ $movement->movement_type?->label() ?? 'Movement' }}</span></td>
                                         <td>{{ number_format($movement->quantity) }}</td>
                                         <td>{{ $movement->actor?->name ?? 'System' }}</td>
                                         <td>{{ $movement->occurred_at?->format('d M Y, H:i') ?? '—' }}</td>

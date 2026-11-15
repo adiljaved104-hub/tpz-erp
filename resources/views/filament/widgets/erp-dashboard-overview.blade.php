@@ -192,7 +192,7 @@
 
                     <x-filament::section compact heading="My Workspace">
                         <div class="tpz-home-list">
-                            @forelse ($attention->take(4) as $item)
+                            @forelse ($attention->take(5) as $item)
                                 <a href="{{ $item['url'] }}">
                                     @php
                                         $workLabel = strtolower((string) $item['label']);
@@ -225,7 +225,7 @@
                         @endif
                         <div class="tpz-home-list tpz-home-activity">
                             @if ($recent_activity['enabled'])
-                                @forelse ($recent_activity['movements']->take(4) as $movement)
+                                @forelse ($recent_activity['movements']->take(5) as $movement)
                                     @php
                                         $movementType = strtolower((string) ($movement->movement_type?->value ?? $movement->movement_type?->label() ?? 'movement'));
                                         $activityIcon = match (true) {

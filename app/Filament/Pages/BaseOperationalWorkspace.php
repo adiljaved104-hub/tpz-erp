@@ -18,6 +18,8 @@ abstract class BaseOperationalWorkspace extends Page
 
     protected static ?int $navigationSort = 0;
 
+    public string $activeModule = 'overview';
+
     /** @return array{title: string, eyebrow: string, description: string, icon: string, sections: array<int, array{title: string, description: string, links: array<int, array{label: string, class: class-string, icon: string}>}>} */
     abstract protected static function workspaceDefinition(): array;
 
@@ -62,7 +64,50 @@ abstract class BaseOperationalWorkspace extends Page
             'metrics' => static::authorizedMetrics(),
             'quickActions' => static::authorizedQuickActions(),
             'recentRecords' => static::authorizedRecentRecords(),
+            'moduleTabs' => static::authorizedModuleTabs(),
         ];
+    }
+
+    /**
+     * The unified navigation must not make previously authorized modules
+     * disappear. Combine the workspace's curated modules with other modules
+     * from the user's existing permission-filtered Filament sidebar.
+     *
+     * @return Collection<int, array{label:string,url:string,icon:string}>
+     */
+    protected static function authorizedModuleTabs(): Collection
+    {
+        $definition = static::workspaceDefinition();
+        $curated = static::authorizedSections()
+            ->flatMap(fn (array $section) => $section['links'])
+            ->values();
+
+        $title = $definition['title'];
+        $group = match (true) {
+            str_contains($title, 'Purchasing') => 'Purchasing',
+            str_contains($title, 'Returns') => 'Returns & QC',
+            str_contains($title, 'Finance') => 'Finance & Accounting',
+            str_contains($title, 'Team') => 'Team & HR',
+            str_contains($title, 'Administration') => 'Administration',
+            default => 'Home',
+        };
+        $additional = app(NavigationPreferenceService::class)
+            ->workspaceModuleLinks(auth()->user(), $group);
+
+        return $curated->concat($additional)->unique('url')->values();
+    }
+
+    public function selectModule(string $index): void
+    {
+        abort_unless(static::canAccess(), 403);
+        if ($index === 'overview') {
+            $this->activeModule = 'overview';
+            return;
+        }
+
+        abort_unless(ctype_digit($index)
+            && static::authorizedModuleTabs()->has((int) $index), 403);
+        $this->activeModule = $index;
     }
 
     /** @return Collection<int, array<string, mixed>> */

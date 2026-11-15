@@ -1354,3 +1354,36 @@ html.dark.tpz-native-workspace .tpz-native-kpi-trend.is-down { color: #fdba74; }
 @media (max-width: 72rem) {
     html.tpz-native-workspace .tpz-native-kpi-trend { font-size: .65rem; }
 }
+
+
+/* Native dashboard supports six honest KPI cards without squeezed labels.
+   On normal desktop widths, two balanced rows improve readability. */
+html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (min-width: 105rem) {
+    html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+}
+@media (max-width: 48rem) {
+    html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 36rem) {
+    html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
+        grid-template-columns: 1fr;
+    }
+}
+html.tpz-native-workspace .tpz-workspace-context-actions {
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+}
+@media (max-width: 48rem) {
+    html.tpz-native-workspace .tpz-workspace-context-actions {
+        justify-content: flex-start;
+        width: 100%;
+    }
+}

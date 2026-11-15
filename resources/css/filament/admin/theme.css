@@ -2685,3 +2685,11 @@ html.tpz-native-workspace .tpz-reference-inventory { container: tpz-inventory / 
     grid-template-columns: repeat(2,minmax(0,1fr)) !important;
   }
 }
+
+
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-status-badge--neutral {
+  color: #566b80; background: #f0f4f7; border-color: #dce5ec;
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-status-badge--neutral {
+  color: #cedce8; background: #284359; border-color: #40576e;
+}

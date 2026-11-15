@@ -136,7 +136,8 @@ abstract class BaseOperationalWorkspace extends Page
             return $data;
         }
 
-        $keyName = $resource::getModel() ? (new ($resource::getModel()))->getKeyName() : 'id';
+        $modelClass = $resource::getModel();
+        $keyName = (new $modelClass())->getKeyName();
         $data['records'] = (clone $scoped)
             ->orderByDesc($keyName)
             ->limit(8)

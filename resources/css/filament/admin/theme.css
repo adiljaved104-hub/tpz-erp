@@ -2412,3 +2412,219 @@ html.dark.tpz-native-workspace .tpz-reference-sales .tpz-reference-status-badge 
         grid-template-columns: 1fr;
     }
 }
+
+
+/* NOV 16 REFERENCE PARITY — approved compact Inventory visual language,
+   applied consistently to Sales, Inventory and the five generic workspaces.
+   Visual-only styles; Classic ERP deliberately excluded. */
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) {
+  --tpz-r-ink: #0a2650;
+  --tpz-r-line: #d6e4f2;
+  --tpz-r-blue: #0863bd;
+  --tpz-r-surface: #fff;
+  color: var(--tpz-r-ink);
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs {
+  min-height: 3.55rem;
+  border: 1px solid #d9e6f4;
+  border-bottom: 2px solid #d3e2f1;
+  border-radius: .85rem;
+  background: linear-gradient(180deg, #fff 0%, #f3f8fe 100%);
+  box-shadow: 0 3px 9px rgb(21 72 123 / 9%);
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab {
+  position: relative; min-height: 3.4rem;
+  padding: .48rem .62rem; gap: .42rem;
+  color: #153e75; font-size: .73rem;
+  background: transparent;
+  border-right: 1px solid #e2ebf5;
+  border-bottom: 3px solid transparent;
+  box-shadow: none;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab.is-active {
+  color: #07539b; background: #fff;
+  border-radius: .7rem .7rem .3rem .3rem;
+  border: 1px solid #b6d9f3; border-bottom: 3px solid #088ade;
+  box-shadow: 0 3px 13px rgb(12 100 185 / 12%);
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs .tpz-native-tab-icon {
+  flex: 0 0 auto; width: 1.3rem; height: 1.3rem;
+  stroke-width: 1.85; color: #1361a7;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab:nth-child(4n+2) .tpz-native-tab-icon { color: #1f6bb5; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab:nth-child(4n+3) .tpz-native-tab-icon { color: #0e80bf; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab:nth-child(4n+4) .tpz-native-tab-icon { color: #ca6d0a; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-workspace-tabs > .tpz-workspace-tab:nth-child(7n) .tpz-native-tab-icon { color: #8247d1; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-tab-count {
+  display: inline-flex;
+  margin-left: .07rem; min-width: 0;
+  color: #102e55; background: transparent;
+  padding: 0; border-radius: 0;
+  font-weight: 850; font-size: .76rem;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary {
+  gap: .5rem; align-items: stretch;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-metric {
+  position: relative; border-radius: .86rem;
+  min-height: 5.7rem;
+  grid-template-columns: 2.15rem minmax(0,1fr);
+  column-gap: .35rem;
+  background: linear-gradient(140deg, #eef7ff, #e7f2fd);
+  border: 1px solid #c7e2fa;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 20%);
+  padding: .63rem .58rem;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-metric--green { background: linear-gradient(140deg,#f0fcf5,#e9f9f0); border-color: #cbefda; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-metric--amber { background: linear-gradient(140deg,#fffaf0,#fff3dd); border-color: #f8e7c7; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-metric--rose { background: linear-gradient(140deg,#fff4f5,#ffebef); border-color: #f7d4dd; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-metric--violet { background: linear-gradient(140deg,#f8f5ff,#f0ebfe); border-color: #e2d8ff; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-icon {
+  width: 2rem; height: 2.3rem;
+  background: transparent;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-icon svg {
+  width: 1.5rem; height: 1.5rem;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-label {
+  font-weight: 730; font-size: .7rem; color: #173052; line-height: 1.17;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary strong {
+  font-size: clamp(.9rem,1.3vw,1.42rem); line-height: 1.17;
+  letter-spacing: -.03em; color: #071b42;
+}
+@media (min-width: 1150px) {
+  html.tpz-native-workspace .tpz-reference-inventory .tpz-native-overview-metrics--primary {
+    grid-template-columns: repeat(8,minmax(0,1fr));
+  }
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-columns {
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: .65rem;
+  align-items: stretch;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-columns > .tpz-native-list-panel {
+  min-height: 12.5rem; padding: .65rem .76rem;
+  border: 1px solid #cedff0; border-radius: .88rem;
+  box-shadow: 0 3px 11px rgb(29 77 122 / 10%);
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-panel-title {
+  margin-bottom: .45rem; padding-bottom: .47rem;
+  border-color: #e2ebf4;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-panel-title h2 {
+  font-size: .99rem; color: #09264d; font-weight: 830;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-grid {
+  display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: .06rem .42rem;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row {
+  gap: .25rem; min-height: 2.05rem;
+  padding: .13rem .08rem; font-size: .7rem;
+  white-space: nowrap; border-color: #e2eaf3;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row > .tpz-native-overview-icon {
+  width: 1.8rem; height: 1.8rem; flex-shrink: 0;
+  border-radius: .48rem; background: #eef3fa; color: #164474;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row--danger > .tpz-native-overview-icon {
+  color: #e7344a; background: #fff0f1;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row--warning > .tpz-native-overview-icon {
+  color: #be6c09; background: #fff6e4;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row > .tpz-reference-alert-label {
+  flex: 1; min-width: 0; text-overflow: ellipsis; overflow: hidden;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row > strong {
+  background: #e4324a; color: #fff;
+  border-radius: 99px; min-width: 1.55rem;
+  font-size: .69rem; padding: .12rem .28rem;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row--warning > strong {
+  background: #ffe7ae; color: #b75b0a;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row > small {
+  border-radius: 99px; border: 1px solid #cad9e8;
+  font-size: .65rem; padding: .17rem .35rem; color: #16416f;
+  background: #fff;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-recent-list a {
+  padding: .42rem .12rem; gap: .5rem;
+  min-height: 2.2rem; border-color: #dce7f2;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-recent-list a > .tpz-native-overview-icon {
+  width: 1.9rem; height: 1.9rem; flex: 0 0 1.9rem;
+  background: #e9f8ef; color: #12994e; border-radius: .57rem;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-recent-list a > .tpz-reference-movement-icon.tpz-reference-tone--info { background: #e9f5ff; color: #1589cf; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-recent-list a > .tpz-reference-movement-icon.tpz-reference-tone--violet { background: #f2eafe; color: #8c4bcb; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-recent-list a > .tpz-reference-movement-icon.tpz-reference-tone--danger { background: #ffeaef; color: #e23a50; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-recent-list a > .tpz-reference-movement-icon.tpz-reference-tone--warning { background: #fff3d9; color: #d48b0f; }
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-movement-label > strong {
+  font-size: .73rem; color: #112b50; font-weight: 800;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-movement-label > small {
+  font-size: .64rem; color: #647c98;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-records-panel {
+  border: 1px solid #cddff0; padding: .7rem .75rem;
+  border-radius: .88rem;
+  box-shadow: 0 4px 11px rgb(27 75 116 / 8%);
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-records-panel .tpz-native-record-table th {
+  background: #ecf2f9; border-radius: 0;
+  color: #415c78; font-size: .65rem; font-weight: 790;
+  padding: .62rem .52rem;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-records-panel .tpz-native-record-table td {
+  padding: .58rem .52rem; color: #17314c;
+  font-size: .69rem; line-height: 1.3;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-status-badge {
+  display: inline-flex; align-items: center; gap: .25rem;
+  font-size: .66rem; font-weight: 740;
+  padding: .22rem .48rem;
+  border-radius: .55rem; white-space: nowrap;
+  color: #096a37; background: #e5f9ea; border: 1px solid #c6efcf;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-status-badge--info {
+  color: #0568b9; background: #ddf2fe; border-color: #bde5ff;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-status-badge--violet {
+  color: #8043be; background: #f0e9fe; border-color: #e0d2ff;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-status-badge--danger {
+  color: #be324e; background: #ffedf0; border-color: #f7d3dc;
+}
+html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-status-badge--warning {
+  color: #b77708; background: #fff6e2; border-color: #fae9c5;
+}
+@media (max-width: 980px) {
+  html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-columns {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 660px) {
+  html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-grid {
+    grid-template-columns: 1fr;
+  }
+  html.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) {
+  --tpz-r-ink:#eaf6ff; --tpz-r-line:#3e5c74; --tpz-r-surface:#172e43;
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-metric {
+  background: #203f58; border-color: #45677e;
+}
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary .tpz-native-overview-label,
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-native-overview-metrics--primary strong,
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-movement-label > strong { color: #f1f9ff; }
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-records-panel .tpz-native-record-table th { background: #27445c; color: #c6d7e7; }
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-records-panel .tpz-native-record-table td { color: #e4f4ff; }
+html.dark.tpz-native-workspace :is(.tpz-reference-inventory,.tpz-reference-sales,.tpz-reference-workspace) .tpz-reference-attention-row > small {
+  color: #dff2ff; background: #28475c; border-color: #44627a;
+}

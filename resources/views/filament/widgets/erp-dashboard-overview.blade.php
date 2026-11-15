@@ -157,7 +157,9 @@
                 <div class="tpz-home-kpis">
                     @forelse($reference_kpis as $kpi)
                         @php
-                            $icon = match($kpi['tone']) {
+                            $icon = ($kpi['label'] === 'Total Returns')
+                                ? 'heroicon-o-chart-bar-square'
+                                : match($kpi['tone']) {
                                 'blue' => 'heroicon-o-shopping-bag',
                                 'green' => 'heroicon-o-globe-alt',
                                 'amber' => 'heroicon-o-clipboard-document-list',

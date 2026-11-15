@@ -111,8 +111,8 @@
                 @if($inventoryAttention->isNotEmpty())
                     <section class="tpz-native-list-panel" aria-label="Needs Attention">
                         <div class="tpz-native-panel-title">
-                            <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-triangle')" class="size-5" /></span>
-                            <h2>Needs Attention</h2>
+                            <span class="tpz-reference-target-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" width="30" height="30"><circle cx="14" cy="17" r="11" stroke="currentColor" stroke-width="2.3"/><circle cx="14" cy="17" r="6" stroke="currentColor" stroke-width="2.2"/><circle cx="14" cy="17" r="1.7" fill="currentColor"/><path d="M14 17 24 7M22 4v6h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                            <div class="tpz-reference-panel-heading"><h2>Needs Attention</h2><small>Priority operational items in your authorized scope.</small></div>
                         </div>
                         <div class="tpz-reference-attention-grid">
                             @foreach($inventoryAttention as $alert)

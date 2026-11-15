@@ -7,7 +7,11 @@
                 <p class="tpz-workspace-subtitle">Orders, Web Sales and quotation work within your authorized scope.</p>
             </div>
             <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected sales section">
-                @if($activeTab === 'overview')
+                @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
+                    <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" icon="heroicon-o-arrow-up-right">
+                        Open {{ $extraModules[$activeExtraModule]['label'] }}
+                    </x-filament::button>
+                @elseif($activeTab === 'overview')
                     @if(isset($links['createOrder']))
                         <x-filament::button tag="a" :href="$links['createOrder']" icon="heroicon-o-plus">Create Sales Order</x-filament::button>
                     @endif
@@ -48,8 +52,11 @@
                     <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}</button>
                 @endif
             @endforeach
-                    @foreach($extraModules as $module)
-                <a href="{{ $module['url'] }}" class="tpz-workspace-tab" title="Open authorized {{ $module['label'] }} module">{{ $module['label'] }}</a>
+            @foreach($extraModules as $index => $module)
+                <button type="button" wire:key="extra-module-tab-{{ $index }}"
+                    class="tpz-workspace-tab {{ $activeTab === 'extra' && $activeExtraModule === $index ? 'is-active' : '' }}"
+                    aria-selected="{{ $activeTab === 'extra' && $activeExtraModule === $index ? 'true' : 'false' }}"
+                    wire:click="selectExtraModule({{ $index }})">{{ $module['label'] }}</button>
             @endforeach
         </nav>
 
@@ -215,6 +222,18 @@
                 @if($quotations instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
                     <div class="mt-4">{{ $quotations->links() }}</div>
                 @endif
+            </x-filament::section>
+        @endif
+        @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
+            <x-filament::section>
+                <div class="tpz-unified-module-preview">
+                    <span class="tpz-unified-module-icon"><x-filament::icon icon="heroicon-o-arrow-up-right" class="size-6" /></span>
+                    <div>
+                        <h2>{{ $extraModules[$activeExtraModule]['label'] }}</h2>
+                        <p>Continue with your authorized records, filters, and existing operational controls.</p>
+                    </div>
+                    <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" icon="heroicon-o-arrow-up-right">Open full module</x-filament::button>
+                </div>
             </x-filament::section>
         @endif
     </div>

@@ -19,6 +19,7 @@ use App\Services\Inventory\InventoryReadService;
 use App\Services\Dashboard\ErpDashboardService;
 use App\Services\Mobile\StockStatus;
 use App\Services\Navigation\NavigationPreferenceService;
+use App\Services\Navigation\WorkspaceRecordPreviewService;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Livewire\WithPagination;
@@ -143,7 +144,15 @@ class InventoryWorkspace extends Page
             $tabCounts['transfers'] = StockTransferResource::getEloquentQuery()->count();
         }
 
+        $selectedExtra = $this->activeTab === 'extra' && $this->activeExtraModule !== null
+            ? $this->extraModules()->get($this->activeExtraModule)
+            : null;
+        $extraPreview = is_array($selectedExtra)
+            ? app(WorkspaceRecordPreviewService::class)->forLink($selectedExtra)
+            : null;
+
         return [
+            'extraPreview' => $extraPreview,
             'inventoryCards' => $inventoryCards,
             'tabCounts' => $tabCounts,
             'moduleRecords' => $moduleRecords,

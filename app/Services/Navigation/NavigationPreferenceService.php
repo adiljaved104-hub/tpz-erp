@@ -71,14 +71,28 @@ class NavigationPreferenceService
 
     public function workspaceModeEnabled(User $user): bool
     {
-        return $user->employee?->role === EmployeeRole::Owner
+        return $this->eligibleForWorkspaceMode($user)
             && in_array('enabled', $this->preferences->get($user, UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE), true);
     }
 
     public function setWorkspaceMode(User $user, bool $enabled): void
     {
-        abort_unless($user->employee?->role === EmployeeRole::Owner, 403);
+        abort_unless($this->eligibleForWorkspaceMode($user), 403);
         $this->preferences->put($user, UserUiPreferenceService::NAVIGATION_WORKSPACE_MODE, $enabled ? ['enabled'] : []);
+    }
+
+    public function eligibleForWorkspaceMode(User $user): bool
+    {
+        // Technicians retain the existing restricted QC-only application.
+        // All other active employees can choose the new presentation, while
+        // module authorization remains independently enforced.
+        return $user->employee?->status === true
+            && in_array($user->employee?->role, [
+                EmployeeRole::Owner,
+                EmployeeRole::Admin,
+                EmployeeRole::Manager,
+                EmployeeRole::Staff,
+            ], true);
     }
 
     /** @param array<int, NavigationGroup> $groups @return array<int, NavigationGroup> */

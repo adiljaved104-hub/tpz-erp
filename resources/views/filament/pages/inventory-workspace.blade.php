@@ -6,14 +6,41 @@
                 <h1 class="tpz-workspace-title">Inventory &amp; Warehouse</h1>
                 <p class="tpz-workspace-subtitle">Available Stock, reservations and actions within your authorized responsibility.</p>
             </div>
-            <div class="flex flex-wrap gap-2">
-                @if(isset($links['createRequest']))
-                    <x-filament::button tag="a" :href="$links['createRequest']" icon="heroicon-o-plus">Create Stock Request</x-filament::button>
-                @elseif(isset($links['requests']))
-                    <x-filament::button tag="a" :href="$links['requests']" icon="heroicon-o-clipboard-document-list">Stock Requests</x-filament::button>
-                @endif
-                @if(isset($links['transfers']))
-                    <x-filament::button tag="a" color="gray" :href="$links['transfers']" icon="heroicon-o-truck">Stock Transfers</x-filament::button>
+            <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected inventory section">
+                @if($activeTab === 'overview')
+                    @if(isset($links['createRequest']))
+                        <x-filament::button tag="a" :href="$links['createRequest']" icon="heroicon-o-plus">Create Stock Request</x-filament::button>
+                    @endif
+                    @if(isset($links['transfers']))
+                        <x-filament::button tag="a" color="gray" :href="$links['transfers']" icon="heroicon-o-truck">Stock Transfers</x-filament::button>
+                    @endif
+                @elseif($activeTab === 'products')
+                    @if(isset($links['createProduct']))
+                        <x-filament::button tag="a" :href="$links['createProduct']" icon="heroicon-o-plus">Create Product</x-filament::button>
+                    @endif
+                    @if(isset($links['products']))
+                        <x-filament::button tag="a" color="gray" :href="$links['products']" icon="heroicon-o-cube">All Products</x-filament::button>
+                    @endif
+                @elseif($activeTab === 'inventory' && isset($links['inventory']))
+                    <x-filament::button tag="a" :href="$links['inventory']" icon="heroicon-o-archive-box">Open Inventory</x-filament::button>
+                @elseif($activeTab === 'myInventory' && isset($links['myInventory']))
+                    <x-filament::button tag="a" :href="$links['myInventory']" icon="heroicon-o-user-circle">My Inventory</x-filament::button>
+                @elseif($activeTab === 'requests')
+                    @if(isset($links['createRequest']))
+                        <x-filament::button tag="a" :href="$links['createRequest']" icon="heroicon-o-plus">Create Stock Request</x-filament::button>
+                    @endif
+                    @if(isset($links['requests']))
+                        <x-filament::button tag="a" color="gray" :href="$links['requests']" icon="heroicon-o-clipboard-document-list">All Requests</x-filament::button>
+                    @endif
+                @elseif($activeTab === 'transfers')
+                    @if(isset($links['createTransfer']))
+                        <x-filament::button tag="a" :href="$links['createTransfer']" icon="heroicon-o-plus">Create Stock Transfer</x-filament::button>
+                    @endif
+                    @if(isset($links['transfers']))
+                        <x-filament::button tag="a" color="gray" :href="$links['transfers']" icon="heroicon-o-truck">All Transfers</x-filament::button>
+                    @endif
+                @elseif($activeTab === 'adjustments' && isset($links['adjustments']))
+                    <x-filament::button tag="a" :href="$links['adjustments']" icon="heroicon-o-adjustments-horizontal">Open Stock Adjustments</x-filament::button>
                 @endif
             </div>
         </header>

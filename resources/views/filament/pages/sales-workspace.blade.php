@@ -93,6 +93,85 @@
             </section>
         @endif
 
+        @if($activeTab === 'overview')
+            @if($salesAttention->isNotEmpty() || $salesRecentUpdates->isNotEmpty())
+                <div class="tpz-native-overview-columns tpz-reference-sales-panels">
+                    @if($salesAttention->isNotEmpty())
+                        <section class="tpz-native-list-panel" aria-label="Sales Needs Attention">
+                            <div class="tpz-native-panel-title">
+                                <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-triangle')" class="size-5" /></span>
+                                <h2>Needs Attention</h2>
+                                <span class="tpz-reference-panel-note">Authorized operational items</span>
+                            </div>
+                            <div class="tpz-reference-attention-grid">
+                                @foreach($salesAttention as $alert)
+                                    <a class="tpz-reference-attention-row" href="{{ $alert['url'] }}">
+                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-circle')" class="size-4" /></span>
+                                        <span class="tpz-reference-alert-label" title="{{ $alert['label'] }}">{{ $alert['label'] }}</span>
+                                        <strong>{{ number_format($alert['count']) }}</strong>
+                                        <small>View</small>
+                                    </a>
+                                @endforeach
+                            </div>
+                        </section>
+                    @endif
+                    @if($salesRecentUpdates->isNotEmpty())
+                        <section class="tpz-native-list-panel" aria-label="Recent Sales Activity">
+                            <div class="tpz-native-panel-title">
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-clock')" class="size-5" /></span>
+                                <h2>Recent Sales Activity</h2>
+                                @if(isset($links['orders']))
+                                    <a class="tpz-reference-panel-view" href="{{ $links['orders'] }}">View all →</a>
+                                @elseif(isset($links['webSales']))
+                                    <a class="tpz-reference-panel-view" href="{{ $links['webSales'] }}">View all →</a>
+                                @endif
+                            </div>
+                            <div class="tpz-native-recent-list">
+                                @foreach($salesRecentUpdates->take(5) as $update)
+                                    <a href="{{ $update['url'] }}" wire:key="recent-sales-{{ $loop->index }}">
+                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-shopping-bag')" class="size-4" /></span>
+                                        <span class="tpz-reference-movement-label">
+                                            <strong>{{ $update['reference'] }} · {{ $update['status'] }}</strong>
+                                            <small>{{ $update['source'] }} · {{ number_format($update['units']) }} unit(s)</small>
+                                        </span>
+                                        <small>{{ $update['date'] }}</small>
+                                    </a>
+                                @endforeach
+                            </div>
+                        </section>
+                    @endif
+                </div>
+            @endif
+
+            @if($salesRecentUpdates->isNotEmpty())
+                <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent Sales Updates">
+                    <div class="tpz-native-panel-title">
+                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-document-text')" class="size-5" /></span>
+                        <h2>Recent Sales Updates</h2>
+                        @if(isset($links['orders']))<a class="tpz-reference-panel-view" href="{{ $links['orders'] }}">View Sales Orders →</a>@endif
+                    </div>
+                    <div class="tpz-native-record-table-wrap">
+                        <table class="tpz-native-record-table">
+                            <thead><tr><th>Reference</th><th>Source / Channel</th><th>Customer</th><th>Units</th><th>Status</th><th>Order Date</th><th>Action</th></tr></thead>
+                            <tbody>
+                                @foreach($salesRecentUpdates as $update)
+                                    <tr wire:key="sales-overview-update-{{ $loop->index }}">
+                                        <td><strong>{{ $update['reference'] }}</strong></td>
+                                        <td>{{ $update['source'] }}</td>
+                                        <td>{{ $update['customer'] }}</td>
+                                        <td>{{ number_format($update['units']) }}</td>
+                                        <td><span class="tpz-reference-status-badge">{{ $update['status'] }}</span></td>
+                                        <td>{{ $update['date'] }}</td>
+                                        <td><a href="{{ $update['url'] }}">View →</a></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            @endif
+        @endif
+
         @if(in_array($activeTab, ['orders', 'webSales', 'quotations'], true))
             <div class="tpz-native-subtab-summary">
                 <span class="tpz-native-overview-icon">

@@ -161,13 +161,34 @@
 
         @if($activeTab === 'quotations' && isset($links['quotations']))
             <x-filament::section>
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">Quotations</h2>
-                        <p class="text-sm text-gray-500">Use the authorized Quotations module to view and manage quotations.</p>
-                    </div>
-                    <x-filament::button tag="a" :href="$links['quotations']" icon="heroicon-o-arrow-up-right">Open Quotations</x-filament::button>
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Quotations</h2>
+                    <x-filament::button tag="a" :href="$links['quotations']" size="sm" color="gray">Open full module</x-filament::button>
                 </div>
+                <div class="overflow-x-auto">
+                    <table class="tpz-workspace-table">
+                        <thead><tr><th>Reference</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
+                        <tbody>
+                            @forelse($quotations as $quotation)
+                                <tr wire:key="workspace-quotation-{{ $quotation->getKey() }}">
+                                    <td class="font-semibold">{{ $quotation->reference ?? '—' }}</td>
+                                    <td>{{ $quotation->created_at?->format('d M Y') ?? '—' }}</td>
+                                    <td>{{ str($quotation->status?->value ?? $quotation->status ?? 'Unknown')->headline() }}</td>
+                                    <td>
+                                        @if(\App\Filament\Resources\Quotations\QuotationResource::canView($quotation))
+                                            <x-filament::button tag="a" size="xs" color="gray" :href="\App\Filament\Resources\Quotations\QuotationResource::getUrl('view', ['record' => $quotation])">View</x-filament::button>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="4" class="py-8 text-center text-gray-500">No quotations in your authorized scope.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                @if($quotations instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
+                    <div class="mt-4">{{ $quotations->links() }}</div>
+                @endif
             </x-filament::section>
         @endif
     </div>

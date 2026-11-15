@@ -1,18 +1,23 @@
 <x-filament-panels::page>
-    <div class="tpz-workspace">
-        <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-start justify-between gap-4">
-            <div>
+    <div class="tpz-workspace tpz-unified-workspace">
+        <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-center justify-between gap-4">
+            <div class="tpz-native-workspace-heading">
                 <nav class="tpz-native-breadcrumb" aria-label="Breadcrumb">
                     <span>{{ str_replace(' Workspace', '', $workspace['title']) }}</span>
                     <span aria-hidden="true">/</span>
                     <span aria-current="page">{{ $workspace['title'] }}</span>
                 </nav>
-                <h1 class="tpz-workspace-title">{{ $workspace['title'] }}</h1>
-                <p class="tpz-workspace-subtitle">{{ $workspace['description'] }}</p>
+                <div class="tpz-native-workspace-heading-main">
+                    <span class="tpz-unified-module-icon"><x-filament::icon :icon="$workspace['icon']" class="size-6" /></span>
+                    <div>
+                        <h1 class="tpz-workspace-title">{{ $workspace['title'] }}</h1>
+                        <p class="tpz-workspace-subtitle">{{ $workspace['description'] }}</p>
+                    </div>
+                </div>
             </div>
-            @if($activeModule !== 'overview' && isset($moduleTabs[(int) $activeModule]))
-                <x-filament::button tag="a" :href="$moduleTabs[(int) $activeModule]['url']" icon="heroicon-o-arrow-up-right">
-                    Open {{ $moduleTabs[(int) $activeModule]['label'] }}
+            @if($activeModule !== 'overview' && $selectedModuleData)
+                <x-filament::button tag="a" :href="$selectedModuleData['url']" icon="heroicon-o-arrow-up-right">
+                    Open {{ $selectedModuleData['label'] }}
                 </x-filament::button>
             @elseif($quickActions->isNotEmpty())
                 <x-filament::button tag="a" :href="$quickActions->first()['url']" :icon="$quickActions->first()['icon']">
@@ -24,12 +29,16 @@
         <nav class="tpz-workspace-tabs" aria-label="{{ $workspace['title'] }} sections">
             <button type="button" class="tpz-workspace-tab {{ $activeModule === 'overview' ? 'is-active' : '' }}"
                 aria-selected="{{ $activeModule === 'overview' ? 'true' : 'false' }}"
-                wire:click="selectModule('overview')">Overview</button>
+                wire:click="selectModule('overview')">
+                <x-filament::icon icon="heroicon-o-squares-2x2" class="tpz-native-tab-icon size-4" />
+                Overview
+            </button>
             @foreach($moduleTabs as $index => $tab)
                 <button type="button" wire:key="workspace-tab-{{ $index }}"
                     wire:click="selectModule('{{ $index }}')"
                     aria-selected="{{ $activeModule === (string) $index ? 'true' : 'false' }}"
                     class="tpz-workspace-tab {{ $activeModule === (string) $index ? 'is-active' : '' }}">
+                    <x-filament::icon :icon="$tab['icon']" class="tpz-native-tab-icon size-4" />
                     {{ $tab['label'] }}
                 </button>
             @endforeach
@@ -37,67 +46,129 @@
 
         @if($activeModule === 'overview')
             @if($metrics->isNotEmpty())
-                <section aria-label="Operational overview" class="tpz-unified-section">
+                <section class="tpz-unified-overview-panel" aria-label="Operational overview">
                     <div class="tpz-unified-section-title">
-                        <h2>Operational overview</h2>
+                        <h2>Operational Overview</h2>
                         <span>Live, permission-scoped totals</span>
                     </div>
-                    <div class="tpz-workspace-metrics">
+                    <div class="tpz-native-overview-metrics">
                         @foreach($metrics as $metric)
-                            <a href="{{ $metric['url'] }}" class="tpz-workspace-metric tpz-workspace-metric--blue" wire:key="metric-{{ $loop->index }}">
-                                <span class="tpz-workspace-metric-icon"><x-filament::icon :icon="$metric['icon']" class="size-5" /></span>
-                                <div class="min-w-0">
-                                    <p class="tpz-workspace-metric-label">{{ $metric['label'] }}</p>
-                                    <p class="tpz-workspace-metric-value">{{ number_format($metric['value']) }}</p>
-                                    <p class="tpz-workspace-metric-link">View records →</p>
-                                </div>
+                            <a href="{{ $metric['url'] }}"
+                                class="tpz-native-overview-metric tpz-native-overview-metric--{{ ['blue','green','amber','violet','rose'][$loop->index % 5] }}"
+                                wire:key="metric-{{ $loop->index }}">
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="$metric['icon']" class="size-5" /></span>
+                                <span class="tpz-native-overview-label">{{ $metric['label'] }}</span>
+                                <strong>{{ number_format($metric['value']) }}</strong>
                             </a>
                         @endforeach
                     </div>
                 </section>
             @endif
 
-            @if($quickActions->isNotEmpty())
-                <section aria-label="Quick actions" class="tpz-unified-section">
-                    <div class="tpz-unified-section-title"><h2>Quick actions</h2><span>Existing authorized ERP workflows</span></div>
-                    <div class="flex flex-wrap gap-2">
-                        @foreach($quickActions as $action)
-                            <x-filament::button tag="a" size="sm" :href="$action['url']" :icon="$action['icon']">{{ $action['label'] }}</x-filament::button>
-                        @endforeach
-                    </div>
-                </section>
-            @endif
-
-            @if($recentRecords->isNotEmpty())
-                <x-filament::section heading="Recent authorized records">
-                    <div class="divide-y divide-gray-100 dark:divide-white/10">
-                        @foreach($recentRecords as $record)
-                            <a href="{{ $record['url'] }}" wire:key="recent-{{ $loop->index }}"
-                                class="flex flex-wrap items-center justify-between gap-3 py-3 hover:bg-gray-50 dark:hover:bg-white/5">
-                                <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ $record['reference'] }}</span>
-                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ $record['date'] }} · Open record →</span>
-                            </a>
-                        @endforeach
-                    </div>
-                </x-filament::section>
-            @endif
-        @else
-            @php($chosenTab = $moduleTabs[(int) $activeModule] ?? null)
-            @if($chosenTab)
-                <x-filament::section>
-                    <div class="tpz-unified-module-preview">
-                        <span class="tpz-unified-module-icon"><x-filament::icon :icon="$chosenTab['icon']" class="size-6" /></span>
-                        <div>
-                            <h2>{{ $chosenTab['label'] }}</h2>
-                            <p>Continue working with your existing authorized {{ $chosenTab['label'] }} records, filters and actions.</p>
+            <div class="tpz-native-overview-columns">
+                @if($quickActions->isNotEmpty())
+                    <section class="tpz-native-list-panel" aria-label="Quick actions">
+                        <div class="tpz-native-panel-title">
+                            <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-bolt" class="size-5" /></span>
+                            <h2>Quick Actions</h2>
                         </div>
-                        <x-filament::button tag="a" :href="$chosenTab['url']" icon="heroicon-o-arrow-up-right">
-                            Open full module
-                        </x-filament::button>
+                        <div class="tpz-native-quick-actions">
+                            @foreach($quickActions as $action)
+                                <a href="{{ $action['url'] }}">
+                                    <x-filament::icon :icon="$action['icon']" class="size-4" />
+                                    <span>{{ $action['label'] }}</span>
+                                </a>
+                            @endforeach
+                        </div>
+                    </section>
+                @endif
+                @if($recentRecords->isNotEmpty())
+                    <section class="tpz-native-list-panel" aria-label="Recent records">
+                        <div class="tpz-native-panel-title">
+                            <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-clock" class="size-5" /></span>
+                            <h2>Recent Activity</h2>
+                        </div>
+                        <div class="tpz-native-recent-list">
+                            @foreach($recentRecords as $record)
+                                <a href="{{ $record['url'] }}" wire:key="recent-{{ $loop->index }}">
+                                    <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-document-text" class="size-4" /></span>
+                                    <strong>{{ $record['reference'] }}</strong>
+                                    <small>{{ $record['date'] }}</small>
+                                </a>
+                            @endforeach
+                        </div>
+                    </section>
+                @endif
+            </div>
+
+            @if($moduleTabs->isNotEmpty())
+                <section class="tpz-native-list-panel" aria-label="Authorized modules">
+                    <div class="tpz-native-panel-title">
+                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-square-3-stack-3d" class="size-5" /></span>
+                        <h2>Available Modules</h2>
                     </div>
-                </x-filament::section>
+                    <div class="tpz-native-module-list">
+                        @foreach($moduleTabs as $index => $tab)
+                            <button type="button" wire:key="module-jump-{{ $index }}" wire:click="selectModule('{{ $index }}')">
+                                <x-filament::icon :icon="$tab['icon']" class="size-5" />
+                                <span>{{ $tab['label'] }}</span>
+                                <x-filament::icon icon="heroicon-o-chevron-right" class="size-4" />
+                            </button>
+                        @endforeach
+                    </div>
+                </section>
             @endif
+        @elseif($selectedModuleData)
+            <section class="tpz-unified-overview-panel" aria-label="{{ $selectedModuleData['label'] }} details">
+                <div class="tpz-native-module-header">
+                    <span class="tpz-unified-module-icon"><x-filament::icon :icon="$selectedModuleData['icon']" class="size-6" /></span>
+                    <div>
+                        <h2>{{ $selectedModuleData['label'] }}</h2>
+                        <p>Existing authorized records and actions for this module.</p>
+                    </div>
+                    @if($selectedModuleData['total'] !== null)
+                        <div class="tpz-native-module-count">
+                            <small>Total Records</small>
+                            <strong>{{ number_format($selectedModuleData['total']) }}</strong>
+                        </div>
+                    @endif
+                </div>
+                @if($selectedModuleData['total'] !== null)
+                    <div class="tpz-native-overview-metrics tpz-native-module-totals">
+                        <div class="tpz-native-overview-metric tpz-native-overview-metric--blue">
+                            <span class="tpz-native-overview-icon"><x-filament::icon :icon="$selectedModuleData['icon']" class="size-5" /></span>
+                            <span class="tpz-native-overview-label">{{ $selectedModuleData['label'] }} Records</span>
+                            <strong>{{ number_format($selectedModuleData['total']) }}</strong>
+                        </div>
+                    </div>
+                @endif
+                @if($selectedModuleData['records']->isNotEmpty())
+                    <div class="tpz-native-record-table-wrap">
+                        <table class="tpz-native-record-table">
+                            <thead><tr><th>Reference</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
+                            <tbody>
+                                @foreach($selectedModuleData['records'] as $record)
+                                    <tr wire:key="selected-record-{{ $loop->index }}">
+                                        <td><strong>{{ $record['reference'] }}</strong></td>
+                                        <td>{{ $record['date'] }}</td>
+                                        <td>{{ $record['status'] ?? '—' }}</td>
+                                        <td><a href="{{ $record['url'] }}">View →</a></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @else
+                    <p class="tpz-native-no-preview">Open the existing module to access its authorized records, filters, and actions.</p>
+                @endif
+                <div class="tpz-native-module-footer">
+                    <x-filament::button tag="a" :href="$selectedModuleData['url']" icon="heroicon-o-arrow-up-right">
+                        Open full {{ $selectedModuleData['label'] }} module
+                    </x-filament::button>
+                </div>
+            </section>
         @endif
-        <p class="text-xs text-gray-500 dark:text-gray-400">All records and changes continue through the existing ERP workflows and Access Control.</p>
+
+        <p class="text-xs text-gray-500 dark:text-gray-400">All records, approvals, financial controls, and inventory responsibility restrictions continue through the existing ERP workflows.</p>
     </div>
 </x-filament-panels::page>

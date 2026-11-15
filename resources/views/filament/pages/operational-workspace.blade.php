@@ -123,7 +123,28 @@
                 </div>
             @endif
 
-            @if($moduleTabs->isNotEmpty())
+            @if($recentRecords->isNotEmpty())
+                <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent authorized records">
+                    <div class="tpz-native-panel-title">
+                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-cube" class="size-5" /></span>
+                        <h2>Recent {{ str_replace(' Workspace', '', $workspace['title']) }} Records</h2>
+                    </div>
+                    <div class="tpz-native-record-table-wrap">
+                        <table class="tpz-native-record-table">
+                            <thead><tr><th>Reference</th><th>Created</th><th>Action</th></tr></thead>
+                            <tbody>
+                                @foreach($recentRecords as $record)
+                                    <tr wire:key="recent-workspace-table-{{ $loop->index }}">
+                                        <td><strong>{{ $record['reference'] }}</strong></td>
+                                        <td>{{ $record['date'] }}</td>
+                                        <td><a href="{{ $record['url'] }}">View →</a></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            @elseif($moduleTabs->isNotEmpty())
                 <section class="tpz-native-list-panel tpz-reference-module-index" aria-label="Authorized modules">
                     <div class="tpz-native-panel-title">
                         <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-square-3-stack-3d" class="size-5" /></span>

@@ -213,7 +213,7 @@ class NavigationPreferenceService
         ];
         $firstLevel = [];
         $uncovered = [];
-        foreach ($canonicalOrder as $label) {
+        foreach (array_values(array_unique([...$canonicalOrder, ...array_keys($result)])) as $label) {
             $group = $result[$label] ?? null;
             if ($group === null) {
                 continue;

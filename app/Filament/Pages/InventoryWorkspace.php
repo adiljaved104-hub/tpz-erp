@@ -127,11 +127,17 @@ class InventoryWorkspace extends Page
         // Reuse Classic's already permission-filtered operational cards,
         // including independently gated inventory valuation. Only compute
         // the additional snapshot on the selected Overview tab.
-        $inventoryCards = $this->activeTab === 'overview'
+        $inventoryDashboard = $this->activeTab === 'overview'
             ? app(ErpDashboardService::class)->forUser(
-                $user, widgetKeys: ['inventory', 'inventory_intelligence']
-            )['cards']->keyBy('key')
-            : collect();
+                $user, widgetKeys: ['inventory', 'inventory_intelligence', 'attention']
+            )
+            : null;
+        $inventoryCards = $inventoryDashboard === null
+            ? collect()
+            : $inventoryDashboard['cards']->keyBy('key');
+        $inventoryAttention = $inventoryDashboard === null
+            ? collect()
+            : $inventoryDashboard['attention']->take(8)->values();
 
         $tabCounts = [];
         if (ProductResource::canViewAny()) {
@@ -154,6 +160,7 @@ class InventoryWorkspace extends Page
         return [
             'extraPreview' => $extraPreview,
             'inventoryCards' => $inventoryCards,
+            'inventoryAttention' => $inventoryAttention,
             'tabCounts' => $tabCounts,
             'moduleRecords' => $moduleRecords,
             'inventory' => $inventory,

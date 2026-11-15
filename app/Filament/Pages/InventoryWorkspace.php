@@ -38,6 +38,8 @@ class InventoryWorkspace extends Page
 
     protected static ?int $navigationSort = 0;
 
+    public string $activeTab = 'overview';
+
     public string $search = '';
 
     public static function canAccess(): bool
@@ -131,6 +133,31 @@ class InventoryWorkspace extends Page
             ]),
             'canViewProducts' => ProductResource::canViewAny(),
         ];
+    }
+
+    public function setTab(string $tab): void
+    {
+        // The workspace never bypasses module Access Control when selecting a tab.
+        if ($tab !== 'overview') {
+            $validTabs = ['products', 'inventory', 'myInventory', 'requests', 'transfers', 'adjustments'];
+            abort_unless(in_array($tab, $validTabs, true), 403);
+            /** @var User $user */
+            $user = auth()->user();
+            $authorization = app(InventoryAuthorization::class);
+            $permitted = match ($tab) {
+                'products' => ProductResource::canViewAny(),
+                'inventory' => InventoryOverview::canAccess(),
+                'myInventory' => ProductInventoryResource::canViewAny(),
+                'requests' => StockRequestResource::canViewAny(),
+                'transfers' => StockTransferResource::canViewAny(),
+                'adjustments' => StockAdjustments::canAccess(),
+                default => false,
+            };
+            abort_unless($permitted && static::canAccess(), 403);
+        }
+
+        $this->activeTab = $tab;
+        $this->resetPage('inventory-page');
     }
 
     public function updatedSearch(): void

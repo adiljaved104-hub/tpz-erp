@@ -109,12 +109,13 @@
         @if($activeTab === 'overview' && ($inventoryAttention->isNotEmpty() || (isset($links['movements']) && $recentMovements->isNotEmpty())))
             <div class="tpz-native-overview-columns tpz-reference-inventory-panels">
                 @if($inventoryAttention->isNotEmpty())
-                    <section class="tpz-native-list-panel" aria-label="Needs Attention">
+                    <section class="tpz-native-list-panel" aria-label="Needs Attention" x-data="{ expanded: true }">
                         <div class="tpz-native-panel-title">
                             <span class="tpz-reference-target-icon" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" width="30" height="30"><circle cx="14" cy="17" r="11" stroke="currentColor" stroke-width="2.3"/><circle cx="14" cy="17" r="6" stroke="currentColor" stroke-width="2.2"/><circle cx="14" cy="17" r="1.7" fill="currentColor"/><path d="M14 17 24 7M22 4v6h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                             <div class="tpz-reference-panel-heading"><h2>Needs Attention</h2><small>Priority operational items in your authorized scope.</small></div>
+                                <button type="button" class="tpz-reference-collapse" x-on:click="expanded = !expanded" x-bind:aria-expanded="expanded.toString()" aria-label="Toggle Needs Attention" aria-controls="tpz-needs-attention-items"><svg viewBox="0 0 20 20" fill="none" width="19" height="19" x-bind:class="expanded ? '' : 'is-collapsed'"><path d="m4 7 6 6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                         </div>
-                        <div class="tpz-reference-attention-grid">
+                        <div class="tpz-reference-attention-grid" id="tpz-needs-attention-items" x-show="expanded">
                             @foreach($inventoryAttention as $alert)
                                 <a href="{{ $alert['url'] }}" class="tpz-reference-attention-row tpz-reference-attention-row--{{ \App\Support\WorkspaceVisuals::alertTone($alert['label']) }}">
                                     <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(\App\Support\WorkspaceVisuals::alertIcon($alert['label']))" class="size-4" /></span>

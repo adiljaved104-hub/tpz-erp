@@ -114,10 +114,17 @@ class NavigationPreferenceService
                 : $this->workspaceTarget($groupLabel);
 
             if ($target === $workspace && $url !== '' && ! str_contains($path, 'workspace')) {
+                // Mirror the icon of the existing authorized ERP navigation
+                // item instead of showing the same generic arrow everywhere.
+                $icon = $item->getIcon();
+                if ($icon instanceof \BackedEnum) {
+                    $icon = $icon->value;
+                }
                 $links[$url] = [
                     'label' => (string) $item->getLabel(),
                     'url' => $url,
-                    'icon' => 'heroicon-o-arrow-up-right',
+                    'icon' => is_string($icon) && $icon !== ''
+                        ? $icon : 'heroicon-o-arrow-up-right',
                 ];
             }
 

@@ -49,7 +49,7 @@
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')">Overview</button>
             @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
-                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}</button>
+                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}@if(isset($salesCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($salesCounts[$key]) }}</span>@endif</button>
                 @endif
             @endforeach
             @foreach($extraModules as $index => $module)
@@ -61,38 +61,55 @@
         </nav>
 
         @if($activeTab === 'overview')
-        <div class="tpz-workspace-metrics tpz-workspace-metrics--three">
-            @if(isset($links['orders']))
-                <div class="tpz-workspace-metric tpz-workspace-metric--blue">
-                    <span class="tpz-workspace-metric-icon"><x-filament::icon icon="heroicon-o-shopping-bag" class="size-5" /></span>
-                    <div>
-                        <p class="tpz-workspace-metric-label">Sales Orders matching filters</p>
-                        <p class="tpz-workspace-metric-value">{{ $orders instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator ? number_format($orders->total()) : $orders->count() }}</p>
-                    </div>
+            <section class="tpz-unified-overview-panel">
+                <div class="tpz-unified-section-title">
+                    <h2>Operational Overview</h2>
+                    <span>Live, permission-scoped totals</span>
                 </div>
-            @endif
-            @if(isset($links['webSales']))
-                <div class="tpz-workspace-metric tpz-workspace-metric--teal">
-                    <span class="tpz-workspace-metric-icon"><x-filament::icon icon="heroicon-o-globe-alt" class="size-5" /></span>
-                    <div>
-                        <p class="tpz-workspace-metric-label">Web Sales matching filters</p>
-                        <p class="tpz-workspace-metric-value">{{ $webSales instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator ? number_format($webSales->total()) : $webSales->count() }}</p>
-                    </div>
+                <div class="tpz-native-overview-metrics">
+                    @foreach ([
+                        ['key' => 'orders', 'label' => 'Sales Orders', 'icon' => 'heroicon-o-shopping-bag', 'tone' => 'blue', 'url' => $links['orders'] ?? null],
+                        ['key' => 'webSales', 'label' => 'Web Sales', 'icon' => 'heroicon-o-globe-alt', 'tone' => 'green', 'url' => $links['webSales'] ?? null],
+                        ['key' => 'quotations', 'label' => 'Quotations', 'icon' => 'heroicon-o-document-text', 'tone' => 'amber', 'url' => $links['quotations'] ?? null],
+                        ['key' => 'taxInvoices', 'label' => 'Tax Invoices', 'icon' => 'heroicon-o-receipt-percent', 'tone' => 'violet', 'url' => \\App\\Filament\\Resources\\TaxInvoices\\TaxInvoiceResource::canViewAny() ? \\App\\Filament\\Resources\\TaxInvoices\\TaxInvoiceResource::getUrl() : null],
+                    ] as $metric)
+                        @if(isset($salesCounts[$metric['key']]) && $metric['url'])
+                            <a href="{{ $metric['url'] }}" class="tpz-native-overview-metric tpz-native-overview-metric--{{ $metric['tone'] }}">
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="$metric['icon']" class="size-5" /></span>
+                                <span class="tpz-native-overview-label">{{ $metric['label'] }}</span>
+                                <strong>{{ number_format($salesCounts[$metric['key']]) }}</strong>
+                            </a>
+                        @endif
+                    @endforeach
                 </div>
-            @endif
-            @if(isset($links['quotations']))
-                <a href="{{ $links['quotations'] }}" class="tpz-workspace-metric tpz-workspace-metric--violet">
-                    <span class="tpz-workspace-metric-icon"><x-filament::icon icon="heroicon-o-document-text" class="size-5" /></span>
-                    <div>
-                        <p class="tpz-workspace-metric-label">Quotations</p>
-                        <p class="tpz-workspace-metric-link">Open quotations →</p>
-                    </div>
-                </a>
-            @endif
-        </div>
+            </section>
         @endif
 
-        @if($activeTab !== 'quotations')
+        @if(in_array($activeTab, ['orders', 'webSales', 'quotations'], true))
+            <div class="tpz-native-subtab-summary">
+                <span class="tpz-native-overview-icon">
+                    <x-filament::icon :icon="match($activeTab) {
+                        'orders' => 'heroicon-o-shopping-bag',
+                        'webSales' => 'heroicon-o-globe-alt',
+                        default => 'heroicon-o-document-text',
+                    }" class="size-5" />
+                </span>
+                <div>
+                    <h2>{{ match($activeTab) {
+                        'orders' => 'Sales Orders',
+                        'webSales' => 'Web Sales',
+                        default => 'Quotations',
+                    } }}</h2>
+                    <p>Manage and track records within your existing permissions.</p>
+                </div>
+                <span class="tpz-native-subtab-total">
+                    <small>Total Records</small>
+                    <strong>{{ number_format($salesCounts[$activeTab] ?? 0) }}</strong>
+                </span>
+            </div>
+        @endif
+
+        @if(in_array($activeTab, ['overview', 'orders', 'webSales'], true))
         <x-filament::section>
             <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>

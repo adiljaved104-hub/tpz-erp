@@ -19,15 +19,15 @@
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="Inventory workspace sections">
-            <span class="tpz-workspace-tab is-active" aria-current="page">Overview</span>
+            <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')">Overview</button>
             @foreach (['products' => 'Products', 'inventory' => 'Inventory', 'myInventory' => 'My Inventory', 'requests' => 'Requests', 'transfers' => 'Transfers', 'adjustments' => 'Adjustments'] as $key => $label)
                 @if(isset($links[$key]))
-                    <a class="tpz-workspace-tab" href="{{ $links[$key] }}">{{ $label }}</a>
+                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}</button>
                 @endif
             @endforeach
         </nav>
 
-        @if($canSeeSummary)
+        @if($canSeeSummary && $activeTab === 'overview')
             <div class="tpz-workspace-metrics tpz-reference-inventory-metrics">
                 @foreach ([
                     'products' => ['label' => 'Accessible Products', 'icon' => 'heroicon-o-cube', 'accent' => 'blue'],
@@ -46,7 +46,7 @@
             </div>
         @endif
 
-        @if($canSeeSummary)
+        @if($canSeeSummary && $activeTab === 'overview')
             <x-filament::section>
                 <div class="mb-4">
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">Low Stock</h2>
@@ -73,6 +73,7 @@
             </x-filament::section>
         @endif
 
+        @if(in_array($activeTab, ['overview', 'inventory'], true))
         <x-filament::section>
             <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -116,7 +117,21 @@
                 <div class="mt-4">{{ $inventory->links() }}</div>
             @endif
         </x-filament::section>
-        @if(isset($links['movements']))
+        @endif
+
+        @if(in_array($activeTab, ['products', 'myInventory', 'requests', 'transfers', 'adjustments'], true) && isset($links[$activeTab]))
+            <x-filament::section>
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">{{ ['products' => 'Products', 'myInventory' => 'My Inventory', 'requests' => 'Stock Requests', 'transfers' => 'Stock Transfers', 'adjustments' => 'Stock Adjustments'][$activeTab] }}</h2>
+                        <p class="mt-1 text-sm text-gray-500">Open the authorized module to use its complete list, filters and actions. Your native ERP styling remains enabled.</p>
+                    </div>
+                    <x-filament::button tag="a" :href="$links[$activeTab]" icon="heroicon-o-arrow-up-right">Open full module</x-filament::button>
+                </div>
+            </x-filament::section>
+        @endif
+
+        @if($activeTab === 'overview' && isset($links['movements']))
             <x-filament::section>
                 <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <div>

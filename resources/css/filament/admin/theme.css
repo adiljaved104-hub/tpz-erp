@@ -2147,3 +2147,88 @@ html.dark.tpz-native-workspace :is(.tpz-reference-workspace,.tpz-reference-sales
         transition: none; transform: none;
     }
 }
+
+
+/* Reference operational panels: no invented activity, counts are scoped to
+   each existing resource and the authorized Classic Dashboard alerts. */
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-action-strip {
+    display: flex; flex-wrap: wrap; gap: .45rem;
+    padding: .15rem 0;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-action-strip a {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .53rem .7rem; border-radius: .53rem;
+    font-size: .76rem; font-weight: 730;
+    color: #15557c; background: #f7fbff;
+    border: 1px solid #c6d9ec;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-action-strip a:first-child {
+    color: #fff; background: #078cc2; border-color: #078cc2;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-action-strip a:hover {
+    box-shadow: 0 2px 8px rgb(22 93 139 / 12%);
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-panel-note {
+    font-size: .65rem; color: #6b83a0; margin-left: auto; font-weight: 490;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-grid {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: .1rem .45rem;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-row {
+    display: flex; align-items: center; gap: .32rem; min-width: 0;
+    min-height: 2.15rem; padding: .18rem .2rem;
+    text-decoration: none; border-bottom: 1px solid #dce5ef;
+    font-size: .67rem; color: #243c5c;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-row:hover {
+    background: #edf8ff;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-row .tpz-native-overview-icon {
+    flex-shrink: 0; width: 1.75rem; height: 1.75rem;
+    border-radius: .46rem; color: #367aa4; background: #eaf4fd;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-warning-icon {
+    color: #df4f33; background: #fff0e9;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-alert-label {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-row > strong {
+    border-radius: 999px; color: #fff; background: #e83c51;
+    min-width: 1.45rem; padding: .12rem .3rem; font-size: .64rem;
+    font-weight: 810; text-align: center;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-row > small {
+    border: 1px solid #cbdbe9;
+    background: #fff; color: #235c89;
+    border-radius: .4rem; padding: .17rem .28rem; font-size: .63rem;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-module-index {
+    border-radius: var(--tpz-ref-radius); padding: .7rem .85rem;
+}
+html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-module-index .tpz-native-module-list {
+    grid-template-columns: repeat(auto-fit,minmax(min(100%,10rem),1fr));
+}
+html.dark.tpz-native-workspace .tpz-reference-workspace .tpz-reference-action-strip a {
+    color: #e1f4ff; background: #25465e; border-color: #42617b;
+}
+html.dark.tpz-native-workspace .tpz-reference-workspace .tpz-reference-action-strip a:first-child {
+    color: white; background: #098fbe;
+}
+html.dark.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-row {
+    color: #e2f2fb; border-color: #345269;
+}
+html.dark.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-row:hover {
+    background: #264b63;
+}
+html.dark.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-row > small {
+    color: #deeffc; background: #244259; border-color: #48657c;
+}
+html.dark.tpz-native-workspace .tpz-reference-workspace .tpz-reference-panel-note { color: #b7ccdb; }
+@media (max-width: 750px) {
+    html.tpz-native-workspace .tpz-reference-workspace .tpz-reference-attention-grid {
+        grid-template-columns: 1fr;
+    }
+}

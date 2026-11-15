@@ -1647,3 +1647,73 @@ html.dark.tpz-native-workspace .tpz-home-actions a:first-child { background: #0c
     html.tpz-native-workspace .tpz-native-mini-metric:hover { transform: none; }
     html.tpz-native-workspace .tpz-native-detail-chevron { transition: none; }
 }
+
+
+/* Unified New ERP workspace: same approved design on every module family.
+   Classic ERP styles are unchanged. */
+html.tpz-native-workspace .tpz-unified-section { min-width: 0; display: grid; gap: .65rem; }
+html.tpz-native-workspace .tpz-unified-section-title {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+}
+html.tpz-native-workspace .tpz-unified-section-title h2 {
+    font-size: 1rem; font-weight: 760; color: #112f49;
+}
+html.tpz-native-workspace .tpz-unified-section-title span {
+    font-size: .73rem; color: #657c8f;
+}
+html.tpz-native-workspace .tpz-unified-module-preview {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; min-width: 0;
+}
+html.tpz-native-workspace .tpz-unified-module-preview > div {
+    min-width: 12rem; flex: 1;
+}
+html.tpz-native-workspace .tpz-unified-module-preview h2 {
+    color: #143956; font-size: 1.08rem; font-weight: 780;
+}
+html.tpz-native-workspace .tpz-unified-module-preview p {
+    color: #61778c; font-size: .82rem; margin-top: .25rem;
+}
+html.tpz-native-workspace .tpz-unified-module-icon {
+    flex: none; display: grid; place-items: center; border-radius: .75rem;
+    width: 3rem; height: 3rem; background: #e8f5fc; color: #1279a4;
+}
+html.dark.tpz-native-workspace .tpz-unified-section-title h2,
+html.dark.tpz-native-workspace .tpz-unified-module-preview h2 { color: #ecf6ff; }
+html.dark.tpz-native-workspace .tpz-unified-section-title span,
+html.dark.tpz-native-workspace .tpz-unified-module-preview p { color: #b5c9da; }
+html.dark.tpz-native-workspace .tpz-unified-module-icon {
+    background: #284960; color: #a1e2f2;
+}
+/* Employee opt-in announcement, shown once until dismissed. */
+.tpz-native-invitation {
+    position: fixed; z-index: 100; bottom: 1.15rem; right: 1.15rem;
+    width: min(21rem, calc(100vw - 2rem)); border-radius: 1rem;
+    border: 1px solid #c4d7e8; background: #fff; color: #143653;
+    padding: 1.25rem; box-shadow: 0 12px 40px rgb(13 38 65 / 22%);
+}
+.tpz-native-invitation[x-cloak] { display: none !important; }
+.tpz-native-invitation strong { display: block; font-size: .98rem; margin: .35rem 0; }
+.tpz-native-invitation p { color: #526980; font-size: .8rem; line-height: 1.5; margin: .3rem 0 .85rem; }
+.tpz-native-invitation-icon {
+    width: 2rem; height: 2rem; border-radius: .6rem;
+    display: grid; place-items: center; color: #1479ae; background: #e5f3ff;
+}
+.tpz-native-invitation-close {
+    position: absolute; right: .75rem; top: .5rem; border: 0;
+    font-size: 1.6rem; color: #61758b; cursor: pointer;
+}
+.tpz-native-invitation-accept,.tpz-native-invitation-dismiss {
+    width: 100%; border: 0; border-radius: .5rem;
+    padding: .55rem .75rem; font-weight: 740; font-size: .8rem;
+    cursor: pointer;
+}
+.tpz-native-invitation-accept { background: #087eb5; color: #fff; }
+.tpz-native-invitation-accept:hover { background: #066993; }
+.tpz-native-invitation-dismiss { margin-top: .36rem; background: #edf2f7; color: #2e4c63; }
+.tpz-native-invitation-dismiss:hover { background: #e1eaf3; }
+html.dark .tpz-native-invitation { background: #1b3347; color: #edf7ff; border-color: #406079; }
+html.dark .tpz-native-invitation p { color: #cadbea; }
+html.dark .tpz-native-invitation-dismiss { background: #2e4d63; color: #e3f5ff; }
+@media (max-width: 40rem) {
+    .tpz-native-invitation { right: 1rem; bottom: 1rem; }
+}

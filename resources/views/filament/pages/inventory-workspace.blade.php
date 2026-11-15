@@ -52,6 +52,9 @@
                     <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}</button>
                 @endif
             @endforeach
+                    @foreach($extraModules as $module)
+                <a href="{{ $module['url'] }}" class="tpz-workspace-tab" title="Open authorized {{ $module['label'] }} module">{{ $module['label'] }}</a>
+            @endforeach
         </nav>
 
         @if($canSeeSummary && $activeTab === 'overview')

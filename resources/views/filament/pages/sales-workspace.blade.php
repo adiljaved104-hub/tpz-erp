@@ -67,12 +67,15 @@
                     <span>Live, permission-scoped totals</span>
                 </div>
                 <div class="tpz-native-overview-metrics">
-                    @foreach ([
+                    @php
+                        $salesMetrics = [
                         ['key' => 'orders', 'label' => 'Sales Orders', 'icon' => 'heroicon-o-shopping-bag', 'tone' => 'blue', 'url' => $links['orders'] ?? null],
                         ['key' => 'webSales', 'label' => 'Web Sales', 'icon' => 'heroicon-o-globe-alt', 'tone' => 'green', 'url' => $links['webSales'] ?? null],
                         ['key' => 'quotations', 'label' => 'Quotations', 'icon' => 'heroicon-o-document-text', 'tone' => 'amber', 'url' => $links['quotations'] ?? null],
                         ['key' => 'taxInvoices', 'label' => 'Tax Invoices', 'icon' => 'heroicon-o-receipt-percent', 'tone' => 'violet', 'url' => \App\Filament\Resources\TaxInvoices\TaxInvoiceResource::canViewAny() ? \App\Filament\Resources\TaxInvoices\TaxInvoiceResource::getUrl() : null],
-                    ] as $metric)
+                        ];
+                    @endphp
+                    @foreach($salesMetrics as $metric)
                         @if(isset($salesCounts[$metric['key']]) && $metric['url'])
                             <a href="{{ $metric['url'] }}" class="tpz-native-overview-metric tpz-native-overview-metric--{{ $metric['tone'] }}">
                                 <span class="tpz-native-overview-icon"><x-filament::icon :icon="$metric['icon']" class="size-5" /></span>

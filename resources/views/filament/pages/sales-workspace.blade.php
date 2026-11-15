@@ -196,7 +196,7 @@
             </div>
         @endif
 
-        @if(in_array($activeTab, ['overview', 'orders', 'webSales'], true))
+        @if(in_array($activeTab, ['orders', 'webSales'], true))
         <x-filament::section>
             <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -231,7 +231,7 @@
 
         @endif
 
-        @if(isset($links['orders']) && in_array($activeTab, ['overview', 'orders'], true))
+        @if(isset($links['orders']) && $activeTab === 'orders')
             <x-filament::section>
                 <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">Sales Orders</h2>
@@ -263,7 +263,7 @@
             </x-filament::section>
         @endif
 
-        @if(isset($links['webSales']) && in_array($activeTab, ['overview', 'webSales'], true))
+        @if(isset($links['webSales']) && $activeTab === 'webSales')
             <x-filament::section>
                 <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">Web Sales Orders</h2>

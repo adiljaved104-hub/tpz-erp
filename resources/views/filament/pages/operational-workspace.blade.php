@@ -194,7 +194,7 @@
                                     <tr wire:key="selected-record-{{ $loop->index }}">
                                         <td><strong>{{ $record['reference'] }}</strong></td>
                                         <td>{{ $record['date'] }}</td>
-                                        <td>{{ $record['status'] ?? '—' }}</td>
+                                        <td><span class="tpz-reference-status-badge tpz-reference-status-badge--{{ \App\Support\WorkspaceVisuals::recordTone($record['status'] ?? '') }}">{{ $record['status'] ?? '—' }}</span></td>
                                         <td><a href="{{ $record['url'] }}">View →</a></td>
                                     </tr>
                                 @endforeach

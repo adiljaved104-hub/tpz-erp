@@ -137,11 +137,11 @@ class SalesWorkspace extends Page
 
         $salesCounts = [];
         if ($canOrders) {
-            $salesCounts['orders'] = $orders instanceof \\Illuminate\\Contracts\\Pagination\\LengthAwarePaginator
+            $salesCounts['orders'] = $orders instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
                 ? $orders->total() : $orders->count();
         }
         if ($canWebSales) {
-            $salesCounts['webSales'] = $webSales instanceof \\Illuminate\\Contracts\\Pagination\\LengthAwarePaginator
+            $salesCounts['webSales'] = $webSales instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
                 ? $webSales->total() : $webSales->count();
         }
         if ($canQuotations) {

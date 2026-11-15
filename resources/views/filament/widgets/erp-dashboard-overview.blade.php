@@ -167,10 +167,19 @@
                         @endphp
                         <a href="{{ $kpi['url'] }}" class="tpz-home-kpi {{ $kpi['tone'] }}" aria-label="{{ $kpi['label'] }}: {{ number_format($kpi['value']) }}">
                             <x-filament::icon :icon="$icon" class="size-5" />
-                            <div>
+                            <div class="tpz-native-kpi-copy">
                                 <span>{{ $kpi['label'] }}</span>
                                 <strong>{{ number_format($kpi['value']) }}</strong>
                             </div>
+                            @if(isset($kpi['trend']))
+                                <span
+                                    class="tpz-native-kpi-trend is-{{ $kpi['trend']['direction'] }}"
+                                    title="{{ $kpi['trend']['title'] }}. The large number is the total currently visible."
+                                    aria-label="{{ $kpi['trend']['title'] }}">
+                                    {{ $kpi['trend']['direction'] === 'up' ? '↑' : ($kpi['trend']['direction'] === 'down' ? '↓' : '→') }}
+                                    {{ $kpi['trend']['label'] }}
+                                </span>
+                            @endif
                         </a>
                     @empty
                         <p class="tpz-empty">No KPI cards are available for your permissions.</p>

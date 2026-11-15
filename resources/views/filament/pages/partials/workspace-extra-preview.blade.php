@@ -1,7 +1,7 @@
 @if($extraPreview)
     <section class="tpz-unified-overview-panel" aria-label="{{ $extraPreview['label'] }} records">
         <div class="tpz-native-module-header">
-            <span class="tpz-unified-module-icon"><x-filament::icon :icon="$extraPreview['icon']" class="size-6" /></span>
+            <span class="tpz-unified-module-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($extraPreview['icon'])" class="size-6" /></span>
             <div>
                 <h2>{{ $extraPreview['label'] }}</h2>
                 <p>Authorized records and actions from the existing ERP module.</p>
@@ -16,7 +16,7 @@
         @if($extraPreview['total'] !== null)
             <div class="tpz-native-overview-metrics tpz-native-module-totals">
                 <div class="tpz-native-overview-metric tpz-native-overview-metric--blue">
-                    <span class="tpz-native-overview-icon"><x-filament::icon :icon="$extraPreview['icon']" class="size-5" /></span>
+                    <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($extraPreview['icon'])" class="size-5" /></span>
                     <span class="tpz-native-overview-label">{{ $extraPreview['label'] }} Records</span>
                     <strong>{{ number_format($extraPreview['total']) }}</strong>
                 </div>

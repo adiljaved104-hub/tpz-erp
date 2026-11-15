@@ -1387,3 +1387,97 @@ html.tpz-native-workspace .tpz-workspace-context-actions {
         width: 100%;
     }
 }
+
+/* 2026-11-15 Native dark-mode consistency and legibility.
+   Filament owns the saved theme; these rules only correct native visual layers.
+   Avoid light pastel cards with white numbers and dark-blue text on dark panels. */
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi,
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi:is(.blue,.green,.amber,.indigo,.rose) {
+    background: #1c3549;
+    border-color: #35536b;
+    color: #e7f1fa;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi span:not(.tpz-native-kpi-trend) {
+    color: #c8d9e8;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi strong {
+    color: #ffffff;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi svg {
+    background: #284b64;
+    color: #9be2ee;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi .tpz-native-kpi-trend.is-flat { color: #b3c8d8; }
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi:hover {
+    background: #244158;
+    border-color: #5386a2;
+}
+html.dark.tpz-native-workspace .tpz-home-list > a {
+    color: #e4eff7;
+    border-bottom-color: #385064;
+}
+html.dark.tpz-native-workspace .tpz-home-list > a .tpz-home-row-label,
+html.dark.tpz-native-workspace .tpz-home-list > a .tpz-home-row-icon {
+    color: #d6e7f5;
+}
+html.dark.tpz-native-workspace .tpz-home-list > a:hover {
+    background: #273f54;
+}
+html.dark.tpz-native-workspace .tpz-home-activity .tpz-home-row-label small,
+html.dark.tpz-native-workspace .tpz-home-activity time {
+    color: #bacbdb;
+}
+html.dark.tpz-native-workspace .tpz-home-activity-icon {
+    background: #244960;
+    color: #8edff2;
+}
+html.dark.tpz-native-workspace .tpz-native-view-all { color: #6dcff2; }
+html.dark.tpz-native-workspace .tpz-home-actions a {
+    background: #21435a;
+    border-color: #3c6279;
+    color: #e5f7ff;
+}
+html.dark.tpz-native-workspace .tpz-home-actions a:hover {
+    background: #2b526d;
+}
+html.dark.tpz-native-workspace .tpz-reference-inventory-metrics .tpz-workspace-metric,
+html.dark.tpz-native-workspace .tpz-reference-inventory-metrics .tpz-workspace-metric:is(.tpz-workspace-metric--blue,.tpz-workspace-metric--teal,.tpz-workspace-metric--amber,.tpz-workspace-metric--violet) {
+    background: #1d3549;
+    border-color: #38546b;
+}
+html.dark.tpz-native-workspace .tpz-reference-inventory-metrics .tpz-workspace-metric-label {
+    color: #c7d8e8;
+}
+html.dark.tpz-native-workspace .tpz-reference-inventory-metrics .tpz-workspace-metric-value {
+    color: #f6fbff;
+}
+html.dark.tpz-native-workspace .tpz-reference-inventory-metrics .tpz-workspace-metric-icon {
+    background: #2b5167;
+    color: #a6e3f2;
+}
+html.dark.tpz-native-workspace .tpz-native-breadcrumb span[aria-current="page"] { color: #d4e6f5; }
+html.dark.tpz-native-workspace .tpz-workspace-header--plain { color: #f2f7fe; }
+
+/* The topbar rule makes top-level icons white; dropdown popovers are NOT
+   top-level controls and must retain readable theme-aware foreground colors. */
+html:not(.dark).tpz-native-workspace .fi-topbar .fi-dropdown-panel,
+html:not(.dark).tpz-native-workspace .fi-topbar .fi-dropdown-panel :is(a,button,span,svg,.fi-icon,.fi-dropdown-list-item-label) {
+    color: #243c54 !important;
+}
+html:not(.dark).tpz-native-workspace .fi-topbar .fi-dropdown-panel {
+    background: #ffffff !important;
+    border-color: #d4e1ec;
+}
+html.dark.tpz-native-workspace .fi-dropdown-panel {
+    background: #192c3d !important;
+    border-color: #40586e;
+}
+html.dark.tpz-native-workspace .fi-dropdown-panel :is(a,button,span,.fi-dropdown-list-item-label) {
+    color: #e4eff8 !important;
+}
+html.dark.tpz-native-workspace .fi-dropdown-panel svg {
+    color: #c6ddeb !important;
+}
+html.dark.tpz-native-workspace .fi-dropdown-panel :is(a,button):hover {
+    background: #2a465e;
+}

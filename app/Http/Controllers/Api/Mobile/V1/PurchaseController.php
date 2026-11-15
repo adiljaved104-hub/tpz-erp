@@ -6,6 +6,7 @@ use App\Actions\Purchases\ApprovePurchase;
 use App\Actions\Purchases\CancelPurchase;
 use App\Actions\Purchases\ClosePurchase;
 use App\Actions\Purchases\CreatePurchase;
+use App\Actions\Purchases\QuickStockPurchase;
 use App\Actions\Purchases\ReceivePurchase;
 use App\Actions\Purchases\UpdateDraftPurchase;
 use App\DTOs\Purchases\ApprovePurchaseData;
@@ -14,10 +15,13 @@ use App\DTOs\Purchases\ClosePurchaseData;
 use App\DTOs\Purchases\CreatePurchaseData;
 use App\DTOs\Purchases\PurchaseItemData;
 use App\DTOs\Purchases\PurchaseReceiptItemData;
+use App\DTOs\Purchases\QuickStockPurchaseData;
 use App\DTOs\Purchases\ReceivePurchaseData;
 use App\DTOs\Purchases\UpdatePurchaseData;
 use App\Enums\PurchasePermission;
 use App\Enums\PurchaseStatus;
+use App\Models\Employee;
+use App\Models\InventoryAllocationAccount;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseReceipt;
@@ -147,7 +151,46 @@ class PurchaseController extends MobileController
             'suppliers' => Supplier::query()->active()->orderBy('name')->get(['id', 'name']),
             'warehouses' => Warehouse::query()->where('status', true)->orderBy('name')->get(['id', 'name']),
             'products' => $products->orderBy('name')->paginate(25)->through(fn ($p) => ['id' => $p->id, 'name' => $p->name, 'sku' => $p->sku]),
+            'can_quick_receive' => $auth->allows($user, PurchasePermission::QuickReceive),
+            'employees' => $auth->allows($user, PurchasePermission::QuickReceive)
+                ? Employee::query()->where('status', true)->orderBy('name')->get(['id', 'name']) : [],
+            'allocation_accounts' => $auth->allows($user, PurchasePermission::QuickReceive)
+                ? InventoryAllocationAccount::query()->where('status', true)->orderBy('is_system')->orderBy('name')->get(['id', 'name']) : [],
         ]]);
+    }
+
+    public function quickStore(Request $request): JsonResponse
+    {
+        app(PurchaseAuthorization::class)->authorize($request->user(), PurchasePermission::QuickReceive);
+        $data = $request->validate([
+            'warehouse_id' => 'required|integer', 'purchase_date' => 'required|date_format:Y-m-d',
+            'idempotency_key' => 'required|uuid', 'supplier_id' => 'nullable|integer',
+            'handled_by_employee_id' => 'nullable|integer', 'allocation_account_id' => 'nullable|integer',
+            'supplier_invoice_number' => 'nullable|string|max:255', 'supplier_invoice_date' => 'nullable|date_format:Y-m-d',
+            'supplier_delivery_note' => 'nullable|string|max:255', 'external_accounting_reference' => 'nullable|string|max:255',
+            'shipping_total' => 'nullable|numeric|min:0', 'other_charges_total' => 'nullable|numeric|min:0',
+            'notes' => 'nullable|string|max:5000', 'items' => 'required|array|min:1|max:100',
+            'items.*.product_id' => 'required|integer', 'items.*.ordered_quantity' => 'required|integer|min:1',
+            'items.*.unit_cost' => 'required|numeric|min:0',
+        ]);
+        if ($existing = PurchaseReceipt::query()->where('idempotency_key', $data['idempotency_key'])->with('purchase')->first()) {
+            abort_unless($existing->purchase?->created_by_user_id === $request->user()->id, 403);
+        }
+        $items = collect($data['items'])->map(fn (array $item): PurchaseItemData => new PurchaseItemData(
+            (int) $item['product_id'], (int) $item['ordered_quantity'], (string) $item['unit_cost'], '0.00', '0.00',
+        ))->values()->all();
+        $result = app(QuickStockPurchase::class)->handle(new QuickStockPurchaseData(
+            warehouseId: (int) $data['warehouse_id'], purchaseDate: $data['purchase_date'], items: $items,
+            idempotencyKey: $data['idempotency_key'], supplierId: isset($data['supplier_id']) ? (int) $data['supplier_id'] : null,
+            handledByEmployeeId: isset($data['handled_by_employee_id']) ? (int) $data['handled_by_employee_id'] : null,
+            supplierInvoiceNumber: $data['supplier_invoice_number'] ?? null, supplierInvoiceDate: $data['supplier_invoice_date'] ?? null,
+            supplierDeliveryNote: $data['supplier_delivery_note'] ?? null,
+            externalAccountingReference: $data['external_accounting_reference'] ?? null,
+            shippingTotal: (string) ($data['shipping_total'] ?? '0.00'), otherChargesTotal: (string) ($data['other_charges_total'] ?? '0.00'),
+            notes: $data['notes'] ?? null, allocationAccountId: isset($data['allocation_account_id']) ? (int) $data['allocation_account_id'] : null,
+        ), $request->user());
+
+        return $this->show($request, $result->purchase->id);
     }
 
     private function document(Request $request): array

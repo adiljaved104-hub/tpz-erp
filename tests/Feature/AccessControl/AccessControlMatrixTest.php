@@ -27,6 +27,13 @@ class AccessControlMatrixTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->withoutVite();
+    }
+
     public function test_owner_and_admin_can_access_while_manager_and_staff_direct_routes_remain_denied(): void
     {
         foreach ([EmployeeRole::Owner, EmployeeRole::Admin] as $role) {

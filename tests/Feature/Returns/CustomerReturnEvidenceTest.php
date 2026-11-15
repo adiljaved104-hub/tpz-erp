@@ -591,6 +591,12 @@ class CustomerReturnEvidenceTest extends TestCase
         app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
         $this->getJson('/api/mobile/v1/workspace/qc/return-evidence/'.$return->id)
             ->assertOk()->assertJsonPath('data.items.0.qc_result', 'sellable')
+            ->assertJsonPath('data.video_upload.max_bytes', 204800 * 1024)
+            ->assertJsonPath('data.video_upload.max_duration_seconds', 300)
+            ->assertJsonPath('data.video_upload.chunk_bytes', CustomerReturnVideoUploadService::CHUNK_BYTES)
+            ->assertJsonPath('data.video_upload.allowed_mime_types.0', 'video/mp4')
+            ->assertJsonPath('data.items.0.findings.0.evidence.0.original_url',
+                fn (string $path): bool => str_starts_with($path, '/workspace/qc/return-evidence/files/'))
             ->assertJsonPath('data.items.0.inspected_quantity', 1)
             ->assertJsonPath('data.items.0.sellable_quantity', 1)
             ->assertJsonPath('data.items.0.damaged_quantity', 0)

@@ -41,7 +41,7 @@ class AdminPanelProvider extends PanelProvider
             ->sidebarFullyCollapsibleOnDesktop()
             ->navigationGroups([
                 'Workspace', 'Sales', 'Purchasing', 'Inventory', 'Marketplace', 'Returns & Service',
-                'Products', 'People', 'HR', 'Finance', 'Reports', 'Administration',
+                'Products', 'People', 'HR', 'Finance', 'Accounting', 'Reports', 'Administration',
             ])
             ->navigation(function (NavigationBuilder $builder): NavigationBuilder|bool {
                 if (auth()->user()?->employee?->role !== EmployeeRole::Technician) {
@@ -87,12 +87,24 @@ class AdminPanelProvider extends PanelProvider
                 fn () => view('filament.hooks.global-erp-search'),
             )
             ->renderHook(
+                PanelsRenderHook::BODY_START,
+                fn () => view('filament.hooks.native-workspace-shell'),
+            )
+            ->renderHook(
                 PanelsRenderHook::GLOBAL_SEARCH_AFTER,
                 fn () => view('filament.hooks.notification-bell'),
             )
             ->renderHook(
+                PanelsRenderHook::TOPBAR_END,
+                fn () => view('filament.hooks.interface-mode-switcher'),
+            )
+            ->renderHook(
                 PanelsRenderHook::BODY_END,
                 fn () => view('filament.hooks.ai-assistant'),
+            )
+            ->renderHook(
+                PanelsRenderHook::BODY_END,
+                fn () => view('filament.hooks.new-dashboard-invitation'),
             )
             ->renderHook(
                 PanelsRenderHook::AUTH_LOGIN_FORM_BEFORE,

@@ -20,6 +20,7 @@
         'warning_acknowledgments' => 'heroicon-o-exclamation-circle', 'notice_acknowledgments' => 'heroicon-o-document-check',
     ];
     $cardsByKey = $cards->keyBy('key');
+    $nativeMode = app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user());
 @endphp
 
 <x-filament-widgets::widget>
@@ -81,7 +82,209 @@
         }
     </style>
 
+    @unless($nativeMode)
+    @if($quick_actions !== [])
+        <section class="mb-4" aria-label="Quick actions">
+            <div class="mb-3 flex items-center justify-between">
+                <h2 class="text-base font-bold text-gray-950 dark:text-white">Quick actions</h2>
+                <span class="text-xs text-gray-500 dark:text-gray-400">Available for your role</span>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                @foreach($quick_actions as $action)
+                    <a href="{{ $action['url'] }}" class="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm transition hover:border-primary-400 hover:shadow-md dark:border-white/10 dark:bg-gray-900 dark:text-white">
+                        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                            <x-filament::icon :icon="$action['icon']" class="size-5" />
+                        </span>
+                        <span>{{ $action['label'] }}</span>
+                        <x-filament::icon icon="heroicon-o-arrow-up-right" class="ml-auto size-4 opacity-60" />
+                    </a>
+                @endforeach
+            </div>
+        </section>
+    @endif
+
+    @if($recent_activity['enabled'])
+        <section class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900" aria-label="Recent inventory activity">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-base font-bold text-gray-950 dark:text-white">Recent inventory activity</h2>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Stock movements within your authorized responsibility.</p>
+                </div>
+            </div>
+            <div class="divide-y divide-gray-100 dark:divide-white/10">
+                @forelse($recent_activity['movements'] as $movement)
+                    <div class="flex flex-wrap items-center justify-between gap-3 py-3" wire:key="dashboard-movement-{{ $movement->id }}">
+                        <div class="min-w-0">
+                            <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ $movement->product?->sku ?? $movement->reference }}</p>
+                            <p class="text-xs text-gray-500">{{ $movement->movement_type?->label() ?? 'Movement' }} · {{ $movement->warehouse?->name ?? 'Warehouse' }}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm font-semibold tabular-nums">{{ number_format($movement->quantity) }} unit(s)</p>
+                            <p class="text-xs text-gray-500">{{ $movement->occurred_at?->format('d M Y H:i') ?? '—' }}</p>
+                        </div>
+                    </div>
+                @empty
+                    <p class="py-4 text-sm text-gray-500">No recent inventory movements in your scope.</p>
+                @endforelse
+            </div>
+        </section>
+    @endif
+
+    @endunless
+
     <div class="erp-dashboard-stack" data-dashboard-role="{{ $role_label }}" data-dashboard-customizing="{{ $customize_mode ? 'true' : 'false' }}">
+        @if ($nativeMode)
+            <div class="tpz-reference-home tpz-reference-home--final">
+
+                @php
+                    // Use the user's display timezone, falling back to the company timezone.
+                    // Time-of-day greeting changes when this Livewire dashboard refreshes.
+                    $localNow = \Carbon\CarbonImmutable::now(app(\App\Services\UserTimezoneResolver::class)->resolve(auth()->user()));
+                    $greeting = match (true) {
+                        $localNow->hour < 12 => 'Good morning',
+                        $localNow->hour < 17 => 'Good afternoon',
+                        default => 'Good evening',
+                    };
+                @endphp
+                <div class="tpz-home-welcome tpz-home-welcome--greeting">
+                    <div>
+                        <h1>{{ $greeting }}, {{ auth()->user()->name }} <span aria-hidden="true">👋</span></h1>
+                        <p>Here's what's happening in TPZ ERP today.</p>
+                    </div>
+                    <time datetime="{{ $localNow->toDateString() }}">{{ $localNow->format('D, d M Y') }}</time>
+                </div>
+
+                <div class="tpz-home-kpis">
+                    @forelse($reference_kpis as $kpi)
+                        @php
+                            $icon = ($kpi['label'] === 'Total Returns')
+                                ? 'heroicon-o-chart-bar-square'
+                                : match($kpi['tone']) {
+                                'blue' => 'heroicon-o-shopping-bag',
+                                'green' => 'heroicon-o-globe-alt',
+                                'amber' => 'heroicon-o-clipboard-document-list',
+                                'indigo' => 'heroicon-o-arrows-right-left',
+                                default => 'heroicon-o-arrow-uturn-left',
+                            };
+                        @endphp
+                        <a href="{{ $kpi['url'] }}" class="tpz-home-kpi {{ $kpi['tone'] }}" aria-label="{{ $kpi['label'] }}: {{ number_format($kpi['value']) }}">
+                            <x-filament::icon :icon="$icon" class="size-5" />
+                            <div class="tpz-native-kpi-copy">
+                                <span>{{ $kpi['label'] }}</span>
+                                <strong>{{ number_format($kpi['value']) }}</strong>
+                            </div>
+                            @if(isset($kpi['trend']))
+                                <span
+                                    class="tpz-native-kpi-trend is-{{ $kpi['trend']['direction'] }}"
+                                    title="{{ $kpi['trend']['title'] }}. The large number is the total currently visible."
+                                    aria-label="{{ $kpi['trend']['title'] }}">
+                                    {{ $kpi['trend']['direction'] === 'up' ? '↑' : ($kpi['trend']['direction'] === 'down' ? '↓' : '→') }}
+                                    {{ $kpi['trend']['label'] }}
+                                </span>
+                            @endif
+                        </a>
+                    @empty
+                        <p class="tpz-empty">No KPI cards are available for your permissions.</p>
+                    @endforelse
+                </div>
+
+                <div class="tpz-home-panels">
+
+                    <x-filament::section compact heading="My Workspace">
+                        <div class="tpz-home-list">
+                            @forelse ($attention->take(5) as $item)
+                                <a href="{{ $item['url'] }}">
+                                    @php
+                                        $workLabel = strtolower((string) $item['label']);
+                                        $workIcon = match (true) {
+                                            str_contains($workLabel, 'approval') => 'heroicon-o-check-badge',
+                                            str_contains($workLabel, 'request') => 'heroicon-o-clipboard-document-list',
+                                            str_contains($workLabel, 'transfer') => 'heroicon-o-arrows-right-left',
+                                            str_contains($workLabel, 'order') => 'heroicon-o-shopping-bag',
+                                            str_contains($workLabel, 'task') => 'heroicon-o-clipboard-document-check',
+                                            str_contains($workLabel, 'qc') => 'heroicon-o-magnifying-glass-circle',
+                                            str_contains($workLabel, 'claim') => 'heroicon-o-shield-check',
+                                            default => 'heroicon-o-bell-alert',
+                                        };
+                                    @endphp
+                                    <x-filament::icon :icon="$workIcon" class="tpz-home-row-icon" />
+                                    <span class="tpz-home-row-label">{{ $item['label'] }}</span>
+                                    <b>{{ number_format($item['count']) }}</b>
+                                </a>
+                            @empty
+                                <div class="tpz-empty">No pending work.</div>
+                            @endforelse
+                        </div>
+                    </x-filament::section>
+
+                    <x-filament::section compact heading="Recent Activity">
+                        @if($recent_activity['enabled'])
+                            <x-slot name="afterHeader">
+                                <a href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl() }}" class="tpz-native-view-all">View all</a>
+                            </x-slot>
+                        @endif
+                        <div class="tpz-home-list tpz-home-activity">
+                            @if ($recent_activity['enabled'])
+                                @forelse ($recent_activity['movements']->take(5) as $movement)
+                                    @php
+                                        $movementType = strtolower((string) ($movement->movement_type?->value ?? $movement->movement_type?->label() ?? 'movement'));
+                                        $activityIcon = match (true) {
+                                            str_contains($movementType, 'transfer') => 'heroicon-o-arrows-right-left',
+                                            str_contains($movementType, 'request') => 'heroicon-o-clipboard-document-check',
+                                            str_contains($movementType, 'adjust') => 'heroicon-o-adjustments-horizontal',
+                                            default => 'heroicon-o-cube',
+                                        };
+                                        $activityTime = $movement->occurred_at
+                                            ? app(\App\Services\UserTimezoneResolver::class)->date($movement->occurred_at, auth()->user())
+                                            : null;
+                                    @endphp
+                                    <div class="tpz-list-row">
+                                        <span class="tpz-home-activity-icon"><x-filament::icon :icon="$activityIcon" class="size-4" /></span>
+                                        <span class="tpz-home-row-label">
+                                            <strong>{{ $movement->product?->sku ?? $movement->reference }}</strong>
+                                            <small>{{ $movement->movement_type?->label() ?? 'Inventory movement' }}</small>
+                                        </span>
+                                        <time datetime="{{ $activityTime?->toIso8601String() }}" title="{{ $activityTime?->format('d M Y H:i T') }}">{{ $activityTime?->diffForHumans() ?? '—' }}</time>
+                                    </div>
+                                @empty
+                                    <div class="tpz-empty">No recent inventory activity.</div>
+                                @endforelse
+                            @else
+                                <div class="tpz-empty">No authorized activity available.</div>
+                            @endif
+                        </div>
+                    </x-filament::section>
+
+                    <x-filament::section compact heading="Quick Actions">
+                        <div class="tpz-home-actions">
+                            @forelse ($quick_actions as $action)
+                                <a href="{{ $action['url'] }}">
+                                    <x-filament::icon :icon="$action['icon']" class="tpz-native-action-icon size-4" />
+                                    <span>{{ $action['label'] }}</span>
+                                </a>
+                            @empty
+                                <div class="tpz-empty">No authorized actions available.</div>
+                            @endforelse
+                        </div>
+                    </x-filament::section>
+
+                </div>
+                <div class="tpz-native-period" aria-label="Dashboard date range">
+                    @foreach (['today' => 'Today', 'week' => 'Week', 'month' => 'Month', 'custom' => 'Custom'] as $key => $label)
+                        <x-filament::button type="button" size="xs" :color="$period === $key ? 'primary' : 'gray'" :outlined="$period !== $key" wire:click="setPeriod('{{ $key }}')">{{ $label }}</x-filament::button>
+                    @endforeach
+                    @if ($period === 'custom')
+                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customFrom" aria-label="Start date" /></x-filament::input.wrapper>
+                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customTo" aria-label="End date" /></x-filament::input.wrapper>
+                        <x-filament::button type="button" size="xs" wire:click="applyCustomRange">Apply</x-filament::button>
+                        @error('customFrom') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
+                        @error('customTo') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
+                    @endif
+                </div>
+                @include('filament.widgets.dashboard.native-operational-sections')
+            </div>
+        @endif
+        @unless($nativeMode)
         <x-filament::section compact>
             <x-slot name="heading">Operational Overview</x-slot>
             <x-slot name="description">{{ $period_label }} · {{ $role_label }} access</x-slot>
@@ -216,5 +419,6 @@
                 @endforeach
             </div>
         @endif
+        @endunless
     </div>
 </x-filament-widgets::widget>

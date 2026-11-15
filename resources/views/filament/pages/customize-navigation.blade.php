@@ -4,6 +4,12 @@
             heading="Customize Navigation"
             description="Hide modules you do not need and drag groups into your preferred order. Authorization remains unchanged."
         >
+            @if (auth()->user()?->employee?->role === \App\Enums\EmployeeRole::Owner)
+                <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary-200 bg-primary-50 p-4 dark:border-primary-500/20 dark:bg-primary-500/10">
+                    <div><h2 class="text-sm font-semibold">Simplified workspace navigation</h2><p class="mt-1 text-xs text-gray-600 dark:text-gray-300">Preview Home, Sales, Inventory &amp; Warehouse, Purchasing, Returns &amp; QC, Finance &amp; Accounting, and Team &amp; HR without changing anyone else’s navigation.</p></div>
+                    <x-filament::button type="button" size="sm" :color="$workspaceMode ? 'success' : 'gray'" wire:click="toggleWorkspaceMode">{{ $workspaceMode ? 'Enabled for me' : 'Enable for me' }}</x-filament::button>
+                </div>
+            @endif
             <div
                 class="space-y-3"
                 data-navigation-group-list

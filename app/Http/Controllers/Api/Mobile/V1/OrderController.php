@@ -11,10 +11,13 @@ use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Models\MarketplacePlatform;
 use App\Models\Order;
+use App\Models\OrderAmendment;
 use App\Models\Product;
 use App\Models\ResponsibilityAssignment;
 use App\Services\Authorization\CustomerReturnAuthorization;
 use App\Services\Authorization\OrderAuthorization;
+use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Orders\OrderAmendmentService;
 use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Orders\OrderService;
@@ -73,6 +76,8 @@ class OrderController extends MobileController
             return $data;
         }
         $order->load(['items.fulfillmentItem', 'warehouse', 'platform']);
+        $allocation = app(InventoryAllocationService::class);
+        $canSelectSources = $allocation->canSelectOrderSources($user);
         $fields = $order->only(['external_order_number', 'customer_name', 'customer_phone', 'courier_name', 'tracking_number', 'notes', 'warehouse_id', 'marketplace_platform_id']);
         $fields['order_date'] = $order->order_date?->format('Y-m-d');
         $fields['warehouse'] = $order->warehouse?->name;
@@ -97,10 +102,22 @@ class OrderController extends MobileController
         if ($order->status === OrderStatus::Fulfilled && app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::Create)) {
             $actions[] = $this->action('return', 'Initiate return');
         }
+        $amendments = app(OrderAmendmentService::class);
+        if ($amendments->canAmend($order, $user)) {
+            $actions[] = $this->action('amend', 'Amend reserved order');
+        }
+        if ($amendments->canCorrectShipped($order, $user)) {
+            $actions[] = $this->action('correct-shipped', 'Correct shipped order');
+        }
 
         return [...$data, 'fields' => $fields, 'items' => $order->items->map(fn ($i) => [
             'id' => $i->id, 'product_id' => $i->product_id, 'title' => $i->product_name, 'sku' => $i->sku, 'quantity' => $i->ordered_quantity,
             'fulfillment_item_id' => $i->fulfillmentItem?->id,
+            ...($canSelectSources ? ['allocation_source_options' => collect($allocation->orderSourceOptions(
+                $i->product_id,
+                $order->warehouse_id,
+                $user,
+            ))->map(fn (string $name, int $id): array => ['id' => $id, 'name' => $name])->values()] : []),
             ...($price ? $i->only(['selling_price', 'discount_total', 'vat_rate', 'line_total']) : []),
         ]), 'actions' => $actions];
     }
@@ -192,6 +209,29 @@ class OrderController extends MobileController
     public function act(Request $request, Order $order, string $action): JsonResponse
     {
         app(OrderAuthorization::class)->authorize($request->user(), OrderPermission::View, $order);
+        if (in_array($action, ['amend', 'correct-shipped'], true)) {
+            $data = $request->validate([
+                'idempotency_key' => 'required|uuid', 'reason' => 'required|string|min:5|max:2000',
+                'external_order_number' => 'nullable|string|max:255', 'order_date' => 'nullable|date_format:Y-m-d',
+                'warehouse_id' => 'nullable|integer', 'items' => 'nullable|array',
+                'items.*.id' => 'required|integer', 'items.*.quantity' => 'nullable|integer|min:1',
+                'items.*.selling_price' => 'nullable|numeric|min:0',
+                'items.*.allocation_sources' => 'nullable|array',
+                'items.*.allocation_sources.*.account_id' => 'required|integer|distinct',
+                'items.*.allocation_sources.*.quantity' => 'required|integer|min:1',
+            ]);
+            if ($existing = OrderAmendment::query()->where('idempotency_key', $data['idempotency_key'])->first()) {
+                abort_unless($existing->order_id === $order->id && $existing->amended_by_user_id === $request->user()->id, 403);
+            }
+            $service = app(OrderAmendmentService::class);
+            if ($action === 'amend') {
+                $service->amend($order, collect($data)->except(['order_date', 'warehouse_id'])->all(), $request->user());
+            } else {
+                $service->correctShipped($order, $data, $request->user());
+            }
+
+            return $this->show($request, $order->refresh());
+        }
         $data = $request->validate(['idempotency_key' => 'required|uuid', 'reason' => 'nullable|string|max:2000']);
         $service = app(OrderService::class);
         $user = $request->user();

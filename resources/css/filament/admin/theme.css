@@ -1084,3 +1084,59 @@ html.tpz-native-workspace .fi-sidebar-item-btn { min-height: 2rem; }
   html.tpz-native-workspace .tpz-workspace-header { padding: .85rem; }
   html.tpz-native-workspace .tpz-home-kpi strong { font-size: 1.2rem; }
 }
+
+/* Native workspace tabs: clear hover/focus and raised active tab, reference finish.
+   Scoped to the opt-in interface; no changes to classic Filament tabs. */
+html.tpz-native-workspace .tpz-workspace-tabs {
+    align-items: flex-end;
+    gap: .3rem;
+    padding: .22rem .2rem 0;
+    border-bottom: 1px solid #d8e4ef;
+    overflow-x: auto;
+}
+html.tpz-native-workspace .tpz-workspace-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.55rem;
+    padding: .55rem .9rem;
+    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+    border-radius: .65rem .65rem 0 0;
+    background: transparent;
+    color: #50667a;
+    box-shadow: none;
+    text-decoration: none;
+    transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+html.tpz-native-workspace .tpz-workspace-tab:hover {
+    color: #075f92;
+    background: #e7f3fb;
+    border-color: #b9dced;
+    border-bottom-color: #0b92bf;
+    box-shadow: 0 -2px 9px rgb(13 74 115 / 9%);
+}
+html.tpz-native-workspace .tpz-workspace-tab.is-active,
+html.tpz-native-workspace .tpz-workspace-tab[aria-selected="true"] {
+    color: #075e8f;
+    background: #fff;
+    border-color: #bed9e8;
+    border-bottom-color: #0ca49a;
+    box-shadow: 0 -2px 10px rgb(10 69 107 / 9%);
+    font-weight: 750;
+}
+html.tpz-native-workspace .tpz-workspace-tab:focus-visible {
+    outline: 2px solid #0989bb;
+    outline-offset: 2px;
+}
+html.dark.tpz-native-workspace .tpz-workspace-tab:hover {
+    color: #f6fcff; background: #244b66; border-color: #3d7795; border-bottom-color: #57c2e1;
+}
+html.dark.tpz-native-workspace .tpz-workspace-tab.is-active,
+html.dark.tpz-native-workspace .tpz-workspace-tab[aria-selected="true"] {
+    color: #fff; background: #1a3a51; border-color: #386783; border-bottom-color: #4bddc0;
+}
+@media (prefers-reduced-motion: reduce) {
+    html.tpz-native-workspace .tpz-workspace-tab { transition: none; }
+}

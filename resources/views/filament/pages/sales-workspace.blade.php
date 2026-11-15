@@ -46,17 +46,17 @@
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="Sales workspace sections">
-            <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')">Overview</button>
+            <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon icon="heroicon-o-squares-2x2" class="tpz-native-tab-icon size-4" /> Overview</button>
             @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
-                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}@if(isset($salesCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($salesCounts[$key]) }}</span>@endif</button>
+                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="(['orders' => 'heroicon-o-shopping-bag', 'webSales' => 'heroicon-o-globe-alt', 'quotations' => 'heroicon-o-document-text'][$key] ?? 'heroicon-o-document-text')" class="tpz-native-tab-icon size-4" /> {{ $label }}@if(isset($salesCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($salesCounts[$key]) }}</span>@endif</button>
                 @endif
             @endforeach
             @foreach($extraModules as $index => $module)
                 <button type="button" wire:key="extra-module-tab-{{ $index }}"
                     class="tpz-workspace-tab {{ $activeTab === 'extra' && $activeExtraModule === $index ? 'is-active' : '' }}"
                     aria-selected="{{ $activeTab === 'extra' && $activeExtraModule === $index ? 'true' : 'false' }}"
-                    wire:click="selectExtraModule({{ $index }})">{{ $module['label'] }}</button>
+                    wire:click="selectExtraModule({{ $index }})"><x-filament::icon :icon="$module['icon']" class="tpz-native-tab-icon size-4" /> {{ $module['label'] }}</button>
             @endforeach
         </nav>
 

@@ -37,6 +37,8 @@ class SalesWorkspace extends Page
 
     protected static ?int $navigationSort = 0;
 
+    public string $activeTab = 'overview';
+
     public string $status = 'all';
 
     public string $search = '';
@@ -138,6 +140,16 @@ class SalesWorkspace extends Page
                 'dashboard' => $canDashboard ? WebSalesDashboard::getUrl() : null,
             ]),
         ];
+    }
+
+    public function setTab(string $tab): void
+    {
+        // Only allow tabs backed by an authorized module URL.
+        if ($tab !== 'overview') {
+            $links = $this->getViewData()['links'];
+            abort_unless(in_array($tab, ['orders', 'webSales', 'quotations'], true) && isset($links[$tab]), 403);
+        }
+        $this->activeTab = $tab;
     }
 
     public function clearFilters(): void

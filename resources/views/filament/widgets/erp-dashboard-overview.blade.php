@@ -257,9 +257,10 @@
 
                     <x-filament::section compact heading="Quick Actions">
                         <div class="tpz-home-actions">
-                            @forelse (array_slice($quick_actions, 0, 4) as $action)
+                            @forelse ($quick_actions as $action)
                                 <a href="{{ $action['url'] }}">
-                                    {{ $action['label'] }}
+                                    <x-filament::icon :icon="$action['icon']" class="tpz-native-action-icon size-4" />
+                                    <span>{{ $action['label'] }}</span>
                                 </a>
                             @empty
                                 <div class="tpz-empty">No authorized actions available.</div>
@@ -280,6 +281,7 @@
                         @error('customTo') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
                     @endif
                 </div>
+                @include('filament.widgets.dashboard.native-operational-sections')
             </div>
         @endif
         @unless($nativeMode)

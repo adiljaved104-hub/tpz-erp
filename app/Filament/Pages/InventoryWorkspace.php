@@ -16,6 +16,7 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
+use App\Services\Dashboard\ErpDashboardService;
 use App\Services\Mobile\StockStatus;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Pages\Page;
@@ -122,7 +123,29 @@ class InventoryWorkspace extends Page
         };
         $moduleRecords = $moduleQuery?->latest()->paginate(10, pageName: 'module-page') ?? collect();
 
+        // Reuse Classic's already permission-filtered operational cards,
+        // including independently gated inventory valuation. Only compute
+        // the additional snapshot on the selected Overview tab.
+        $inventoryCards = $this->activeTab === 'overview'
+            ? app(ErpDashboardService::class)->forUser(
+                $user, widgetKeys: ['inventory', 'inventory_intelligence']
+            )['cards']->keyBy('key')
+            : collect();
+
+        $tabCounts = [];
+        if (ProductResource::canViewAny()) {
+            $tabCounts['products'] = ProductResource::getEloquentQuery()->count();
+        }
+        if (StockRequestResource::canViewAny()) {
+            $tabCounts['requests'] = StockRequestResource::getEloquentQuery()->count();
+        }
+        if (StockTransferResource::canViewAny()) {
+            $tabCounts['transfers'] = StockTransferResource::getEloquentQuery()->count();
+        }
+
         return [
+            'inventoryCards' => $inventoryCards,
+            'tabCounts' => $tabCounts,
             'moduleRecords' => $moduleRecords,
             'inventory' => $inventory,
             'recentMovements' => $recentMovements,

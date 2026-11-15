@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    <div class="tpz-workspace tpz-unified-workspace">
+    <div class="tpz-workspace tpz-unified-workspace tpz-reference-workspace">
         <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-center justify-between gap-4">
             <div class="tpz-native-workspace-heading">
                 <nav class="tpz-native-breadcrumb" aria-label="Breadcrumb">
@@ -39,7 +39,13 @@
                     aria-selected="{{ $activeModule === (string) $index ? 'true' : 'false' }}"
                     class="tpz-workspace-tab {{ $activeModule === (string) $index ? 'is-active' : '' }}">
                     <x-filament::icon :icon="$tab['icon']" class="tpz-native-tab-icon size-4" />
-                    {{ $tab['label'] }}
+                    <span class="tpz-native-tab-label">{{ $tab['label'] }}</span>
+                    @php
+                        $matchingMetric = $metrics->firstWhere('label', $tab['label']);
+                    @endphp
+                    @if($matchingMetric)
+                        <span class="tpz-native-tab-count">{{ number_format($matchingMetric['value']) }}</span>
+                    @endif
                 </button>
             @endforeach
         </nav>
@@ -51,7 +57,7 @@
                         <h2>Operational Overview</h2>
                         <span>Live, permission-scoped totals</span>
                     </div>
-                    <div class="tpz-native-overview-metrics">
+                    <div class="tpz-native-overview-metrics tpz-native-overview-metrics--primary">
                         @foreach($metrics as $metric)
                             <a href="{{ $metric['url'] }}"
                                 class="tpz-native-overview-metric tpz-native-overview-metric--{{ ['blue','green','amber','violet','rose'][$loop->index % 5] }}"

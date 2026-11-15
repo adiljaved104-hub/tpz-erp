@@ -8,12 +8,12 @@
             </div>
             <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected inventory section">
                 @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
-                    <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" icon="heroicon-o-arrow-up-right">
+                    <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                         Open {{ $extraModules[$activeExtraModule]['label'] }}
                     </x-filament::button>
                 @elseif($activeTab === 'overview')
                     @if(isset($links['createRequest']))
-                        <x-filament::button tag="a" :href="$links['createRequest']" icon="heroicon-o-plus">Create Stock Request</x-filament::button>
+                        <x-filament::button tag="a" :href="$links['createRequest']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Stock Request</x-filament::button>
                     @endif
                     @if(isset($links['transfers']))
                         <details class="tpz-reference-actions-menu">
@@ -25,37 +25,37 @@
                     @endif
                 @elseif($activeTab === 'products')
                     @if(isset($links['createProduct']))
-                        <x-filament::button tag="a" :href="$links['createProduct']" icon="heroicon-o-plus">Create Product</x-filament::button>
+                        <x-filament::button tag="a" :href="$links['createProduct']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Product</x-filament::button>
                     @endif
                     @if(isset($links['products']))
-                        <x-filament::button tag="a" color="gray" :href="$links['products']" icon="heroicon-o-cube">All Products</x-filament::button>
+                        <x-filament::button tag="a" color="gray" :href="$links['products']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-cube')">All Products</x-filament::button>
                     @endif
                 @elseif($activeTab === 'inventory' && isset($links['inventory']))
-                    <x-filament::button tag="a" :href="$links['inventory']" icon="heroicon-o-archive-box">Open Inventory</x-filament::button>
+                    <x-filament::button tag="a" :href="$links['inventory']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-archive-box')">Open Inventory</x-filament::button>
                 @elseif($activeTab === 'myInventory' && isset($links['myInventory']))
-                    <x-filament::button tag="a" :href="$links['myInventory']" icon="heroicon-o-user">My Inventory</x-filament::button>
+                    <x-filament::button tag="a" :href="$links['myInventory']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-user')">My Inventory</x-filament::button>
                 @elseif($activeTab === 'requests')
                     @if(isset($links['createRequest']))
-                        <x-filament::button tag="a" :href="$links['createRequest']" icon="heroicon-o-plus">Create Stock Request</x-filament::button>
+                        <x-filament::button tag="a" :href="$links['createRequest']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Stock Request</x-filament::button>
                     @endif
                     @if(isset($links['requests']))
-                        <x-filament::button tag="a" color="gray" :href="$links['requests']" icon="heroicon-o-clipboard-document-list">All Requests</x-filament::button>
+                        <x-filament::button tag="a" color="gray" :href="$links['requests']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-clipboard-document-list')">All Requests</x-filament::button>
                     @endif
                 @elseif($activeTab === 'transfers')
                     @if(isset($links['createTransfer']))
-                        <x-filament::button tag="a" :href="$links['createTransfer']" icon="heroicon-o-plus">Create Stock Transfer</x-filament::button>
+                        <x-filament::button tag="a" :href="$links['createTransfer']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Stock Transfer</x-filament::button>
                     @endif
                     @if(isset($links['transfers']))
-                        <x-filament::button tag="a" color="gray" :href="$links['transfers']" icon="heroicon-o-truck">All Transfers</x-filament::button>
+                        <x-filament::button tag="a" color="gray" :href="$links['transfers']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-truck')">All Transfers</x-filament::button>
                     @endif
                 @elseif($activeTab === 'adjustments' && isset($links['adjustments']))
-                    <x-filament::button tag="a" :href="$links['adjustments']" icon="heroicon-o-adjustments-horizontal">Open Stock Adjustments</x-filament::button>
+                    <x-filament::button tag="a" :href="$links['adjustments']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-adjustments-horizontal')">Open Stock Adjustments</x-filament::button>
                 @endif
             </div>
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="Inventory workspace sections">
-            <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon icon="heroicon-o-squares-2x2" class="tpz-native-tab-icon size-4" /> Overview</button>
+            <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" /> Overview</button>
             @foreach (['products' => 'Products', 'inventory' => 'Inventory', 'myInventory' => 'My Inventory', 'requests' => 'Requests', 'transfers' => 'Transfers', 'adjustments' => 'Adjustments'] as $key => $label)
                 @if(isset($links[$key]))
                     <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve((['products' => 'heroicon-o-cube', 'inventory' => 'heroicon-o-archive-box', 'myInventory' => 'heroicon-o-user', 'requests' => 'heroicon-o-clipboard-document-list', 'transfers' => 'heroicon-o-arrows-right-left', 'adjustments' => 'heroicon-o-adjustments-horizontal'][$key] ?? 'heroicon-o-document-text'))" class="tpz-native-tab-icon size-4" /> {{ $label }}@if(isset($tabCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($tabCounts[$key]) }}</span>@endif</button>
@@ -111,13 +111,13 @@
                 @if($inventoryAttention->isNotEmpty())
                     <section class="tpz-native-list-panel" aria-label="Needs Attention">
                         <div class="tpz-native-panel-title">
-                            <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon icon="heroicon-o-exclamation-triangle" class="size-5" /></span>
+                            <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-triangle')" class="size-5" /></span>
                             <h2>Needs Attention</h2>
                         </div>
                         <div class="tpz-reference-attention-grid">
                             @foreach($inventoryAttention as $alert)
                                 <a href="{{ $alert['url'] }}" class="tpz-reference-attention-row">
-                                    <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-exclamation-circle" class="size-4" /></span>
+                                    <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-circle')" class="size-4" /></span>
                                     <span class="tpz-reference-alert-label" title="{{ $alert['label'] }}">{{ $alert['label'] }}</span>
                                     <strong>{{ number_format($alert['count']) }}</strong>
                                     <small>View</small>
@@ -129,7 +129,7 @@
                 @if(isset($links['movements']))
                     <section class="tpz-native-list-panel" aria-label="Recent Inventory Activity">
                         <div class="tpz-native-panel-title">
-                            <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-clock" class="size-5" /></span>
+                            <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-clock')" class="size-5" /></span>
                             <h2>Recent Inventory Activity</h2>
                             <a href="{{ $links['movements'] }}" class="tpz-reference-panel-view">View all →</a>
                         </div>
@@ -137,7 +137,7 @@
                             @forelse($recentMovements->take(5) as $movement)
                                 @if(\App\Filament\Resources\StockMovements\StockMovementResource::canView($movement))
                                     <a wire:key="reference-movement-{{ $movement->id }}" href="{{ \App\Filament\Resources\StockMovements\StockMovementResource::getUrl('view', ['record' => $movement]) }}">
-                                        <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-arrows-right-left" class="size-4" /></span>
+                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrows-right-left')" class="size-4" /></span>
                                         <span class="tpz-reference-movement-label">
                                             <strong>{{ $movement->product?->sku ?? $movement->reference ?? 'Stock movement' }}</strong>
                                             <small>{{ $movement->movement_type?->label() ?? 'Inventory movement' }} · {{ number_format($movement->quantity) }} unit(s)</small>
@@ -157,7 +157,7 @@
         @if($activeTab === 'overview' && isset($links['movements']) && $recentMovements->isNotEmpty())
             <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent Stock Updates">
                 <div class="tpz-native-panel-title">
-                    <span class="tpz-native-overview-icon"><x-filament::icon icon="heroicon-o-cube" class="size-5" /></span>
+                    <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-cube')" class="size-5" /></span>
                     <h2>Recent Stock Updates</h2>
                     <a href="{{ $links['movements'] }}" class="tpz-reference-panel-view">View Inventory →</a>
                 </div>
@@ -317,7 +317,7 @@
                         <h2 class="text-base font-semibold text-gray-950 dark:text-white">Stock Adjustments</h2>
                         <p class="mt-1 text-sm text-gray-500">Open the existing controlled adjustment form to make authorized stock changes.</p>
                     </div>
-                    <x-filament::button tag="a" :href="$links['adjustments']" icon="heroicon-o-arrow-up-right">Open Stock Adjustments</x-filament::button>
+                    <x-filament::button tag="a" :href="$links['adjustments']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">Open Stock Adjustments</x-filament::button>
                 </div>
             </x-filament::section>
         @endif

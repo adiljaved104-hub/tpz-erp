@@ -259,17 +259,8 @@
                 </div>
             </x-filament::section>
         @endif
-        @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
-            <x-filament::section>
-                <div class="tpz-unified-module-preview">
-                    <span class="tpz-unified-module-icon"><x-filament::icon icon="heroicon-o-arrow-up-right" class="size-6" /></span>
-                    <div>
-                        <h2>{{ $extraModules[$activeExtraModule]['label'] }}</h2>
-                        <p>Continue with your authorized records, filters, and existing operational controls.</p>
-                    </div>
-                    <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" icon="heroicon-o-arrow-up-right">Open full module</x-filament::button>
-                </div>
-            </x-filament::section>
+        @if($activeTab === 'extra')
+            @include('filament.pages.partials.workspace-extra-preview')
         @endif
     </div>
 </x-filament-panels::page>

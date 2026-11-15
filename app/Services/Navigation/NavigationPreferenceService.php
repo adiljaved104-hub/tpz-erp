@@ -106,25 +106,31 @@ class NavigationPreferenceService
         // unrestricted resource lookup. These are the same destinations
         // that the Classic sidebar exposed to this account.
         $links = [];
-        foreach ($this->authorizedNavigation() as $group) {
-            $groupLabel = $group->getLabel() ?? '';
-            $target = $this->workspaceTarget($groupLabel);
-            foreach ($group->getItems() as $item) {
-                $url = (string) $item->getUrl();
-                $path = trim((string) parse_url($url, PHP_URL_PATH), '/');
-                if ($path === 'admin/products') {
-                    $target = 'Inventory & Warehouse';
-                } else {
-                    $target = $this->workspaceTarget($groupLabel);
-                }
-                if ($target !== $workspace || $url === '' || str_contains($path, 'workspace')) {
-                    continue;
-                }
+        $append = function (NavigationItem $item, string $groupLabel) use (&$append, &$links, $workspace): void {
+            $url = (string) $item->getUrl();
+            $path = trim((string) parse_url($url, PHP_URL_PATH), '/');
+            $target = $path === 'admin/products'
+                ? 'Inventory & Warehouse'
+                : $this->workspaceTarget($groupLabel);
+
+            if ($target === $workspace && $url !== '' && ! str_contains($path, 'workspace')) {
                 $links[$url] = [
                     'label' => (string) $item->getLabel(),
                     'url' => $url,
                     'icon' => 'heroicon-o-arrow-up-right',
                 ];
+            }
+
+            // Include existing nested sidebar items, too; the new sidebar
+            // must never silently orphan accessible second-level modules.
+            foreach ($item->getChildItems() as $child) {
+                $append($child, $groupLabel);
+            }
+        };
+
+        foreach ($this->authorizedNavigation() as $group) {
+            foreach ($group->getItems() as $item) {
+                $append($item, $group->getLabel() ?? '');
             }
         }
 

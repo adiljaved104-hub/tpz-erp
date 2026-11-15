@@ -38,7 +38,7 @@
             @endif
         </header>
 
-        <nav class="tpz-workspace-tabs" aria-label="{{ $workspace['title'] }} sections">
+        <nav class="tpz-workspace-tabs" aria-label="{{ $workspace['title'] }} sections" tabindex="0" title="Scroll horizontally or use the left/right arrow keys to see more modules" x-on:keydown.arrow-right.stop="$el.scrollBy({left: 190, behavior: 'smooth'})" x-on:keydown.arrow-left.stop="$el.scrollBy({left: -190, behavior: 'smooth'})">
             <button type="button" class="tpz-workspace-tab {{ $activeModule === 'overview' ? 'is-active' : '' }}"
                 aria-selected="{{ $activeModule === 'overview' ? 'true' : 'false' }}"
                 wire:click="selectModule('overview')">

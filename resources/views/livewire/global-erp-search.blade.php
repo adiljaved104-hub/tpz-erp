@@ -20,16 +20,28 @@
     class="relative flex items-center"
     data-testid="global-erp-search"
 >
-    <x-filament::icon-button
-        type="button"
-        color="gray"
-        icon="heroicon-o-magnifying-glass"
-        size="lg"
-        label="Search ERP"
-        tooltip="Search ERP (Ctrl K)"
-        x-on:click="openPalette()"
-        aria-keyshortcuts="Control+K Meta+K"
-    />
+    @if(app(\App\Services\Navigation\NavigationPreferenceService::class)->workspaceModeEnabled(auth()->user()))
+        <button type="button"
+            class="tpz-native-global-search-trigger"
+            x-on:click="openPalette()"
+            aria-label="Search authorized ERP records"
+            aria-keyshortcuts="Control+K Meta+K">
+            <x-filament::icon icon="heroicon-o-magnifying-glass" class="size-4" />
+            <span class="tpz-native-global-search-placeholder">Search orders, SKU, products, customers...</span>
+            <kbd>Ctrl + K</kbd>
+        </button>
+    @else
+        <x-filament::icon-button
+            type="button"
+            color="gray"
+            icon="heroicon-o-magnifying-glass"
+            size="lg"
+            label="Search ERP"
+            tooltip="Search ERP (Ctrl K)"
+            x-on:click="openPalette()"
+            aria-keyshortcuts="Control+K Meta+K"
+        />
+    @endif
 
     <x-filament::modal id="global-erp-search-palette" width="2xl" :close-button="false" teleport="body">
         <div class="space-y-4">

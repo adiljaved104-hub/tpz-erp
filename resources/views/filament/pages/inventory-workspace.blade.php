@@ -71,7 +71,8 @@
                     <span>Live, permission-scoped totals</span>
                 </div>
                 <div class="tpz-native-overview-metrics">
-                    @foreach ([
+                    @php
+                        $cardDefinitions = [
                         ['key' => 'inventory_units', 'icon' => 'heroicon-o-cube', 'tone' => 'blue'],
                         ['key' => 'sellable_inventory', 'icon' => 'heroicon-o-shopping-bag', 'tone' => 'green'],
                         ['key' => 'inventory_value', 'icon' => 'heroicon-o-chart-bar', 'tone' => 'violet'],
@@ -80,8 +81,12 @@
                         ['key' => 'damaged', 'icon' => 'heroicon-o-shield-exclamation', 'tone' => 'rose'],
                         ['key' => 'qc_pending', 'icon' => 'heroicon-o-magnifying-glass', 'tone' => 'amber'],
                         ['key' => 'marketplace_inventory', 'icon' => 'heroicon-o-building-storefront', 'tone' => 'blue'],
-                    ] as $definition)
-                        @php($card = $inventoryCards->get($definition['key']))
+                        ];
+                    @endphp
+                    @foreach($cardDefinitions as $definition)
+                        @php
+                            $card = $inventoryCards->get($definition['key']);
+                        @endphp
                         @if($card && $card['url'])
                             <a href="{{ $card['url'] }}"
                                 class="tpz-native-overview-metric tpz-native-overview-metric--{{ $definition['tone'] }}"

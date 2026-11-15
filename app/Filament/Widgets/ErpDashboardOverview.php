@@ -387,6 +387,7 @@ class ErpDashboardOverview extends Widget
             [OrderResource::class, 'Create Sales Order', 'heroicon-o-shopping-bag'],
             [PurchaseResource::class, 'Create Purchase', 'heroicon-o-shopping-cart'],
             [StockRequestResource::class, 'Create Stock Request', 'heroicon-o-clipboard-document-list'],
+            [StockTransferResource::class, 'Create Stock Transfer', 'heroicon-o-arrows-right-left'],
             [CustomerReturnResource::class, 'Record Customer Return', 'heroicon-o-arrow-uturn-left'],
         ] as [$resource, $label, $icon]) {
             if ($resource::canCreate()) {

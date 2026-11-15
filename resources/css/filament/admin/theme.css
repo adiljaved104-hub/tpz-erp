@@ -1178,3 +1178,110 @@ html.dark.tpz-native-workspace .tpz-home-welcome--greeting :is(p,time) { color: 
     html.tpz-native-workspace .tpz-home-welcome--greeting { flex-direction: column; align-items: flex-start; }
     html.tpz-native-workspace .tpz-home-welcome--greeting h1 { font-size: 1.38rem; }
 }
+
+
+/* Reference alignment final pass: scoped exclusively to opt-in New ERP. */
+/* Filament v4 exposes a page heading under .fi-header; previous rules only
+   targeted .fi-page-header, so the duplicate heading remained visible. */
+html.tpz-native-workspace .fi-main:has(.tpz-reference-home--final) .fi-header:not(.fi-section-header):not(.fi-ta-header),
+html.tpz-native-workspace .fi-main:has(.tpz-workspace) .fi-header:not(.fi-section-header):not(.fi-ta-header) {
+    display: none;
+}
+/* Keep the app's actual header and explicit native breadcrumb/title. */
+html.tpz-native-workspace .tpz-workspace-header--plain {
+    background: transparent;
+    box-shadow: none;
+    border: 0;
+    padding: .1rem .1rem .25rem;
+    border-radius: 0;
+    color: #112d49;
+    align-items: center;
+}
+html.tpz-native-workspace .tpz-workspace-header--plain .tpz-workspace-title {
+    font-size: clamp(1.45rem, 2vw, 1.8rem);
+    line-height: 1.2;
+    margin: .2rem 0;
+    color: #0e2944;
+}
+html.tpz-native-workspace .tpz-workspace-header--plain .tpz-workspace-subtitle {
+    color: #52677c;
+    font-size: .83rem;
+}
+html.tpz-native-workspace .tpz-native-breadcrumb {
+    display: flex; gap: .4rem; align-items: center;
+    color: #657a8d; font-size: .72rem; font-weight: 600;
+}
+html.tpz-native-workspace .tpz-native-breadcrumb span[aria-current="page"] { color: #34516c; }
+html.tpz-native-workspace .tpz-workspace-header--plain .fi-btn { border-radius: .65rem; }
+/* Global search: reuses the existing authorized command palette, not a new search API. */
+html.tpz-native-workspace .tpz-native-global-search-trigger {
+    display: flex; align-items: center; gap: .55rem;
+    width: clamp(15rem, 30vw, 34rem); height: 2.25rem;
+    padding: 0 .68rem; color: #e3f2ff !important;
+    border: 1px solid #476780; border-radius: .6rem;
+    background: #24455f;
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 10%);
+    cursor: pointer; text-align: left;
+}
+html.tpz-native-workspace .tpz-native-global-search-trigger:hover { background: #305b78; border-color: #7ba8c3; }
+html.tpz-native-workspace .tpz-native-global-search-trigger:focus-visible { outline: 2px solid #83d8ef; outline-offset: 2px; }
+html.tpz-native-workspace .tpz-native-global-search-placeholder {
+    flex: 1; overflow: hidden; white-space: nowrap;
+    text-overflow: ellipsis; font-size: .74rem; color: #e5eff8;
+}
+html.tpz-native-workspace .tpz-native-global-search-trigger kbd {
+    border: 1px solid #587b95; border-radius: .25rem;
+    padding: .1rem .25rem; font-size: .62rem; color: #d1e6f4;
+    white-space: nowrap;
+}
+html.tpz-native-workspace .tpz-home-row-icon {
+    flex: none; width: 1.15rem; height: 1.15rem;
+    color: #577994;
+}
+html.tpz-native-workspace .tpz-home-row-label {
+    flex: 1; min-width: 0; overflow-wrap: anywhere;
+}
+html.tpz-native-workspace .tpz-home-list > a b {
+    flex: none; border-radius: 999px;
+    padding: .12rem .5rem; background: #ed394c;
+    color: #fff; font-weight: 700;
+}
+html.tpz-native-workspace .tpz-home-activity .tpz-list-row {
+    display: flex; align-items: center; gap: .55rem;
+    border-bottom: 1px solid #e6edf3;
+    padding: .46rem .15rem;
+}
+html.tpz-native-workspace .tpz-home-activity-icon {
+    display: grid; place-items: center; flex: none;
+    width: 1.85rem; height: 1.85rem;
+    border-radius: .58rem; background: #e3f2ff; color: #1873b2;
+}
+html.tpz-native-workspace .tpz-home-activity .tpz-home-row-label strong {
+    display: block; color: #173451; font-size: .78rem; line-height: 1.25;
+}
+html.tpz-native-workspace .tpz-home-activity .tpz-home-row-label small {
+    display: block; margin-top: .12rem; color: #687c8d; font-size: .66rem;
+}
+html.tpz-native-workspace .tpz-home-activity time {
+    font-size: .67rem; color: #687c8d; white-space: nowrap;
+}
+html.tpz-native-workspace .tpz-native-view-all {
+    font-size: .75rem; color: #0879a9; font-weight: 700;
+}
+html.tpz-native-workspace .tpz-native-view-all:hover { text-decoration: underline; }
+html.tpz-native-workspace .tpz-home-list a:hover { background: #f3f8fc; }
+html.tpz-native-workspace .tpz-home-kpi:hover {
+    transform: translateY(-1px); border-color: #b5d9e8;
+    box-shadow: 0 5px 16px rgb(18 43 67 / 11%);
+}
+@media (max-width: 58rem) {
+    html.tpz-native-workspace .tpz-native-global-search-trigger { width: 2.35rem; justify-content: center; padding: 0; }
+    html.tpz-native-workspace .tpz-native-global-search-placeholder,
+    html.tpz-native-workspace .tpz-native-global-search-trigger kbd { display: none; }
+}
+html.dark.tpz-native-workspace .tpz-workspace-header--plain .tpz-workspace-title { color: #f3f8ff; }
+html.dark.tpz-native-workspace .tpz-workspace-header--plain .tpz-workspace-subtitle,
+html.dark.tpz-native-workspace .tpz-native-breadcrumb { color: #b5c9d9; }
+html.dark.tpz-native-workspace .tpz-home-activity .tpz-home-row-label strong { color: #f0f7fc; }
+html.dark.tpz-native-workspace .tpz-home-activity .tpz-list-row { border-bottom-color: #31495c; }
+@media (prefers-reduced-motion: reduce) { html.tpz-native-workspace .tpz-home-kpi:hover { transform: none; } }

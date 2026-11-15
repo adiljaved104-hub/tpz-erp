@@ -137,6 +137,9 @@ class SalesWorkspace extends Page
             'webSales' => $webSales,
             'canSeeOrderValues' => $canOrders && app(OrderAuthorization::class)->allows($user, OrderPermission::ViewSellingPrice),
             'canSeeWebSalesValues' => $canWebSales && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::ViewRevenue),
+            'extraModules' => collect(app(NavigationPreferenceService::class)->workspaceModuleLinks($user, 'Sales'))
+                ->reject(fn (array $item): bool => in_array($item['label'], ['Sales Orders', 'Web Sales Orders', 'Quotations', 'Web Sales Dashboard'], true))
+                ->values(),
             'links' => array_filter([
                 'orders' => $canOrders ? OrderResource::getUrl() : null,
                 'createOrder' => OrderResource::canCreate() ? OrderResource::getUrl('create') : null,

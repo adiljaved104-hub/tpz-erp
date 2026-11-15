@@ -2335,3 +2335,80 @@ html.dark.tpz-native-workspace .tpz-reference-inventory .tpz-reference-attention
         grid-template-columns: 1fr;
     }
 }
+
+
+/* Sales Overview parity with the approved Inventory reference:
+   same panel grid, alert badges, compact activity and updates table. */
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-grid {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: .13rem .42rem;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row {
+    display: flex; align-items: center; gap: .32rem; min-width: 0;
+    min-height: 2.23rem; padding: .18rem .2rem;
+    color: #243c5c; border-bottom: 1px solid #dce5ef;
+    text-decoration: none; font-size: .67rem;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row:hover { background: #f0f8ff; }
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row .tpz-native-overview-icon {
+    flex-shrink: 0; width: 1.75rem; height: 1.75rem;
+    color: #367aa4; background: #eaf4fd; border-radius: .46rem;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row .tpz-reference-alert-label {
+    flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row strong {
+    flex: none; border-radius: 999px; background: #e83c51; color: #fff;
+    padding: .12rem .3rem; min-width: 1.45rem; text-align: center; font-size: .64rem;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row small {
+    flex: none; font-size: .62rem; border-radius: .35rem;
+    border: 1px solid #cfdeeb; padding: .16rem .25rem; color: #286e9e;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-warning-icon {
+    color: #df4f33; background: #fff0e9;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-panel-view {
+    margin-left: auto; font-size: .72rem; color: #076eb1; font-weight: 740;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-panel-note {
+    margin-left: auto; font-size: .64rem; color: #66819c;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-movement-label {
+    flex: 1; min-width: 0; display: grid; gap: .05rem;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-movement-label > strong {
+    font-size: .75rem; font-weight: 760; color: #143653;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-movement-label > small {
+    font-size: .67rem; color: #6a7f92;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-records-panel .tpz-native-record-table {
+    min-width: 47rem;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-records-panel .tpz-native-record-table td {
+    font-size: .7rem;
+}
+html.tpz-native-workspace .tpz-reference-sales .tpz-reference-status-badge {
+    display: inline-flex; padding: .16rem .38rem; border-radius: .45rem;
+    color: #166447; background: #e9f8ee; border: 1px solid #c8efd6;
+    font-size: .69rem; font-weight: 680;
+}
+html.dark.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row {
+    color: #e4f2fa; border-color: #38566b;
+}
+html.dark.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row:hover { background: #294d63; }
+html.dark.tpz-native-workspace .tpz-reference-sales .tpz-reference-movement-label > strong { color: #eef8ff; }
+html.dark.tpz-native-workspace .tpz-reference-sales .tpz-reference-movement-label > small,
+html.dark.tpz-native-workspace .tpz-reference-sales .tpz-reference-panel-view { color: #a3dff7; }
+html.dark.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-row small {
+    color: #ddf2ff; background: #294960; border-color: #426179;
+}
+html.dark.tpz-native-workspace .tpz-reference-sales .tpz-reference-status-badge {
+    color: #a8f1c5; background: #1b4b3b; border-color: #32684f;
+}
+@media (max-width: 52rem) {
+    html.tpz-native-workspace .tpz-reference-sales .tpz-reference-attention-grid {
+        grid-template-columns: 1fr;
+    }
+}

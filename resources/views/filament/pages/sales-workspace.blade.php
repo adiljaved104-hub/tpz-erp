@@ -94,10 +94,8 @@
         @endif
 
         @if($activeTab === 'overview')
-            @if($salesAttention->isNotEmpty() || $salesRecentUpdates->isNotEmpty())
-                <div class="tpz-native-overview-columns tpz-reference-sales-panels">
-                    @if($salesAttention->isNotEmpty())
-                        <section class="tpz-native-list-panel" aria-label="Sales Needs Attention">
+            <div class="tpz-native-overview-columns tpz-reference-sales-panels">
+                    <section class="tpz-native-list-panel" aria-label="Sales Needs Attention">
                             <div class="tpz-native-panel-title">
                                 <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-triangle')" class="size-5" /></span>
                                 <h2>Needs Attention</h2>
@@ -112,10 +110,11 @@
                                         <small>View</small>
                                     </a>
                                 @endforeach
+                                @if($salesAttention->isEmpty())
+                                    <p class="tpz-native-no-preview">No sales-related alerts in your authorized scope.</p>
+                                @endif
                             </div>
                         </section>
-                    @endif
-                    @if($salesRecentUpdates->isNotEmpty())
                         <section class="tpz-native-list-panel" aria-label="Recent Sales Activity">
                             <div class="tpz-native-panel-title">
                                 <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-clock')" class="size-5" /></span>
@@ -137,11 +136,12 @@
                                         <small>{{ $update['date'] }}</small>
                                     </a>
                                 @endforeach
+                                @if($salesRecentUpdates->isEmpty())
+                                    <p class="tpz-native-no-preview">No recent sales activity in your authorized scope.</p>
+                                @endif
                             </div>
                         </section>
-                    @endif
                 </div>
-            @endif
 
             @if($salesRecentUpdates->isNotEmpty())
                 <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent Sales Updates">

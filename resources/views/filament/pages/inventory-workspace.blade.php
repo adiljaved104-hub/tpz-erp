@@ -33,7 +33,7 @@
                 @elseif($activeTab === 'inventory' && isset($links['inventory']))
                     <x-filament::button tag="a" :href="$links['inventory']" icon="heroicon-o-archive-box">Open Inventory</x-filament::button>
                 @elseif($activeTab === 'myInventory' && isset($links['myInventory']))
-                    <x-filament::button tag="a" :href="$links['myInventory']" icon="heroicon-o-user-circle">My Inventory</x-filament::button>
+                    <x-filament::button tag="a" :href="$links['myInventory']" icon="heroicon-o-user">My Inventory</x-filament::button>
                 @elseif($activeTab === 'requests')
                     @if(isset($links['createRequest']))
                         <x-filament::button tag="a" :href="$links['createRequest']" icon="heroicon-o-plus">Create Stock Request</x-filament::button>
@@ -58,14 +58,14 @@
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon icon="heroicon-o-squares-2x2" class="tpz-native-tab-icon size-4" /> Overview</button>
             @foreach (['products' => 'Products', 'inventory' => 'Inventory', 'myInventory' => 'My Inventory', 'requests' => 'Requests', 'transfers' => 'Transfers', 'adjustments' => 'Adjustments'] as $key => $label)
                 @if(isset($links[$key]))
-                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="(['products' => 'heroicon-o-cube', 'inventory' => 'heroicon-o-archive-box', 'myInventory' => 'heroicon-o-user-circle', 'requests' => 'heroicon-o-clipboard-document-list', 'transfers' => 'heroicon-o-arrows-right-left', 'adjustments' => 'heroicon-o-adjustments-horizontal'][$key] ?? 'heroicon-o-document-text')" class="tpz-native-tab-icon size-4" /> {{ $label }}@if(isset($tabCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($tabCounts[$key]) }}</span>@endif</button>
+                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve((['products' => 'heroicon-o-cube', 'inventory' => 'heroicon-o-archive-box', 'myInventory' => 'heroicon-o-user', 'requests' => 'heroicon-o-clipboard-document-list', 'transfers' => 'heroicon-o-arrows-right-left', 'adjustments' => 'heroicon-o-adjustments-horizontal'][$key] ?? 'heroicon-o-document-text'))" class="tpz-native-tab-icon size-4" /> {{ $label }}@if(isset($tabCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($tabCounts[$key]) }}</span>@endif</button>
                 @endif
             @endforeach
             @foreach($extraModules as $index => $module)
                 <button type="button" wire:key="extra-module-tab-{{ $index }}"
                     class="tpz-workspace-tab {{ $activeTab === 'extra' && $activeExtraModule === $index ? 'is-active' : '' }}"
                     aria-selected="{{ $activeTab === 'extra' && $activeExtraModule === $index ? 'true' : 'false' }}"
-                    wire:click="selectExtraModule({{ $index }})"><x-filament::icon :icon="$module['icon']" class="tpz-native-tab-icon size-4" /> {{ $module['label'] }}</button>
+                    wire:click="selectExtraModule({{ $index }})"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($module['icon'])" class="tpz-native-tab-icon size-4" /> {{ $module['label'] }}</button>
             @endforeach
         </nav>
 
@@ -96,7 +96,7 @@
                             <a href="{{ $card['url'] }}"
                                 class="tpz-native-overview-metric tpz-native-overview-metric--{{ $definition['tone'] }}"
                                 title="{{ $card['description'] ?? $card['label'] }}">
-                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="$definition['icon']" class="size-5" /></span>
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($definition['icon'])" class="size-5" /></span>
                                 <span class="tpz-native-overview-label">{{ $card['label'] }}</span>
                                 <strong>{{ $card['value'] }}</strong>
                             </a>

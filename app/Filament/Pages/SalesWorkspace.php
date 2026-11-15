@@ -39,6 +39,8 @@ class SalesWorkspace extends Page
 
     public string $activeTab = 'overview';
 
+    public ?int $activeExtraModule = null;
+
     public string $status = 'all';
 
     public string $search = '';
@@ -137,9 +139,7 @@ class SalesWorkspace extends Page
             'webSales' => $webSales,
             'canSeeOrderValues' => $canOrders && app(OrderAuthorization::class)->allows($user, OrderPermission::ViewSellingPrice),
             'canSeeWebSalesValues' => $canWebSales && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::ViewRevenue),
-            'extraModules' => collect(app(NavigationPreferenceService::class)->workspaceModuleLinks($user, 'Sales'))
-                ->reject(fn (array $item): bool => in_array($item['label'], ['Sales Orders', 'Web Sales Orders', 'Quotations', 'Web Sales Dashboard'], true))
-                ->values(),
+            'extraModules' => $this->extraModules(),
             'links' => array_filter([
                 'orders' => $canOrders ? OrderResource::getUrl() : null,
                 'createOrder' => OrderResource::canCreate() ? OrderResource::getUrl('create') : null,
@@ -150,6 +150,22 @@ class SalesWorkspace extends Page
                 'dashboard' => $canDashboard ? WebSalesDashboard::getUrl() : null,
             ]),
         ];
+    }
+
+    private function extraModules(): \Illuminate\Support\Collection
+    {
+        return collect(app(NavigationPreferenceService::class)->workspaceModuleLinks(auth()->user(), 'Sales'))
+            ->reject(fn (array $item): bool => in_array($item['label'], [
+                'Sales Orders', 'Web Sales Orders', 'Quotations', 'Web Sales Dashboard',
+            ], true))
+            ->values();
+    }
+
+    public function selectExtraModule(int $index): void
+    {
+        abort_unless(static::canAccess() && $this->extraModules()->has($index), 403);
+        $this->activeTab = 'extra';
+        $this->activeExtraModule = $index;
     }
 
     public function setTab(string $tab): void
@@ -167,6 +183,7 @@ class SalesWorkspace extends Page
         };
         abort_unless($permitted, 403);
         $this->activeTab = $tab;
+        $this->activeExtraModule = null;
         $this->resetPage('sales-page');
         $this->resetPage('web-sales-page');
         $this->resetPage('quotation-page');

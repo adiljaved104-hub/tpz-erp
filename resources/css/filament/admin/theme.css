@@ -1717,3 +1717,180 @@ html.dark .tpz-native-invitation-dismiss { background: #2e4d63; color: #e3f5ff; 
 @media (max-width: 40rem) {
     .tpz-native-invitation { right: 1rem; bottom: 1rem; }
 }
+
+
+/* Approved TPZ New ERP common visual system for EVERY major workspace.
+   Scopes to opt-in mode; Classic ERP and protected backend forms unaffected. */
+html.tpz-native-workspace .tpz-native-workspace-heading-main {
+    display: flex; align-items: center; gap: .75rem; margin-top: .28rem;
+}
+html.tpz-native-workspace .tpz-unified-workspace .tpz-workspace-header--plain {
+    padding: .15rem 0 .38rem; gap: 1rem;
+}
+html.tpz-native-workspace .tpz-unified-workspace .tpz-workspace-tabs {
+    margin-top: .15rem;
+}
+html.tpz-native-workspace .tpz-workspace-tabs {
+    display: flex; flex-wrap: nowrap; max-width: 100%;
+    overflow-x: auto; overscroll-behavior-inline: contain;
+    scrollbar-width: thin; scroll-padding-inline: .5rem;
+}
+html.tpz-native-workspace .tpz-workspace-tabs > .tpz-workspace-tab {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: .38rem; flex: 0 0 auto; max-width: 17rem;
+    min-height: 2.8rem; white-space: nowrap;
+}
+html.tpz-native-workspace .tpz-native-tab-icon { flex: none; }
+html.tpz-native-workspace .tpz-unified-overview-panel,
+html.tpz-native-workspace .tpz-native-list-panel {
+    border: 1px solid #dae5ef; border-radius: .95rem;
+    background: #ffffff; padding: .85rem .95rem;
+    box-shadow: 0 4px 18px rgb(19 43 71 / 5%);
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-unified-section-title {
+    margin-bottom: .85rem;
+}
+html.tpz-native-workspace .tpz-unified-section-title h2 { font-size: 1.08rem; font-weight: 780; }
+html.tpz-native-workspace .tpz-native-overview-metrics {
+    display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,12rem),1fr));
+    gap: .68rem;
+}
+html.tpz-native-workspace .tpz-native-overview-metric {
+    display: grid; grid-template-columns: 2.35rem minmax(0,1fr);
+    align-items: center; column-gap: .6rem; row-gap: .1rem; min-width: 0;
+    border: 1px solid #cfe3f4; border-radius: .78rem;
+    padding: .75rem .85rem; background: #edf6ff; color: #163550;
+    min-height: 5.6rem; text-decoration: none;
+}
+html.tpz-native-workspace a.tpz-native-overview-metric:hover {
+    border-color: #69b5dd; box-shadow: 0 4px 12px rgb(18 95 143 / 9%);
+    transform: translateY(-1px);
+}
+html.tpz-native-workspace .tpz-native-overview-metric--green { background: #effaf3; border-color: #d5efdf; }
+html.tpz-native-workspace .tpz-native-overview-metric--amber { background: #fff8ec; border-color: #f8ead4; }
+html.tpz-native-workspace .tpz-native-overview-metric--violet { background: #f4f1ff; border-color: #e9e2fa; }
+html.tpz-native-workspace .tpz-native-overview-metric--rose { background: #fff1f3; border-color: #f4dce2; }
+html.tpz-native-workspace .tpz-native-overview-icon {
+    grid-row: 1 / span 2; width: 2.35rem; height: 2.35rem;
+    border-radius: .7rem; display: grid; place-items: center;
+    background: rgb(255 255 255 / 78%); color: #1675b4;
+}
+html.tpz-native-workspace .tpz-native-overview-metric--green .tpz-native-overview-icon { color: #148748; }
+html.tpz-native-workspace .tpz-native-overview-metric--amber .tpz-native-overview-icon { color: #ae7511; }
+html.tpz-native-workspace .tpz-native-overview-metric--violet .tpz-native-overview-icon { color: #8053c5; }
+html.tpz-native-workspace .tpz-native-overview-metric--rose .tpz-native-overview-icon { color: #cf465c; }
+html.tpz-native-workspace .tpz-native-overview-label {
+    font-size: .75rem; font-weight: 650; line-height: 1.26;
+    color: #3c526b; overflow-wrap: anywhere;
+}
+html.tpz-native-workspace .tpz-native-overview-metric strong {
+    grid-column: 2; font-size: 1.46rem; font-weight: 820;
+    line-height: 1.25; color: #0e2848;
+}
+html.tpz-native-workspace .tpz-native-overview-columns {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: .78rem; align-items: start;
+}
+html.tpz-native-workspace .tpz-native-panel-title {
+    display: flex; align-items: center; gap: .55rem;
+    margin-bottom: .5rem; border-bottom: 1px solid #e6edf4;
+    padding-bottom: .55rem;
+}
+html.tpz-native-workspace .tpz-native-panel-title h2 {
+    font-size: 1rem; font-weight: 780; color: #132e48;
+}
+html.tpz-native-workspace .tpz-native-panel-title .tpz-native-overview-icon {
+    width: 2rem; height: 2rem;
+}
+html.tpz-native-workspace .tpz-native-recent-list a {
+    display: flex; gap: .5rem; align-items: center;
+    padding: .44rem .15rem; border-bottom: 1px solid #e8edf4;
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-native-recent-list strong {
+    flex: 1; font-size: .77rem; min-width: 0; overflow-wrap: anywhere;
+    color: #163651;
+}
+html.tpz-native-workspace .tpz-native-recent-list small {
+    font-size: .68rem; color: #62758b; white-space: nowrap;
+}
+html.tpz-native-workspace .tpz-native-quick-actions { display: grid; gap: .36rem; }
+html.tpz-native-workspace .tpz-native-quick-actions a {
+    display: flex; gap: .52rem; align-items: center; padding: .5rem .7rem;
+    border-radius: .55rem; border: 1px solid #d8e2ec; background: #f6faff;
+    color: #1e4c71; font-size: .76rem; font-weight: 680;
+}
+html.tpz-native-workspace .tpz-native-quick-actions a:first-child {
+    background: #087ead; color: #fff; border-color: #087ead;
+}
+html.tpz-native-workspace .tpz-native-quick-actions a:hover { filter: brightness(.97); }
+html.tpz-native-workspace .tpz-native-module-list {
+    display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,11rem),1fr));
+    gap: .48rem;
+}
+html.tpz-native-workspace .tpz-native-module-list button {
+    display: flex; align-items: center; gap: .5rem; min-width: 0;
+    padding: .56rem .65rem; border: 1px solid #dce7f0;
+    border-radius: .6rem; background: #f8fbfe; color: #1e4668;
+    font-size: .76rem; font-weight: 650; text-align: left;
+}
+html.tpz-native-workspace .tpz-native-module-list button span { flex: 1; }
+html.tpz-native-workspace .tpz-native-module-list button:hover { border-color: #7dbcd9; background: #edf8fc; }
+html.tpz-native-workspace .tpz-native-module-header {
+    display: flex; align-items: center; flex-wrap: wrap; gap: .7rem;
+    border-bottom: 1px solid #e2eaf1; padding: .15rem 0 .7rem; margin-bottom: .72rem;
+}
+html.tpz-native-workspace .tpz-native-module-header > div:nth-child(2) { flex: 1; min-width: 10rem; }
+html.tpz-native-workspace .tpz-native-module-header h2 { font-size: 1.05rem; font-weight: 780; color: #153351; }
+html.tpz-native-workspace .tpz-native-module-header p { font-size: .74rem; color: #60768a; }
+html.tpz-native-workspace .tpz-native-module-count {
+    display: grid; text-align: right; gap: .12rem;
+}
+html.tpz-native-workspace .tpz-native-module-count small { font-size: .68rem; color: #62758b; }
+html.tpz-native-workspace .tpz-native-module-count strong { font-size: 1.32rem; color: #103655; }
+html.tpz-native-workspace .tpz-native-module-totals {
+    grid-template-columns: minmax(12rem,18rem); margin: .5rem 0 .9rem;
+}
+html.tpz-native-workspace .tpz-native-record-table-wrap { overflow-x: auto; }
+html.tpz-native-workspace .tpz-native-record-table { width: 100%; min-width: 32rem; border-collapse: collapse; font-size: .76rem; }
+html.tpz-native-workspace .tpz-native-record-table th {
+    padding: .7rem .65rem; text-align: left; text-transform: uppercase;
+    font-size: .68rem; color: #59728a; background: #edf3f8;
+}
+html.tpz-native-workspace .tpz-native-record-table td {
+    padding: .75rem .65rem; border-bottom: 1px solid #e4ecf3; color: #193650;
+}
+html.tpz-native-workspace .tpz-native-record-table td a { font-weight: 700; color: #087ba8; }
+html.tpz-native-workspace .tpz-native-no-preview { color: #63798d; padding: .65rem 0; font-size: .8rem; }
+html.tpz-native-workspace .tpz-native-module-footer { display: flex; justify-content: flex-end; margin-top: .85rem; }
+@media (max-width: 70rem) {
+    html.tpz-native-workspace .tpz-native-overview-columns { grid-template-columns: 1fr; }
+}
+@media (max-width: 36rem) {
+    html.tpz-native-workspace .tpz-native-overview-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    html.tpz-native-workspace .tpz-native-overview-metric { padding: .6rem; column-gap: .32rem; }
+    html.tpz-native-workspace .tpz-native-overview-metric strong { font-size: 1.18rem; }
+}
+html.dark.tpz-native-workspace .tpz-unified-overview-panel,
+html.dark.tpz-native-workspace .tpz-native-list-panel { background: #162a3c; border-color: #345069; }
+html.dark.tpz-native-workspace .tpz-native-overview-metric,
+html.dark.tpz-native-workspace .tpz-native-overview-metric:is(.tpz-native-overview-metric--green,.tpz-native-overview-metric--amber,.tpz-native-overview-metric--violet,.tpz-native-overview-metric--rose) { background: #213c52; border-color: #3b5c75; }
+html.dark.tpz-native-workspace .tpz-native-overview-label { color: #c6d8e8; }
+html.dark.tpz-native-workspace .tpz-native-overview-metric strong,
+html.dark.tpz-native-workspace .tpz-native-module-header h2,
+html.dark.tpz-native-workspace .tpz-native-module-count strong,
+html.dark.tpz-native-workspace .tpz-native-panel-title h2,
+html.dark.tpz-native-workspace .tpz-native-recent-list strong { color: #f2faff; }
+html.dark.tpz-native-workspace .tpz-native-module-header p,
+html.dark.tpz-native-workspace .tpz-native-module-count small,
+html.dark.tpz-native-workspace .tpz-native-recent-list small { color: #b9cedd; }
+html.dark.tpz-native-workspace .tpz-native-module-header,
+html.dark.tpz-native-workspace .tpz-native-panel-title,
+html.dark.tpz-native-workspace .tpz-native-recent-list a { border-color: #354d61; }
+html.dark.tpz-native-workspace .tpz-native-quick-actions a,
+html.dark.tpz-native-workspace .tpz-native-module-list button { background: #27475d; border-color: #3d617a; color: #e5f5ff; }
+html.dark.tpz-native-workspace .tpz-native-quick-actions a:first-child { background: #0d88b7; }
+html.dark.tpz-native-workspace .tpz-native-record-table th { background: #274359; color: #c9dbe8; }
+html.dark.tpz-native-workspace .tpz-native-record-table td { color: #e7f5ff; border-color: #385369; }
+html.dark.tpz-native-workspace .tpz-native-no-preview { color: #b9ccda; }

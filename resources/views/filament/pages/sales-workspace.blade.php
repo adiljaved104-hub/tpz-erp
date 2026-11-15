@@ -19,14 +19,15 @@
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="Sales workspace sections">
-            <span class="tpz-workspace-tab is-active" aria-current="page">Overview</span>
+            <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')">Overview</button>
             @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
-                    <a class="tpz-workspace-tab" href="{{ $links[$key] }}">{{ $label }}</a>
+                    <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')">{{ $label }}</button>
                 @endif
             @endforeach
         </nav>
 
+        @if($activeTab === 'overview')
         <div class="tpz-workspace-metrics tpz-workspace-metrics--three">
             @if(isset($links['orders']))
                 <div class="tpz-workspace-metric tpz-workspace-metric--blue">
@@ -56,7 +57,9 @@
                 </a>
             @endif
         </div>
+        @endif
 
+        @if($activeTab !== 'quotations')
         <x-filament::section>
             <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -89,7 +92,9 @@
             </div>
         </x-filament::section>
 
-        @if(isset($links['orders']))
+        @endif
+
+        @if(isset($links['orders']) && in_array($activeTab, ['overview', 'orders'], true))
             <x-filament::section>
                 <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">Sales Orders</h2>
@@ -121,7 +126,7 @@
             </x-filament::section>
         @endif
 
-        @if(isset($links['webSales']))
+        @if(isset($links['webSales']) && in_array($activeTab, ['overview', 'webSales'], true))
             <x-filament::section>
                 <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">Web Sales Orders</h2>
@@ -151,6 +156,18 @@
                 @if($webSales instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
                     <div class="mt-4">{{ $webSales->links() }}</div>
                 @endif
+            </x-filament::section>
+        @endif
+
+        @if($activeTab === 'quotations' && isset($links['quotations']))
+            <x-filament::section>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">Quotations</h2>
+                        <p class="text-sm text-gray-500">Use the authorized Quotations module to view and manage quotations.</p>
+                    </div>
+                    <x-filament::button tag="a" :href="$links['quotations']" icon="heroicon-o-arrow-up-right">Open Quotations</x-filament::button>
+                </div>
             </x-filament::section>
         @endif
     </div>

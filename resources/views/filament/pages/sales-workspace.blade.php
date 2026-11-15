@@ -97,14 +97,14 @@
             <div class="tpz-native-overview-columns tpz-reference-sales-panels">
                     <section class="tpz-native-list-panel" aria-label="Sales Needs Attention">
                             <div class="tpz-native-panel-title">
-                                <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-triangle')" class="size-5" /></span>
+                                <span class="tpz-native-overview-icon tpz-reference-warning-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-triangle')" class="size-5" /></span>
                                 <h2>Needs Attention</h2>
                                 <span class="tpz-reference-panel-note">Authorized operational items</span>
                             </div>
                             <div class="tpz-reference-attention-grid">
                                 @foreach($salesAttention as $alert)
                                     <a class="tpz-reference-attention-row" href="{{ $alert['url'] }}">
-                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-circle')" class="size-4" /></span>
+                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-exclamation-circle')" class="size-4" /></span>
                                         <span class="tpz-reference-alert-label" title="{{ $alert['label'] }}">{{ $alert['label'] }}</span>
                                         <strong>{{ number_format($alert['count']) }}</strong>
                                         <small>View</small>
@@ -117,7 +117,7 @@
                         </section>
                         <section class="tpz-native-list-panel" aria-label="Recent Sales Activity">
                             <div class="tpz-native-panel-title">
-                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-clock')" class="size-5" /></span>
+                                <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-clock')" class="size-5" /></span>
                                 <h2>Recent Sales Activity</h2>
                                 @if(isset($links['orders']))
                                     <a class="tpz-reference-panel-view" href="{{ $links['orders'] }}">View all →</a>
@@ -128,7 +128,7 @@
                             <div class="tpz-native-recent-list">
                                 @foreach($salesRecentUpdates->take(5) as $update)
                                     <a href="{{ $update['url'] }}" wire:key="recent-sales-{{ $loop->index }}">
-                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-shopping-bag')" class="size-4" /></span>
+                                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-shopping-bag')" class="size-4" /></span>
                                         <span class="tpz-reference-movement-label">
                                             <strong>{{ $update['reference'] }} · {{ $update['status'] }}</strong>
                                             <small>{{ $update['source'] }} · {{ number_format($update['units']) }} unit(s)</small>
@@ -145,7 +145,7 @@
 
             <section class="tpz-native-list-panel tpz-reference-records-panel" aria-label="Recent Sales Updates">
                     <div class="tpz-native-panel-title">
-                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\\App\\Support\\SafeWorkspaceIcon::resolve('heroicon-o-document-text')" class="size-5" /></span>
+                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-document-text')" class="size-5" /></span>
                         <h2>Recent Sales Updates</h2>
                         @if(isset($links['orders']))<a class="tpz-reference-panel-view" href="{{ $links['orders'] }}">View Sales Orders →</a>@endif
                     </div>

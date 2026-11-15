@@ -8,12 +8,12 @@
             </div>
             <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected sales section">
                 @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
-                    <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" icon="heroicon-o-arrow-up-right">
+                    <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                         Open {{ $extraModules[$activeExtraModule]['label'] }}
                     </x-filament::button>
                 @elseif($activeTab === 'overview')
                     @if(isset($links['createOrder']))
-                        <x-filament::button tag="a" :href="$links['createOrder']" icon="heroicon-o-plus">Create Sales Order</x-filament::button>
+                        <x-filament::button tag="a" :href="$links['createOrder']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
                     @endif
                     @if(isset($links['dashboard']))
                         <details class="tpz-reference-actions-menu">
@@ -25,33 +25,33 @@
                     @endif
                 @elseif($activeTab === 'orders')
                     @if(isset($links['createOrder']))
-                        <x-filament::button tag="a" :href="$links['createOrder']" icon="heroicon-o-plus">Create Sales Order</x-filament::button>
+                        <x-filament::button tag="a" :href="$links['createOrder']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
                     @endif
                     @if(isset($links['orders']))
-                        <x-filament::button tag="a" color="gray" :href="$links['orders']" icon="heroicon-o-shopping-bag">All Sales Orders</x-filament::button>
+                        <x-filament::button tag="a" color="gray" :href="$links['orders']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-shopping-bag')">All Sales Orders</x-filament::button>
                     @endif
                 @elseif($activeTab === 'webSales')
                     @if(isset($links['createWebSale']))
-                        <x-filament::button tag="a" :href="$links['createWebSale']" icon="heroicon-o-plus">Create Web Sale</x-filament::button>
+                        <x-filament::button tag="a" :href="$links['createWebSale']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Web Sale</x-filament::button>
                     @endif
                     @if(isset($links['dashboard']))
-                        <x-filament::button tag="a" color="gray" :href="$links['dashboard']" icon="heroicon-o-chart-bar">Web Sales Dashboard</x-filament::button>
+                        <x-filament::button tag="a" color="gray" :href="$links['dashboard']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-chart-bar')">Web Sales Dashboard</x-filament::button>
                     @elseif(isset($links['webSales']))
-                        <x-filament::button tag="a" color="gray" :href="$links['webSales']" icon="heroicon-o-globe-alt">All Web Sales</x-filament::button>
+                        <x-filament::button tag="a" color="gray" :href="$links['webSales']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-globe-alt')">All Web Sales</x-filament::button>
                     @endif
                 @elseif($activeTab === 'quotations')
                     @if(isset($links['createQuotation']))
-                        <x-filament::button tag="a" :href="$links['createQuotation']" icon="heroicon-o-plus">Create Quotation</x-filament::button>
+                        <x-filament::button tag="a" :href="$links['createQuotation']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Quotation</x-filament::button>
                     @endif
                     @if(isset($links['quotations']))
-                        <x-filament::button tag="a" color="gray" :href="$links['quotations']" icon="heroicon-o-document-text">All Quotations</x-filament::button>
+                        <x-filament::button tag="a" color="gray" :href="$links['quotations']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-document-text')">All Quotations</x-filament::button>
                     @endif
                 @endif
             </div>
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="Sales workspace sections">
-            <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon icon="heroicon-o-squares-2x2" class="tpz-native-tab-icon size-4" /> Overview</button>
+            <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" /> Overview</button>
             @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
                     <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve((['orders' => 'heroicon-o-shopping-bag', 'webSales' => 'heroicon-o-globe-alt', 'quotations' => 'heroicon-o-document-text'][$key] ?? 'heroicon-o-document-text'))" class="tpz-native-tab-icon size-4" /> {{ $label }}@if(isset($salesCounts[$key])) <span class="tpz-native-tab-count">{{ number_format($salesCounts[$key]) }}</span>@endif</button>

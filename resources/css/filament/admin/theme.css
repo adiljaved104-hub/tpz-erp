@@ -1701,6 +1701,55 @@ html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .t
         grid-template-columns: minmax(0,1fr);
     }
 }
+/* Owner-approved final reference: Recent Activity and Quick Actions only.
+   Preserve all other Staging dashboard layouts, values and access scope. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels > .fi-section:nth-child(2) .fi-section-content,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels > .fi-section:nth-child(3) .fi-section-content {
+    padding: .45rem .65rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity { gap: 0; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-list-row {
+    min-height: 2.2rem; padding: .29rem .18rem;
+    gap: .5rem; border-bottom: 1px solid #e5edf6;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity-icon {
+    width: 1.7rem; height: 1.7rem; border-radius: .42rem;
+    background: #e4f4ff; color: #087db4;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-home-row-label strong {
+    font-size: .76rem; font-weight: 750;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-home-row-label small {
+    font-size: .66rem; margin-top: .02rem; line-height: 1.12;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity time {
+    font-size: .65rem; flex: none;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions {
+    grid-template-columns: minmax(0,1fr); gap: .28rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a {
+    display: flex; justify-content: center; text-align: center; gap: .45rem;
+    min-height: 1.9rem; padding: .3rem .55rem;
+    border: 1px solid #aebfd3; border-radius: .45rem;
+    background: #fff; color: #15304c; font-size: .72rem;
+    box-shadow: 0 1px 2px rgb(15 45 70 / 4%);
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:hover {
+    background: #eff7ff; border-color: #5b9bc6;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:first-child {
+    color: #fff; background: #087ac4; border-color: #087ac4;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:first-child:hover {
+    background: #0866a3; border-color: #0866a3;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:not(:first-child) {
+    background: #1a3044; border-color: #48627c; color: #e5f1fc;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:not(:first-child):hover {
+    background: #284961;
+}
 /* Dark mode uses the same layout with readable contrast. */
 html.dark.tpz-native-workspace .tpz-native-detail-panel { background: #152738; border-color: #31495d; }
 html.dark.tpz-native-workspace .tpz-native-detail-header { color: #eaf4fc; }

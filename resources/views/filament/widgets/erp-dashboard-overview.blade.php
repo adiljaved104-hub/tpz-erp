@@ -30,6 +30,8 @@
 
         /* Classic Dashboard: warehouse breakdown uses real responsive cards,
            not unstyled links. Scoped to Classic only; native mode is unchanged. */
+        .tpz-classic-warehouse-heading { margin: .8rem 0 .6rem; color: #334155; font-size: .9rem; font-weight: 700; }
+        .dark .tpz-classic-warehouse-heading { color: #e2e8f0; }
         .tpz-classic-warehouse-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -50,15 +52,12 @@
             padding: .85rem;
             border: 1px solid #dce6f0;
             border-radius: .85rem;
-            background: #f1f7ff;
+            background: #fff;
             color: #163654;
             text-decoration: none;
             box-shadow: 0 1px 3px rgb(15 45 70 / 6%);
             overflow-wrap: anywhere;
         }
-        .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile:nth-child(4n+2) { background: #eefbf6; border-color: #d2eee1; }
-        .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile:nth-child(4n+3) { background: #fff7e8; border-color: #f2e2c9; }
-        .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile:nth-child(4n+4) { background: #f3f0ff; border-color: #e0d9f6; }
         .tpz-classic-warehouse-grid .tpz-native-mini-icon {
             grid-row: 1 / span 2;
             display: grid;
@@ -613,9 +612,9 @@
                                     </div>
                                     @if ($widgetKey === 'inventory')
                                         @if(! empty($warehouse_breakdown))
-                                            <div class="tpz-classic-warehouse-grid" aria-label="Authorized warehouse stock breakdown">
+                                            <div class="tpz-classic-warehouse-breakdown"><h3 class="tpz-classic-warehouse-heading">Warehouse Stock</h3><div class="tpz-classic-warehouse-grid" aria-label="Authorized warehouse stock breakdown">
                                                 @include('filament.widgets.dashboard.warehouse-overview')
-                                            </div>
+                                                </div></div>
                                         @endif
                                     @endif
                                 </x-filament::section>

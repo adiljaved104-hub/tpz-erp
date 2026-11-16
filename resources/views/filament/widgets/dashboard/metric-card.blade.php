@@ -15,6 +15,7 @@
     $_metricBadgeColor = $metricBadgeColor ?? $_metricColor ?? 'gray';
     $_metricShowOpen = false;
     $_metricActive = $metricActive ?? false;
+    $_metricClassicCompact = $classicCompact ?? false;
     $_metricFormattedValue = is_int($_metricValue) ? number_format($_metricValue) : $_metricValue;
 
     $_metricAccent = $metricAccent ?? match ($_metricKey) {
@@ -47,6 +48,7 @@
         'group block h-full min-w-0 rounded-xl border border-gray-200 bg-white p-4 text-left shadow-sm transition duration-150 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 dark:border-white/10 dark:bg-gray-900',
         $_metricVariant['hover'],
         $_metricActive ? $_metricVariant['active'] : null,
+        $_metricClassicCompact ? 'tpz-classic-metric-card' : null,
     ]));
 @endphp
 
@@ -57,7 +59,7 @@
 @else
     <div class="{{ $_metricWrapperClasses }}">
 @endif
-        <div class="flex h-full min-h-32 min-w-0 flex-col justify-between gap-3">
+        <div class="{{ $_metricClassicCompact ? 'flex min-w-0 flex-col gap-1' : 'flex h-full min-h-32 min-w-0 flex-col justify-between gap-3' }}">
             <div class="flex min-w-0 items-start justify-between gap-3">
                 <div class="min-w-0">
                     <p class="text-sm font-medium text-gray-500 dark:text-gray-400">{{ $_metricTitle }}</p>
@@ -75,12 +77,14 @@
                         </div>
                     @endif
                 </div>
+                @unless ($_metricClassicCompact)
                 <span class="flex size-8 shrink-0 items-center justify-center rounded-lg transition duration-150 {{ $_metricVariant['icon'] }}">
                     <x-filament::icon :icon="$_metricIcon" class="!size-4" />
                 </span>
+                @endunless
             </div>
 
-            @if (filled($_metricDescription) || $_metricShowOpen || filled($_metricBadge))
+            @if (! $_metricClassicCompact && (filled($_metricDescription) || $_metricShowOpen || filled($_metricBadge)))
                 <div class="min-w-0">
                     @if (filled($_metricDescription))
                         <p class="line-clamp-2 text-xs text-gray-500 dark:text-gray-400" title="{{ $_metricDescription }}">{{ $_metricDescription }}</p>

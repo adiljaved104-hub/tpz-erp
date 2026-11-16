@@ -4,7 +4,6 @@
             <span class="tpz-native-mini-icon"><x-filament::icon icon="heroicon-o-building-office-2" class="size-5" /></span>
             <span class="tpz-native-mini-label" title="{{ $warehouse['name'] }}">{{ $warehouse['name'] }}</span>
             <strong>{{ number_format($warehouse['units']) }}</strong>
-            <span class="tpz-native-mini-open">View <span aria-hidden="true">→</span></span>
         </a>
     @endforeach
     @if ($warehouse_breakdown['in_transit'] > 0)

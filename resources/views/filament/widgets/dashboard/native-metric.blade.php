@@ -7,7 +7,8 @@
     $url = $card['url'] ?? null;
     $icon = $icons[$key] ?? 'heroicon-o-chart-bar';
     $tone = match($key) {
-        'inventory_units', 'sellable_inventory', 'marketplace_inventory' => 'blue',
+        'inventory_units', 'marketplace_inventory' => 'blue',
+        'sellable_inventory' => 'teal',
         'inventory_value' => 'violet',
         'low_stock', 'qc_pending', 'attendance_late', 'pending_leave' => 'amber',
         'out_of_stock', 'damaged', 'warning_acknowledgments' => 'rose',

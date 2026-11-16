@@ -33,29 +33,6 @@
 @endphp
 
 <div class="tpz-native-operations" aria-label="Operational Dashboard">
-    @if(isset($nativeVisible['inventory']) && $nativeCards['inventory']->isNotEmpty())
-        <section class="tpz-native-detail-panel" x-data="{
-                open: localStorage.getItem('tpz-native-section-inventory') !== 'closed',
-                toggle() { this.open = !this.open; localStorage.setItem('tpz-native-section-inventory', this.open ? 'open' : 'closed') }
-            }" aria-label="Inventory and Warehouse">
-            <button class="tpz-native-detail-header" type="button" x-on:click="toggle()" :aria-expanded="open.toString()" aria-controls="tpz-native-detail-inventory">
-                <span class="tpz-native-detail-header-icon"><x-filament::icon icon="heroicon-o-cube" class="size-5" /></span>
-                <span class="tpz-native-detail-header-copy">
-                    <strong>Inventory &amp; Warehouse</strong>
-                    <small>Stock position, valuation and operational inventory status.</small>
-                </span>
-                <x-filament::icon icon="heroicon-o-chevron-down" class="tpz-native-detail-chevron size-4" x-bind:class="{'is-collapsed': !open}" />
-            </button>
-            <div id="tpz-native-detail-inventory" x-show="open" class="tpz-native-detail-body">
-                <div class="tpz-native-detail-card-grid">
-                    @foreach($nativeCards['inventory'] as $card)
-                        @include('filament.widgets.dashboard.native-metric', ['card' => $card, 'icons' => $icons])
-                    @endforeach
-                </div>
-            </div>
-        </section>
-    @endif
-
     <div class="tpz-native-operational-columns">
         @if(isset($nativeVisible['attention']) && $nativeActionList->isNotEmpty())
             <section class="tpz-native-detail-panel" x-data="{
@@ -70,11 +47,25 @@
                 <div id="tpz-native-detail-attention" x-show="open" class="tpz-native-detail-body">
                     <div class="tpz-native-attention-list">
                         @foreach($nativeActionList as $item)
-                            <a href="{{ $item['url'] }}" class="tpz-native-attention-link">
-                                <x-filament::icon icon="heroicon-o-exclamation-circle" class="size-4" />
+                            @php
+                                $attentionLabel = strtolower((string) $item['label']);
+                                $attentionIcon = match (true) {
+                                    str_contains($attentionLabel, 'claim') => 'heroicon-o-shield-check',
+                                    str_contains($attentionLabel, 'qc') => 'heroicon-o-magnifying-glass',
+                                    str_contains($attentionLabel, 'damaged') => 'heroicon-o-exclamation-triangle',
+                                    str_contains($attentionLabel, 'return') => 'heroicon-o-arrow-uturn-left',
+                                    str_contains($attentionLabel, 'purchase') => 'heroicon-o-truck',
+                                    str_contains($attentionLabel, 'repair') => 'heroicon-o-wrench-screwdriver',
+                                    str_contains($attentionLabel, 'complaint') => 'heroicon-o-megaphone',
+                                    str_contains($attentionLabel, 'task') => 'heroicon-o-clipboard-document-check',
+                                    default => 'heroicon-o-exclamation-circle',
+                                };
+                            @endphp
+                            <a href="{{ $item['url'] }}" class="tpz-native-attention-link" aria-label="{{ $item['label'] }}: {{ number_format($item['count']) }}. View">
+                                <x-filament::icon :icon="$attentionIcon" class="tpz-native-attention-icon size-4" />
                                 <span title="{{ $item['label'] }}">{{ $item['label'] }}</span>
                                 <b>{{ number_format($item['count']) }}</b>
-                                <small>View</small>
+                                <small aria-hidden="true">View</small>
                             </a>
                         @endforeach
                     </div>

@@ -1,7 +1,7 @@
 @php
     $sections = [
         'sales' => ['heading' => 'Sales & Orders', 'description' => 'Order activity and common operational entry points.', 'keys' => ['orders', 'revenue', 'quick_purchase', 'record_return']],
-        'inventory' => ['heading' => 'Inventory', 'description' => 'Current authorized stock position.', 'keys' => ['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory']],
+        'inventory' => ['heading' => 'Inventory', 'description' => 'Current authorized stock position.', 'keys' => ['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending']],
         'service' => ['heading' => 'Service & Claims', 'description' => 'Open operational cases requiring follow-up.', 'keys' => ['returns', 'claims', 'warranty', 'internal_repairs', 'complaints']],
         'work' => ['heading' => 'Work', 'description' => 'Tasks and communication in your authorized scope.', 'keys' => ['tasks', 'chat_unread', 'notifications']],
         'hr' => ['heading' => 'HR', 'description' => 'Attendance, leave, and acknowledgment status.', 'keys' => ['attendance_present', 'attendance_late', 'attendance_absent', 'pending_leave', 'warning_acknowledgments', 'notice_acknowledgments']],
@@ -64,6 +64,113 @@
         .erp-dashboard-customizer-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; font-weight: 600; }
         .erp-dashboard-customizer-actions { display: flex; flex: none; align-items: center; gap: .35rem; }
         .erp-dashboard-empty-state { padding: 2rem 1rem; text-align: center; }
+        .tpz-dashboard-date-filters { display: flex; flex: 0 1 auto; min-width: 0; flex-direction: column; align-items: flex-end; gap: .45rem; }
+        .tpz-dashboard-date-filters .tpz-native-period { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+        .tpz-dashboard-custom-period { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: .4rem; }
+        .tpz-dashboard-custom-period label { display: flex; flex-direction: column; gap: .2rem; font-size: .72rem; font-weight: 650; }
+        .tpz-dashboard-period-error { color: #b91c1c; font-size: .72rem; }
+        @media (max-width: 47.999rem) {
+            .tpz-dashboard-date-filters { align-items: flex-start; width: 100%; }
+            .tpz-dashboard-date-filters .tpz-native-period, .tpz-dashboard-custom-period { justify-content: flex-start; }
+        }
+
+
+        /* Inventory breakdown uses the same dashboard panel language in both modes.
+           Explicit scoped styles avoid missing utility classes in the compiled Filament theme. */
+        .tpz-marketplace-mini-list { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .45rem; }
+        .tpz-marketplace-mini-chip { display: inline-flex; max-width: 100%; align-items: center; gap: .3rem; padding: .18rem .38rem; border-radius: .4rem; background: #eaf3fd; color: #315676; font-size: .66rem; line-height: 1.1rem; }
+        .tpz-marketplace-mini-name { max-width: 6.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tpz-marketplace-mini-chip strong { flex: none; font-weight: 800; color: #123b62; }
+        .dark .tpz-marketplace-mini-chip { background: #263a50; color: #d1e6fb; }
+        .dark .tpz-marketplace-mini-chip strong { color: #f4f9ff; }
+        /* Stable Owner-approved native dashboard design: one Inventory section,
+           consistently sized cards and the reference's stronger pastel accents. */
+        .tpz-reference-home .tpz-dashboard-inventory-unified {
+            display: grid;
+            grid-template-columns: repeat(8, minmax(0, 1fr));
+            gap: .4rem;
+            min-width: 0;
+            align-items: stretch;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
+            box-sizing: border-box;
+            min-width: 0;
+            min-height: 4.25rem;
+            padding: .4rem;
+            border: 1px solid #d3e5f6;
+            border-radius: .8rem;
+            background: #e8f3ff;
+            display: grid;
+            grid-template-columns: 1.4rem minmax(0,1fr);
+            align-content: start;
+            gap: .12rem .35rem;
+            color: #12395e;
+            text-decoration: none;
+            box-shadow: 0 1px 2px rgb(31 65 100 / 4%);
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified > a.tpz-native-mini-metric:hover {
+            border-color: #79bdee;
+            box-shadow: 0 3px 9px rgb(31 65 100 / 12%);
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-icon {
+            width: 1.5rem; height: 1.5rem; border-radius: .45rem;
+            display: grid; place-items: center; grid-row: 1 / span 3;
+            background: rgb(255 255 255 / 78%);
+            color: #1675c1;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label {
+            font-size: .65rem; font-weight: 700; line-height: 1.19;
+            color: #31516f; overflow-wrap: anywhere;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong {
+            grid-column: 2; font-size: 1.09rem; line-height: 1.19;
+            font-weight: 800; color: #092f55; overflow-wrap: anywhere;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--teal {
+            background: #e7f8ed; border-color: #c9edd5;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--teal .tpz-native-mini-icon { color: #168454; }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--violet {
+            background: #f0ecff; border-color: #dfd5fb;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--violet .tpz-native-mini-icon { color: #7252c1; }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--amber {
+            background: #fff5df; border-color: #f6e0b2;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--amber .tpz-native-mini-icon { color: #b47c19; }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--rose {
+            background: #ffedef; border-color: #f6d4db;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--rose .tpz-native-mini-icon { color: #c8415c; }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-dashboard-warehouse-tile {
+            background: #e8f3ff; border-color: #d3e5f6;
+        }
+        .tpz-reference-home .tpz-dashboard-marketplace-chips {
+            display: flex; grid-column: 2; flex-wrap: wrap; gap: .2rem; min-width: 0;
+        }
+        .tpz-reference-home .tpz-dashboard-marketplace-chips small {
+            max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; padding: .1rem .25rem; border-radius: .3rem;
+            background: #d4e8ff; font-size: .61rem; color: #244d76;
+        }
+        .tpz-reference-home .tpz-dashboard-marketplace-chips b { font-weight: 800; }
+        .dark .tpz-reference-home .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
+            background: #21394f; border-color: #3b5872;
+        }
+        .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label,
+        .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong { color: #edf6ff; }
+        /* Keep eight cards on desktop at 100% zoom. Reduce columns only
+           when the viewport truly cannot fit the compact tiles. */
+        @media (max-width: 73.999rem) {
+            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(4,minmax(0,1fr)); }
+        }
+        @media (max-width: 47.999rem) {
+            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(2,minmax(0,1fr)); }
+        }
+        @media (max-width: 29.999rem) {
+            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: minmax(0,1fr); }
+        }
 
         @media (min-width: 40rem) {
             .erp-dashboard-attention-grid, .erp-dashboard-customizer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -151,7 +258,23 @@
                         <h1>{{ $greeting }}, {{ auth()->user()->name }} <span aria-hidden="true">👋</span></h1>
                         <p>Here's what's happening in TPZ ERP today.</p>
                     </div>
-                    <time datetime="{{ $localNow->toDateString() }}">{{ $localNow->format('D, d M Y') }}</time>
+                    <div class="tpz-dashboard-date-filters">
+                        <time datetime="{{ $localNow->toDateString() }}">{{ $localNow->format('D, d M Y') }}</time>
+                        <div class="tpz-native-period" aria-label="Dashboard date range">
+                            @foreach (['today' => 'Today', 'week' => 'Week', 'month' => 'Month', 'custom' => 'Custom'] as $key => $label)
+                                <x-filament::button type="button" size="xs" :color="$period === $key ? 'primary' : 'gray'" :outlined="$period !== $key" wire:click="setPeriod('{{ $key }}')" :aria-pressed="$period === $key ? 'true' : 'false'">{{ $label }}</x-filament::button>
+                            @endforeach
+                        </div>
+                        @if ($period === 'custom')
+                            <div class="tpz-dashboard-custom-period">
+                                <label>From <x-filament::input.wrapper><x-filament::input type="date" wire:model="customFrom" /></x-filament::input.wrapper></label>
+                                <label>To <x-filament::input.wrapper><x-filament::input type="date" wire:model="customTo" /></x-filament::input.wrapper></label>
+                                <x-filament::button type="button" size="xs" wire:click="applyCustomRange">Apply</x-filament::button>
+                                @error('customFrom') <span class="tpz-dashboard-period-error">{{ $message }}</span> @enderror
+                                @error('customTo') <span class="tpz-dashboard-period-error">{{ $message }}</span> @enderror
+                            </div>
+                        @endif
+                    </div>
                 </div>
 
                 <div class="tpz-home-kpis">
@@ -269,18 +392,19 @@
                     </x-filament::section>
 
                 </div>
-                <div class="tpz-native-period" aria-label="Dashboard date range">
-                    @foreach (['today' => 'Today', 'week' => 'Week', 'month' => 'Month', 'custom' => 'Custom'] as $key => $label)
-                        <x-filament::button type="button" size="xs" :color="$period === $key ? 'primary' : 'gray'" :outlined="$period !== $key" wire:click="setPeriod('{{ $key }}')">{{ $label }}</x-filament::button>
-                    @endforeach
-                    @if ($period === 'custom')
-                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customFrom" aria-label="Start date" /></x-filament::input.wrapper>
-                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customTo" aria-label="End date" /></x-filament::input.wrapper>
-                        <x-filament::button type="button" size="xs" wire:click="applyCustomRange">Apply</x-filament::button>
-                        @error('customFrom') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
-                        @error('customTo') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
-                    @endif
-                </div>
+                @if (! empty($warehouse_breakdown))
+                    <x-filament::section compact heading="Inventory & Warehouse" description="Stock position, valuation and operational inventory status.">
+                        <div class="tpz-native-detail-card-grid tpz-dashboard-inventory-unified" aria-label="Inventory metrics and warehouses">
+                            @foreach (['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory'] as $inventoryKey)
+                                @if ($card = $cardsByKey->get($inventoryKey))
+                                    @include('filament.widgets.dashboard.native-metric', ['card' => $card, 'icons' => $icons])
+                                @endif
+                            @endforeach
+                            @include('filament.widgets.dashboard.warehouse-overview')
+                        </div>
+                    </x-filament::section>
+                @endif
+
                 @include('filament.widgets.dashboard.native-operational-sections')
             </div>
         @endif
@@ -406,6 +530,9 @@
                                             @include('filament.widgets.dashboard.metric-card', ['card' => $card, 'icons' => $icons])
                                         @endforeach
                                     </div>
+                                    @if ($widgetKey === 'inventory')
+                                        @include('filament.widgets.dashboard.warehouse-overview')
+                                    @endif
                                 </x-filament::section>
                             @endif
                         @elseif ($widgetKey === 'inventory_intelligence')

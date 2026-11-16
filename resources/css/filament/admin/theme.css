@@ -7,7 +7,7 @@
 @source '../../../../resources/views/returns/**/*';
 
 /* Opt-in native workspace shell. Legacy users are unaffected. */
-html.tpz-native-workspace { --tpz-navy: #122b43; --tpz-blue: #176b87; --tpz-teal: #13a68b; }
+html.tpz-native-workspace { --tpz-navy: #122b43; --tpz-blue: #176b87; --tpz-teal: #13a68b; --sidebar-width: 15.5rem; }
 html.tpz-native-workspace .fi-sidebar { background: var(--tpz-navy); border-color: rgb(255 255 255 / 10%); }
 html.tpz-native-workspace .fi-sidebar-header { background: var(--tpz-navy); border-color: rgb(255 255 255 / 10%); }
 html.tpz-native-workspace .fi-sidebar-header *, html.tpz-native-workspace .fi-sidebar-group-label, html.tpz-native-workspace .fi-sidebar-item-label { color: rgb(226 238 244 / 86%); }
@@ -1348,22 +1348,22 @@ html.dark.tpz-native-workspace .tpz-native-kpi-trend.is-down { color: #fdba74; }
 }
 
 
-/* Native dashboard supports six honest KPI cards without squeezed labels.
-   On normal desktop widths, two balanced rows improve readability. */
+/* Owner-approved density: six truthful KPI cards on normal desktops,
+   with the same compact design retained at smaller breakpoints. */
 html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
 }
-@media (min-width: 105rem) {
+@media (max-width: 79.999rem) {
     html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
-@media (max-width: 48rem) {
+@media (max-width: 47.999rem) {
     html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
-@media (max-width: 36rem) {
+@media (max-width: 35.999rem) {
     html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
         grid-template-columns: 1fr;
     }
@@ -1566,7 +1566,7 @@ html.tpz-native-workspace .tpz-native-operational-columns {
     align-items: start;
 }
 html.tpz-native-workspace .tpz-native-operational-columns .tpz-native-detail-card-grid {
-    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-columns: repeat(5,minmax(0,1fr));
 }
 html.tpz-native-workspace .tpz-native-attention-list {
     display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
@@ -1601,8 +1601,9 @@ html.tpz-native-workspace .tpz-home-actions a:first-child {
 }
 html.tpz-native-workspace .tpz-home-actions a:first-child:hover { background: #0a668e; }
 
-@media (max-width: 75rem) {
+@media (max-width: 79.999rem) {
     html.tpz-native-workspace .tpz-native-operational-columns { grid-template-columns: 1fr; }
+    html.tpz-native-workspace .tpz-native-operational-columns .tpz-native-detail-card-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
 }
 @media (max-width: 58rem) {
     html.tpz-native-workspace .tpz-native-detail-card-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
@@ -1612,6 +1613,222 @@ html.tpz-native-workspace .tpz-home-actions a:first-child:hover { background: #0
     html.tpz-native-workspace .tpz-native-detail-card-grid,
     html.tpz-native-workspace .tpz-native-operational-columns .tpz-native-detail-card-grid {
         grid-template-columns: 1fr;
+    }
+}
+/* Dashboard-only density contract: keeps the approved pastel card design,
+   inventory and access-control logic intact. No effect on Classic ERP. */
+html.tpz-native-workspace .tpz-reference-home--final { gap: .55rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpis { gap: .45rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi {
+    min-height: 4.6rem; padding: .55rem .65rem; gap: .45rem; border-radius: .7rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi svg {
+    width: 2rem; height: 2rem; padding: .42rem; border-radius: .55rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi span:not(.tpz-native-kpi-trend) {
+    font-size: .69rem; line-height: 1.22;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi strong {
+    font-size: 1.25rem; line-height: 1.12; margin-top: .14rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels { gap: .55rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels .fi-section-header {
+    padding: .6rem .8rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels .fi-section-content {
+    padding: .55rem .75rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-list { gap: .05rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-list > a,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-list > div {
+    padding: .34rem .15rem; min-height: 2.2rem; font-size: .75rem; line-height: 1.25;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-list-row {
+    padding: .26rem .1rem; min-height: 2.35rem; gap: .4rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity-icon {
+    width: 1.55rem; height: 1.55rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions { gap: .27rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a {
+    padding: .36rem .6rem; min-height: 2rem; font-size: .73rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations { margin-top: .1rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-detail-header {
+    min-height: 2.85rem; padding: .42rem .7rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-detail-body { padding: .2rem .6rem .6rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-detail-card-grid { gap: .4rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-metric {
+    min-height: 4.35rem; padding: .5rem .38rem; gap: .18rem;
+    grid-template-columns: minmax(0,1fr);
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-icon {
+    width: 1.65rem; height: 1.65rem; grid-row: auto;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-label {
+    font-size: .67rem; line-height: 1.15;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-metric strong {
+    grid-column: 1; font-size: 1.12rem; line-height: 1.1;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    padding: .26rem .4rem; min-height: 1.9rem; font-size: .68rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .tpz-native-detail-panel .tpz-native-detail-card-grid {
+    grid-template-columns: repeat(6,minmax(0,1fr));
+}
+@media (max-width: 79.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .tpz-native-detail-panel .tpz-native-detail-card-grid {
+        grid-template-columns: repeat(3,minmax(0,1fr));
+    }
+}
+@media (max-width: 47.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .tpz-native-detail-panel .tpz-native-detail-card-grid {
+        grid-template-columns: repeat(2,minmax(0,1fr));
+    }
+}
+@media (max-width: 35.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .tpz-native-detail-panel .tpz-native-detail-card-grid {
+        grid-template-columns: minmax(0,1fr);
+    }
+}
+/* Owner-approved final reference: Recent Activity and Quick Actions only.
+   Preserve all other Staging dashboard layouts, values and access scope. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels > .fi-section:nth-child(2) .fi-section-content,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels > .fi-section:nth-child(3) .fi-section-content {
+    padding: .45rem .65rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity { gap: 0; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-list-row {
+    min-height: 2.2rem; padding: .29rem .18rem;
+    gap: .5rem; border-bottom: 1px solid #e5edf6;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity-icon {
+    width: 1.7rem; height: 1.7rem; border-radius: .42rem;
+    background: #e4f4ff; color: #087db4;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-home-row-label strong {
+    font-size: .76rem; font-weight: 750;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-home-row-label small {
+    font-size: .66rem; margin-top: .02rem; line-height: 1.12;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity time {
+    font-size: .65rem; flex: none;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions {
+    grid-template-columns: minmax(0,1fr); gap: .28rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a {
+    display: flex; justify-content: center; text-align: center; gap: .45rem;
+    min-height: 1.9rem; padding: .3rem .55rem;
+    border: 1px solid #aebfd3; border-radius: .45rem;
+    background: #fff; color: #15304c; font-size: .72rem;
+    box-shadow: 0 1px 2px rgb(15 45 70 / 4%);
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:hover {
+    background: #eff7ff; border-color: #5b9bc6;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:first-child {
+    color: #fff; background: #087ac4; border-color: #087ac4;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:first-child:hover {
+    background: #0866a3; border-color: #0866a3;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:not(:first-child) {
+    background: #1a3044; border-color: #48627c; color: #e5f1fc;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:not(:first-child):hover {
+    background: #284961;
+}
+/* Owner-approved Needs Attention reference styling (native dashboard only).
+   Two tight columns with contextual icons and a View affordance; every existing
+   authorized alert remains visible and each entire row remains clickable. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: .35rem;
+    row-gap: .18rem;
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    min-height: 1.7rem;
+    gap: .3rem;
+    padding: .16rem .32rem;
+    border: 1px solid #e5edf7;
+    border-radius: .4rem;
+    background: #fbfdff;
+    color: #17304b;
+    font-size: .67rem;
+    line-height: 1.15;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link .tpz-native-attention-icon {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    color: #246d9c;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link > span {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 650;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link b {
+    flex: none;
+    min-width: 1.4rem;
+    padding: .1rem .3rem;
+    border-radius: 999px;
+    text-align: center;
+    background: #f9dfe3;
+    color: #aa2439;
+    font-size: .66rem;
+    font-weight: 800;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link small {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.5rem;
+    min-height: 1.25rem;
+    padding: .08rem .35rem;
+    border-radius: 999px;
+    border: 1px solid #d8e2ec;
+    background: #fff;
+    color: #18334d;
+    font-size: .64rem;
+    font-weight: 750;
+    box-shadow: 0 1px 2px rgb(14 40 65 / 7%);
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:hover small,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:focus-visible small {
+    border-color: #4d96c0;
+    color: #065c8d;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:focus-visible {
+    outline: 2px solid #0b82bb;
+    outline-offset: 2px;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    background: #1a3044;
+    border-color: #34536c;
+    color: #ecf6ff;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link .tpz-native-attention-icon { color: #98d5f4; }
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link b { background: #543449; color: #ffd8e0; }
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link small {
+    background: #29445b; color: #e7f5ff; border-color: #51728d;
+}
+@media (max-width: 47.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 /* Dark mode uses the same layout with readable contrast. */
@@ -2853,5 +3070,148 @@ html.dark.tpz-native-workspace :is(.tpz-reference-workspace,.tpz-reference-inven
     }
     html.tpz-native-workspace :is(.tpz-reference-workspace,.tpz-reference-inventory,.tpz-reference-sales) .tpz-reference-attention-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+/* Owner-approved dashboard typography: visually align the reference without
+   changing component geometry, data or the seven other workspaces.
+   Inter is used only when already installed; Segoe UI is the Windows fallback.
+   No third-party fonts, assets or network font requests are introduced. */
+html.tpz-native-workspace .tpz-reference-home--final {
+    font-family: Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
+    font-optical-sizing: auto;
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    --tpz-home-heading-size: 1rem;
+    --tpz-home-label-size: .75rem;
+    --tpz-home-small-size: .69rem;
+    --tpz-home-value-size: 1.35rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-welcome h1 {
+    font-family: inherit;
+    font-size: clamp(1.38rem, 1.7vw, 1.58rem);
+    line-height: 1.18;
+    letter-spacing: -.035em;
+    font-weight: 750;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-welcome p {
+    font-size: .78rem;
+    line-height: 1.3;
+    font-weight: 450;
+    letter-spacing: -.01em;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-welcome time {
+    font-size: .76rem;
+    font-weight: 650;
+    letter-spacing: -.01em;
+}
+html.tpz-native-workspace .tpz-reference-home--final :is(
+    .fi-section-header-heading,
+    .tpz-native-detail-header-copy strong
+) {
+    font-family: inherit;
+    font-size: var(--tpz-home-heading-size);
+    line-height: 1.2;
+    letter-spacing: -.022em;
+    font-weight: 750;
+}
+html.tpz-native-workspace .tpz-reference-home--final :is(
+    .fi-section-header-description,
+    .tpz-native-detail-header-copy small
+) {
+    font-family: inherit;
+    font-size: var(--tpz-home-small-size);
+    line-height: 1.3;
+    letter-spacing: -.005em;
+    font-weight: 450;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi span:not(.tpz-native-kpi-trend) {
+    font-family: inherit;
+    font-size: var(--tpz-home-label-size);
+    line-height: 1.2;
+    letter-spacing: -.015em;
+    font-weight: 650;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi strong {
+    font-family: inherit;
+    font-size: var(--tpz-home-value-size);
+    line-height: 1.12;
+    letter-spacing: -.035em;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-kpi-trend {
+    font-size: .68rem;
+    line-height: 1.15;
+    font-weight: 700;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-list > a {
+    font-family: inherit;
+    font-size: .76rem;
+    line-height: 1.24;
+    letter-spacing: -.01em;
+    font-weight: 550;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-list > a b {
+    font-size: .69rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-home-row-label strong {
+    font-size: .76rem;
+    line-height: 1.17;
+    letter-spacing: -.015em;
+    font-weight: 750;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-home-row-label small {
+    font-size: .69rem;
+    line-height: 1.2;
+    font-weight: 450;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity time {
+    font-size: .68rem;
+    line-height: 1.2;
+    font-weight: 500;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a {
+    font-family: inherit;
+    font-size: .75rem;
+    line-height: 1.2;
+    font-weight: 650;
+    letter-spacing: -.01em;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-dashboard-inventory-unified .tpz-native-mini-label,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-label {
+    font-family: inherit;
+    font-size: .71rem;
+    line-height: 1.15;
+    letter-spacing: -.015em;
+    font-weight: 650;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-metric > strong {
+    font-family: inherit;
+    font-size: 1.19rem;
+    line-height: 1.13;
+    font-weight: 800;
+    letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    font-family: inherit;
+    font-size: .7rem;
+    line-height: 1.18;
+    font-weight: 600;
+    letter-spacing: -.012em;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link :is(b,small) {
+    font-size: .66rem;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+}
+@media (max-width: 47.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-home-welcome h1 {
+        font-size: 1.35rem;
     }
 }

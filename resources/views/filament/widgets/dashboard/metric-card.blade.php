@@ -13,7 +13,7 @@
         ? ($_metricColor === 'danger' ? 'Action' : ($_metricColor === 'warning' ? 'Monitor' : 'Current'))
         : null);
     $_metricBadgeColor = $metricBadgeColor ?? $_metricColor ?? 'gray';
-    $_metricShowOpen = $metricShowOpen ?? ($_metricHref !== null);
+    $_metricShowOpen = false;
     $_metricActive = $metricActive ?? false;
     $_metricFormattedValue = is_int($_metricValue) ? number_format($_metricValue) : $_metricValue;
 
@@ -64,6 +64,16 @@
                     @if ($_metricType !== 'action')
                         <p class="mt-1 break-words text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ $_metricFormattedValue }}</p>
                     @endif
+                    @if ($_metricKey === 'marketplace_inventory' && ! empty($_metric['warehouse_breakdown']))
+                        <div class="tpz-marketplace-mini-list" aria-label="Marketplace inventory by warehouse">
+                            @foreach ($_metric['warehouse_breakdown'] as $warehouse)
+                                <span class="tpz-marketplace-mini-chip" title="{{ $warehouse['name'] }}: {{ number_format($warehouse['units']) }} units">
+                                    <span class="tpz-marketplace-mini-name">{{ $warehouse['name'] }}</span>
+                                    <strong>{{ number_format($warehouse['units']) }}</strong>
+                                </span>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
                 <span class="flex size-8 shrink-0 items-center justify-center rounded-lg transition duration-150 {{ $_metricVariant['icon'] }}">
                     <x-filament::icon :icon="$_metricIcon" class="!size-4" />
@@ -77,7 +87,6 @@
                     @endif
                     @if ($_metricShowOpen || filled($_metricBadge))
                         <div class="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-                            @if ($_metricShowOpen)<span class="text-xs font-semibold text-primary-600 dark:text-primary-400">Open</span>@endif
                             @if (filled($_metricBadge))<x-filament::badge :color="$_metricBadgeColor">{{ $_metricBadge }}</x-filament::badge>@endif
                         </div>
                     @endif

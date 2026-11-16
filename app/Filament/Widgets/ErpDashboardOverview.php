@@ -251,18 +251,16 @@ class ErpDashboardOverview extends Widget
             return [];
         }
 
-        // Period comparisons are recent activity, NOT a percentage change
-        // in the all-time total shown on each card.
-        $today = CarbonImmutable::now(app(UserTimezoneResolver::class)->resolve($user))->startOfDay();
-        $thisPeriod = $today->subDays(6);
-        $lastPeriod = $thisPeriod->subDays(7);
-        $end = $today->addDay();
+        // Native KPI counts and comparisons use the selected dashboard period.
+        // Inventory position is intentionally a current-state metric.
+        [$thisPeriod, $end] = $this->nativeDashboardDateRange($user);
+        $lastPeriod = $thisPeriod->subDays($thisPeriod->diffInDays($end));
         $kpis = [];
         if (app(OrderAuthorization::class)->allows($user, OrderPermission::View)) {
             $orders = app(OrderReadService::class)->orders($user)->whereNull('orders.web_sales_channel');
             $kpis[] = [
                 'label' => 'Sales Orders',
-                'value' => (clone $orders)->count(),
+                'value' => (clone $orders)->where('orders.order_date', '>=', $thisPeriod->toDateString())->where('orders.order_date', '<', $end->toDateString())->count(),
                 'trend' => $this->nativeTrend($orders, 'orders.order_date', $lastPeriod, $thisPeriod, $end, true),
                 'url' => \App\Filament\Resources\Orders\OrderResource::getUrl(),
                 'tone' => 'blue',
@@ -272,7 +270,7 @@ class ErpDashboardOverview extends Widget
             $webSales = app(WebSalesReadService::class)->scoped($user);
             $kpis[] = [
                 'label' => 'Web Sales',
-                'value' => (clone $webSales)->count(),
+                'value' => (clone $webSales)->where('orders.order_date', '>=', $thisPeriod->toDateString())->where('orders.order_date', '<', $end->toDateString())->count(),
                 'trend' => $this->nativeTrend($webSales, 'orders.order_date', $lastPeriod, $thisPeriod, $end, true),
                 'url' => \App\Filament\Resources\WebSalesOrders\WebSalesOrderResource::getUrl(),
                 'tone' => 'green',
@@ -282,7 +280,7 @@ class ErpDashboardOverview extends Widget
             $stockRequests = app(StockRequestService::class)->visibleQuery($user);
             $kpis[] = [
                 'label' => 'Stock Requests',
-                'value' => (clone $stockRequests)->count(),
+                'value' => (clone $stockRequests)->where('created_at', '>=', $thisPeriod->utc()->toDateTimeString())->where('created_at', '<', $end->utc()->toDateTimeString())->count(),
                 'trend' => $this->nativeTrend($stockRequests, 'created_at', $lastPeriod, $thisPeriod, $end),
                 'url' => StockRequestResource::getUrl(),
                 'tone' => 'amber',
@@ -292,7 +290,7 @@ class ErpDashboardOverview extends Widget
             $transfers = app(StockTransferReadService::class)->query($user);
             $kpis[] = [
                 'label' => 'Transfers (In/Out)',
-                'value' => (clone $transfers)->count(),
+                'value' => (clone $transfers)->where('stock_transfers.created_at', '>=', $thisPeriod->utc()->toDateTimeString())->where('stock_transfers.created_at', '<', $end->utc()->toDateTimeString())->count(),
                 'trend' => $this->nativeTrend($transfers, 'stock_transfers.created_at', $lastPeriod, $thisPeriod, $end),
                 'url' => StockTransferResource::getUrl(),
                 'tone' => 'indigo',
@@ -310,7 +308,7 @@ class ErpDashboardOverview extends Widget
                     ->whereNotIn('status', ['completed', 'cancelled']);
                 $kpis[] = [
                     'label' => 'Returns / QC',
-                    'value' => (int) ($returns['value'] ?? 0),
+                    'value' => (clone $activeReturns)->where('created_at', '>=', $thisPeriod->utc()->toDateTimeString())->where('created_at', '<', $end->utc()->toDateTimeString())->count(),
                     'trend' => $this->nativeTrend($activeReturns, 'created_at', $lastPeriod, $thisPeriod, $end),
                     'url' => $returns['url'],
                     'tone' => 'rose',
@@ -318,7 +316,7 @@ class ErpDashboardOverview extends Widget
             }
             $kpis[] = [
                 'label' => 'Total Returns',
-                'value' => (clone $allReturns)->count(),
+                'value' => (clone $allReturns)->where('created_at', '>=', $thisPeriod->utc()->toDateTimeString())->where('created_at', '<', $end->utc()->toDateTimeString())->count(),
                 'trend' => $this->nativeTrend($allReturns, 'created_at', $lastPeriod, $thisPeriod, $end),
                 'url' => CustomerReturnResource::getUrl(),
                 'tone' => 'rose',
@@ -329,9 +327,32 @@ class ErpDashboardOverview extends Widget
     }
 
     /**
-     * Compare records dated in the most recent 7 local calendar days with the
-     * preceding 7 days, preserving the caller's responsibility-scoped query.
-     * This indicator measures recent records, not change in the all-time total.
+     * Return an inclusive local start and exclusive local end for the selected
+     * period, using the same calendar semantics as the Classic dashboard.
+     *
+     * @return array{CarbonImmutable, CarbonImmutable}
+     */
+    private function nativeDashboardDateRange(User $user): array
+    {
+        $today = CarbonImmutable::now(app(UserTimezoneResolver::class)->resolve($user))->startOfDay();
+
+        if ($this->period === 'custom' && $this->appliedCustomFrom !== null && $this->appliedCustomTo !== null) {
+            $start = CarbonImmutable::parse($this->appliedCustomFrom, $today->getTimezone())->startOfDay();
+            $end = CarbonImmutable::parse($this->appliedCustomTo, $today->getTimezone())->startOfDay()->addDay();
+
+            return [$start, $end];
+        }
+
+        return match ($this->period) {
+            'week' => [$today->startOfWeek(), $today->startOfWeek()->addWeek()],
+            'month' => [$today->startOfMonth(), $today->startOfMonth()->addMonth()],
+            default => [$today, $today->addDay()],
+        };
+    }
+
+    /**
+     * Compare the selected date range to the preceding equal-length range.
+     * Inventory position is not historically filtered.
      *
      * @return array{label:string, direction:string, title:string}
      */
@@ -357,7 +378,7 @@ class ErpDashboardOverview extends Widget
         return [
             'label' => $label,
             'direction' => $current > $previous ? 'up' : ($current < $previous ? 'down' : 'flat'),
-            'title' => "Last 7 days: {$current} · Previous 7 days: {$previous}",
+            'title' => "Selected period: {$current} · Previous equal period: {$previous}",
         ];
     }
 

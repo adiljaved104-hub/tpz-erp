@@ -118,12 +118,13 @@ class ErpDashboardService
         $showService = $this->wants($requested, 'service');
         $showWork = $this->wants($requested, 'work');
         $showHr = $this->wants($requested, 'hr');
+        $warehouseBreakdown = [];
 
         if ($showSales || $showAttention) {
             $this->addOrderCards($cards, $user, $from, $to, $periodLabel, $showSales);
         }
         if ($showInventory || $showAttention) {
-            $this->addInventoryCards($cards, $attention, $user, $showInventory);
+            $this->addInventoryCards($cards, $attention, $user, $showInventory, $warehouseBreakdown);
         }
         if ($showService || $showAttention) {
             $this->addCaseCards($cards, $attention, $user, $showService);
@@ -169,6 +170,7 @@ class ErpDashboardService
             'attention' => $showAttention ? $attention->sortByDesc('priority')->values() : collect(),
             'attendance' => $attendance,
             'inventory_intelligence' => $showInventoryIntelligence ? $inventoryData : null,
+            'warehouse_breakdown' => $showInventory ? $warehouseBreakdown : [],
             'responsibilities' => $this->wants($requested, 'responsibilities') ? $this->responsibilityData($user) : null,
             'role_label' => str($user->employee->role->value)->headline()->toString(),
         ];
@@ -226,7 +228,7 @@ class ErpDashboardService
         }
     }
 
-    private function addInventoryCards(Collection $cards, Collection $attention, User $user, bool $includeCards = true): void
+    private function addInventoryCards(Collection $cards, Collection $attention, User $user, bool $includeCards = true, array &$warehouseBreakdown = []): void
     {
         if (! $this->inventory->allows($user, InventoryPermission::View)) {
             return;
@@ -237,16 +239,67 @@ class ErpDashboardService
         $url = ProductInventoryResource::getUrl();
 
         if ($includeCards) {
+            // The overview already applies employee ownership and responsibility
+            // scopes. Do not add virtual allocations to physical quantities.
+            $locationRows = $products->flatMap(fn (array $product) => collect($product['locations'])
+                ->map(fn (array $location): array => [
+                    'warehouse' => $location['name'],
+                    'code' => $location['code'],
+                    'total' => (int) $location['location_total_owned'],
+                    'products' => (int) ($location['location_total_owned'] > 0),
+                ]));
+            $warehouseCounts = $locationRows->groupBy('code')
+                ->map(fn (Collection $rows): int => (int) $rows->sum('total'));
+            $visibleWarehouseCodes = $locationRows->pluck('code')->unique()->all();
+
+            // Owners can see all active warehouses; staff only warehouses
+            // allowed by scoped inventory visibility or explicit active grants.
+            $warehouseQuery = DB::table('warehouses')->where('status', true);
+            if (app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user)) {
+                $employeeId = $user->employee?->id ?? 0;
+                $directIds = DB::table('responsibility_assignments as dashboard_ra')
+                    ->join('responsibility_assignment_warehouses as dashboard_rw', 'dashboard_rw.assignment_id', '=', 'dashboard_ra.id')
+                    ->where('dashboard_ra.employee_id', $employeeId)
+                    ->where('dashboard_ra.status', ResponsibilityAssignmentStatus::Active->value)
+                    ->whereNull('dashboard_ra.ended_at')
+                    ->pluck('dashboard_rw.warehouse_id');
+                $platformIds = DB::table('responsibility_assignments as dashboard_platform_ra')
+                    ->join('responsibility_assignment_platforms as dashboard_rp', 'dashboard_rp.assignment_id', '=', 'dashboard_platform_ra.id')
+                    ->join('warehouses as dashboard_platform_warehouse', 'dashboard_platform_warehouse.marketplace_platform_id', '=', 'dashboard_rp.marketplace_platform_id')
+                    ->where('dashboard_platform_ra.employee_id', $employeeId)
+                    ->where('dashboard_platform_ra.status', ResponsibilityAssignmentStatus::Active->value)
+                    ->whereNull('dashboard_platform_ra.ended_at')
+                    ->pluck('dashboard_platform_warehouse.id');
+                $sharedIds = DB::table('warehouse_stock_visibility_grants')
+                    ->where('employee_id', $employeeId)
+                    ->where('status', 'active')
+                    ->whereNull('ended_at')
+                    ->where('view_stock', true)
+                    ->pluck('warehouse_id');
+                $warehouseQuery->where(function ($allowed) use ($visibleWarehouseCodes, $directIds, $platformIds, $sharedIds): void {
+                    $allowed->whereIn('code', $visibleWarehouseCodes)
+                        ->orWhereIn('id', $directIds->merge($platformIds)->merge($sharedIds)->unique()->all());
+                });
+            }
+            $warehouses = $warehouseQuery->orderBy('name')->get(['name', 'code'])
+                ->map(fn ($warehouse): array => [
+                    'name' => $warehouse->name,
+                    'code' => $warehouse->code,
+                    'units' => (int) ($warehouseCounts->get($warehouse->code) ?? 0),
+                ])->all();
+
+            $warehouseBreakdown = [
+                'total' => (int) $summary['total_company_stock'],
+                'on_location' => (int) $summary['on_location'],
+                'in_transit' => (int) ($summary['in_transit'] + $summary['return_in_transit']),
+                'warehouses' => $warehouses,
+                'url' => $this->inventory->allows($user, InventoryPermission::ViewLocationBalances) ? $url : MyInventory::getUrl(),
+            ];
+
             $cards->push($this->card('inventory_units', 'Inventory Units', $summary['total_company_stock'], 'Company-owned units in authorized scope', $url));
             $cards->push($this->card('damaged', 'Damaged Stock', $summary['damaged'], 'Units requiring operational attention', $url, $summary['damaged'] > 0 ? 'danger' : 'gray'));
             $cards->push($this->card('qc_pending', 'QC Pending', $summary['qc_pending'], 'Units awaiting quality control', $url, $summary['qc_pending'] > 0 ? 'warning' : 'gray'));
-            $marketplaceQuery = ProductInventory::query()
-                ->join('warehouses as marketplace_warehouses', 'marketplace_warehouses.id', '=', 'product_inventories.warehouse_id')
-                ->where('marketplace_warehouses.status', true)
-                ->where('marketplace_warehouses.location_type', 'marketplace_fulfilment');
-            app(EmployeeOwnedInventoryReadService::class)->apply($marketplaceQuery->getQuery(), 'product_inventories.id', $user);
-            $marketplace = (int) $marketplaceQuery->sum(DB::raw('product_inventories.available_quantity + product_inventories.damaged_quantity'));
-            $cards->push($this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', (int) $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url.'?marketplace=1'));
+
         }
 
         if ($includeCards && $this->inventory->allows($user, InventoryPermission::ViewFinancials)) {

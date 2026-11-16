@@ -406,6 +406,11 @@
                 @endif
 
                 @include('filament.widgets.dashboard.native-operational-sections')
+                @if(in_array('inventory_intelligence', $visible_widget_keys, true) && $inventory_intelligence !== null)
+                    <div class="tpz-native-intelligence" aria-label="Inventory Intelligence">
+                        @include('filament.widgets.dashboard.inventory-intelligence')
+                    </div>
+                @endif
             </div>
         @endif
         @unless($nativeMode)

@@ -248,21 +248,45 @@ class ErpDashboardService
                     'total' => (int) $location['location_total_owned'],
                     'products' => (int) ($location['location_total_owned'] > 0),
                 ]));
-            $warehouses = $locationRows->groupBy('code')->map(function (Collection $rows): array {
-                return [
-                    'name' => $rows->first()['warehouse'],
-                    'code' => $rows->first()['code'],
-                    'units' => (int) $rows->sum('total'),
-                    'products' => (int) $rows->sum('products'),
-                ];
-            })->sortBy('name')->values()->all();
+            $warehouseCounts = $locationRows->groupBy('code')
+                ->map(fn (Collection $rows): int => (int) $rows->sum('total'));
+            $visibleWarehouseCodes = $locationRows->pluck('code')->unique()->all();
+
+            // Owners can see all active warehouses; staff only warehouses
+            // allowed by scoped inventory visibility or explicit active grants.
+            $warehouseQuery = DB::table('warehouses')->where('status', true);
+            if (app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user)) {
+                $employeeId = $user->employee?->id ?? 0;
+                $directIds = DB::table('responsibility_assignments as dashboard_ra')
+                    ->join('responsibility_assignment_warehouses as dashboard_rw', 'dashboard_rw.assignment_id', '=', 'dashboard_ra.id')
+                    ->where('dashboard_ra.employee_id', $employeeId)
+                    ->where('dashboard_ra.status', ResponsibilityAssignmentStatus::Active->value)
+                    ->whereNull('dashboard_ra.ended_at')
+                    ->pluck('dashboard_rw.warehouse_id');
+                $sharedIds = DB::table('warehouse_stock_visibility_grants')
+                    ->where('employee_id', $employeeId)
+                    ->where('status', 'active')
+                    ->whereNull('ended_at')
+                    ->where('view_stock', true)
+                    ->pluck('warehouse_id');
+                $warehouseQuery->where(function ($allowed) use ($visibleWarehouseCodes, $directIds, $sharedIds): void {
+                    $allowed->whereIn('code', $visibleWarehouseCodes)
+                        ->orWhereIn('id', $directIds->merge($sharedIds)->unique()->all());
+                });
+            }
+            $warehouses = $warehouseQuery->orderBy('name')->get(['name', 'code'])
+                ->map(fn ($warehouse): array => [
+                    'name' => $warehouse->name,
+                    'code' => $warehouse->code,
+                    'units' => (int) ($warehouseCounts->get($warehouse->code) ?? 0),
+                ])->all();
 
             $warehouseBreakdown = [
                 'total' => (int) $summary['total_company_stock'],
                 'on_location' => (int) $summary['on_location'],
                 'in_transit' => (int) ($summary['in_transit'] + $summary['return_in_transit']),
                 'warehouses' => $warehouses,
-                'url' => $url,
+                'url' => $this->inventory->allows($user, InventoryPermission::ViewLocationBalances) ? $url : MyInventory::getUrl(),
             ];
 
             $cards->push($this->card('inventory_units', 'Inventory Units', $summary['total_company_stock'], 'Company-owned units in authorized scope', $url));

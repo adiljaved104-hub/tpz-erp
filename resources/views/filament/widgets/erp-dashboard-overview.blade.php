@@ -83,6 +83,12 @@
         .tpz-marketplace-mini-chip strong { flex: none; font-weight: 800; color: #123b62; }
         .dark .tpz-marketplace-mini-chip { background: #263a50; color: #d1e6fb; }
         .dark .tpz-marketplace-mini-chip strong { color: #f4f9ff; }
+        /* Keep native Inventory metrics the same compact density as reference cards. */
+        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a { padding: .75rem; min-height: 0; }
+        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a > div { min-height: 6rem; gap: .35rem; }
+        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a .text-3xl { font-size: 1.4rem; line-height: 1.6rem; }
+        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a .line-clamp-2 { display: none; }
+        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a .mt-2 { margin-top: .25rem; }
         .tpz-warehouse-inline { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #dce6f2; }
         .tpz-warehouse-inline__heading { display: flex; gap: .75rem; align-items: center; margin-bottom: .55rem; font-size: .8rem; font-weight: 700; color: #244e75; }
         .tpz-warehouse-inline__heading a { margin-left: auto; color: #0873b6; text-decoration: none; font-size: .73rem; font-weight: 650; }
@@ -240,7 +246,7 @@
                 </div>
 
                 @if (! empty($warehouse_breakdown))
-                    <x-filament::section compact heading="Inventory & Warehouse" description="Stock position and warehouse totals">
+                    <x-filament::section compact class="tpz-dashboard-inventory-section" heading="Inventory & Warehouse" description="Stock position and warehouse totals">
                         <div class="erp-dashboard-card-grid grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                             @foreach (['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory'] as $inventoryKey)
                                 @if ($card = $cardsByKey->get($inventoryKey))

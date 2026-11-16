@@ -45,7 +45,7 @@
                     <x-filament::icon icon="heroicon-o-chevron-down" class="tpz-native-detail-chevron size-4" x-bind:class="{'is-collapsed': !open}" />
                 </button>
                 <div id="tpz-native-detail-attention" x-show="open" class="tpz-native-detail-body">
-                    <div class="tpz-native-attention-list">
+                    <div class="tpz-native-attention-list" role="region" aria-label="Authorized priority alerts, scroll for more" tabindex="0">
                         @foreach($nativeActionList as $item)
                             @php
                                 $attentionLabel = strtolower((string) $item['label']);

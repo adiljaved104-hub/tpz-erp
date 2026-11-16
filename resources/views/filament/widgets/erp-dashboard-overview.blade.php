@@ -67,6 +67,12 @@
 
         /* Inventory breakdown uses the same dashboard panel language in both modes.
            Explicit scoped styles avoid missing utility classes in the compiled Filament theme. */
+        .tpz-marketplace-mini-list { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .45rem; }
+        .tpz-marketplace-mini-chip { display: inline-flex; max-width: 100%; align-items: center; gap: .3rem; padding: .18rem .38rem; border-radius: .4rem; background: #eaf3fd; color: #315676; font-size: .66rem; line-height: 1.1rem; }
+        .tpz-marketplace-mini-name { max-width: 6.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tpz-marketplace-mini-chip strong { flex: none; font-weight: 800; color: #123b62; }
+        .dark .tpz-marketplace-mini-chip { background: #263a50; color: #d1e6fb; }
+        .dark .tpz-marketplace-mini-chip strong { color: #f4f9ff; }
         .tpz-warehouse-overview { margin-top: 1rem; padding: 1rem; border: 1px solid #d8e6f4; border-radius: .85rem; background: #f8fbff; color: #123454; }
         .tpz-warehouse-overview__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
         .tpz-warehouse-overview__head h3 { margin: 0; font-size: .925rem; font-weight: 750; color: #143a5e; }

@@ -83,35 +83,91 @@
         .tpz-marketplace-mini-chip strong { flex: none; font-weight: 800; color: #123b62; }
         .dark .tpz-marketplace-mini-chip { background: #263a50; color: #d1e6fb; }
         .dark .tpz-marketplace-mini-chip strong { color: #f4f9ff; }
-        /* Original TPZ native inventory card design; warehouse tiles join the
-           SAME grid instead of creating a second section or changing card style. */
-        html.tpz-native-workspace .tpz-dashboard-inventory-unified {
-            display: grid; grid-template-columns: repeat(8, minmax(0,1fr));
-            gap: .55rem; align-items: stretch; min-width: 0;
+        /* Stable Owner-approved native dashboard design: one Inventory section,
+           consistently sized cards and the reference's stronger pastel accents. */
+        .tpz-reference-home .tpz-dashboard-inventory-unified {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: .65rem;
+            min-width: 0;
+            align-items: stretch;
         }
-        html.tpz-native-workspace .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
-            min-width: 0; min-height: 5.8rem;
+        .tpz-reference-home .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
+            box-sizing: border-box;
+            min-width: 0;
+            min-height: 6.35rem;
+            padding: .75rem;
+            border: 1px solid #d3e5f6;
+            border-radius: .8rem;
+            background: #e8f3ff;
+            display: grid;
+            grid-template-columns: 2rem minmax(0,1fr);
+            align-content: start;
+            gap: .2rem .55rem;
+            color: #12395e;
+            text-decoration: none;
+            box-shadow: 0 1px 2px rgb(31 65 100 / 4%);
+            transition: border-color .15s, box-shadow .15s;
         }
-        html.tpz-native-workspace .tpz-dashboard-inventory-unified .tpz-dashboard-warehouse-tile {
-            background: #edf6ff; border-color: #d7e9f8;
+        .tpz-reference-home .tpz-dashboard-inventory-unified > a.tpz-native-mini-metric:hover {
+            border-color: #79bdee;
+            box-shadow: 0 3px 9px rgb(31 65 100 / 12%);
         }
-        html.tpz-native-workspace .tpz-dashboard-marketplace-chips {
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-icon {
+            width: 2rem; height: 2rem; border-radius: .55rem;
+            display: grid; place-items: center; grid-row: 1 / span 3;
+            background: rgb(255 255 255 / 78%);
+            color: #1675c1;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label {
+            font-size: .75rem; font-weight: 700; line-height: 1.28;
+            color: #31516f; overflow-wrap: anywhere;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong {
+            grid-column: 2; font-size: 1.33rem; line-height: 1.32;
+            font-weight: 800; color: #092f55; overflow-wrap: anywhere;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--teal {
+            background: #e7f8ed; border-color: #c9edd5;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--teal .tpz-native-mini-icon { color: #168454; }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--violet {
+            background: #f0ecff; border-color: #dfd5fb;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--violet .tpz-native-mini-icon { color: #7252c1; }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--amber {
+            background: #fff5df; border-color: #f6e0b2;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--amber .tpz-native-mini-icon { color: #b47c19; }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--rose {
+            background: #ffedef; border-color: #f6d4db;
+        }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--rose .tpz-native-mini-icon { color: #c8415c; }
+        .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-dashboard-warehouse-tile {
+            background: #e8f3ff; border-color: #d3e5f6;
+        }
+        .tpz-reference-home .tpz-dashboard-marketplace-chips {
             display: flex; grid-column: 2; flex-wrap: wrap; gap: .2rem; min-width: 0;
         }
-        html.tpz-native-workspace .tpz-dashboard-marketplace-chips small {
+        .tpz-reference-home .tpz-dashboard-marketplace-chips small {
             max-width: 100%; overflow: hidden; text-overflow: ellipsis;
             white-space: nowrap; padding: .1rem .25rem; border-radius: .3rem;
-            background: #e0eeff; font-size: .58rem; color: #315c82;
+            background: #d4e8ff; font-size: .61rem; color: #244d76;
         }
-        html.tpz-native-workspace .tpz-dashboard-marketplace-chips b { font-weight: 800; }
-        @media (max-width: 63.999rem) {
-            html.tpz-native-workspace .tpz-dashboard-inventory-unified { grid-template-columns: repeat(4,minmax(0,1fr)); }
+        .tpz-reference-home .tpz-dashboard-marketplace-chips b { font-weight: 800; }
+        .dark .tpz-reference-home .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
+            background: #21394f; border-color: #3b5872;
+        }
+        .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label,
+        .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong { color: #edf6ff; }
+        @media (min-width: 100rem) {
+            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(8, minmax(0,1fr)); }
         }
         @media (max-width: 47.999rem) {
-            html.tpz-native-workspace .tpz-dashboard-inventory-unified { grid-template-columns: repeat(2,minmax(0,1fr)); }
+            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(2,minmax(0,1fr)); }
         }
         @media (max-width: 29.999rem) {
-            html.tpz-native-workspace .tpz-dashboard-inventory-unified { grid-template-columns: minmax(0,1fr); }
+            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: minmax(0,1fr); }
         }
 
         @media (min-width: 40rem) {

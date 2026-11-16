@@ -3,12 +3,14 @@
 > **Owner authorization addendum (9 Nov 2026):** The installed QuickBooks Desktop Enterprise 2024 **already contains company accounting records**. Codex may review and use actual company accounts, transactions, balances, reports, mappings and settings as a primary design/reference source, and is authorized to make appropriate changes when necessary for controlled evaluation. Earlier references in this plan that limit the review to a sample company are superseded for read/review. **Experimental postings must use a verified backup/copy**, not pollute active books. Before any live-company financial change, prepare a verified backup, identify the particular entries and financial impact, maintain an audit trail, and obtain separate specific approval for destructive operations, tax filings, or closed-period changes. Respect QuickBooks application permissions and report if the Windows desktop or SDK is not actually accessible. No unrelated VPS or GitHub Main/Staging writes.
 
 **Initiated:** 2026-11-09  
-**Status:** Discovery only. No financial posting code, migrations, VPS deployment or production ledger writes approved.  
+**Status (updated 2026-11-16):** QuickBooks review is read-only and limited to the isolated Peera test copy. B1/B2 development continues on isolated branches with financial posting disabled. No QuickBooks transaction writes, original-company access, VPS deployment or Main/Staging changes are in scope.
 **Reference software:** QuickBooks Desktop Enterprise 2024 (installed on Owner's Windows computer).  
 **Issue:** #21.  
 **GitHub source baseline:** `main` at `dbd3e85ffda0ad2e5727e22f0ad4401e3f3a0280`; isolated discovery branch only.
 
 ## Purpose and boundary
+
+> **Current Owner boundary (16 Nov 2026):** use only `qb-isolated-test-20261111\Peera-TPZ-QB-TEST-20261111.QBW`; read-only QuickBooks inspection only. This supersedes the broader 9 Nov owner-authorization addendum below for the current investigation. Do not modify or access the original Peera company, save QuickBooks transactions, change QuickBooks settings, or enable unattended SDK access. The SDK client must verify the complete company path before each qbXML request. ERP Accounting posting remains disabled.
 
 Create a **native double-entry accounting module** for TPZ ERP, not a QuickBooks connector and not a byte-for-byte replica of QuickBooks software. Review actual workflows, reports, business rules and keyboard shortcuts of the installed 2024 desktop edition using a **sample company file**, then implement the necessary UAE business accounting features under TPZ ERP's existing Laravel 13 / Filament / MySQL 8.4 architecture. Product design may learn from QuickBooks workflows, but must not copy proprietary source, artwork, branding or assume QuickBooks US tax reporting applies to the UAE.
 

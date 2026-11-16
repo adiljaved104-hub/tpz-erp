@@ -35,13 +35,9 @@ class SupplierPayables extends BaseAccountingPage
 
     public string $dueDate = '';
 
-    public string $billDescription = '';
-
-    public string $billQuantity = '1';
-
-    public string $billUnitCost = '';
-
-    public string $billVatRate = '0';
+    public array $billLines = [
+        ['description' => '', 'quantity' => '1', 'unit_cost' => '', 'vat_rate' => '0'],
+    ];
 
     public string $paymentDate = '';
 
@@ -89,14 +85,29 @@ class SupplierPayables extends BaseAccountingPage
                 'due_date' => $this->dueDate ?: null,
                 'currency' => $this->book()->currency ?? 'AED',
                 'idempotency_key' => (string) Str::uuid(),
-                'lines' => [['description' => $this->billDescription, 'quantity' => $this->billQuantity, 'unit_cost' => $this->billUnitCost, 'vat_rate' => $this->billVatRate]],
+                'lines' => array_values($this->billLines),
             ], $this->user());
-            $this->reset('billNumber', 'dueDate', 'billDescription', 'billQuantity', 'billUnitCost', 'billVatRate');
-            $this->billQuantity = '1';
+            $this->reset('billNumber', 'dueDate');
+            $this->billLines = [self::blankBillLine()];
             Notification::make()->success()->title('Supplier bill saved as draft')->send();
         } catch (ValidationException $exception) {
             $this->applyErrors($exception);
         }
+    }
+
+    public function addBillLine(): void
+    {
+        $this->billLines[] = self::blankBillLine();
+    }
+
+    public function removeBillLine(int $index): void
+    {
+        if (count($this->billLines) <= 1 || ! array_key_exists($index, $this->billLines)) {
+            return;
+        }
+
+        unset($this->billLines[$index]);
+        $this->billLines = array_values($this->billLines);
     }
 
     public function savePayment(): void
@@ -184,5 +195,10 @@ class SupplierPayables extends BaseAccountingPage
         foreach ($exception->errors() as $field => $messages) {
             $this->addError($field, $messages[0]);
         }
+    }
+
+    private static function blankBillLine(): array
+    {
+        return ['description' => '', 'quantity' => '1', 'unit_cost' => '', 'vat_rate' => '0'];
     }
 }

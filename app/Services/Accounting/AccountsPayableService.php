@@ -289,7 +289,17 @@ class AccountsPayableService
         return AccountingSupplierBill::query()->where('accounting_book_id', $book->id)->where('supplier_id', $supplierId)->whereIn('status', ['approved', 'posted'])->withSum('allocations', 'amount')->orderBy('due_date')->get()->map(function (AccountingSupplierBill $bill) use ($asOf): AccountingSupplierBill {
             $allocated = (string) ($bill->allocations_sum_amount ?? '0.00');
             $bill->setAttribute('outstanding_amount', bcsub((string) $bill->grand_total, $allocated, 2));
-            $bill->setAttribute('days_overdue', $bill->due_date && $bill->due_date->lt($asOf) ? $bill->due_date->diffInDays($asOf) : 0);
+            $daysOverdue = $bill->due_date && $bill->due_date->lt($asOf)
+                ? (int) $bill->due_date->diffInDays($asOf)
+                : 0;
+            $bill->setAttribute('days_overdue', $daysOverdue);
+            $bill->setAttribute('age_bucket', match (true) {
+                $daysOverdue === 0 => 'Current',
+                $daysOverdue <= 30 => '1–30',
+                $daysOverdue <= 60 => '31–60',
+                $daysOverdue <= 90 => '61–90',
+                default => '> 90',
+            });
 
             return $bill;
         })

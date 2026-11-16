@@ -47,10 +47,25 @@
                 <div id="tpz-native-detail-attention" x-show="open" class="tpz-native-detail-body">
                     <div class="tpz-native-attention-list">
                         @foreach($nativeActionList as $item)
-                            <a href="{{ $item['url'] }}" class="tpz-native-attention-link">
-                                <x-filament::icon icon="heroicon-o-exclamation-circle" class="size-4" />
+                            @php
+                                $attentionLabel = strtolower((string) $item['label']);
+                                $attentionIcon = match (true) {
+                                    str_contains($attentionLabel, 'claim') => 'heroicon-o-shield-check',
+                                    str_contains($attentionLabel, 'qc') => 'heroicon-o-magnifying-glass',
+                                    str_contains($attentionLabel, 'damaged') => 'heroicon-o-exclamation-triangle',
+                                    str_contains($attentionLabel, 'return') => 'heroicon-o-arrow-uturn-left',
+                                    str_contains($attentionLabel, 'purchase') => 'heroicon-o-truck',
+                                    str_contains($attentionLabel, 'repair') => 'heroicon-o-wrench-screwdriver',
+                                    str_contains($attentionLabel, 'complaint') => 'heroicon-o-megaphone',
+                                    str_contains($attentionLabel, 'task') => 'heroicon-o-clipboard-document-check',
+                                    default => 'heroicon-o-exclamation-circle',
+                                };
+                            @endphp
+                            <a href="{{ $item['url'] }}" class="tpz-native-attention-link" aria-label="{{ $item['label'] }}: {{ number_format($item['count']) }}. View">
+                                <x-filament::icon :icon="$attentionIcon" class="tpz-native-attention-icon size-4" />
                                 <span title="{{ $item['label'] }}">{{ $item['label'] }}</span>
                                 <b>{{ number_format($item['count']) }}</b>
+                                <small aria-hidden="true">View</small>
                             </a>
                         @endforeach
                     </div>

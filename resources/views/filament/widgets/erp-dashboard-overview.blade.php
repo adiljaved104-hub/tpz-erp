@@ -83,28 +83,21 @@
         .tpz-marketplace-mini-chip strong { flex: none; font-weight: 800; color: #123b62; }
         .dark .tpz-marketplace-mini-chip { background: #263a50; color: #d1e6fb; }
         .dark .tpz-marketplace-mini-chip strong { color: #f4f9ff; }
-        .tpz-warehouse-overview { margin-top: 1rem; padding: 1rem; border: 1px solid #d8e6f4; border-radius: .85rem; background: #f8fbff; color: #123454; }
-        .tpz-warehouse-overview__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
-        .tpz-warehouse-overview__head h3 { margin: 0; font-size: .925rem; font-weight: 750; color: #143a5e; }
-        .tpz-warehouse-overview__head p { margin: .2rem 0 0; font-size: .76rem; color: #657b94; }
-        .tpz-warehouse-overview__head a { font-size: .78rem; font-weight: 700; color: #0869ac; text-decoration: none; }
-        .tpz-warehouse-overview__head a:hover { text-decoration: underline; }
-        .tpz-warehouse-overview__totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; margin-top: .85rem; }
-        .tpz-warehouse-overview__totals > div { min-width: 0; padding: .7rem .8rem; border-radius: .7rem; background: #eaf3fd; }
-        .tpz-warehouse-overview__totals span { display: block; font-size: .75rem; color: #526c89; }
-        .tpz-warehouse-overview__totals strong { display: block; margin-top: .15rem; font-size: 1.25rem; font-weight: 800; color: #102f50; }
-        .tpz-warehouse-overview__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .65rem; margin-top: .7rem; }
-        .tpz-warehouse-overview__item { min-width: 0; padding: .85rem .9rem; border: 1px solid #d6e5f5; border-radius: .75rem; background: #fff; }
-        .tpz-warehouse-overview__item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #41648a; font-size: .78rem; font-weight: 700; }
-        .tpz-warehouse-overview__item strong { display: block; margin-top: .2rem; font-size: 1.35rem; font-weight: 800; color: #102f50; }
-        .tpz-warehouse-overview__item strong small { font-size: .73rem; font-weight: 500; color: #647e98; }
-        .tpz-warehouse-overview__item p, .tpz-warehouse-overview__empty { margin: .15rem 0 0; color: #647e98; font-size: .75rem; }
-        .dark .tpz-warehouse-overview { border-color: #374e68; background: #152334; color: #f0f6ff; }
-        .dark .tpz-warehouse-overview__head h3, .dark .tpz-warehouse-overview__totals strong, .dark .tpz-warehouse-overview__item strong { color: #f0f6ff; }
-        .dark .tpz-warehouse-overview__totals > div { background: #243950; }
-        .dark .tpz-warehouse-overview__item { background: #1b2c40; border-color: #374e68; }
-        .dark .tpz-warehouse-overview__head a { color: #8cc8ff; }
-        @media (max-width: 39.999rem) { .tpz-warehouse-overview__totals { grid-template-columns: 1fr; } }
+        .tpz-warehouse-inline { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #dce6f2; }
+        .tpz-warehouse-inline__heading { display: flex; gap: .75rem; align-items: center; margin-bottom: .55rem; font-size: .8rem; font-weight: 700; color: #244e75; }
+        .tpz-warehouse-inline__heading a { margin-left: auto; color: #0873b6; text-decoration: none; font-size: .73rem; font-weight: 650; }
+        .tpz-warehouse-inline__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr)); gap: .55rem; }
+        .tpz-warehouse-inline__card { padding: .65rem .8rem; border: 1px solid #dae7f5; border-radius: .75rem; background: #f1f7ff; min-width: 0; }
+        .tpz-warehouse-inline__name { font-size: .73rem; font-weight: 700; color: #3b6087; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tpz-warehouse-inline__value { margin-top: .18rem; font-size: 1.3rem; font-weight: 800; color: #0f355a; line-height: 1.3; }
+        .tpz-warehouse-inline__value small { font-size: .72rem; font-weight: 500; color: #5c7998; }
+        .tpz-warehouse-inline__card--transit { background: #fdf7e9; border-color: #f1dfaf; }
+        .tpz-warehouse-inline__empty { font-size: .75rem; color: #64748b; }
+        .dark .tpz-warehouse-inline { border-color: #374e68; }
+        .dark .tpz-warehouse-inline__card { background: #1d3147; border-color: #34516e; }
+        .dark .tpz-warehouse-inline__name, .dark .tpz-warehouse-inline__value small { color: #b5cce3; }
+        .dark .tpz-warehouse-inline__value { color: #f0f8ff; }
+        .dark .tpz-warehouse-inline__heading { color: #d9ebfa; }
 
 
         @media (min-width: 40rem) {
@@ -247,7 +240,7 @@
                 </div>
 
                 @if (! empty($warehouse_breakdown))
-                    <x-filament::section compact heading="Inventory & Warehouse" description="Authorized stock position and warehouse-wise inventory">
+                    <x-filament::section compact heading="Inventory & Warehouse" description="Stock position and warehouse totals">
                         <div class="erp-dashboard-card-grid grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                             @foreach (['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory'] as $inventoryKey)
                                 @if ($card = $cardsByKey->get($inventoryKey))

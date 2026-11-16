@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AiAssistantController;
 use App\Http\Controllers\Api\Mobile\V1\ReturnEvidenceController;
 use App\Http\Controllers\Auth\EmailOtpAuthenticationController;
 use App\Http\Controllers\Auth\LoginBrandingAssetController;
@@ -8,7 +9,6 @@ use App\Http\Controllers\PublicTaxInvoiceVerificationController;
 use App\Http\Controllers\QcDocumentController;
 use App\Http\Controllers\QcPassportController;
 use App\Http\Controllers\QuotationPdfController;
-use App\Http\Controllers\AiAssistantController;
 use App\Http\Controllers\ReportsExportController;
 use App\Http\Controllers\TaxInvoicePdfController;
 use App\Http\Middleware\EnforceWebSecurityPolicy;
@@ -70,6 +70,22 @@ Route::middleware(['guest', 'panel:admin'])->group(function (): void {
     Route::get('/admin/reset-password', [EmailOtpAuthenticationController::class, 'resetPasswordForm'])->name('auth.password.reset');
     Route::post('/admin/reset-password', [EmailOtpAuthenticationController::class, 'resetPassword'])->name('auth.password.update');
 });
+
+// Employee opt-in, CSRF-protected interface switch. No module access is granted.
+Route::post('/admin/interface-mode', function (\Illuminate\Http\Request $request) {
+    $user = $request->user();
+    abort_unless($user instanceof \App\Models\User
+        && app(\App\Services\Navigation\NavigationPreferenceService::class)->eligibleForWorkspaceMode($user), 403);
+
+    $validated = $request->validate([
+        'mode' => ['required', \Illuminate\Validation\Rule::in(['classic', 'new'])],
+    ]);
+    app(\App\Services\Navigation\NavigationPreferenceService::class)
+        ->setWorkspaceMode($user, $validated['mode'] === 'new');
+
+    // Full-page reload is required to rebuild the Filament navigation and theme.
+    return redirect()->to(filament()->getPanel('admin')->getUrl());
+})->middleware(['auth', EnforceWebSecurityPolicy::class])->name('erp.interface-mode');
 
 Route::get('/invoice/verify/{token}', PublicTaxInvoiceVerificationController::class)
     ->name('invoice.verify');

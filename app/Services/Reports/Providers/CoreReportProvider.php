@@ -11,6 +11,7 @@ use App\Enums\InventoryPermission;
 use App\Enums\OrderPermission;
 use App\Enums\PerformancePermission;
 use App\Enums\PurchasePermission;
+use App\Enums\QcPermission;
 use App\Enums\SafetClaimPermission;
 use App\Enums\TaskPermission;
 use App\Enums\WarrantyRepairPermission;
@@ -22,6 +23,7 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\PerformanceAuthorization;
 use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\SafetClaimAuthorization;
 use App\Services\Authorization\TaskAuthorization;
 use App\Services\Authorization\WarrantyRepairAuthorization;
@@ -33,6 +35,7 @@ class CoreReportProvider implements ReportProvider
         private readonly OrderAuthorization $orders,
         private readonly InventoryAuthorization $inventory,
         private readonly PurchaseAuthorization $purchases,
+        private readonly QcAuthorization $qc,
         private readonly CustomerReturnAuthorization $returns,
         private readonly SafetClaimAuthorization $claims,
         private readonly WarrantyRepairAuthorization $warranty,
@@ -65,6 +68,20 @@ class CoreReportProvider implements ReportProvider
             $this->definition('complaints', 'Complaints', 'Returns / Claims / Service', 'complaints', true, ['status', 'platform', 'product'], 440),
             $this->definition('internal_repairs', 'Internal Repairs', 'Returns / Claims / Service', 'warranty', true, ['status', 'product'], 450, 'warranty', [true]),
             $this->definition('tasks', 'Tasks', 'Tasks / Operations', 'tasks', true, ['status', 'employee', 'team'], 500),
+            new ReportDefinition(
+                key: 'qc_operations',
+                title: 'QC Operations History',
+                group: 'Quality Control',
+                handler: ReportQueryService::class,
+                handlerMethod: 'qcInspections',
+                period: true,
+                filters: ['status'],
+                formats: [],
+                order: 550,
+                financialSensitive: false,
+                viewAuthorization: fn (User $user): bool => $this->qc->allows($user, QcPermission::View),
+                exportAuthorization: fn (): bool => false,
+            ),
             $this->definition('attendance', 'Attendance', 'HR', 'attendance', true, ['status', 'employee', 'team'], 600),
             $this->definition('leave', 'Leave', 'HR', 'leave', true, ['status', 'employee', 'team'], 610),
             $this->definition('comp_off', 'Comp Off', 'HR', 'leave', true, ['status', 'employee'], 620, 'compOff'),
@@ -133,6 +150,7 @@ class CoreReportProvider implements ReportProvider
             'warranty' => $this->warranty->allows($user, WarrantyRepairPermission::View),
             'complaints' => $this->complaints->allows($user, ComplaintPermission::View),
             'tasks' => $this->tasks->allows($user, TaskPermission::View),
+            'qc' => $this->qc->allows($user, QcPermission::View),
             'attendance' => $this->anyHr($user, HrPermission::AttendanceViewOwn, HrPermission::AttendanceViewTeam, HrPermission::AttendanceViewAll),
             'leave' => $this->anyHr($user, HrPermission::LeaveViewOwn, HrPermission::LeaveViewTeam, HrPermission::LeaveViewAll),
             'warnings' => $this->anyHr($user, HrPermission::WarningViewOwn, HrPermission::WarningViewTeam, HrPermission::WarningViewAll),

@@ -4,15 +4,18 @@ namespace App\Services\Search;
 
 use App\Contracts\GlobalSearchProvider;
 use App\DTOs\GlobalSearchResult;
+use App\Enums\ComponentPermission;
 use App\Enums\InventoryLocationPermission;
 use App\Enums\PeoplePermission;
 use App\Enums\ProductPermission;
 use App\Enums\PurchasePermission;
+use App\Filament\Resources\Components\ComponentResource;
 use App\Filament\Resources\Employees\EmployeeResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\Suppliers\SupplierResource;
 use App\Filament\Resources\Warehouses\WarehouseResource;
 use App\Models\User;
+use App\Services\Authorization\ComponentAuthorization;
 use App\Services\Authorization\EmployeeDirectoryScopeService;
 use App\Services\Authorization\InventoryLocationAuthorization;
 use App\Services\Authorization\PeopleAuthorization;
@@ -27,9 +30,26 @@ class CatalogPeopleSearchProvider implements GlobalSearchProvider
     {
         return collect()
             ->concat($this->products($user, $query, $limit))
+            ->concat($this->components($user, $query, $limit))
             ->concat($this->employees($user, $query, $limit))
             ->concat($this->suppliers($user, $query, $limit))
             ->concat($this->locations($user, $query, $limit));
+    }
+
+    private function components(User $user, string $term, int $limit): Collection
+    {
+        if (! app(ComponentAuthorization::class)->allows($user, ComponentPermission::View)) {
+            return collect();
+        }
+        $query = DB::table('components')->join('products', 'products.id', '=', 'components.product_id')
+            ->select(['components.id', 'components.component_type', 'components.specification', 'products.sku', 'products.name', 'products.status']);
+        SearchQuery::match($query, ['products.sku', 'products.name', 'products.model', 'components.specification', 'components.interface_type'], $term);
+        SearchQuery::rank($query, 'products.sku', $term);
+
+        return $query->limit($limit)->get()->map(fn ($row) => new GlobalSearchResult(
+            'Components', $row->sku.' · '.$row->name, str($row->component_type)->headline().' · '.$row->specification,
+            ComponentResource::getUrl('edit', ['record' => $row->id]), 'heroicon-o-cpu-chip', ['module' => 'components', 'id' => $row->id],
+        ));
     }
 
     private function products(User $user, string $term, int $limit): Collection

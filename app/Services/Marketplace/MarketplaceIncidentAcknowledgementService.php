@@ -2,6 +2,7 @@
 
 namespace App\Services\Marketplace;
 
+use App\Models\MarketplaceOperationIncident;
 use App\Models\MarketplaceOperationIncidentRecipient;
 use App\Models\User;
 use App\Services\ActivityLogger;
@@ -29,12 +30,26 @@ class MarketplaceIncidentAcknowledgementService
             if (! $recipient instanceof MarketplaceOperationIncidentRecipient) {
                 throw new NotFoundHttpException;
             }
-            if ($recipient->acknowledged_at === null) {
-                $recipient->forceFill(['acknowledged_at' => now()])->save();
-                $this->activity->log('marketplace_incident.acknowledged', $user, $recipient->incident, ['incident_id' => $recipient->incident_id, 'incident_type' => $recipient->incident->incident_type, 'recipient_user_id' => $user->id]);
+
+            return $this->acknowledgeRecipient($user, $recipient);
+        });
+    }
+
+    /** @return array<string, mixed> */
+    public function acknowledgeIncident(User $user, MarketplaceOperationIncident $incident): array
+    {
+        return DB::transaction(function () use ($user, $incident): array {
+            $recipient = MarketplaceOperationIncidentRecipient::query()
+                ->where('incident_id', $incident->id)
+                ->where('user_id', $user->id)
+                ->with('incident')
+                ->lockForUpdate()
+                ->first();
+            if (! $recipient instanceof MarketplaceOperationIncidentRecipient) {
+                throw new NotFoundHttpException;
             }
 
-            return $this->serialize($recipient->refresh());
+            return $this->acknowledgeRecipient($user, $recipient);
         });
     }
 
@@ -53,5 +68,20 @@ class MarketplaceIncidentAcknowledgementService
     private function serialize(MarketplaceOperationIncidentRecipient $recipient): array
     {
         return ['acknowledgment_required' => true, 'acknowledged' => $recipient->acknowledged_at !== null, 'acknowledged_at' => $recipient->acknowledged_at?->toIso8601String(), 'incident' => ['key' => $recipient->incident->incident_key, 'alert_type' => $recipient->incident->incident_type, 'opened_at' => $recipient->incident->opened_at?->toIso8601String(), 'resolved' => $recipient->incident->resolved_at !== null, 'resolved_at' => $recipient->incident->resolved_at?->toIso8601String()]];
+    }
+
+    /** @return array<string, mixed> */
+    private function acknowledgeRecipient(User $user, MarketplaceOperationIncidentRecipient $recipient): array
+    {
+        if ($recipient->acknowledged_at === null) {
+            $recipient->forceFill(['acknowledged_at' => now()])->save();
+            $this->activity->log('marketplace_incident.acknowledged', $user, $recipient->incident, [
+                'incident_id' => $recipient->incident_id,
+                'incident_type' => $recipient->incident->incident_type,
+                'recipient_user_id' => $user->id,
+            ]);
+        }
+
+        return $this->serialize($recipient->refresh());
     }
 }

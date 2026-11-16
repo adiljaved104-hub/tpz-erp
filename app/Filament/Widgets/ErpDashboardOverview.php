@@ -2,14 +2,36 @@
 
 namespace App\Filament\Widgets;
 
+use App\Enums\InventoryPermission;
+use App\Enums\CustomerReturnPermission;
+use App\Services\Authorization\CustomerReturnAuthorization;
+use App\Services\Returns\CustomerReturnReadService;
+use Illuminate\Database\Eloquent\Builder;
+use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
+use App\Filament\Resources\Orders\OrderResource;
+use App\Filament\Resources\Purchases\PurchaseResource;
+use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Models\User;
+use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Dashboard\DashboardPreferenceService;
 use App\Services\Dashboard\DashboardWidgetRegistry;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Orders\OrderReadService;
+use App\Services\Orders\WebSalesReadService;
+use App\Services\Inventory\StockRequestService;
+use App\Services\StockTransfers\StockTransferReadService;
+use App\Services\Authorization\OrderAuthorization;
+use App\Services\Authorization\WebSalesAuthorization;
+use App\Enums\OrderPermission;
+use App\Enums\WebSalesPermission;
+use App\Filament\Resources\StockTransfers\StockTransferResource;
+use App\Services\Inventory\InventoryReadService;
+use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\UserTimezoneResolver;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Widgets\Widget;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 class ErpDashboardOverview extends Widget
@@ -194,7 +216,7 @@ class ErpDashboardOverview extends Widget
         $hidden = array_values(array_intersect($this->hiddenWidgets, $authorizedKeys));
         $visible = array_values(array_diff($layout, $hidden));
 
-        return app(ErpDashboardService::class)->forUser(
+        $dashboardData = app(ErpDashboardService::class)->forUser(
             $user,
             $this->period,
             $this->appliedCustomFrom,
@@ -203,7 +225,10 @@ class ErpDashboardOverview extends Widget
             filled($this->inventoryTeamId) ? (int) $this->inventoryTeamId : null,
             filled($this->inventoryEmployeeId) ? (int) $this->inventoryEmployeeId : null,
             $visible,
-        ) + [
+        );
+
+        return $dashboardData + [
+            'reference_kpis' => $this->nativeReferenceKpis($user, $dashboardData['cards']),
             'widget_order' => $layout,
             'visible_widget_keys' => $visible,
             'hidden_widget_keys' => $hidden,
@@ -212,7 +237,165 @@ class ErpDashboardOverview extends Widget
                 : collect($layout)->map(fn (string $key): array => $authorizedDefinitions->get($key))->filter()->values(),
             'widget_definitions' => $authorizedDefinitions,
             'customize_mode' => $this->customizeMode,
+            'quick_actions' => $this->authorizedQuickActions($user),
+            'recent_activity' => $this->authorizedRecentActivity($user),
         ];
+    }
+
+    /** @return array<int, array{label: string, value: int, url: string, tone: string}> */
+    private function nativeReferenceKpis(User $user, Collection $cards): array
+    {
+        // Classic remains unchanged. Native preview uses each existing scoped
+        // service and independent Access Control permission before counting.
+        if (! app(NavigationPreferenceService::class)->workspaceModeEnabled($user)) {
+            return [];
+        }
+
+        // Period comparisons are recent activity, NOT a percentage change
+        // in the all-time total shown on each card.
+        $today = CarbonImmutable::now(app(UserTimezoneResolver::class)->resolve($user))->startOfDay();
+        $thisPeriod = $today->subDays(6);
+        $lastPeriod = $thisPeriod->subDays(7);
+        $end = $today->addDay();
+        $kpis = [];
+        if (app(OrderAuthorization::class)->allows($user, OrderPermission::View)) {
+            $orders = app(OrderReadService::class)->orders($user)->whereNull('orders.web_sales_channel');
+            $kpis[] = [
+                'label' => 'Sales Orders',
+                'value' => (clone $orders)->count(),
+                'trend' => $this->nativeTrend($orders, 'orders.order_date', $lastPeriod, $thisPeriod, $end, true),
+                'url' => \App\Filament\Resources\Orders\OrderResource::getUrl(),
+                'tone' => 'blue',
+            ];
+        }
+        if (app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View)) {
+            $webSales = app(WebSalesReadService::class)->scoped($user);
+            $kpis[] = [
+                'label' => 'Web Sales',
+                'value' => (clone $webSales)->count(),
+                'trend' => $this->nativeTrend($webSales, 'orders.order_date', $lastPeriod, $thisPeriod, $end, true),
+                'url' => \App\Filament\Resources\WebSalesOrders\WebSalesOrderResource::getUrl(),
+                'tone' => 'green',
+            ];
+        }
+        if (app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests)) {
+            $stockRequests = app(StockRequestService::class)->visibleQuery($user);
+            $kpis[] = [
+                'label' => 'Stock Requests',
+                'value' => (clone $stockRequests)->count(),
+                'trend' => $this->nativeTrend($stockRequests, 'created_at', $lastPeriod, $thisPeriod, $end),
+                'url' => StockRequestResource::getUrl(),
+                'tone' => 'amber',
+            ];
+        }
+        if (StockTransferResource::canViewAny()) {
+            $transfers = app(StockTransferReadService::class)->query($user);
+            $kpis[] = [
+                'label' => 'Transfers (In/Out)',
+                'value' => (clone $transfers)->count(),
+                'trend' => $this->nativeTrend($transfers, 'stock_transfers.created_at', $lastPeriod, $thisPeriod, $end),
+                'url' => StockTransferResource::getUrl(),
+                'tone' => 'indigo',
+            ];
+        }
+        $returns = $cards->firstWhere('key', 'returns');
+        if (app(CustomerReturnAuthorization::class)->allows($user, CustomerReturnPermission::View)) {
+            // Both cards share exactly the responsibility scope of the
+            // Customer Returns list. The existing Returns / QC card keeps
+            // its existing operational count, while Total Returns shows
+            // every return record, including completed and cancelled.
+            $allReturns = app(CustomerReturnReadService::class)->query($user);
+            if ($returns !== null) {
+                $activeReturns = (clone $allReturns)
+                    ->whereNotIn('status', ['completed', 'cancelled']);
+                $kpis[] = [
+                    'label' => 'Returns / QC',
+                    'value' => (int) ($returns['value'] ?? 0),
+                    'trend' => $this->nativeTrend($activeReturns, 'created_at', $lastPeriod, $thisPeriod, $end),
+                    'url' => $returns['url'],
+                    'tone' => 'rose',
+                ];
+            }
+            $kpis[] = [
+                'label' => 'Total Returns',
+                'value' => (clone $allReturns)->count(),
+                'trend' => $this->nativeTrend($allReturns, 'created_at', $lastPeriod, $thisPeriod, $end),
+                'url' => CustomerReturnResource::getUrl(),
+                'tone' => 'rose',
+            ];
+        }
+
+        return $kpis;
+    }
+
+    /**
+     * Compare records dated in the most recent 7 local calendar days with the
+     * preceding 7 days, preserving the caller's responsibility-scoped query.
+     * This indicator measures recent records, not change in the all-time total.
+     *
+     * @return array{label:string, direction:string, title:string}
+     */
+    private function nativeTrend(
+        Builder $base,
+        string $column,
+        CarbonImmutable $priorStart,
+        CarbonImmutable $currentStart,
+        CarbonImmutable $end,
+        bool $dateOnly = false,
+    ): array {
+        $start = $dateOnly ? $priorStart->toDateString() : $priorStart->utc()->toDateTimeString();
+        $middle = $dateOnly ? $currentStart->toDateString() : $currentStart->utc()->toDateTimeString();
+        $finish = $dateOnly ? $end->toDateString() : $end->utc()->toDateTimeString();
+
+        $previous = (clone $base)->where($column, '>=', $start)->where($column, '<', $middle)->count();
+        $current = (clone $base)->where($column, '>=', $middle)->where($column, '<', $finish)->count();
+
+        $label = $previous === 0
+            ? ($current > 0 ? 'New' : '—')
+            : sprintf('%+.0f%%', (($current - $previous) / $previous) * 100);
+
+        return [
+            'label' => $label,
+            'direction' => $current > $previous ? 'up' : ($current < $previous ? 'down' : 'flat'),
+            'title' => "Last 7 days: {$current} · Previous 7 days: {$previous}",
+        ];
+    }
+
+    /** @return array{enabled: bool, movements: Collection} */
+    private function authorizedRecentActivity(User $user): array
+    {
+        $enabled = app(NavigationPreferenceService::class)->workspaceModeEnabled($user)
+            && app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewMovements);
+
+        return [
+            'enabled' => $enabled,
+            'movements' => $enabled
+                ? app(InventoryReadService::class)->movements($user)->latest('occurred_at')->limit(5)->get()
+                : collect(),
+        ];
+    }
+
+    /** @return array<int, array{label: string, url: string, icon: string}> */
+    private function authorizedQuickActions(User $user): array
+    {
+        if (! app(NavigationPreferenceService::class)->workspaceModeEnabled($user)) {
+            return [];
+        }
+
+        $actions = [];
+        foreach ([
+            [OrderResource::class, 'Create Sales Order', 'heroicon-o-shopping-bag'],
+            [PurchaseResource::class, 'Create Purchase', 'heroicon-o-shopping-cart'],
+            [StockRequestResource::class, 'Create Stock Request', 'heroicon-o-clipboard-document-list'],
+            [StockTransferResource::class, 'Create Stock Transfer', 'heroicon-o-arrows-right-left'],
+            [CustomerReturnResource::class, 'Record Customer Return', 'heroicon-o-arrow-uturn-left'],
+        ] as [$resource, $label, $icon]) {
+            if ($resource::canCreate()) {
+                $actions[] = ['label' => $label, 'url' => $resource::getUrl('create'), 'icon' => $icon];
+            }
+        }
+
+        return $actions;
     }
 
     private function loadPreferenceState(): void

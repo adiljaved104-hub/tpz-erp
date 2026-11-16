@@ -61,7 +61,8 @@ class MobilePlatformSyncTest extends TestCase
         }
         $products = collect($owner->json('modules'))->firstWhere('key', 'products');
         $this->assertSame('generic', $products['renderer']);
-        $this->assertFalse($products['create']['enabled']);
+        $this->assertTrue($products['create']['enabled']);
+        $this->assertSame('product-form', $products['create']['screen']);
         $this->assertSame('native', collect($owner->json('modules'))->firstWhere('key', 'chat')['renderer']);
         $staff = $f['employee']->user;
         $staffKeys = collect($this->asMobile($staff)->getJson($url)->assertOk()->json('modules'))->pluck('key');
@@ -96,7 +97,9 @@ class MobilePlatformSyncTest extends TestCase
         $this->assertTrue($owner->json('data.field_schema.0.read_only'));
         $staff = $f['employee']->user;
         $this->override($staff, ProductPermission::Update->value, EmployeePermissionEffect::Deny, $f['owner']);
-        $this->asMobile($staff)->getJson($url)->assertOk()->assertJsonPath('data.actions', []);
+        $actions = collect($this->asMobile($staff)->getJson($url)->assertOk()->json('data.actions'));
+        $this->assertFalse($actions->contains('key', 'update'));
+        $this->assertTrue($actions->contains('key', 'intelligence'));
         $this->asMobile($staff)->postJson($url.'/update', [])->assertForbidden();
     }
 

@@ -1,0 +1,249 @@
+<?php
+
+namespace App\Filament\Pages;
+
+use App\Enums\InventoryPermission;
+use App\Enums\ProductPermission;
+use App\Filament\Pages\Inventory\InventoryOverview;
+use App\Filament\Pages\Inventory\StockAdjustments;
+use App\Filament\Resources\ProductInventories\ProductInventoryResource;
+use App\Filament\Resources\Products\ProductResource;
+use App\Filament\Resources\StockMovements\StockMovementResource;
+use App\Filament\Resources\StockRequests\StockRequestResource;
+use App\Filament\Resources\StockTransfers\StockTransferResource;
+use App\Models\User;
+use App\Services\Authorization\InventoryAuthorization;
+use App\Services\Authorization\ProductAuthorization;
+use App\Services\Inventory\InventoryLocationOverviewService;
+use App\Services\Inventory\InventoryReadService;
+use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Mobile\StockStatus;
+use App\Services\Navigation\NavigationPreferenceService;
+use App\Services\Navigation\WorkspaceRecordPreviewService;
+use Filament\Pages\Page;
+use Filament\Support\Icons\Heroicon;
+use Livewire\WithPagination;
+
+class InventoryWorkspace extends Page
+{
+    use WithPagination;
+
+    protected string $view = 'filament.pages.inventory-workspace';
+
+    protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedSquares2x2;
+
+    protected static string|\UnitEnum|null $navigationGroup = 'Inventory & Warehouse';
+
+    protected static ?string $navigationLabel = 'Inventory Workspace';
+
+    protected static ?string $slug = 'inventory-workspace';
+
+    protected static ?int $navigationSort = 0;
+
+    public string $activeTab = 'overview';
+
+    public ?int $activeExtraModule = null;
+
+    public string $search = '';
+
+    public static function canAccess(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && app(NavigationPreferenceService::class)->workspaceModeEnabled($user)
+            && (
+                app(InventoryAuthorization::class)->allows($user, InventoryPermission::View)
+                || app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewStockRequests)
+                || app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewLocationBalances)
+                || app(ProductAuthorization::class)->allows($user, ProductPermission::View)
+            );
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return static::canAccess();
+    }
+
+    public function mount(): void
+    {
+        abort_unless(static::canAccess(), 403);
+    }
+
+    protected function getViewData(): array
+    {
+        /** @var User $user */
+        $user = auth()->user();
+        $authorization = app(InventoryAuthorization::class);
+        $canInventory = $authorization->allows($user, InventoryPermission::View);
+        $canLocationBalances = $authorization->allows($user, InventoryPermission::ViewLocationBalances);
+        $products = ($canInventory && $canLocationBalances)
+            ? app(InventoryLocationOverviewService::class)->forUser($user, false)
+            : collect();
+        $inventoryQuery = $canInventory
+            ? app(InventoryReadService::class)->inventories($user)
+            : null;
+
+        if ($inventoryQuery !== null && trim($this->search) !== '') {
+            $needle = addcslashes(trim($this->search), '%_\\\\');
+            $inventoryQuery->whereHas('product', function ($query) use ($needle): void {
+                $query->where(function ($product) use ($needle): void {
+                    $product->where('sku', 'like', '%'.$needle.'%')
+                        ->orWhere('name', 'like', '%'.$needle.'%');
+                });
+            });
+        }
+
+        $inventory = $inventoryQuery?->latest('product_inventories.updated_at')
+            ->paginate(15, pageName: 'inventory-page') ?? collect();
+
+        // Movement history must remain inside BOTH the existing responsibility scope
+        // and the independent inventory.view_movements Access Control grant.
+        $canSeeMovements = $authorization->allows($user, InventoryPermission::ViewMovements);
+        $recentMovements = $canSeeMovements
+            ? app(InventoryReadService::class)->movements($user)->latest('occurred_at')->limit(6)->get()
+            : collect();
+
+        // The same configurable threshold used by ERP stock intelligence;
+        // product data already comes from the responsibility-scoped overview.
+        $lowStockThreshold = app(StockStatus::class)->low();
+        $lowStockProducts = $products
+            ->filter(fn (array $product): bool => (int) $product['sellable'] <= $lowStockThreshold)
+            ->sortBy('sellable')
+            ->take(6)
+            ->values();
+
+        // Read-only tab previews reuse the SAME scoped resource queries used by
+        // the existing list pages. Full edit/create workflows stay in Filament.
+        $moduleQuery = match ($this->activeTab) {
+            'products' => ProductResource::canViewAny() ? ProductResource::getEloquentQuery() : null,
+            'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getEloquentQuery() : null,
+            'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getEloquentQuery() : null,
+            'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getEloquentQuery() : null,
+            default => null,
+        };
+        $moduleRecords = $moduleQuery?->latest()->paginate(10, pageName: 'module-page') ?? collect();
+
+        // Reuse Classic's already permission-filtered operational cards,
+        // including independently gated inventory valuation. Only compute
+        // the additional snapshot on the selected Overview tab.
+        $inventoryDashboard = $this->activeTab === 'overview'
+            ? app(ErpDashboardService::class)->forUser(
+                $user, widgetKeys: ['inventory', 'inventory_intelligence', 'attention']
+            )
+            : null;
+        $inventoryCards = $inventoryDashboard === null
+            ? collect()
+            : $inventoryDashboard['cards']->keyBy('key');
+        $inventoryAttention = $inventoryDashboard === null
+            ? collect()
+            : $inventoryDashboard['attention']->take(8)->values();
+
+        $tabCounts = [];
+        if ($inventory instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $tabCounts['inventory'] = $inventory->total();
+        }
+        if (ProductInventoryResource::canViewAny()) {
+            $tabCounts['myInventory'] = ProductInventoryResource::getEloquentQuery()->count();
+        }
+        if (ProductResource::canViewAny()) {
+            $tabCounts['products'] = ProductResource::getEloquentQuery()->count();
+        }
+        if (StockRequestResource::canViewAny()) {
+            $tabCounts['requests'] = StockRequestResource::getEloquentQuery()->count();
+        }
+        if (StockTransferResource::canViewAny()) {
+            $tabCounts['transfers'] = StockTransferResource::getEloquentQuery()->count();
+        }
+
+        $selectedExtra = $this->activeTab === 'extra' && $this->activeExtraModule !== null
+            ? $this->extraModules()->get($this->activeExtraModule)
+            : null;
+        $extraPreview = is_array($selectedExtra)
+            ? app(WorkspaceRecordPreviewService::class)->forLink($selectedExtra)
+            : null;
+
+        return [
+            'extraPreview' => $extraPreview,
+            'inventoryCards' => $inventoryCards,
+            'inventoryAttention' => $inventoryAttention,
+            'tabCounts' => $tabCounts,
+            'moduleRecords' => $moduleRecords,
+            'inventory' => $inventory,
+            'recentMovements' => $recentMovements,
+            'lowStockProducts' => $lowStockProducts,
+            'lowStockThreshold' => $lowStockThreshold,
+            'summary' => [
+                'products' => $products->count(),
+                'available' => $products->sum('available'),
+                'reserved' => $products->sum('reserved'),
+                'allocated' => $products->sum('total_owned'),
+            ],
+            'canSeeSummary' => $canInventory && $canLocationBalances,
+            'extraModules' => $this->extraModules(),
+            'links' => array_filter([
+                'products' => ProductResource::canViewAny() ? ProductResource::getUrl() : null,
+                'createProduct' => ProductResource::canCreate() ? ProductResource::getUrl('create') : null,
+                'inventory' => InventoryOverview::canAccess() ? InventoryOverview::getUrl() : null,
+                'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getUrl() : null,
+                'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getUrl() : null,
+                'createRequest' => StockRequestResource::canCreate() ? StockRequestResource::getUrl('create') : null,
+                'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getUrl() : null,
+                'createTransfer' => StockTransferResource::canCreate() ? StockTransferResource::getUrl('create') : null,
+                'adjustments' => StockAdjustments::canAccess() ? StockAdjustments::getUrl() : null,
+                'movements' => $canSeeMovements && StockMovementResource::canViewAny() ? StockMovementResource::getUrl() : null,
+            ]),
+            'canViewProducts' => ProductResource::canViewAny(),
+        ];
+    }
+
+    private function extraModules(): \Illuminate\Support\Collection
+    {
+        return collect(app(NavigationPreferenceService::class)->workspaceModuleLinks(auth()->user(), 'Inventory & Warehouse'))
+            ->reject(fn (array $item): bool => in_array($item['label'], [
+                'Products', 'Inventory Overview', 'My Inventory',
+                'Stock Requests', 'Stock Transfers', 'Stock Adjustments',
+                'Inventory Workspace',
+            ], true))
+            ->values();
+    }
+
+    public function selectExtraModule(int $index): void
+    {
+        abort_unless(static::canAccess() && $this->extraModules()->has($index), 403);
+        $this->activeTab = 'extra';
+        $this->activeExtraModule = $index;
+    }
+
+    public function setTab(string $tab): void
+    {
+        // The workspace never bypasses module Access Control when selecting a tab.
+        if ($tab !== 'overview') {
+            $validTabs = ['products', 'inventory', 'myInventory', 'requests', 'transfers', 'adjustments'];
+            abort_unless(in_array($tab, $validTabs, true), 403);
+            /** @var User $user */
+            $user = auth()->user();
+            $authorization = app(InventoryAuthorization::class);
+            $permitted = match ($tab) {
+                'products' => ProductResource::canViewAny(),
+                'inventory' => InventoryOverview::canAccess(),
+                'myInventory' => ProductInventoryResource::canViewAny(),
+                'requests' => StockRequestResource::canViewAny(),
+                'transfers' => StockTransferResource::canViewAny(),
+                'adjustments' => StockAdjustments::canAccess(),
+                default => false,
+            };
+            abort_unless($permitted && static::canAccess(), 403);
+        }
+
+        $this->activeTab = $tab;
+        $this->activeExtraModule = null;
+        $this->resetPage('inventory-page');
+        $this->resetPage('module-page');
+    }
+
+    public function updatedSearch(): void
+    {
+        $this->resetPage('inventory-page');
+    }
+}

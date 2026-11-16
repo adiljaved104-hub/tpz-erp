@@ -15,14 +15,16 @@ class MobileManifest
         $definitions = [
             'qc' => ['qc', null],
             'sales' => ['orders', Enums\OrderStatus::class, 'order-form', Authorization\OrderAuthorization::class, Enums\OrderPermission::Create],
-            'products' => ['products', Enums\ProductStatus::class],
+            'products' => ['products', Enums\ProductStatus::class, 'product-form', Authorization\ProductAuthorization::class, Enums\ProductPermission::Create],
+            'components' => ['components', Enums\ProductStatus::class, 'component-form', Authorization\ComponentAuthorization::class, Enums\ComponentPermission::Create],
             'purchases' => ['purchases', Enums\PurchaseStatus::class, 'purchase-form', Authorization\PurchaseAuthorization::class, Enums\PurchasePermission::Create],
             'suppliers' => ['suppliers', null],
             'inventory_locations' => ['inventory-locations', null],
             'stock_transfers' => ['stock-transfers', Enums\StockTransferStatus::class, 'stock-transfer-form', Authorization\StockTransferAuthorization::class, Enums\StockTransferPermission::Create],
             'stock_requests' => ['stock-requests', Enums\StockRequestStatus::class, 'stock-request-form', Authorization\InventoryAuthorization::class, Enums\InventoryPermission::CreateStockRequests],
             'reservations' => ['reservations', Enums\InventoryReservationStatus::class],
-            'invoices' => ['invoices', null],
+            'invoices' => ['invoices', null, 'invoice-form', Authorization\InvoiceAuthorization::class, Enums\InvoicePermission::Create],
+            'quotations' => ['quotations', Enums\QuotationStatus::class, 'quotation-form', Authorization\QuotationAuthorization::class, Enums\QuotationPermission::Create],
             'responsibilities' => ['responsibilities', null],
             'returns' => ['returns', Enums\CustomerReturnStatus::class, 'return-order-picker', Authorization\CustomerReturnAuthorization::class, Enums\CustomerReturnPermission::Create],
             'warranty' => ['warranty', Enums\WarrantyRepairStatus::class],
@@ -43,7 +45,7 @@ class MobileManifest
                 $create = $create && app(Authorization\OrderAuthorization::class)->allows($user, Enums\OrderPermission::EditSellingPrice);
             }
             $filters = [];
-            if (in_array($key, ['purchases', 'returns', 'warranty', 'internal_repairs', 'claims', 'complaints', 'tasks'], true)) {
+            if (in_array($key, ['purchases', 'quotations', 'returns', 'warranty', 'internal_repairs', 'claims', 'complaints', 'tasks'], true)) {
                 $filters[] = ['name' => 'filter', 'label' => 'Records', 'type' => 'select', 'options' => $this->options($key === 'tasks' ? ['open', 'overdue', 'due_soon'] : ['open'])];
             }
             if ($key === 'sales') {
@@ -126,7 +128,7 @@ class MobileManifest
                 'create' => ['enabled' => $create, 'renderer' => 'native', 'screen' => $create ? $definition[2] : null],
                 'edit' => ['source' => 'record.actions', 'record_authorization_required' => true],
                 'filters' => $filters,
-                'statuses' => $enum ? $this->options(array_map(fn ($status) => $status->value, $enum::cases())) : ($key === 'invoices' ? $this->options(['draft', 'issued', 'voided']) : []),
+                'statuses' => $enum ? $this->options(array_map(fn ($status) => $status->value, $enum::cases())) : ($key === 'invoices' ? $this->options(['issued', 'void']) : []),
                 'actions' => ['source' => 'record.actions'],
                 'features' => ['list' => true, 'detail' => $generic, 'create' => $create,
                     'edit' => $generic, 'server_fields' => $generic, 'server_actions' => $generic],

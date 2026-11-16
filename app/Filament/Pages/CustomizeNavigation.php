@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\EmployeeRole;
 use App\Models\User;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Notifications\Notification;
@@ -11,6 +12,8 @@ use Filament\Support\Icons\Heroicon;
 class CustomizeNavigation extends Page
 {
     public array $hiddenItems = [];
+
+    public bool $workspaceMode = false;
 
     protected string $view = 'filament.pages.customize-navigation';
 
@@ -68,6 +71,18 @@ class CustomizeNavigation extends Page
         Notification::make()->success()->title('Navigation reset to default')->send();
     }
 
+    public function toggleWorkspaceMode(): void
+    {
+        abort_unless(auth()->user()?->employee?->role === EmployeeRole::Owner, 403);
+        /** @var User $user */
+        $user = auth()->user();
+        app(NavigationPreferenceService::class)->setWorkspaceMode($user, ! $this->workspaceMode);
+        $this->loadPreference();
+        Notification::make()->success()->title($this->workspaceMode ? 'Workspace navigation enabled for you' : 'Legacy navigation restored')->send();
+        // Full reload is needed because Filament builds the sidebar outside this Livewire page.
+        $this->redirect(static::getUrl(), navigate: false);
+    }
+
     protected function getViewData(): array
     {
         /** @var User $user */
@@ -84,5 +99,6 @@ class CustomizeNavigation extends Page
             ->flatMap(fn (array $group): array => $group['items'])
             ->where('hidden', true)
             ->pluck('key')->values()->all();
+        $this->workspaceMode = app(NavigationPreferenceService::class)->workspaceModeEnabled($user);
     }
 }

@@ -41,17 +41,29 @@ class LeaveService
     ) {}
 
     /** @param array<string, mixed> $data */
-    public function submit(array $data, User $actor): LeaveRequest
+    public function submit(array $data, User $actor, ?string $idempotencyKey = null): LeaveRequest
     {
         throw_unless($this->authorization->allows($actor, HrPermission::LeaveRequest), AuthorizationException::class);
         $employee = $actor->employee;
         throw_unless($employee instanceof Employee, AuthorizationException::class);
+        $idempotencyKey = Validator::make(
+            ['idempotency_key' => $idempotencyKey],
+            ['idempotency_key' => ['nullable', 'uuid']],
+        )->validate()['idempotency_key'] ?? null;
+        if ($idempotencyKey !== null) {
+            $existing = LeaveRequest::query()->where('idempotency_key', $idempotencyKey)->first();
+            if ($existing instanceof LeaveRequest) {
+                throw_unless($existing->employee_id === $employee->id, AuthorizationException::class);
+
+                return $existing;
+            }
+        }
         $validated = $this->validatedRequestData($data);
         $type = $this->availableLeaveType((int) $validated['leave_type_id']);
         if ($type->consumes_annual_entitlement) {
             $this->historicalActivation->assertAnnualRequestsActive($employee);
         }
-        $request = $this->createRequest($validated, $employee, $type, $actor);
+        $request = $this->createRequest($validated, $employee, $type, $actor, idempotencyKey: $idempotencyKey);
         $this->notifications->submitted($request);
 
         return $request;
@@ -234,7 +246,7 @@ class LeaveService
 
     /** @param array<string, mixed> $validated
      */
-    private function createRequest(array $validated, Employee $employee, LeaveType $type, User $actor, bool $managementRecorded = false, bool $approved = false): LeaveRequest
+    private function createRequest(array $validated, Employee $employee, LeaveType $type, User $actor, bool $managementRecorded = false, bool $approved = false, ?string $idempotencyKey = null): LeaveRequest
     {
         $from = CarbonImmutable::parse($validated['from_date']);
         $to = CarbonImmutable::parse($validated['to_date']);
@@ -242,7 +254,7 @@ class LeaveService
         $policy = $type->consumes_annual_entitlement ? null : $this->policyFor($from);
         $reference = $this->references->nextLeaveRequestReference((int) $from->format('Y'));
 
-        return DB::transaction(function () use ($validated, $employee, $type, $policy, $calculation, $reference, $actor, $managementRecorded, $approved, $from, $to): LeaveRequest {
+        return DB::transaction(function () use ($validated, $employee, $type, $policy, $calculation, $reference, $actor, $managementRecorded, $approved, $from, $to, $idempotencyKey): LeaveRequest {
             $lockedEmployee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
             if ($lockedEmployee->status !== true) {
                 throw ValidationException::withMessages(['employee_id' => 'Leave can only be recorded for an active employee.']);
@@ -287,7 +299,7 @@ class LeaveService
                 'recorded_source' => $managementRecorded ? 'management' : 'employee',
                 'recorded_by_user_id' => $managementRecorded ? $actor->id : null,
                 'recorded_at' => $managementRecorded ? now() : null,
-                'idempotency_key' => (string) Str::uuid(),
+                'idempotency_key' => $idempotencyKey ?? (string) Str::uuid(),
             ]);
             foreach ($calculation['days'] as $day) {
                 LeaveRequestDay::query()->create($day + ['leave_request_id' => $request->id]);

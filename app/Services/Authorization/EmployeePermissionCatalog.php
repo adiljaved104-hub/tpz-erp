@@ -2,6 +2,7 @@
 
 namespace App\Services\Authorization;
 
+use App\Enums\AccountingPermission;
 use App\Enums\AiAssistantPermission;
 use App\Enums\AuthSecurityPermission;
 use App\Enums\BackupSettingsPermission;
@@ -184,6 +185,16 @@ class EmployeePermissionCatalog
                 $this->item(PurchasePermission::QuickReceive, 'Quick Stock Purchase', true),
             ],
             'Finance' => [
+                $this->item(AccountingPermission::ViewChart, 'View UAE Chart of Accounts', true, true),
+                $this->item(AccountingPermission::ViewJournals, 'View UAE General Journals', true, true),
+                $this->item(AccountingPermission::ViewPeriods, 'View UAE Accounting Periods', true, true),
+                $this->item(AccountingPermission::ViewGeneralLedger, 'View UAE General Ledger', true, true),
+                $this->item(AccountingPermission::ManageChart, 'Manage UAE Chart of Accounts', true, true),
+                $this->item(AccountingPermission::ManagePeriods, 'Manage UAE Accounting Periods', true, true),
+                $this->item(AccountingPermission::CreateJournal, 'Create UAE Journal Drafts', true, true),
+                $this->item(AccountingPermission::PostJournal, 'Post UAE Journals', true, true),
+                $this->item(AccountingPermission::ReverseJournal, 'Reverse UAE Journals', true, true),
+                $this->item(AccountingPermission::ViewTrialBalance, 'View UAE Trial Balance', true, true),
                 $this->item(ExpensePermission::View, 'View Expenses', true, true),
                 $this->item(ExpensePermission::Create, 'Create Expenses', true, true),
                 $this->item(ExpensePermission::Update, 'Update Expenses', true, true),

@@ -3215,3 +3215,294 @@ html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link 
         font-size: 1.35rem;
     }
 }
+
+/* Approved reference mockup: arrange operational cards three across and
+   integrate authorized Inventory Intelligence below them on the native Home.
+   No effect on Classic Dashboard, source queries, permissions or other pages. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .5rem;
+    align-items: stretch;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference > .tpz-native-detail-panel {
+    min-width: 0;
+    height: 100%;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-detail-header {
+    min-width: 0;
+    gap: .42rem;
+    padding: .4rem .55rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-detail-header-icon {
+    width: 1.7rem;
+    height: 1.7rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-detail-body {
+    padding: .22rem .5rem .52rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-attention-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: .19rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-attention-link {
+    min-height: 1.72rem;
+    gap: .23rem;
+    padding: .16rem .3rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-detail-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .3rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-mini-metric {
+    min-height: 4rem;
+    padding: .37rem .3rem;
+    gap: .12rem;
+    border-radius: .55rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-mini-label {
+    font-size: .65rem;
+    line-height: 1.13;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-mini-metric strong {
+    font-size: 1rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-empty {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    border: 1px solid #cce8de;
+    border-radius: .6rem;
+    background: #edfbf4;
+    padding: .75rem;
+    color: #167251;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-empty > svg { flex: none; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-empty span { display: grid; gap: .15rem; min-width: 0; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-empty strong { font-size: .78rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-empty small { font-size: .7rem; color: #47766a; }
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-empty {
+    background: #153f34; border-color: #367660; color: #c4f4de;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-empty small { color: #b0d9ce; }
+
+/* Inventory Intelligence uses the same compact section and card visual system.
+   Keep real Livewire Company/Team/Employee scope controls and existing data. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence {
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence > .fi-section {
+    min-width: 0;
+    border: 1px solid #d7e4f0;
+    border-radius: .9rem;
+    background: #fff;
+    box-shadow: 0 3px 12px rgb(15 45 70 / 5%);
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence > .fi-section > .fi-section-header {
+    padding: .5rem .8rem;
+    border-bottom: 1px solid #e1eaf3;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence > .fi-section > .fi-section-content {
+    padding: .55rem .65rem .7rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: .45rem;
+    margin: 0 0 .5rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-control-label {
+    width: min(100%, 12.5rem);
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-inventory-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .5rem;
+    align-items: stretch;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-inventory-panel {
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-inventory-panel > .fi-section {
+    min-width: 0;
+    height: 100%;
+    border-radius: .67rem;
+    border: 1px solid #dde8f3;
+    background: #fbfdff;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-inventory-panel .fi-section-header {
+    padding: .42rem .6rem;
+    border-bottom: 1px solid #e4edf5;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-inventory-panel .fi-section-header-heading {
+    font-size: .83rem;
+    font-weight: 750;
+    letter-spacing: -.02em;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-inventory-panel .fi-section-content {
+    padding: .3rem .45rem .5rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list {
+    gap: .19rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-row {
+    display: flex;
+    min-height: 2.75rem;
+    gap: .4rem;
+    padding: .28rem .4rem;
+    border: 1px solid #e2eaf3;
+    border-radius: .45rem;
+    background: #fff;
+    text-decoration: none;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence a.erp-dashboard-list-row:hover {
+    background: #eff8ff; border-color: #a2cfed;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-sku {
+    font-size: .69rem; line-height: 1.1; font-weight: 780;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-title {
+    font-size: .7rem; line-height: 1.2; font-weight: 600;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-meta {
+    font-size: .66rem; line-height: 1.15;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-status {
+    flex: 0 0 auto;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 6rem;
+    text-align: center;
+    background: #f7fafd;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence > .fi-section,
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-inventory-panel > .fi-section,
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-row {
+    background: #1c3247;
+    border-color: #345470;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence a.erp-dashboard-list-row:hover {
+    background: #28485f;
+}
+/* Keep the approved 3-panel desktop layout at normal 100% browser zoom.
+   The old 90rem and 70rem breakpoints stacked cards on ordinary 1280/1366px
+   desktop screens; those breakpoints were the reported visual regression. */
+@media (max-width: 76rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 56rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-inventory-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-detail-card-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+@media (max-width: 35rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference .tpz-native-detail-card-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Native Home future-data hardening: preserve ALL scoped alert/product rows;
+   internal scrolling starts only when lists outgrow the approved compact design.
+   No data limits, view permissions, or existing link destinations are changed. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference {
+    align-items: stretch;
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference > .tpz-native-detail-panel {
+    min-width: 0;
+    height: auto;
+    align-self: stretch;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list {
+    max-height: 19.5rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #a5c2d6 transparent;
+    padding-inline-end: .16rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    min-width: 0;
+    max-width: 100%;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:is(:hover,:focus-visible) > span {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:is(:hover,:focus-visible) {
+    height: auto;
+    min-height: 1.72rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:focus-visible,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence a.erp-dashboard-list-row:focus-visible,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-dashboard-inventory-unified a.tpz-native-mini-metric:focus-visible {
+    outline: 2px solid #0b82bb;
+    outline-offset: 1px;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list {
+    max-height: 20rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #a5c2d6 transparent;
+    padding-inline-end: .18rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-row {
+    min-width: 0;
+    max-width: 100%;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-main {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-title {
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence a.erp-dashboard-list-row:is(:hover,:focus-visible) .erp-dashboard-list-title {
+    -webkit-line-clamp: unset;
+    overflow: visible;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-dashboard-inventory-unified {
+    align-items: stretch;
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
+    min-width: 0;
+    height: auto;
+    overflow-wrap: anywhere;
+}
+/* Nested panes are intentionally scrollable for long datasets. On touch
+   devices, use native scrolling; never clip the full dashboard content. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list {
+    -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 35rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list,
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list {
+        max-height: 22rem;
+    }
+}

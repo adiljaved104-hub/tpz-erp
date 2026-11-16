@@ -33,8 +33,8 @@
 @endphp
 
 <div class="tpz-native-operations" aria-label="Operational Dashboard">
-    <div class="tpz-native-operational-columns">
-        @if(isset($nativeVisible['attention']) && $nativeActionList->isNotEmpty())
+    <div class="tpz-native-operational-columns tpz-native-operational-columns--reference">
+        @if(isset($nativeVisible['attention']))
             <section class="tpz-native-detail-panel" x-data="{
                     open: localStorage.getItem('tpz-native-section-attention') !== 'closed',
                     toggle() { this.open = !this.open; localStorage.setItem('tpz-native-section-attention', this.open ? 'open' : 'closed') }
@@ -45,7 +45,7 @@
                     <x-filament::icon icon="heroicon-o-chevron-down" class="tpz-native-detail-chevron size-4" x-bind:class="{'is-collapsed': !open}" />
                 </button>
                 <div id="tpz-native-detail-attention" x-show="open" class="tpz-native-detail-body">
-                    <div class="tpz-native-attention-list">
+                    <div class="tpz-native-attention-list" role="region" aria-label="Authorized priority alerts, scroll for more" tabindex="0">
                         @foreach($nativeActionList as $item)
                             @php
                                 $attentionLabel = strtolower((string) $item['label']);
@@ -68,6 +68,12 @@
                                 <small aria-hidden="true">View</small>
                             </a>
                         @endforeach
+                        @if($nativeActionList->isEmpty())
+                            <div class="tpz-native-attention-empty" role="status">
+                                <x-filament::icon icon="heroicon-o-check-circle" class="size-5" />
+                                <span><strong>All caught up!</strong><small>No items currently need your attention.</small></span>
+                            </div>
+                        @endif
                     </div>
                 </div>
             </section>
@@ -91,8 +97,6 @@
                 </div>
             </section>
         @endif
-    </div>
-
     @if(isset($nativeVisible['hr']) && $nativeCards['hr']->isNotEmpty())
         <section class="tpz-native-detail-panel" x-data="{
                 open: localStorage.getItem('tpz-native-section-hr') !== 'closed',
@@ -112,4 +116,5 @@
             </div>
         </section>
     @endif
+    </div>
 </div>

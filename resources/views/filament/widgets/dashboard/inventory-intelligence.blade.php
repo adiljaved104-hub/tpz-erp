@@ -43,9 +43,9 @@
             <div class="erp-dashboard-inventory-panel">
                 <x-filament::section compact>
                     <x-slot name="heading">Inventory Attention</x-slot>
-                    <div class="erp-dashboard-list">
+                    <div class="erp-dashboard-list" role="region" aria-label="Inventory Attention products, scroll for more" tabindex="0">
                         @forelse ($inventory_intelligence['attention'] as $item)
-                            <a href="{{ $item['url'] }}" class="erp-dashboard-list-row">
+                            <a href="{{ $item['url'] }}" class="erp-dashboard-list-row" aria-label="{{ $item['sku'] }}: {{ $item['product'] }}">
                                 <div class="erp-dashboard-list-main">
                                     <div class="erp-dashboard-list-sku">{{ $item['sku'] }}</div>
                                     <div class="erp-dashboard-list-title" title="{{ $item['product'] }}">{{ $item['product_label'] }}</div>
@@ -62,9 +62,9 @@
             <div class="erp-dashboard-inventory-panel">
                 <x-filament::section compact>
                     <x-slot name="heading">Top-Selling Products</x-slot>
-                    <div class="erp-dashboard-list">
+                    <div class="erp-dashboard-list" role="region" aria-label="Top-Selling Products, scroll for more" tabindex="0">
                         @forelse ($inventory_intelligence['top_sellers'] as $item)
-                            <a href="{{ $item['url'] }}" class="erp-dashboard-list-row">
+                            <a href="{{ $item['url'] }}" class="erp-dashboard-list-row" aria-label="{{ $item['sku'] }}: {{ $item['product'] }}">
                                 <div class="erp-dashboard-list-main">
                                     <div class="erp-dashboard-list-sku">{{ $item['sku'] }}</div>
                                     <div class="erp-dashboard-list-title" title="{{ $item['product'] }}">{{ $item['product_label'] }}</div>
@@ -81,9 +81,9 @@
             <div class="erp-dashboard-inventory-panel">
                 <x-filament::section compact>
                     <x-slot name="heading">Fast Selling / Low Stock</x-slot>
-                    <div class="erp-dashboard-list">
+                    <div class="erp-dashboard-list" role="region" aria-label="Fast Selling / Low Stock products, scroll for more" tabindex="0">
                         @forelse ($inventory_intelligence['fast_selling_low_stock'] as $item)
-                            <a href="{{ $item['url'] }}" class="erp-dashboard-list-row">
+                            <a href="{{ $item['url'] }}" class="erp-dashboard-list-row" aria-label="{{ $item['sku'] }}: {{ $item['product'] }}">
                                 <div class="erp-dashboard-list-main">
                                     <div class="erp-dashboard-list-sku">{{ $item['sku'] }}</div>
                                     <div class="erp-dashboard-list-title" title="{{ $item['product'] }}">{{ $item['product_label'] }}</div>

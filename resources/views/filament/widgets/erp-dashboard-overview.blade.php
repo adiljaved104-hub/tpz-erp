@@ -104,7 +104,7 @@
             background: #e0eeff; font-size: .58rem; color: #315c82;
         }
         html.tpz-native-workspace .tpz-dashboard-marketplace-chips b { font-weight: 800; }
-        @media (max-width: 87.499rem) {
+        @media (max-width: 63.999rem) {
             html.tpz-native-workspace .tpz-dashboard-inventory-unified { grid-template-columns: repeat(4,minmax(0,1fr)); }
         }
         @media (max-width: 47.999rem) {

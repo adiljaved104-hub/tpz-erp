@@ -3396,12 +3396,15 @@ html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligen
 html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence a.erp-dashboard-list-row:hover {
     background: #28485f;
 }
-@media (max-width: 90rem) {
+/* Keep the approved 3-panel desktop layout at normal 100% browser zoom.
+   The old 90rem and 70rem breakpoints stacked cards on ordinary 1280/1366px
+   desktop screens; those breakpoints were the reported visual regression. */
+@media (max-width: 76rem) {
     html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
-@media (max-width: 70rem) {
+@media (max-width: 56rem) {
     html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference {
         grid-template-columns: minmax(0, 1fr);
     }

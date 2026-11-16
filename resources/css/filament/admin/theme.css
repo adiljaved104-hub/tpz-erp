@@ -7,7 +7,7 @@
 @source '../../../../resources/views/returns/**/*';
 
 /* Opt-in native workspace shell. Legacy users are unaffected. */
-html.tpz-native-workspace { --tpz-navy: #122b43; --tpz-blue: #176b87; --tpz-teal: #13a68b; }
+html.tpz-native-workspace { --tpz-navy: #122b43; --tpz-blue: #176b87; --tpz-teal: #13a68b; --sidebar-width: 15.5rem; }
 html.tpz-native-workspace .fi-sidebar { background: var(--tpz-navy); border-color: rgb(255 255 255 / 10%); }
 html.tpz-native-workspace .fi-sidebar-header { background: var(--tpz-navy); border-color: rgb(255 255 255 / 10%); }
 html.tpz-native-workspace .fi-sidebar-header *, html.tpz-native-workspace .fi-sidebar-group-label, html.tpz-native-workspace .fi-sidebar-item-label { color: rgb(226 238 244 / 86%); }
@@ -1356,22 +1356,22 @@ html.dark.tpz-native-workspace .tpz-native-kpi-trend.is-down { color: #fdba74; }
 }
 
 
-/* Native dashboard supports six honest KPI cards without squeezed labels.
-   On normal desktop widths, two balanced rows improve readability. */
+/* Owner-approved density: six truthful KPI cards on normal desktops,
+   with the same compact design retained at smaller breakpoints. */
 html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
 }
-@media (min-width: 105rem) {
+@media (max-width: 79.999rem) {
     html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
-@media (max-width: 48rem) {
+@media (max-width: 47.999rem) {
     html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
-@media (max-width: 36rem) {
+@media (max-width: 35.999rem) {
     html.tpz-native-workspace .tpz-home-kpis:has(> :nth-child(6)) {
         grid-template-columns: 1fr;
     }
@@ -1574,7 +1574,7 @@ html.tpz-native-workspace .tpz-native-operational-columns {
     align-items: start;
 }
 html.tpz-native-workspace .tpz-native-operational-columns .tpz-native-detail-card-grid {
-    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-columns: repeat(5,minmax(0,1fr));
 }
 html.tpz-native-workspace .tpz-native-attention-list {
     display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
@@ -1609,8 +1609,9 @@ html.tpz-native-workspace .tpz-home-actions a:first-child {
 }
 html.tpz-native-workspace .tpz-home-actions a:first-child:hover { background: #0a668e; }
 
-@media (max-width: 75rem) {
+@media (max-width: 79.999rem) {
     html.tpz-native-workspace .tpz-native-operational-columns { grid-template-columns: 1fr; }
+    html.tpz-native-workspace .tpz-native-operational-columns .tpz-native-detail-card-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
 }
 @media (max-width: 58rem) {
     html.tpz-native-workspace .tpz-native-detail-card-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
@@ -1620,6 +1621,84 @@ html.tpz-native-workspace .tpz-home-actions a:first-child:hover { background: #0
     html.tpz-native-workspace .tpz-native-detail-card-grid,
     html.tpz-native-workspace .tpz-native-operational-columns .tpz-native-detail-card-grid {
         grid-template-columns: 1fr;
+    }
+}
+/* Dashboard-only density contract: keeps the approved pastel card design,
+   inventory and access-control logic intact. No effect on Classic ERP. */
+html.tpz-native-workspace .tpz-reference-home--final { gap: .55rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpis { gap: .45rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi {
+    min-height: 4.6rem; padding: .55rem .65rem; gap: .45rem; border-radius: .7rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi svg {
+    width: 2rem; height: 2rem; padding: .42rem; border-radius: .55rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi span:not(.tpz-native-kpi-trend) {
+    font-size: .69rem; line-height: 1.22;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-kpi strong {
+    font-size: 1.25rem; line-height: 1.12; margin-top: .14rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels { gap: .55rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels .fi-section-header {
+    padding: .6rem .8rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-panels .fi-section-content {
+    padding: .55rem .75rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-list { gap: .05rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-list > a,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-list > div {
+    padding: .34rem .15rem; min-height: 2.2rem; font-size: .75rem; line-height: 1.25;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity .tpz-list-row {
+    padding: .26rem .1rem; min-height: 2.35rem; gap: .4rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-activity-icon {
+    width: 1.55rem; height: 1.55rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions { gap: .27rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a {
+    padding: .36rem .6rem; min-height: 2rem; font-size: .73rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations { margin-top: .1rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-detail-header {
+    min-height: 2.85rem; padding: .42rem .7rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-detail-body { padding: .2rem .6rem .6rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-detail-card-grid { gap: .4rem; }
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-metric {
+    min-height: 4.35rem; padding: .5rem .38rem; gap: .18rem;
+    grid-template-columns: minmax(0,1fr);
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-icon {
+    width: 1.65rem; height: 1.65rem; grid-row: auto;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-label {
+    font-size: .67rem; line-height: 1.15;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns .tpz-native-mini-metric strong {
+    grid-column: 1; font-size: 1.12rem; line-height: 1.1;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    padding: .26rem .4rem; min-height: 1.9rem; font-size: .68rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .tpz-native-detail-panel .tpz-native-detail-card-grid {
+    grid-template-columns: repeat(6,minmax(0,1fr));
+}
+@media (max-width: 79.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .tpz-native-detail-panel .tpz-native-detail-card-grid {
+        grid-template-columns: repeat(3,minmax(0,1fr));
+    }
+}
+@media (max-width: 47.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .tpz-native-detail-panel .tpz-native-detail-card-grid {
+        grid-template-columns: repeat(2,minmax(0,1fr));
+    }
+}
+@media (max-width: 35.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operations > .tpz-native-detail-panel .tpz-native-detail-card-grid {
+        grid-template-columns: minmax(0,1fr);
     }
 }
 /* Dark mode uses the same layout with readable contrast. */

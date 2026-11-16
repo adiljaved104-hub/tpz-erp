@@ -95,13 +95,13 @@
         .tpz-reference-home .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
             box-sizing: border-box;
             min-width: 0;
-            min-height: 5rem;
-            padding: .48rem;
+            min-height: 4.25rem;
+            padding: .4rem;
             border: 1px solid #d3e5f6;
             border-radius: .8rem;
             background: #e8f3ff;
             display: grid;
-            grid-template-columns: 1.5rem minmax(0,1fr);
+            grid-template-columns: 1.4rem minmax(0,1fr);
             align-content: start;
             gap: .12rem .35rem;
             color: #12395e;
@@ -160,7 +160,9 @@
         }
         .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label,
         .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong { color: #edf6ff; }
-        @media (max-width: 81.999rem) {
+        /* Keep eight cards on desktop at 100% zoom. Reduce columns only
+           when the viewport truly cannot fit the compact tiles. */
+        @media (max-width: 73.999rem) {
             .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(4,minmax(0,1fr)); }
         }
         @media (max-width: 47.999rem) {

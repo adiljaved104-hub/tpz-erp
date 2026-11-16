@@ -7,8 +7,7 @@ on:
       - codex/accounting-import-center-phase1-20261116
   pull_request:
     branches:
-      - codex/accounting-b2-ap-purchasing-20261111
-      - codex/accounting-import-center-phase1-20261116
+      - staging
 
 permissions:
   contents: read
@@ -59,7 +58,7 @@ jobs:
       - name: Migrate disposable MySQL database
         run: php artisan migrate --force --no-interaction
       - name: Focused B2 AP tests
-        run: php artisan test tests/Feature/Accounting/AccountingFoundationTest.php tests/Feature/Accounting/AccountingNavigationTest.php tests/Feature/Accounting/AccountingUiPhaseOneTest.php tests/Feature/Accounting/AccountsPayableFoundationTest.php tests/Feature/Accounting/QuickBooksImportPreviewTest.php --compact
+        run: php artisan test tests/Feature/Accounting/AccountingFoundationTest.php tests/Feature/Accounting/AccountingNavigationTest.php tests/Feature/Accounting/AccountingUiPhaseOneTest.php tests/Feature/Accounting/AccountsPayableFoundationTest.php tests/Feature/Accounting/QuickBooksImportPreviewTest.php tests/Feature/AccessControl/AccessControlMatrixTest.php --compact
       - name: PHP syntax
         run: |
           php -l app/Services/Accounting/AccountsPayableService.php

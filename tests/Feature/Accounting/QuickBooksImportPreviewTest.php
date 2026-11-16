@@ -11,12 +11,76 @@ use App\Services\Accounting\QuickBooksImportPreviewService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class QuickBooksImportPreviewTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_additive_accounting_migrations_keep_b1_tables_and_create_expected_indexes_and_foreign_keys(): void
+    {
+        $schema = Schema::getFacadeRoot();
+        foreach ([
+            'accounting_books',
+            'accounting_accounts',
+            'accounting_journals',
+            'accounting_journal_lines',
+            'accounting_supplier_bills',
+            'accounting_supplier_payments',
+            'accounting_supplier_adjustments',
+            'accounting_supplier_adjustment_allocations',
+            'accounting_import_batches',
+            'accounting_import_batch_items',
+            'accounting_import_links',
+        ] as $table) {
+            $this->assertTrue($schema->hasTable($table), "Expected migrated table {$table}.");
+        }
+
+        $migrations = DB::table('migrations')
+            ->whereIn('migration', [
+                '2026_11_09_180000_create_accounting_b1_foundation',
+                '2026_11_11_120000_create_accounting_supplier_payables',
+                '2026_11_16_210000_create_accounting_supplier_adjustment_allocations',
+                '2026_11_16_220000_create_accounting_import_center',
+            ])
+            ->orderBy('id')
+            ->pluck('migration')
+            ->all();
+        $this->assertSame([
+            '2026_11_09_180000_create_accounting_b1_foundation',
+            '2026_11_11_120000_create_accounting_supplier_payables',
+            '2026_11_16_210000_create_accounting_supplier_adjustment_allocations',
+            '2026_11_16_220000_create_accounting_import_center',
+        ], $migrations);
+
+        foreach ([
+            ['accounting_supplier_bills', ['accounting_book_id']],
+            ['accounting_supplier_bills', ['supplier_id']],
+            ['accounting_supplier_payment_allocations', ['bill_id']],
+            ['accounting_supplier_adjustment_allocations', ['adjustment_id']],
+            ['accounting_supplier_adjustment_allocations', ['bill_id']],
+            ['accounting_import_batch_items', ['batch_id']],
+            ['accounting_import_batch_items', ['source_identity_id']],
+            ['accounting_import_links', ['batch_item_id']],
+        ] as [$table, $columns]) {
+            $this->assertTrue($schema->hasForeignKey($table, $columns), "Missing {$table} foreign key on ".implode(',', $columns).'.');
+        }
+
+        foreach ([
+            ['accounting_supplier_bills', 'accounting_supplier_bills_ageing_idx'],
+            ['accounting_supplier_payments', 'accounting_supplier_payments_ageing_idx'],
+            ['accounting_supplier_payment_allocations', 'accounting_supplier_payment_allocations_bill_idx'],
+            ['accounting_supplier_adjustments', 'accounting_supplier_adjustments_ageing_idx'],
+            ['accounting_supplier_adjustment_allocations', 'accounting_supplier_adjustment_allocations_bill_idx'],
+            ['accounting_import_batch_items', 'accounting_import_batch_item_status_idx'],
+            ['accounting_import_source_identities', 'accounting_import_identity_source_uq'],
+        ] as [$table, $index]) {
+            $this->assertTrue($schema->hasIndex($table, $index), "Missing {$table} index {$index}.");
+        }
+    }
 
     public function test_ap_export_preview_preserves_original_fields_and_links_and_deduplicates_without_creating_erp_transactions(): void
     {

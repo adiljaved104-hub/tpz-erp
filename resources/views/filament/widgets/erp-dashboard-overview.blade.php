@@ -87,23 +87,23 @@
            consistently sized cards and the reference's stronger pastel accents. */
         .tpz-reference-home .tpz-dashboard-inventory-unified {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: .65rem;
+            grid-template-columns: repeat(8, minmax(0, 1fr));
+            gap: .4rem;
             min-width: 0;
             align-items: stretch;
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
             box-sizing: border-box;
             min-width: 0;
-            min-height: 6.35rem;
-            padding: .75rem;
+            min-height: 5rem;
+            padding: .48rem;
             border: 1px solid #d3e5f6;
             border-radius: .8rem;
             background: #e8f3ff;
             display: grid;
-            grid-template-columns: 2rem minmax(0,1fr);
+            grid-template-columns: 1.5rem minmax(0,1fr);
             align-content: start;
-            gap: .2rem .55rem;
+            gap: .12rem .35rem;
             color: #12395e;
             text-decoration: none;
             box-shadow: 0 1px 2px rgb(31 65 100 / 4%);
@@ -114,17 +114,17 @@
             box-shadow: 0 3px 9px rgb(31 65 100 / 12%);
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-icon {
-            width: 2rem; height: 2rem; border-radius: .55rem;
+            width: 1.5rem; height: 1.5rem; border-radius: .45rem;
             display: grid; place-items: center; grid-row: 1 / span 3;
             background: rgb(255 255 255 / 78%);
             color: #1675c1;
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label {
-            font-size: .75rem; font-weight: 700; line-height: 1.28;
+            font-size: .65rem; font-weight: 700; line-height: 1.19;
             color: #31516f; overflow-wrap: anywhere;
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong {
-            grid-column: 2; font-size: 1.33rem; line-height: 1.32;
+            grid-column: 2; font-size: 1.09rem; line-height: 1.19;
             font-weight: 800; color: #092f55; overflow-wrap: anywhere;
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--teal {
@@ -160,8 +160,8 @@
         }
         .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label,
         .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong { color: #edf6ff; }
-        @media (min-width: 100rem) {
-            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(8, minmax(0,1fr)); }
+        @media (max-width: 81.999rem) {
+            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(4,minmax(0,1fr)); }
         }
         @media (max-width: 47.999rem) {
             .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(2,minmax(0,1fr)); }

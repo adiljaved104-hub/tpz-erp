@@ -1750,6 +1750,95 @@ html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:no
 html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-home-actions a:not(:first-child):hover {
     background: #284961;
 }
+/* Owner-approved Needs Attention reference styling (native dashboard only).
+   Two tight columns with contextual icons and a View affordance; every existing
+   authorized alert remains visible and each entire row remains clickable. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: .35rem;
+    row-gap: .18rem;
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    min-height: 1.7rem;
+    gap: .3rem;
+    padding: .16rem .32rem;
+    border: 1px solid #e5edf7;
+    border-radius: .4rem;
+    background: #fbfdff;
+    color: #17304b;
+    font-size: .67rem;
+    line-height: 1.15;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link .tpz-native-attention-icon {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    color: #246d9c;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link > span {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 650;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link b {
+    flex: none;
+    min-width: 1.4rem;
+    padding: .1rem .3rem;
+    border-radius: 999px;
+    text-align: center;
+    background: #f9dfe3;
+    color: #aa2439;
+    font-size: .66rem;
+    font-weight: 800;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link small {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.5rem;
+    min-height: 1.25rem;
+    padding: .08rem .35rem;
+    border-radius: 999px;
+    border: 1px solid #d8e2ec;
+    background: #fff;
+    color: #18334d;
+    font-size: .64rem;
+    font-weight: 750;
+    box-shadow: 0 1px 2px rgb(14 40 65 / 7%);
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:hover small,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:focus-visible small {
+    border-color: #4d96c0;
+    color: #065c8d;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:focus-visible {
+    outline: 2px solid #0b82bb;
+    outline-offset: 2px;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    background: #1a3044;
+    border-color: #34536c;
+    color: #ecf6ff;
+}
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link .tpz-native-attention-icon { color: #98d5f4; }
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link b { background: #543449; color: #ffd8e0; }
+html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link small {
+    background: #29445b; color: #e7f5ff; border-color: #51728d;
+}
+@media (max-width: 47.999rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
 /* Dark mode uses the same layout with readable contrast. */
 html.dark.tpz-native-workspace .tpz-native-detail-panel { background: #152738; border-color: #31495d; }
 html.dark.tpz-native-workspace .tpz-native-detail-header { color: #eaf4fc; }

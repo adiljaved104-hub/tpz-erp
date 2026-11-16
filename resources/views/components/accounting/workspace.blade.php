@@ -13,6 +13,7 @@
         ['key' => 'ledger', 'label' => 'General Ledger', 'icon' => '⇄', 'permission' => \App\Enums\AccountingPermission::ViewGeneralLedger, 'url' => \App\Filament\Pages\Finance\AccountingGeneralLedger::getUrl()],
         ['key' => 'trial', 'label' => 'Trial Balance', 'icon' => '▥', 'permission' => \App\Enums\AccountingPermission::ViewTrialBalance, 'url' => \App\Filament\Pages\Finance\AccountingTrialBalance::getUrl()],
         ['key' => 'periods', 'label' => 'Accounting Periods', 'icon' => '▣', 'permission' => \App\Enums\AccountingPermission::ViewPeriods, 'url' => \App\Filament\Pages\Finance\AccountingPeriods::getUrl()],
+        ['key' => 'import', 'label' => 'QuickBooks Import Center', 'icon' => '⇧', 'permission' => \App\Enums\AccountingPermission::ViewImportCenter, 'url' => \App\Filament\Pages\Finance\AccountingImportCenter::getUrl()],
         ['key' => 'banking', 'label' => 'Banking Center', 'icon' => '⇆', 'preview' => true],
         ['key' => 'reports', 'label' => 'Financial Reports Center', 'icon' => '▧', 'preview' => true],
     ];

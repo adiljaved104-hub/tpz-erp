@@ -263,15 +263,22 @@ class ErpDashboardService
                     ->where('dashboard_ra.status', ResponsibilityAssignmentStatus::Active->value)
                     ->whereNull('dashboard_ra.ended_at')
                     ->pluck('dashboard_rw.warehouse_id');
+                $platformIds = DB::table('responsibility_assignments as dashboard_platform_ra')
+                    ->join('responsibility_assignment_platforms as dashboard_rp', 'dashboard_rp.assignment_id', '=', 'dashboard_platform_ra.id')
+                    ->join('warehouses as dashboard_platform_warehouse', 'dashboard_platform_warehouse.marketplace_platform_id', '=', 'dashboard_rp.marketplace_platform_id')
+                    ->where('dashboard_platform_ra.employee_id', $employeeId)
+                    ->where('dashboard_platform_ra.status', ResponsibilityAssignmentStatus::Active->value)
+                    ->whereNull('dashboard_platform_ra.ended_at')
+                    ->pluck('dashboard_platform_warehouse.id');
                 $sharedIds = DB::table('warehouse_stock_visibility_grants')
                     ->where('employee_id', $employeeId)
                     ->where('status', 'active')
                     ->whereNull('ended_at')
                     ->where('view_stock', true)
                     ->pluck('warehouse_id');
-                $warehouseQuery->where(function ($allowed) use ($visibleWarehouseCodes, $directIds, $sharedIds): void {
+                $warehouseQuery->where(function ($allowed) use ($visibleWarehouseCodes, $directIds, $platformIds, $sharedIds): void {
                     $allowed->whereIn('code', $visibleWarehouseCodes)
-                        ->orWhereIn('id', $directIds->merge($sharedIds)->unique()->all());
+                        ->orWhereIn('id', $directIds->merge($platformIds)->merge($sharedIds)->unique()->all());
                 });
             }
             $warehouses = $warehouseQuery->orderBy('name')->get(['name', 'code'])

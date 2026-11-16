@@ -188,6 +188,36 @@
                     @endforelse
                 </div>
 
+                @if (! empty($warehouse_breakdown))
+                    <section class="rounded-xl border border-sky-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-label="Inventory by warehouse">
+                        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-900 dark:text-white">Inventory by Warehouse</h2>
+                                <p class="text-xs text-slate-500 dark:text-slate-300">Authorized stock only · Physical locations and transit shown separately</p>
+                            </div>
+                            <a class="text-sm font-semibold text-sky-700 hover:underline dark:text-sky-300" href="{{ $warehouse_breakdown['url'] }}">View inventory →</a>
+                        </div>
+                        <div class="mb-3 flex flex-wrap gap-3 rounded-lg bg-sky-50 px-4 py-3 text-sm dark:bg-slate-800">
+                            <span class="text-slate-700 dark:text-slate-200">Total inventory: <strong>{{ number_format($warehouse_breakdown['total']) }}</strong></span>
+                            <span class="text-slate-700 dark:text-slate-200">At warehouses: <strong>{{ number_format($warehouse_breakdown['on_location']) }}</strong></span>
+                            @if ($warehouse_breakdown['in_transit'] > 0)
+                                <span class="text-slate-700 dark:text-slate-200">In transit: <strong>{{ number_format($warehouse_breakdown['in_transit']) }}</strong></span>
+                            @endif
+                        </div>
+                        <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                            @forelse ($warehouse_breakdown['warehouses'] as $warehouse)
+                                <div class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <div class="truncate text-xs font-semibold text-slate-600 dark:text-slate-300" title="{{ $warehouse['name'] }}">{{ $warehouse['name'] }}</div>
+                                    <div class="mt-1 text-xl font-bold text-slate-900 dark:text-white">{{ number_format($warehouse['units']) }} <span class="text-xs font-normal">units</span></div>
+                                    <div class="text-xs text-slate-500 dark:text-slate-300">{{ number_format($warehouse['products']) }} products</div>
+                                </div>
+                            @empty
+                                <p class="text-sm text-slate-500 dark:text-slate-300">No warehouse stock in your authorized scope.</p>
+                            @endforelse
+                        </div>
+                    </section>
+                @endif
+
                 <div class="tpz-home-panels">
 
                     <x-filament::section compact heading="My Workspace">
@@ -406,6 +436,37 @@
                                             @include('filament.widgets.dashboard.metric-card', ['card' => $card, 'icons' => $icons])
                                         @endforeach
                                     </div>
+                                    @if ($widgetKey === 'inventory')
+                    @if (! empty($warehouse_breakdown))
+                        <section class="rounded-xl border border-sky-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-label="Inventory by warehouse">
+                            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <h2 class="text-base font-bold text-slate-900 dark:text-white">Inventory by Warehouse</h2>
+                                    <p class="text-xs text-slate-500 dark:text-slate-300">Authorized stock only · Physical locations and transit shown separately</p>
+                                </div>
+                                <a class="text-sm font-semibold text-sky-700 hover:underline dark:text-sky-300" href="{{ $warehouse_breakdown['url'] }}">View inventory →</a>
+                            </div>
+                            <div class="mb-3 flex flex-wrap gap-3 rounded-lg bg-sky-50 px-4 py-3 text-sm dark:bg-slate-800">
+                                <span class="text-slate-700 dark:text-slate-200">Total inventory: <strong>{{ number_format($warehouse_breakdown['total']) }}</strong></span>
+                                <span class="text-slate-700 dark:text-slate-200">At warehouses: <strong>{{ number_format($warehouse_breakdown['on_location']) }}</strong></span>
+                                @if ($warehouse_breakdown['in_transit'] > 0)
+                                    <span class="text-slate-700 dark:text-slate-200">In transit: <strong>{{ number_format($warehouse_breakdown['in_transit']) }}</strong></span>
+                                @endif
+                            </div>
+                            <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                @forelse ($warehouse_breakdown['warehouses'] as $warehouse)
+                                    <div class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                        <div class="truncate text-xs font-semibold text-slate-600 dark:text-slate-300" title="{{ $warehouse['name'] }}">{{ $warehouse['name'] }}</div>
+                                        <div class="mt-1 text-xl font-bold text-slate-900 dark:text-white">{{ number_format($warehouse['units']) }} <span class="text-xs font-normal">units</span></div>
+                                        <div class="text-xs text-slate-500 dark:text-slate-300">{{ number_format($warehouse['products']) }} products</div>
+                                    </div>
+                                @empty
+                                    <p class="text-sm text-slate-500 dark:text-slate-300">No warehouse stock in your authorized scope.</p>
+                                @endforelse
+                            </div>
+                        </section>
+                    @endif
+                                        @endif
                                 </x-filament::section>
                             @endif
                         @elseif ($widgetKey === 'inventory_intelligence')

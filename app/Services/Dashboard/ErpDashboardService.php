@@ -255,8 +255,7 @@ class ErpDashboardService
                     'units' => (int) $rows->sum('total'),
                     'products' => (int) $rows->sum('products'),
                 ];
-            })->filter(fn (array $row): bool => $row['units'] > 0)
-                ->sortBy('name')->values()->all();
+            })->sortBy('name')->values()->all();
 
             $warehouseBreakdown = [
                 'total' => (int) $summary['total_company_stock'],
@@ -285,7 +284,7 @@ class ErpDashboardService
                 ->values()->all();
             $marketplaceCard = $this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url.'?marketplace=1');
             $marketplaceCard['warehouse_breakdown'] = $marketplaceBreakdown;
-            $cards->push($marketplaceCard);
+            // Individual warehouse cards replace the aggregate marketplace KPI.
         }
 
         if ($includeCards && $this->inventory->allows($user, InventoryPermission::ViewFinancials)) {

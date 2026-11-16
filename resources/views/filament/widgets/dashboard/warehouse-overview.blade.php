@@ -1,26 +1,17 @@
 @if (! empty($warehouse_breakdown))
-    <div class="tpz-warehouse-inline" aria-label="Warehouse quantities">
-        <div class="tpz-warehouse-inline__heading">
-            <span>Warehouse Stock</span>
-            <a href="{{ $warehouse_breakdown['url'] }}">View →</a>
+    @foreach ($warehouse_breakdown['warehouses'] as $warehouse)
+        <a href="{{ $warehouse_breakdown['url'] }}" class="tpz-native-mini-metric tpz-dashboard-warehouse-tile" aria-label="{{ $warehouse['name'] }} stock: {{ number_format($warehouse['units']) }} units">
+            <span class="tpz-native-mini-icon"><x-filament::icon icon="heroicon-o-building-office-2" class="size-5" /></span>
+            <span class="tpz-native-mini-label" title="{{ $warehouse['name'] }}">{{ $warehouse['name'] }}</span>
+            <strong>{{ number_format($warehouse['units']) }}</strong>
+            <span class="tpz-native-mini-open">View <span aria-hidden="true">→</span></span>
+        </a>
+    @endforeach
+    @if ($warehouse_breakdown['in_transit'] > 0)
+        <div class="tpz-native-mini-metric tpz-native-mini-metric--amber tpz-dashboard-warehouse-tile">
+            <span class="tpz-native-mini-icon"><x-filament::icon icon="heroicon-o-truck" class="size-5" /></span>
+            <span class="tpz-native-mini-label">In Transit</span>
+            <strong>{{ number_format($warehouse_breakdown['in_transit']) }}</strong>
         </div>
-        <div class="tpz-warehouse-inline__grid">
-            @forelse ($warehouse_breakdown['warehouses'] as $warehouse)
-                <div class="tpz-warehouse-inline__card">
-                    <div class="tpz-warehouse-inline__name" title="{{ $warehouse['name'] }}">{{ $warehouse['name'] }}</div>
-                    <div class="tpz-warehouse-inline__value">{{ number_format($warehouse['units']) }} <small>units</small></div>
-                    
-                </div>
-            @empty
-                <p class="tpz-warehouse-inline__empty">No warehouse stock in your authorized scope.</p>
-            @endforelse
-            @if ($warehouse_breakdown['in_transit'] > 0)
-                <div class="tpz-warehouse-inline__card tpz-warehouse-inline__card--transit">
-                    <div class="tpz-warehouse-inline__name">In Transit</div>
-                    <div class="tpz-warehouse-inline__value">{{ number_format($warehouse_breakdown['in_transit']) }} <small>units</small></div>
-                    
-                </div>
-            @endif
-        </div>
-    </div>
+    @endif
 @endif

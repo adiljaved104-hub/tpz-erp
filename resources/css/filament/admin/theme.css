@@ -3420,3 +3420,97 @@ html.dark.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligen
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+/* Native Home future-data hardening: preserve ALL scoped alert/product rows;
+   internal scrolling starts only when lists outgrow the approved compact design.
+   No data limits, view permissions, or existing link destinations are changed. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference {
+    align-items: stretch;
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-operational-columns--reference > .tpz-native-detail-panel {
+    min-width: 0;
+    height: auto;
+    align-self: stretch;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list {
+    max-height: 19.5rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #a5c2d6 transparent;
+    padding-inline-end: .16rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link {
+    min-width: 0;
+    max-width: 100%;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:is(:hover,:focus-visible) > span {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:is(:hover,:focus-visible) {
+    height: auto;
+    min-height: 1.72rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-link:focus-visible,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence a.erp-dashboard-list-row:focus-visible,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-dashboard-inventory-unified a.tpz-native-mini-metric:focus-visible {
+    outline: 2px solid #0b82bb;
+    outline-offset: 1px;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list {
+    max-height: 20rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #a5c2d6 transparent;
+    padding-inline-end: .18rem;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-row {
+    min-width: 0;
+    max-width: 100%;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-main {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list-title {
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence a.erp-dashboard-list-row:is(:hover,:focus-visible) .erp-dashboard-list-title {
+    -webkit-line-clamp: unset;
+    overflow: visible;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-dashboard-inventory-unified {
+    align-items: stretch;
+    min-width: 0;
+}
+html.tpz-native-workspace .tpz-reference-home--final .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
+    min-width: 0;
+    height: auto;
+    overflow-wrap: anywhere;
+}
+/* Nested panes are intentionally scrollable for long datasets. On touch
+   devices, use native scrolling; never clip the full dashboard content. */
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list,
+html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list {
+    -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 35rem) {
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-attention-list,
+    html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .erp-dashboard-list {
+        max-height: 22rem;
+    }
+}

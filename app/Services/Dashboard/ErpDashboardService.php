@@ -274,8 +274,18 @@ class ErpDashboardService
                 ->where('marketplace_warehouses.status', true)
                 ->where('marketplace_warehouses.location_type', 'marketplace_fulfilment');
             app(EmployeeOwnedInventoryReadService::class)->apply($marketplaceQuery->getQuery(), 'product_inventories.id', $user);
-            $marketplace = (int) $marketplaceQuery->sum(DB::raw('product_inventories.available_quantity + product_inventories.damaged_quantity'));
-            $cards->push($this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', (int) $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url.'?marketplace=1'));
+            $marketplace = (int) (clone $marketplaceQuery)->sum(DB::raw('product_inventories.available_quantity + product_inventories.damaged_quantity'));
+            $marketplaceBreakdown = (clone $marketplaceQuery)
+                ->selectRaw('marketplace_warehouses.id, marketplace_warehouses.name, SUM(product_inventories.available_quantity + product_inventories.damaged_quantity) as units')
+                ->groupBy('marketplace_warehouses.id', 'marketplace_warehouses.name')
+                ->orderBy('marketplace_warehouses.name')
+                ->get()
+                ->filter(fn ($row): bool => (int) $row->units > 0)
+                ->map(fn ($row): array => ['name' => $row->name, 'units' => (int) $row->units])
+                ->values()->all();
+            $marketplaceCard = $this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url.'?marketplace=1');
+            $marketplaceCard['warehouse_breakdown'] = $marketplaceBreakdown;
+            $cards->push($marketplaceCard);
         }
 
         if ($includeCards && $this->inventory->allows($user, InventoryPermission::ViewFinancials)) {

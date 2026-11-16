@@ -64,6 +64,48 @@
         .erp-dashboard-customizer-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; font-weight: 600; }
         .erp-dashboard-customizer-actions { display: flex; flex: none; align-items: center; gap: .35rem; }
         .erp-dashboard-empty-state { padding: 2rem 1rem; text-align: center; }
+        .tpz-dashboard-date-filters { display: flex; flex: 0 1 auto; min-width: 0; flex-direction: column; align-items: flex-end; gap: .45rem; }
+        .tpz-dashboard-date-filters .tpz-native-period { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+        .tpz-dashboard-custom-period { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: .4rem; }
+        .tpz-dashboard-custom-period label { display: flex; flex-direction: column; gap: .2rem; font-size: .72rem; font-weight: 650; }
+        .tpz-dashboard-period-error { color: #b91c1c; font-size: .72rem; }
+        @media (max-width: 47.999rem) {
+            .tpz-dashboard-date-filters { align-items: flex-start; width: 100%; }
+            .tpz-dashboard-date-filters .tpz-native-period, .tpz-dashboard-custom-period { justify-content: flex-start; }
+        }
+
+
+        /* Inventory breakdown uses the same dashboard panel language in both modes.
+           Explicit scoped styles avoid missing utility classes in the compiled Filament theme. */
+        .tpz-marketplace-mini-list { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .45rem; }
+        .tpz-marketplace-mini-chip { display: inline-flex; max-width: 100%; align-items: center; gap: .3rem; padding: .18rem .38rem; border-radius: .4rem; background: #eaf3fd; color: #315676; font-size: .66rem; line-height: 1.1rem; }
+        .tpz-marketplace-mini-name { max-width: 6.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tpz-marketplace-mini-chip strong { flex: none; font-weight: 800; color: #123b62; }
+        .dark .tpz-marketplace-mini-chip { background: #263a50; color: #d1e6fb; }
+        .dark .tpz-marketplace-mini-chip strong { color: #f4f9ff; }
+        .tpz-warehouse-overview { margin-top: 1rem; padding: 1rem; border: 1px solid #d8e6f4; border-radius: .85rem; background: #f8fbff; color: #123454; }
+        .tpz-warehouse-overview__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+        .tpz-warehouse-overview__head h3 { margin: 0; font-size: .925rem; font-weight: 750; color: #143a5e; }
+        .tpz-warehouse-overview__head p { margin: .2rem 0 0; font-size: .76rem; color: #657b94; }
+        .tpz-warehouse-overview__head a { font-size: .78rem; font-weight: 700; color: #0869ac; text-decoration: none; }
+        .tpz-warehouse-overview__head a:hover { text-decoration: underline; }
+        .tpz-warehouse-overview__totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; margin-top: .85rem; }
+        .tpz-warehouse-overview__totals > div { min-width: 0; padding: .7rem .8rem; border-radius: .7rem; background: #eaf3fd; }
+        .tpz-warehouse-overview__totals span { display: block; font-size: .75rem; color: #526c89; }
+        .tpz-warehouse-overview__totals strong { display: block; margin-top: .15rem; font-size: 1.25rem; font-weight: 800; color: #102f50; }
+        .tpz-warehouse-overview__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .65rem; margin-top: .7rem; }
+        .tpz-warehouse-overview__item { min-width: 0; padding: .85rem .9rem; border: 1px solid #d6e5f5; border-radius: .75rem; background: #fff; }
+        .tpz-warehouse-overview__item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #41648a; font-size: .78rem; font-weight: 700; }
+        .tpz-warehouse-overview__item strong { display: block; margin-top: .2rem; font-size: 1.35rem; font-weight: 800; color: #102f50; }
+        .tpz-warehouse-overview__item strong small { font-size: .73rem; font-weight: 500; color: #647e98; }
+        .tpz-warehouse-overview__item p, .tpz-warehouse-overview__empty { margin: .15rem 0 0; color: #647e98; font-size: .75rem; }
+        .dark .tpz-warehouse-overview { border-color: #374e68; background: #152334; color: #f0f6ff; }
+        .dark .tpz-warehouse-overview__head h3, .dark .tpz-warehouse-overview__totals strong, .dark .tpz-warehouse-overview__item strong { color: #f0f6ff; }
+        .dark .tpz-warehouse-overview__totals > div { background: #243950; }
+        .dark .tpz-warehouse-overview__item { background: #1b2c40; border-color: #374e68; }
+        .dark .tpz-warehouse-overview__head a { color: #8cc8ff; }
+        @media (max-width: 39.999rem) { .tpz-warehouse-overview__totals { grid-template-columns: 1fr; } }
+
 
         @media (min-width: 40rem) {
             .erp-dashboard-attention-grid, .erp-dashboard-customizer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -151,7 +193,23 @@
                         <h1>{{ $greeting }}, {{ auth()->user()->name }} <span aria-hidden="true">👋</span></h1>
                         <p>Here's what's happening in TPZ ERP today.</p>
                     </div>
-                    <time datetime="{{ $localNow->toDateString() }}">{{ $localNow->format('D, d M Y') }}</time>
+                    <div class="tpz-dashboard-date-filters">
+                        <time datetime="{{ $localNow->toDateString() }}">{{ $localNow->format('D, d M Y') }}</time>
+                        <div class="tpz-native-period" aria-label="Dashboard date range">
+                            @foreach (['today' => 'Today', 'week' => 'Week', 'month' => 'Month', 'custom' => 'Custom'] as $key => $label)
+                                <x-filament::button type="button" size="xs" :color="$period === $key ? 'primary' : 'gray'" :outlined="$period !== $key" wire:click="setPeriod('{{ $key }}')" :aria-pressed="$period === $key ? 'true' : 'false'">{{ $label }}</x-filament::button>
+                            @endforeach
+                        </div>
+                        @if ($period === 'custom')
+                            <div class="tpz-dashboard-custom-period">
+                                <label>From <x-filament::input.wrapper><x-filament::input type="date" wire:model="customFrom" /></x-filament::input.wrapper></label>
+                                <label>To <x-filament::input.wrapper><x-filament::input type="date" wire:model="customTo" /></x-filament::input.wrapper></label>
+                                <x-filament::button type="button" size="xs" wire:click="applyCustomRange">Apply</x-filament::button>
+                                @error('customFrom') <span class="tpz-dashboard-period-error">{{ $message }}</span> @enderror
+                                @error('customTo') <span class="tpz-dashboard-period-error">{{ $message }}</span> @enderror
+                            </div>
+                        @endif
+                    </div>
                 </div>
 
                 <div class="tpz-home-kpis">
@@ -189,33 +247,16 @@
                 </div>
 
                 @if (! empty($warehouse_breakdown))
-                    <section class="rounded-xl border border-sky-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-label="Inventory by warehouse">
-                        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                                <h2 class="text-base font-bold text-slate-900 dark:text-white">Inventory by Warehouse</h2>
-                                <p class="text-xs text-slate-500 dark:text-slate-300">Authorized stock only · Physical locations and transit shown separately</p>
-                            </div>
-                            <a class="text-sm font-semibold text-sky-700 hover:underline dark:text-sky-300" href="{{ $warehouse_breakdown['url'] }}">View inventory →</a>
+                    <x-filament::section compact heading="Inventory & Warehouse" description="Authorized stock position and warehouse-wise inventory">
+                        <div class="erp-dashboard-card-grid grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            @foreach (['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory'] as $inventoryKey)
+                                @if ($card = $cardsByKey->get($inventoryKey))
+                                    @include('filament.widgets.dashboard.metric-card', ['card' => $card, 'icons' => $icons])
+                                @endif
+                            @endforeach
                         </div>
-                        <div class="mb-3 flex flex-wrap gap-3 rounded-lg bg-sky-50 px-4 py-3 text-sm dark:bg-slate-800">
-                            <span class="text-slate-700 dark:text-slate-200">Total inventory: <strong>{{ number_format($warehouse_breakdown['total']) }}</strong></span>
-                            <span class="text-slate-700 dark:text-slate-200">At warehouses: <strong>{{ number_format($warehouse_breakdown['on_location']) }}</strong></span>
-                            @if ($warehouse_breakdown['in_transit'] > 0)
-                                <span class="text-slate-700 dark:text-slate-200">In transit: <strong>{{ number_format($warehouse_breakdown['in_transit']) }}</strong></span>
-                            @endif
-                        </div>
-                        <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                            @forelse ($warehouse_breakdown['warehouses'] as $warehouse)
-                                <div class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800">
-                                    <div class="truncate text-xs font-semibold text-slate-600 dark:text-slate-300" title="{{ $warehouse['name'] }}">{{ $warehouse['name'] }}</div>
-                                    <div class="mt-1 text-xl font-bold text-slate-900 dark:text-white">{{ number_format($warehouse['units']) }} <span class="text-xs font-normal">units</span></div>
-                                    <div class="text-xs text-slate-500 dark:text-slate-300">{{ number_format($warehouse['products']) }} products</div>
-                                </div>
-                            @empty
-                                <p class="text-sm text-slate-500 dark:text-slate-300">No warehouse stock in your authorized scope.</p>
-                            @endforelse
-                        </div>
-                    </section>
+                        @include('filament.widgets.dashboard.warehouse-overview')
+                    </x-filament::section>
                 @endif
 
                 <div class="tpz-home-panels">
@@ -298,18 +339,6 @@
                         </div>
                     </x-filament::section>
 
-                </div>
-                <div class="tpz-native-period" aria-label="Dashboard date range">
-                    @foreach (['today' => 'Today', 'week' => 'Week', 'month' => 'Month', 'custom' => 'Custom'] as $key => $label)
-                        <x-filament::button type="button" size="xs" :color="$period === $key ? 'primary' : 'gray'" :outlined="$period !== $key" wire:click="setPeriod('{{ $key }}')">{{ $label }}</x-filament::button>
-                    @endforeach
-                    @if ($period === 'custom')
-                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customFrom" aria-label="Start date" /></x-filament::input.wrapper>
-                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customTo" aria-label="End date" /></x-filament::input.wrapper>
-                        <x-filament::button type="button" size="xs" wire:click="applyCustomRange">Apply</x-filament::button>
-                        @error('customFrom') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
-                        @error('customTo') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
-                    @endif
                 </div>
                 @include('filament.widgets.dashboard.native-operational-sections')
             </div>
@@ -437,36 +466,8 @@
                                         @endforeach
                                     </div>
                                     @if ($widgetKey === 'inventory')
-                    @if (! empty($warehouse_breakdown))
-                        <section class="rounded-xl border border-sky-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-label="Inventory by warehouse">
-                            <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-                                <div>
-                                    <h2 class="text-base font-bold text-slate-900 dark:text-white">Inventory by Warehouse</h2>
-                                    <p class="text-xs text-slate-500 dark:text-slate-300">Authorized stock only · Physical locations and transit shown separately</p>
-                                </div>
-                                <a class="text-sm font-semibold text-sky-700 hover:underline dark:text-sky-300" href="{{ $warehouse_breakdown['url'] }}">View inventory →</a>
-                            </div>
-                            <div class="mb-3 flex flex-wrap gap-3 rounded-lg bg-sky-50 px-4 py-3 text-sm dark:bg-slate-800">
-                                <span class="text-slate-700 dark:text-slate-200">Total inventory: <strong>{{ number_format($warehouse_breakdown['total']) }}</strong></span>
-                                <span class="text-slate-700 dark:text-slate-200">At warehouses: <strong>{{ number_format($warehouse_breakdown['on_location']) }}</strong></span>
-                                @if ($warehouse_breakdown['in_transit'] > 0)
-                                    <span class="text-slate-700 dark:text-slate-200">In transit: <strong>{{ number_format($warehouse_breakdown['in_transit']) }}</strong></span>
-                                @endif
-                            </div>
-                            <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                                @forelse ($warehouse_breakdown['warehouses'] as $warehouse)
-                                    <div class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800">
-                                        <div class="truncate text-xs font-semibold text-slate-600 dark:text-slate-300" title="{{ $warehouse['name'] }}">{{ $warehouse['name'] }}</div>
-                                        <div class="mt-1 text-xl font-bold text-slate-900 dark:text-white">{{ number_format($warehouse['units']) }} <span class="text-xs font-normal">units</span></div>
-                                        <div class="text-xs text-slate-500 dark:text-slate-300">{{ number_format($warehouse['products']) }} products</div>
-                                    </div>
-                                @empty
-                                    <p class="text-sm text-slate-500 dark:text-slate-300">No warehouse stock in your authorized scope.</p>
-                                @endforelse
-                            </div>
-                        </section>
-                    @endif
-                                        @endif
+                                        @include('filament.widgets.dashboard.warehouse-overview')
+                                    @endif
                                 </x-filament::section>
                             @endif
                         @elseif ($widgetKey === 'inventory_intelligence')

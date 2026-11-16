@@ -26,6 +26,27 @@
 <x-filament-widgets::widget>
     <style>
         .erp-dashboard-stack { display: grid; min-width: 0; max-width: 100%; gap: 1rem; }
+        /* Classic Dashboard only: keep live metric headings and values without
+           long help text or badges. Preserve existing navigation and values. */
+        .erp-dashboard-stack .tpz-classic-metric-card {
+            height: auto;
+            min-height: 5.8rem;
+            padding: .8rem 1rem;
+        }
+        .erp-dashboard-stack .tpz-classic-metric-card p {
+            overflow-wrap: anywhere;
+        }
+        .erp-dashboard-stack .tpz-classic-metric-card p:first-child {
+            font-size: .84rem;
+            font-weight: 650;
+            line-height: 1.25;
+        }
+        .erp-dashboard-stack .tpz-classic-metric-card p.mt-1 {
+            font-size: 1.6rem;
+            line-height: 1.12;
+            margin-top: .3rem;
+            overflow-wrap: anywhere;
+        }
         .erp-dashboard-stack > * { min-width: 0; max-width: 100%; }
 
         /* Classic Dashboard: warehouse breakdown uses real responsive cards,
@@ -607,7 +628,7 @@
                                     <x-slot name="description">{{ $sections[$widgetKey]['description'] }}</x-slot>
                                     <div class="erp-dashboard-card-grid grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                                         @foreach ($sectionCards as $card)
-                                            @include('filament.widgets.dashboard.metric-card', ['card' => $card, 'icons' => $icons])
+                                            @include('filament.widgets.dashboard.metric-card', ['card' => $card, 'icons' => $icons, 'classicCompact' => true])
                                         @endforeach
                                     </div>
                                     @if ($widgetKey === 'inventory')

@@ -253,7 +253,7 @@ class NavigationPreferenceService
             $navigation[] = NavigationGroup::make()->items($firstLevel);
         }
         if ($uncovered !== []) {
-            $navigation[] = NavigationGroup::make('Additional Modules')
+            $navigation[] = NavigationGroup::make('Workplace Tools')
                 ->items($uncovered)->collapsible()->collapsed();
         }
 

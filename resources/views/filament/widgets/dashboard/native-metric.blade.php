@@ -26,6 +26,13 @@
     <span class="tpz-native-mini-icon"><x-filament::icon :icon="$icon" class="size-5" /></span>
     <span class="tpz-native-mini-label">{{ $label }}</span>
     <strong title="{{ $formatted }}">{{ $formatted }}</strong>
+    @if ($key === 'marketplace_inventory' && ! empty($card['warehouse_breakdown']))
+        <span class="tpz-dashboard-marketplace-chips">
+            @foreach ($card['warehouse_breakdown'] as $warehouse)
+                <small title="{{ $warehouse['name'] }}: {{ number_format($warehouse['units']) }} units">{{ $warehouse['name'] }} <b>{{ number_format($warehouse['units']) }}</b></small>
+            @endforeach
+        </span>
+    @endif
     @if($url)<span class="tpz-native-mini-open">View <span aria-hidden="true">→</span></span>@endif
 @if($url)
     </a>

@@ -83,28 +83,36 @@
         .tpz-marketplace-mini-chip strong { flex: none; font-weight: 800; color: #123b62; }
         .dark .tpz-marketplace-mini-chip { background: #263a50; color: #d1e6fb; }
         .dark .tpz-marketplace-mini-chip strong { color: #f4f9ff; }
-        /* Keep native Inventory metrics the same compact density as reference cards. */
-        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a { padding: .75rem; min-height: 0; }
-        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a > div { min-height: 6rem; gap: .35rem; }
-        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a .text-3xl { font-size: 1.4rem; line-height: 1.6rem; }
-        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a .line-clamp-2 { display: none; }
-        .tpz-dashboard-inventory-section .erp-dashboard-card-grid > a .mt-2 { margin-top: .25rem; }
-        .tpz-warehouse-inline { margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #dce6f2; }
-        .tpz-warehouse-inline__heading { display: flex; gap: .75rem; align-items: center; margin-bottom: .55rem; font-size: .8rem; font-weight: 700; color: #244e75; }
-        .tpz-warehouse-inline__heading a { margin-left: auto; color: #0873b6; text-decoration: none; font-size: .73rem; font-weight: 650; }
-        .tpz-warehouse-inline__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr)); gap: .55rem; }
-        .tpz-warehouse-inline__card { padding: .65rem .8rem; border: 1px solid #dae7f5; border-radius: .75rem; background: #f1f7ff; min-width: 0; }
-        .tpz-warehouse-inline__name { font-size: .73rem; font-weight: 700; color: #3b6087; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .tpz-warehouse-inline__value { margin-top: .18rem; font-size: 1.3rem; font-weight: 800; color: #0f355a; line-height: 1.3; }
-        .tpz-warehouse-inline__value small { font-size: .72rem; font-weight: 500; color: #5c7998; }
-        .tpz-warehouse-inline__card--transit { background: #fdf7e9; border-color: #f1dfaf; }
-        .tpz-warehouse-inline__empty { font-size: .75rem; color: #64748b; }
-        .dark .tpz-warehouse-inline { border-color: #374e68; }
-        .dark .tpz-warehouse-inline__card { background: #1d3147; border-color: #34516e; }
-        .dark .tpz-warehouse-inline__name, .dark .tpz-warehouse-inline__value small { color: #b5cce3; }
-        .dark .tpz-warehouse-inline__value { color: #f0f8ff; }
-        .dark .tpz-warehouse-inline__heading { color: #d9ebfa; }
-
+        /* Original TPZ native inventory card design; warehouse tiles join the
+           SAME grid instead of creating a second section or changing card style. */
+        html.tpz-native-workspace .tpz-dashboard-inventory-unified {
+            display: grid; grid-template-columns: repeat(8, minmax(0,1fr));
+            gap: .55rem; align-items: stretch; min-width: 0;
+        }
+        html.tpz-native-workspace .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
+            min-width: 0; min-height: 5.8rem;
+        }
+        html.tpz-native-workspace .tpz-dashboard-inventory-unified .tpz-dashboard-warehouse-tile {
+            background: #edf6ff; border-color: #d7e9f8;
+        }
+        html.tpz-native-workspace .tpz-dashboard-marketplace-chips {
+            display: flex; grid-column: 2; flex-wrap: wrap; gap: .2rem; min-width: 0;
+        }
+        html.tpz-native-workspace .tpz-dashboard-marketplace-chips small {
+            max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; padding: .1rem .25rem; border-radius: .3rem;
+            background: #e0eeff; font-size: .58rem; color: #315c82;
+        }
+        html.tpz-native-workspace .tpz-dashboard-marketplace-chips b { font-weight: 800; }
+        @media (max-width: 63.999rem) {
+            html.tpz-native-workspace .tpz-dashboard-inventory-unified { grid-template-columns: repeat(4,minmax(0,1fr)); }
+        }
+        @media (max-width: 47.999rem) {
+            html.tpz-native-workspace .tpz-dashboard-inventory-unified { grid-template-columns: repeat(2,minmax(0,1fr)); }
+        }
+        @media (max-width: 29.999rem) {
+            html.tpz-native-workspace .tpz-dashboard-inventory-unified { grid-template-columns: minmax(0,1fr); }
+        }
 
         @media (min-width: 40rem) {
             .erp-dashboard-attention-grid, .erp-dashboard-customizer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -246,15 +254,15 @@
                 </div>
 
                 @if (! empty($warehouse_breakdown))
-                    <x-filament::section compact class="tpz-dashboard-inventory-section" heading="Inventory & Warehouse" description="Stock position and warehouse totals">
-                        <div class="erp-dashboard-card-grid grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <x-filament::section compact heading="Inventory & Warehouse" description="Stock position, valuation and operational inventory status.">
+                        <div class="tpz-native-detail-card-grid tpz-dashboard-inventory-unified" aria-label="Inventory metrics and warehouses">
                             @foreach (['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory'] as $inventoryKey)
                                 @if ($card = $cardsByKey->get($inventoryKey))
-                                    @include('filament.widgets.dashboard.metric-card', ['card' => $card, 'icons' => $icons])
+                                    @include('filament.widgets.dashboard.native-metric', ['card' => $card, 'icons' => $icons])
                                 @endif
                             @endforeach
+                            @include('filament.widgets.dashboard.warehouse-overview')
                         </div>
-                        @include('filament.widgets.dashboard.warehouse-overview')
                     </x-filament::section>
                 @endif
 

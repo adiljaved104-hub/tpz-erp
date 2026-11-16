@@ -77,16 +77,14 @@
                         </div>
                     @endif
                 </div>
-                @unless ($_metricClassicCompact)
                 <span class="flex size-8 shrink-0 items-center justify-center rounded-lg transition duration-150 {{ $_metricVariant['icon'] }}">
                     <x-filament::icon :icon="$_metricIcon" class="!size-4" />
                 </span>
-                @endunless
             </div>
 
-            @if (! $_metricClassicCompact && (filled($_metricDescription) || $_metricShowOpen || filled($_metricBadge)))
+            @if ($_metricShowOpen || filled($_metricBadge) || (! $_metricClassicCompact && filled($_metricDescription)))
                 <div class="min-w-0">
-                    @if (filled($_metricDescription))
+                    @if (! $_metricClassicCompact && filled($_metricDescription))
                         <p class="line-clamp-2 text-xs text-gray-500 dark:text-gray-400" title="{{ $_metricDescription }}">{{ $_metricDescription }}</p>
                     @endif
                     @if ($_metricShowOpen || filled($_metricBadge))

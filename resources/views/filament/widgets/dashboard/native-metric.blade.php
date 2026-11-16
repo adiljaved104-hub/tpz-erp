@@ -33,7 +33,6 @@
             @endforeach
         </span>
     @endif
-    @if($url)<span class="tpz-native-mini-open">View <span aria-hidden="true">→</span></span>@endif
 @if($url)
     </a>
 @else

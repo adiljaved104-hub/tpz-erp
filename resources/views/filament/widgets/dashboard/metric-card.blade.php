@@ -13,7 +13,7 @@
         ? ($_metricColor === 'danger' ? 'Action' : ($_metricColor === 'warning' ? 'Monitor' : 'Current'))
         : null);
     $_metricBadgeColor = $metricBadgeColor ?? $_metricColor ?? 'gray';
-    $_metricShowOpen = $metricShowOpen ?? ($_metricHref !== null);
+    $_metricShowOpen = false;
     $_metricActive = $metricActive ?? false;
     $_metricFormattedValue = is_int($_metricValue) ? number_format($_metricValue) : $_metricValue;
 
@@ -87,7 +87,6 @@
                     @endif
                     @if ($_metricShowOpen || filled($_metricBadge))
                         <div class="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-                            @if ($_metricShowOpen)<span class="text-xs font-semibold text-primary-600 dark:text-primary-400">Open</span>@endif
                             @if (filled($_metricBadge))<x-filament::badge :color="$_metricBadgeColor">{{ $_metricBadge }}</x-filament::badge>@endif
                         </div>
                     @endif

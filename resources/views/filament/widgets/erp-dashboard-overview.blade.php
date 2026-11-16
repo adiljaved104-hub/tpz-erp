@@ -64,6 +64,16 @@
         .erp-dashboard-customizer-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; font-weight: 600; }
         .erp-dashboard-customizer-actions { display: flex; flex: none; align-items: center; gap: .35rem; }
         .erp-dashboard-empty-state { padding: 2rem 1rem; text-align: center; }
+        .tpz-dashboard-date-filters { display: flex; flex: 0 1 auto; min-width: 0; flex-direction: column; align-items: flex-end; gap: .45rem; }
+        .tpz-dashboard-date-filters .tpz-native-period { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+        .tpz-dashboard-custom-period { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: .4rem; }
+        .tpz-dashboard-custom-period label { display: flex; flex-direction: column; gap: .2rem; font-size: .72rem; font-weight: 650; }
+        .tpz-dashboard-period-error { color: #b91c1c; font-size: .72rem; }
+        @media (max-width: 47.999rem) {
+            .tpz-dashboard-date-filters { align-items: flex-start; width: 100%; }
+            .tpz-dashboard-date-filters .tpz-native-period, .tpz-dashboard-custom-period { justify-content: flex-start; }
+        }
+
 
         /* Inventory breakdown uses the same dashboard panel language in both modes.
            Explicit scoped styles avoid missing utility classes in the compiled Filament theme. */
@@ -183,7 +193,23 @@
                         <h1>{{ $greeting }}, {{ auth()->user()->name }} <span aria-hidden="true">👋</span></h1>
                         <p>Here's what's happening in TPZ ERP today.</p>
                     </div>
-                    <time datetime="{{ $localNow->toDateString() }}">{{ $localNow->format('D, d M Y') }}</time>
+                    <div class="tpz-dashboard-date-filters">
+                        <time datetime="{{ $localNow->toDateString() }}">{{ $localNow->format('D, d M Y') }}</time>
+                        <div class="tpz-native-period" aria-label="Dashboard date range">
+                            @foreach (['today' => 'Today', 'week' => 'Week', 'month' => 'Month', 'custom' => 'Custom'] as $key => $label)
+                                <x-filament::button type="button" size="xs" :color="$period === $key ? 'primary' : 'gray'" :outlined="$period !== $key" wire:click="setPeriod('{{ $key }}')" :aria-pressed="$period === $key ? 'true' : 'false'">{{ $label }}</x-filament::button>
+                            @endforeach
+                        </div>
+                        @if ($period === 'custom')
+                            <div class="tpz-dashboard-custom-period">
+                                <label>From <x-filament::input.wrapper><x-filament::input type="date" wire:model="customFrom" /></x-filament::input.wrapper></label>
+                                <label>To <x-filament::input.wrapper><x-filament::input type="date" wire:model="customTo" /></x-filament::input.wrapper></label>
+                                <x-filament::button type="button" size="xs" wire:click="applyCustomRange">Apply</x-filament::button>
+                                @error('customFrom') <span class="tpz-dashboard-period-error">{{ $message }}</span> @enderror
+                                @error('customTo') <span class="tpz-dashboard-period-error">{{ $message }}</span> @enderror
+                            </div>
+                        @endif
+                    </div>
                 </div>
 
                 <div class="tpz-home-kpis">
@@ -313,18 +339,6 @@
                         </div>
                     </x-filament::section>
 
-                </div>
-                <div class="tpz-native-period" aria-label="Dashboard date range">
-                    @foreach (['today' => 'Today', 'week' => 'Week', 'month' => 'Month', 'custom' => 'Custom'] as $key => $label)
-                        <x-filament::button type="button" size="xs" :color="$period === $key ? 'primary' : 'gray'" :outlined="$period !== $key" wire:click="setPeriod('{{ $key }}')">{{ $label }}</x-filament::button>
-                    @endforeach
-                    @if ($period === 'custom')
-                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customFrom" aria-label="Start date" /></x-filament::input.wrapper>
-                        <x-filament::input.wrapper><x-filament::input type="date" wire:model="customTo" aria-label="End date" /></x-filament::input.wrapper>
-                        <x-filament::button type="button" size="xs" wire:click="applyCustomRange">Apply</x-filament::button>
-                        @error('customFrom') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
-                        @error('customTo') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
-                    @endif
                 </div>
                 @include('filament.widgets.dashboard.native-operational-sections')
             </div>

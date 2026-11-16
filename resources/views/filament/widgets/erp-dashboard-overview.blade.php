@@ -27,6 +27,82 @@
     <style>
         .erp-dashboard-stack { display: grid; min-width: 0; max-width: 100%; gap: 1rem; }
         .erp-dashboard-stack > * { min-width: 0; max-width: 100%; }
+
+        /* Classic Dashboard: warehouse breakdown uses real responsive cards,
+           not unstyled links. Scoped to Classic only; native mode is unchanged. */
+        .tpz-classic-warehouse-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: .75rem;
+            min-width: 0;
+            margin-top: .75rem;
+        }
+        .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile {
+            box-sizing: border-box;
+            display: grid;
+            grid-template-columns: 2.25rem minmax(0, 1fr);
+            align-content: center;
+            align-items: center;
+            column-gap: .7rem;
+            row-gap: .18rem;
+            min-width: 0;
+            min-height: 6.2rem;
+            padding: .85rem;
+            border: 1px solid #dce6f0;
+            border-radius: .85rem;
+            background: #f1f7ff;
+            color: #163654;
+            text-decoration: none;
+            box-shadow: 0 1px 3px rgb(15 45 70 / 6%);
+            overflow-wrap: anywhere;
+        }
+        .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile:nth-child(4n+2) { background: #eefbf6; border-color: #d2eee1; }
+        .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile:nth-child(4n+3) { background: #fff7e8; border-color: #f2e2c9; }
+        .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile:nth-child(4n+4) { background: #f3f0ff; border-color: #e0d9f6; }
+        .tpz-classic-warehouse-grid .tpz-native-mini-icon {
+            grid-row: 1 / span 2;
+            display: grid;
+            place-items: center;
+            width: 2.25rem;
+            height: 2.25rem;
+            border-radius: .65rem;
+            background: #fff;
+            color: #1777b7;
+        }
+        .tpz-classic-warehouse-grid .tpz-native-mini-label {
+            grid-column: 2;
+            min-width: 0;
+            font-size: .8rem;
+            line-height: 1.22;
+            font-weight: 650;
+            color: #3e5b73;
+            overflow-wrap: anywhere;
+        }
+        .tpz-classic-warehouse-grid .tpz-dashboard-warehouse-tile > strong {
+            grid-column: 2;
+            color: #102e4a;
+            font-size: 1.5rem;
+            line-height: 1.15;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+        }
+        .tpz-classic-warehouse-grid > a.tpz-dashboard-warehouse-tile:hover,
+        .tpz-classic-warehouse-grid > a.tpz-dashboard-warehouse-tile:focus-visible {
+            border-color: #67b1e1;
+            box-shadow: 0 3px 10px rgb(25 74 115 / 12%);
+        }
+        .tpz-classic-warehouse-grid > a.tpz-dashboard-warehouse-tile:focus-visible { outline: 2px solid #1382bd; outline-offset: 2px; }
+        .dark .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile,
+        .dark .tpz-classic-warehouse-grid > .tpz-dashboard-warehouse-tile:nth-child(n) {
+            background: #1c344a; border-color: #3c566f; color: #f1f7ff;
+        }
+        .dark .tpz-classic-warehouse-grid .tpz-native-mini-icon { background: #24475e; color: #9cdeff; }
+        .dark .tpz-classic-warehouse-grid .tpz-native-mini-label { color: #c9d9e8; }
+        .dark .tpz-classic-warehouse-grid .tpz-dashboard-warehouse-tile > strong { color: #fff; }
+        @media (max-width: 75rem) { .tpz-classic-warehouse-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (max-width: 56rem) { .tpz-classic-warehouse-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 36rem) { .tpz-classic-warehouse-grid { grid-template-columns: minmax(0, 1fr); } }
+
         .erp-dashboard-header-actions, .erp-dashboard-period, .erp-dashboard-attention-action { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
         .erp-dashboard-attention-grid { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: .75rem; }
         .erp-dashboard-attention-grid > * { min-width: 0; }
@@ -536,7 +612,11 @@
                                         @endforeach
                                     </div>
                                     @if ($widgetKey === 'inventory')
-                                        @include('filament.widgets.dashboard.warehouse-overview')
+                                        @if(! empty($warehouse_breakdown))
+                                            <div class="tpz-classic-warehouse-grid" aria-label="Authorized warehouse stock breakdown">
+                                                @include('filament.widgets.dashboard.warehouse-overview')
+                                            </div>
+                                        @endif
                                     @endif
                                 </x-filament::section>
                             @endif

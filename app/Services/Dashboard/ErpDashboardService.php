@@ -268,23 +268,7 @@ class ErpDashboardService
             $cards->push($this->card('inventory_units', 'Inventory Units', $summary['total_company_stock'], 'Company-owned units in authorized scope', $url));
             $cards->push($this->card('damaged', 'Damaged Stock', $summary['damaged'], 'Units requiring operational attention', $url, $summary['damaged'] > 0 ? 'danger' : 'gray'));
             $cards->push($this->card('qc_pending', 'QC Pending', $summary['qc_pending'], 'Units awaiting quality control', $url, $summary['qc_pending'] > 0 ? 'warning' : 'gray'));
-            $marketplaceQuery = ProductInventory::query()
-                ->join('warehouses as marketplace_warehouses', 'marketplace_warehouses.id', '=', 'product_inventories.warehouse_id')
-                ->where('marketplace_warehouses.status', true)
-                ->where('marketplace_warehouses.location_type', 'marketplace_fulfilment');
-            app(EmployeeOwnedInventoryReadService::class)->apply($marketplaceQuery->getQuery(), 'product_inventories.id', $user);
-            $marketplace = (int) (clone $marketplaceQuery)->sum(DB::raw('product_inventories.available_quantity + product_inventories.damaged_quantity'));
-            $marketplaceBreakdown = (clone $marketplaceQuery)
-                ->selectRaw('marketplace_warehouses.id, marketplace_warehouses.name, SUM(product_inventories.available_quantity + product_inventories.damaged_quantity) as units')
-                ->groupBy('marketplace_warehouses.id', 'marketplace_warehouses.name')
-                ->orderBy('marketplace_warehouses.name')
-                ->get()
-                ->filter(fn ($row): bool => (int) $row->units > 0)
-                ->map(fn ($row): array => ['name' => $row->name, 'units' => (int) $row->units])
-                ->values()->all();
-            $marketplaceCard = $this->card('marketplace_inventory', 'Marketplace Warehouse Inventory', $marketplace, 'Physical on-hand units in marketplace fulfilment warehouses', $url.'?marketplace=1');
-            $marketplaceCard['warehouse_breakdown'] = $marketplaceBreakdown;
-            // Individual warehouse cards replace the aggregate marketplace KPI.
+
         }
 
         if ($includeCards && $this->inventory->allows($user, InventoryPermission::ViewFinancials)) {

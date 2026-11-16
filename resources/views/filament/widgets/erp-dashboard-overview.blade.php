@@ -1,7 +1,7 @@
 @php
     $sections = [
         'sales' => ['heading' => 'Sales & Orders', 'description' => 'Order activity and common operational entry points.', 'keys' => ['orders', 'revenue', 'quick_purchase', 'record_return']],
-        'inventory' => ['heading' => 'Inventory', 'description' => 'Current authorized stock position.', 'keys' => ['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory']],
+        'inventory' => ['heading' => 'Inventory', 'description' => 'Current authorized stock position.', 'keys' => ['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending']],
         'service' => ['heading' => 'Service & Claims', 'description' => 'Open operational cases requiring follow-up.', 'keys' => ['returns', 'claims', 'warranty', 'internal_repairs', 'complaints']],
         'work' => ['heading' => 'Work', 'description' => 'Tasks and communication in your authorized scope.', 'keys' => ['tasks', 'chat_unread', 'notifications']],
         'hr' => ['heading' => 'HR', 'description' => 'Attendance, leave, and acknowledgment status.', 'keys' => ['attendance_present', 'attendance_late', 'attendance_absent', 'pending_leave', 'warning_acknowledgments', 'notice_acknowledgments']],
@@ -87,23 +87,23 @@
            consistently sized cards and the reference's stronger pastel accents. */
         .tpz-reference-home .tpz-dashboard-inventory-unified {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: .65rem;
+            grid-template-columns: repeat(8, minmax(0, 1fr));
+            gap: .4rem;
             min-width: 0;
             align-items: stretch;
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified > .tpz-native-mini-metric {
             box-sizing: border-box;
             min-width: 0;
-            min-height: 6.35rem;
-            padding: .75rem;
+            min-height: 5rem;
+            padding: .48rem;
             border: 1px solid #d3e5f6;
             border-radius: .8rem;
             background: #e8f3ff;
             display: grid;
-            grid-template-columns: 2rem minmax(0,1fr);
+            grid-template-columns: 1.5rem minmax(0,1fr);
             align-content: start;
-            gap: .2rem .55rem;
+            gap: .12rem .35rem;
             color: #12395e;
             text-decoration: none;
             box-shadow: 0 1px 2px rgb(31 65 100 / 4%);
@@ -114,17 +114,17 @@
             box-shadow: 0 3px 9px rgb(31 65 100 / 12%);
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-icon {
-            width: 2rem; height: 2rem; border-radius: .55rem;
+            width: 1.5rem; height: 1.5rem; border-radius: .45rem;
             display: grid; place-items: center; grid-row: 1 / span 3;
             background: rgb(255 255 255 / 78%);
             color: #1675c1;
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label {
-            font-size: .75rem; font-weight: 700; line-height: 1.28;
+            font-size: .65rem; font-weight: 700; line-height: 1.19;
             color: #31516f; overflow-wrap: anywhere;
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong {
-            grid-column: 2; font-size: 1.33rem; line-height: 1.32;
+            grid-column: 2; font-size: 1.09rem; line-height: 1.19;
             font-weight: 800; color: #092f55; overflow-wrap: anywhere;
         }
         .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric--teal {
@@ -160,8 +160,8 @@
         }
         .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-label,
         .dark .tpz-reference-home .tpz-dashboard-inventory-unified .tpz-native-mini-metric > strong { color: #edf6ff; }
-        @media (min-width: 100rem) {
-            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(8, minmax(0,1fr)); }
+        @media (max-width: 81.999rem) {
+            .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(4,minmax(0,1fr)); }
         }
         @media (max-width: 47.999rem) {
             .tpz-reference-home .tpz-dashboard-inventory-unified { grid-template-columns: repeat(2,minmax(0,1fr)); }
@@ -309,19 +309,6 @@
                     @endforelse
                 </div>
 
-                @if (! empty($warehouse_breakdown))
-                    <x-filament::section compact heading="Inventory & Warehouse" description="Stock position, valuation and operational inventory status.">
-                        <div class="tpz-native-detail-card-grid tpz-dashboard-inventory-unified" aria-label="Inventory metrics and warehouses">
-                            @foreach (['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory'] as $inventoryKey)
-                                @if ($card = $cardsByKey->get($inventoryKey))
-                                    @include('filament.widgets.dashboard.native-metric', ['card' => $card, 'icons' => $icons])
-                                @endif
-                            @endforeach
-                            @include('filament.widgets.dashboard.warehouse-overview')
-                        </div>
-                    </x-filament::section>
-                @endif
-
                 <div class="tpz-home-panels">
 
                     <x-filament::section compact heading="My Workspace">
@@ -403,6 +390,19 @@
                     </x-filament::section>
 
                 </div>
+                @if (! empty($warehouse_breakdown))
+                    <x-filament::section compact heading="Inventory & Warehouse" description="Stock position, valuation and operational inventory status.">
+                        <div class="tpz-native-detail-card-grid tpz-dashboard-inventory-unified" aria-label="Inventory metrics and warehouses">
+                            @foreach (['inventory_units', 'sellable_inventory', 'inventory_value', 'low_stock', 'out_of_stock', 'damaged', 'qc_pending', 'marketplace_inventory'] as $inventoryKey)
+                                @if ($card = $cardsByKey->get($inventoryKey))
+                                    @include('filament.widgets.dashboard.native-metric', ['card' => $card, 'icons' => $icons])
+                                @endif
+                            @endforeach
+                            @include('filament.widgets.dashboard.warehouse-overview')
+                        </div>
+                    </x-filament::section>
+                @endif
+
                 @include('filament.widgets.dashboard.native-operational-sections')
             </div>
         @endif

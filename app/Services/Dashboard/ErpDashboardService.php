@@ -118,12 +118,13 @@ class ErpDashboardService
         $showService = $this->wants($requested, 'service');
         $showWork = $this->wants($requested, 'work');
         $showHr = $this->wants($requested, 'hr');
+        $warehouseBreakdown = [];
 
         if ($showSales || $showAttention) {
             $this->addOrderCards($cards, $user, $from, $to, $periodLabel, $showSales);
         }
         if ($showInventory || $showAttention) {
-            $this->addInventoryCards($cards, $attention, $user, $showInventory);
+            $this->addInventoryCards($cards, $attention, $user, $showInventory, $warehouseBreakdown);
         }
         if ($showService || $showAttention) {
             $this->addCaseCards($cards, $attention, $user, $showService);
@@ -169,6 +170,7 @@ class ErpDashboardService
             'attention' => $showAttention ? $attention->sortByDesc('priority')->values() : collect(),
             'attendance' => $attendance,
             'inventory_intelligence' => $showInventoryIntelligence ? $inventoryData : null,
+            'warehouse_breakdown' => $showInventory ? $warehouseBreakdown : [],
             'responsibilities' => $this->wants($requested, 'responsibilities') ? $this->responsibilityData($user) : null,
             'role_label' => str($user->employee->role->value)->headline()->toString(),
         ];
@@ -226,7 +228,7 @@ class ErpDashboardService
         }
     }
 
-    private function addInventoryCards(Collection $cards, Collection $attention, User $user, bool $includeCards = true): void
+    private function addInventoryCards(Collection $cards, Collection $attention, User $user, bool $includeCards = true, array &$warehouseBreakdown = []): void
     {
         if (! $this->inventory->allows($user, InventoryPermission::View)) {
             return;
@@ -237,6 +239,33 @@ class ErpDashboardService
         $url = ProductInventoryResource::getUrl();
 
         if ($includeCards) {
+            // The overview already applies employee ownership and responsibility
+            // scopes. Do not add virtual allocations to physical quantities.
+            $locationRows = $products->flatMap(fn (array $product) => collect($product['locations'])
+                ->map(fn (array $location): array => [
+                    'warehouse' => $location['name'],
+                    'code' => $location['code'],
+                    'total' => (int) $location['location_total_owned'],
+                    'products' => (int) ($location['location_total_owned'] > 0),
+                ]));
+            $warehouses = $locationRows->groupBy('code')->map(function (Collection $rows): array {
+                return [
+                    'name' => $rows->first()['warehouse'],
+                    'code' => $rows->first()['code'],
+                    'units' => (int) $rows->sum('total'),
+                    'products' => (int) $rows->sum('products'),
+                ];
+            })->filter(fn (array $row): bool => $row['units'] > 0)
+                ->sortBy('name')->values()->all();
+
+            $warehouseBreakdown = [
+                'total' => (int) $summary['total_company_stock'],
+                'on_location' => (int) $summary['on_location'],
+                'in_transit' => (int) ($summary['in_transit'] + $summary['return_in_transit']),
+                'warehouses' => $warehouses,
+                'url' => $url,
+            ];
+
             $cards->push($this->card('inventory_units', 'Inventory Units', $summary['total_company_stock'], 'Company-owned units in authorized scope', $url));
             $cards->push($this->card('damaged', 'Damaged Stock', $summary['damaged'], 'Units requiring operational attention', $url, $summary['damaged'] > 0 ? 'danger' : 'gray'));
             $cards->push($this->card('qc_pending', 'QC Pending', $summary['qc_pending'], 'Units awaiting quality control', $url, $summary['qc_pending'] > 0 ? 'warning' : 'gray'));

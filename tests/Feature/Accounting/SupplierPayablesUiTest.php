@@ -184,6 +184,32 @@ class SupplierPayablesUiTest extends TestCase
         $this->assertFalse($book->refresh()->posting_enabled);
     }
 
+    public function test_bill_entry_is_full_width_and_previews_service_precision_totals(): void
+    {
+        $this->withoutVite();
+        $owner = $this->employee(EmployeeRole::Owner);
+        $book = AccountingBook::query()->firstOrFail();
+
+        $this->actingAs($owner);
+
+        Livewire::test(SupplierPayables::class)
+            ->set('bookId', (string) $book->id)
+            ->assertSee('tpz-payables-bill-entry', false)
+            ->assertSee('tpz-payables-compact-entries', false)
+            ->set('billLines', [[
+                'description' => 'Precision preview item',
+                'quantity' => '1',
+                'unit_cost' => '19.99',
+                'vat_rate' => '5',
+            ]])
+            ->assertSee('Subtotal')
+            ->assertSee($book->currency.' 19.99')
+            ->assertSee('VAT')
+            ->assertSee($book->currency.' 0.99')
+            ->assertSee('Grand total')
+            ->assertSee($book->currency.' 20.98');
+    }
+
     private function employee(EmployeeRole $role): User
     {
         $user = User::factory()->create(['email' => Str::uuid().'@techpointzone.com']);

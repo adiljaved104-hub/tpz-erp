@@ -554,29 +554,44 @@ a.tpz-accounting-nav-item:hover,.tpz-accounting-nav-item.is-active { background:
     outline-offset: 3px;
 }
 
-/* Supplier Payables uses the shared Accounting shell and keeps dense AP tables
-   inside their own scroll region on narrow workspaces. */
-.tpz-accounting-workspace.is-payables .tpz-accounting-content { padding-bottom: 112px; }
-.tpz-accounting-payables { min-width: 0; display: grid; gap: 14px; }
-.tpz-payables-context { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(180px, auto); align-items: end; gap: 14px; }
+/* Supplier Payables keeps its bill grid wide and dense AP tables scrollable only
+   within their own wrappers on narrow workspaces. */
+.tpz-accounting-payables { min-width: 0; display: grid; gap: 10px; }
+.tpz-accounting-payables > .tpz-accounting-notice { margin: 0; }
+.tpz-payables-context { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(180px, auto); align-items: end; gap: 10px; }
 .tpz-accounting-field { min-width: 0; display: grid; gap: 5px; color: var(--acc-ink); font-size: 12px; font-weight: 650; }
 .tpz-accounting-field > span, .tpz-accounting-field > label > span { color: var(--acc-muted); }
 .tpz-accounting-readonly { min-height: 38px; display: flex; align-items: center; padding: 8px 10px; border: 1px solid var(--acc-line); border-radius: 7px; background: #f7f9fb; color: var(--acc-ink); font-size: 13px; font-weight: 600; }
 .tpz-payables-balance { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid #cde9e2; border-radius: 8px; background: #f0faf7; }
 .tpz-payables-balance span, .tpz-payables-balance small { color: var(--acc-muted); font-size: 11px; }
 .tpz-payables-balance strong { color: var(--acc-ink); font-size: 17px; font-variant-numeric: tabular-nums; }
-.tpz-payables-entry-grid { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 14px; }
+.tpz-payables-entry-grid { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
+.tpz-payables-compact-entries { min-width: 0; max-width: 1100px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 10px; }
+.tpz-payables-compact-entries:empty { display: none; }
+.tpz-payables-bill-entry { min-width: 0; width: 100%; }
+.tpz-payables-bill-entry .tpz-payables-form { gap: 9px; }
 .tpz-accounting-section-head { min-width: 0; margin-bottom: 13px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.tpz-accounting-payables .tpz-accounting-section-head { margin-bottom: 10px; }
 .tpz-accounting-section-head h2 { margin: 0 0 3px; color: var(--acc-ink); font-size: 15px; font-weight: 700; }
 .tpz-accounting-section-head p { margin: 0; color: var(--acc-muted); font-size: 11px; line-height: 1.45; }
-.tpz-payables-form { min-width: 0; display: grid; gap: 11px; }
+.tpz-payables-form { min-width: 0; display: grid; gap: 8px; }
 .tpz-payables-form input, .tpz-payables-form select, .tpz-allocation-form input { width: 100%; min-width: 0; min-height: 38px; border: 1px solid var(--acc-line); border-radius: 7px; background: #fff; padding: 8px 10px; color: var(--acc-ink); font: inherit; font-weight: 450; }
 .tpz-payables-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .tpz-payables-lines-wrap { width: 100%; }
-.tpz-accounting-data-table.tpz-payables-lines { min-width: 520px; }
-.tpz-payables-lines input { min-width: 76px; min-height: 34px; padding: 6px 7px; font-size: 12px; }
-.tpz-payables-lines td:first-child input { min-width: 145px; }
-.tpz-payables-lines td:last-child { width: 42px; text-align: center; }
+.tpz-accounting-data-table.tpz-payables-lines { min-width: 0; table-layout: fixed; }
+.tpz-payables-lines .tpz-bill-description-column { width: 54%; }
+.tpz-payables-lines .tpz-bill-quantity-column { width: 12%; }
+.tpz-payables-lines .tpz-bill-unit-cost-column { width: 18%; }
+.tpz-payables-lines .tpz-bill-vat-column { width: 12%; }
+.tpz-payables-lines .tpz-bill-remove-column { width: 4%; }
+.tpz-payables-lines input { width: 100%; min-width: 0; min-height: 36px; padding: 6px 8px; font-size: 13px; }
+.tpz-payables-lines td:last-child { text-align: center; }
+.tpz-payables-bill-totals { max-width: 420px; margin-left: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 10px 12px; border: 1px solid var(--acc-line); border-radius: 8px; background: #f7f9fb; }
+.tpz-payables-bill-totals > div { display: flex; align-items: center; justify-content: space-between; gap: 18px; color: var(--acc-muted); font-size: 12px; }
+.tpz-payables-bill-totals strong { color: var(--acc-ink); font-variant-numeric: tabular-nums; }
+.tpz-payables-bill-totals .is-total { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--acc-line); color: var(--acc-ink); font-weight: 700; }
+.tpz-payables-bill-totals .is-total strong { font-size: 15px; }
+.tpz-payables-bill-totals p { margin: 0; color: var(--acc-muted); font-size: 11px; }
 .tpz-accounting-icon-btn { width: 30px; height: 30px; border: 1px solid var(--acc-line); border-radius: 7px; background: #fff; color: #a33b45; font-size: 18px; line-height: 1; cursor: pointer; }
 .tpz-accounting-icon-btn:disabled { opacity: .4; cursor: not-allowed; }
 .tpz-accounting-form-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 9px; }
@@ -614,13 +629,14 @@ a.tpz-accounting-nav-item:hover,.tpz-accounting-nav-item.is-active { background:
 .tpz-payables-date { min-width: 160px; }
 .tpz-payables-record-grid { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
 .tpz-payables-pagination { margin-top: 12px; }
-.tpz-accounting-body .tpz-ai-root { z-index: 40; }
+.tpz-accounting-body .tpz-accounting-sidebar { padding-bottom: 96px; }
+.tpz-accounting-body .tpz-ai-root { z-index: 40; left: 12px; right: auto; bottom: 12px; }
 .tpz-accounting-body .tpz-ai-launcher { box-shadow: 0 5px 16px #102f4620; }
 .tpz-accounting-body .tpz-ai-panel { z-index: 45; }
 .tpz-accounting-body .tpz-ai-launcher { width: 46px; height: 46px; justify-content: center; padding: 0; }
 .tpz-accounting-body .tpz-ai-launcher span:last-child { display: none; }
-@media (max-width: 1100px) { .tpz-payables-entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.tpz-payables-context { grid-template-columns: repeat(2, minmax(0, 1fr)); }.tpz-payables-balance { grid-column: 1 / -1; }.tpz-allocation-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }.tpz-allocation-submit { align-self: start; } }
-@media (max-width: 680px) { .tpz-payables-entry-grid, .tpz-payables-record-grid, .tpz-payables-context { grid-template-columns: minmax(0, 1fr); }.tpz-payables-balance { grid-column: auto; }.tpz-allocation-form { grid-template-columns: minmax(0, 1fr); }.tpz-allocation-submit button { width: 100%; }.tpz-accounting-section-head { align-items: flex-start; }.tpz-accounting-panel { padding: 13px; }.tpz-payables-two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .tpz-payables-compact-entries { max-width: none; }.tpz-payables-context { grid-template-columns: repeat(2, minmax(0, 1fr)); }.tpz-payables-balance { grid-column: 1 / -1; }.tpz-allocation-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }.tpz-allocation-submit { align-self: start; } }
+@media (max-width: 680px) { .tpz-payables-compact-entries, .tpz-payables-record-grid, .tpz-payables-context { grid-template-columns: minmax(0, 1fr); }.tpz-payables-balance { grid-column: auto; }.tpz-accounting-data-table.tpz-payables-lines { min-width: 600px; }.tpz-allocation-form { grid-template-columns: minmax(0, 1fr); }.tpz-allocation-submit button { width: 100%; }.tpz-accounting-section-head { align-items: flex-start; }.tpz-accounting-payables .tpz-accounting-panel { padding: 13px; }.tpz-payables-two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 
 /* TPZ ERP panel shell: align the standard Filament layout with Accounting. */

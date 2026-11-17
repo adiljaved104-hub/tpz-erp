@@ -5,6 +5,7 @@ on:
     branches:
       - codex/accounting-b2-ap-purchasing-20261111
       - codex/accounting-import-center-phase1-20261116
+      - codex/accounting-b2-supplier-payables-ui-20261117
   pull_request:
     branches:
       - staging
@@ -58,12 +59,13 @@ jobs:
       - name: Migrate disposable MySQL database
         run: php artisan migrate --force --no-interaction
       - name: Focused B2 AP tests
-        run: php artisan test tests/Feature/Accounting/AccountingFoundationTest.php tests/Feature/Accounting/AccountingNavigationTest.php tests/Feature/Accounting/AccountingUiPhaseOneTest.php tests/Feature/Accounting/AccountsPayableFoundationTest.php tests/Feature/Accounting/QuickBooksImportPreviewTest.php tests/Feature/AccessControl/AccessControlMatrixTest.php --compact
+        run: php artisan test tests/Feature/Accounting/AccountingFoundationTest.php tests/Feature/Accounting/AccountingNavigationTest.php tests/Feature/Accounting/AccountingUiPhaseOneTest.php tests/Feature/Accounting/AccountsPayableFoundationTest.php tests/Feature/Accounting/SupplierPayablesUiTest.php tests/Feature/Accounting/QuickBooksImportPreviewTest.php tests/Feature/AccessControl/AccessControlMatrixTest.php --compact
       - name: PHP syntax
         run: |
           php -l app/Services/Accounting/AccountsPayableService.php
           php -l app/Services/Accounting/QuickBooksImportPreviewService.php
           php -l app/Filament/Pages/Finance/SupplierPayables.php
+          php -l tests/Feature/Accounting/SupplierPayablesUiTest.php
           php -l app/Filament/Pages/Finance/AccountingImportCenter.php
           php -l app/Jobs/PreviewAccountingImportBatch.php
           php -l app/Models/AccountingSupplierAdjustment.php
@@ -75,6 +77,6 @@ jobs:
           php -l database/migrations/2026_11_16_210000_create_accounting_supplier_adjustment_allocations.php
           php -l database/migrations/2026_11_16_220000_create_accounting_import_center.php
       - name: Pint changed PHP files
-        run: vendor/bin/pint --test app/Enums/AccountingPermission.php app/Models/AccountingSupplierAdjustment.php app/Models/AccountingSupplierAdjustmentAllocation.php app/Models/AccountingSupplierBill.php app/Models/AccountingSupplierBillLine.php app/Models/AccountingSupplierPayment.php app/Models/AccountingSupplierPaymentAllocation.php app/Models/AccountingImportBatch.php app/Models/AccountingImportBatchItem.php app/Models/AccountingImportLink.php app/Models/AccountingImportMapping.php app/Models/AccountingImportReconciliation.php app/Models/AccountingImportSourceIdentity.php app/Services/Accounting/AccountsPayableService.php app/Services/Accounting/QuickBooksImportPreviewService.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php app/Filament/Pages/Finance/SupplierPayables.php app/Filament/Pages/Finance/AccountingImportCenter.php app/Jobs/PreviewAccountingImportBatch.php tests/Feature/Accounting/AccountsPayableFoundationTest.php tests/Feature/Accounting/QuickBooksImportPreviewTest.php database/migrations/2026_11_11_120000_create_accounting_supplier_payables.php database/migrations/2026_11_16_210000_create_accounting_supplier_adjustment_allocations.php database/migrations/2026_11_16_220000_create_accounting_import_center.php
+        run: vendor/bin/pint --test app/Enums/AccountingPermission.php app/Models/AccountingSupplierAdjustment.php app/Models/AccountingSupplierAdjustmentAllocation.php app/Models/AccountingSupplierBill.php app/Models/AccountingSupplierBillLine.php app/Models/AccountingSupplierPayment.php app/Models/AccountingSupplierPaymentAllocation.php app/Models/AccountingImportBatch.php app/Models/AccountingImportBatchItem.php app/Models/AccountingImportLink.php app/Models/AccountingImportMapping.php app/Models/AccountingImportReconciliation.php app/Models/AccountingImportSourceIdentity.php app/Services/Accounting/AccountsPayableService.php app/Services/Accounting/QuickBooksImportPreviewService.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php app/Filament/Pages/Finance/SupplierPayables.php app/Filament/Pages/Finance/AccountingImportCenter.php app/Jobs/PreviewAccountingImportBatch.php tests/Feature/Accounting/AccountsPayableFoundationTest.php tests/Feature/Accounting/SupplierPayablesUiTest.php tests/Feature/Accounting/QuickBooksImportPreviewTest.php database/migrations/2026_11_11_120000_create_accounting_supplier_payables.php database/migrations/2026_11_16_210000_create_accounting_supplier_adjustment_allocations.php database/migrations/2026_11_16_220000_create_accounting_import_center.php
       - name: Blade compilation
         run: php artisan view:cache

@@ -14,22 +14,32 @@
 
         <div class="tpz-payables-entry-grid">
             @if($canCreateBill)
-                <section class="tpz-accounting-panel">
+                <section class="tpz-accounting-panel tpz-payables-bill-entry">
                     <div class="tpz-accounting-section-head"><div><h2>New supplier bill</h2><p>Enter a bill as a draft for review.</p></div><span class="tpz-accounting-status is-draft">Draft</span></div>
                     <form wire:submit="saveBill" class="tpz-payables-form">
                         <label class="tpz-accounting-field"><span>Supplier bill reference</span><input wire:model="billNumber" placeholder="Supplier's invoice number" autocomplete="off"><small class="tpz-accounting-error">@error('billNumber'){{ $message }}@enderror</small></label>
                         <div class="tpz-payables-two-col"><label class="tpz-accounting-field"><span>Bill date</span><input type="date" wire:model="billDate"></label><label class="tpz-accounting-field"><span>Due date</span><input type="date" wire:model="dueDate"><small class="tpz-accounting-error">@error('dueDate'){{ $message }}@enderror</small></label></div>
-                        <div class="tpz-accounting-table-wrap tpz-payables-lines-wrap"><table class="tpz-accounting-data-table tpz-payables-lines"><thead><tr><th>Description</th><th>Qty</th><th>Unit cost · {{ $book?->currency }}</th><th>VAT %</th><th><span class="sr-only">Remove line</span></th></tr></thead><tbody>
+                        <div class="tpz-accounting-table-wrap tpz-payables-lines-wrap"><table class="tpz-accounting-data-table tpz-payables-lines"><colgroup><col class="tpz-bill-description-column"><col class="tpz-bill-quantity-column"><col class="tpz-bill-unit-cost-column"><col class="tpz-bill-vat-column"><col class="tpz-bill-remove-column"></colgroup><thead><tr><th>Description</th><th>Qty</th><th>Unit price · {{ $book?->currency }}</th><th>VAT %</th><th><span class="sr-only">Remove line</span></th></tr></thead><tbody>
                             @foreach($billLines as $index => $line)
-                                <tr wire:key="supplier-bill-line-{{ $index }}"><td><input wire:model="billLines.{{ $index }}.description" aria-label="Line {{ $index + 1 }} description" placeholder="Description"></td><td><input wire:model="billLines.{{ $index }}.quantity" inputmode="decimal" aria-label="Line {{ $index + 1 }} quantity" placeholder="1"></td><td><input wire:model="billLines.{{ $index }}.unit_cost" inputmode="decimal" aria-label="Line {{ $index + 1 }} unit cost" placeholder="0.00"></td><td><input wire:model="billLines.{{ $index }}.vat_rate" inputmode="decimal" aria-label="Line {{ $index + 1 }} VAT rate" placeholder="0"></td><td><button type="button" class="tpz-accounting-icon-btn" wire:click="removeBillLine({{ $index }})" @disabled(count($billLines) <= 1) aria-label="Remove line {{ $index + 1 }}">×</button></td></tr>
+                                <tr wire:key="supplier-bill-line-{{ $index }}"><td><input wire:model="billLines.{{ $index }}.description" aria-label="Line {{ $index + 1 }} description" placeholder="Item description"></td><td><input wire:model.live.debounce.250ms="billLines.{{ $index }}.quantity" inputmode="decimal" aria-label="Line {{ $index + 1 }} quantity" placeholder="1"></td><td><input wire:model.live.debounce.250ms="billLines.{{ $index }}.unit_cost" inputmode="decimal" aria-label="Line {{ $index + 1 }} unit price" placeholder="0.00"></td><td><input wire:model.live.debounce.250ms="billLines.{{ $index }}.vat_rate" inputmode="decimal" aria-label="Line {{ $index + 1 }} VAT rate" placeholder="0"></td><td><button type="button" class="tpz-accounting-icon-btn" wire:click="removeBillLine({{ $index }})" @disabled(count($billLines) <= 1) aria-label="Remove line {{ $index + 1 }}">×</button></td></tr>
                             @endforeach
                         </tbody></table></div>
+                        <div class="tpz-payables-bill-totals" aria-live="polite" aria-label="Draft bill totals">
+                            @if($draftBillTotals)
+                                <div><span>Subtotal</span><strong>{{ $book?->currency }} {{ number_format((float) $draftBillTotals['subtotal'], 2) }}</strong></div>
+                                <div><span>VAT</span><strong>{{ $book?->currency }} {{ number_format((float) $draftBillTotals['vat'], 2) }}</strong></div>
+                                <div class="is-total"><span>Grand total</span><strong>{{ $book?->currency }} {{ number_format((float) $draftBillTotals['total'], 2) }}</strong></div>
+                            @else
+                                <p>Enter valid quantities, unit prices and VAT rates to preview totals.</p>
+                            @endif
+                        </div>
                         <div class="tpz-accounting-form-error">@error('billLines'){{ $message }}@enderror @foreach($errors->get('billLines.*') as $messages){{ implode(' ', $messages) }} @endforeach</div>
                         <div class="tpz-accounting-form-actions"><button type="button" class="tpz-accounting-btn" wire:click="addBillLine">＋ Add line</button><button type="submit" class="tpz-accounting-btn is-primary" wire:loading.attr="disabled" wire:target="saveBill"><span wire:loading.remove wire:target="saveBill">Save draft bill</span><span wire:loading wire:target="saveBill">Saving…</span></button></div>
                     </form>
                 </section>
             @endif
 
+            <div class="tpz-payables-compact-entries">
             @if($canRecordPayment)
                 <section class="tpz-accounting-panel">
                     <div class="tpz-accounting-section-head"><div><h2>New supplier payment</h2><p>Record payment details without posting.</p></div><span class="tpz-accounting-status is-draft">Draft</span></div>
@@ -55,6 +65,7 @@
                     </form>
                 </section>
             @endif
+            </div>
         </div>
 
         @if($canAllocatePayment)

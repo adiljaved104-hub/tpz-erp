@@ -340,6 +340,7 @@ class SupplierPayables extends BaseAccountingPage
             'selectedPayment' => $selectedPayment,
             'selectedBill' => $selectedBill,
             'postingEnabled' => (bool) ($book?->posting_enabled ?? false),
+            'draftBillTotals' => $this->draftBillTotals(),
             'ageing' => $book && $supplierId > 0 ? app(AccountsPayableService::class)->supplierAgeing($book, $supplierId, $this->asOfDate, $this->user()) : collect(),
             'supplierBalance' => $book && $supplierId > 0 ? app(AccountsPayableService::class)->supplierBalance($book, $supplierId, $this->user()) : null,
             'canCreateBill' => app(AccountingAuthorization::class)->allows($this->user(), AccountingPermission::CreateSupplierBill),
@@ -377,6 +378,39 @@ class SupplierPayables extends BaseAccountingPage
         $query = mb_strtolower(trim($search));
 
         return collect($values)->contains(fn (?string $value): bool => $value !== null && str_contains(mb_strtolower($value), $query));
+    }
+
+    /** @return array{subtotal:string,vat:string,total:string}|null */
+    private function draftBillTotals(): ?array
+    {
+        $subtotal = '0.00';
+        $vat = '0.00';
+
+        foreach ($this->billLines as $line) {
+            $quantity = trim((string) ($line['quantity'] ?? ''));
+            $unitCost = trim((string) ($line['unit_cost'] ?? ''));
+            $vatRate = trim((string) ($line['vat_rate'] ?? ''));
+            $unitCost = $unitCost === '' ? '0' : $unitCost;
+            $vatRate = $vatRate === '' ? '0' : $vatRate;
+
+            if (preg_match('/^\d+(?:\.\d{1,3})?$/', $quantity) !== 1
+                || bccomp($quantity, '0', 3) <= 0
+                || preg_match('/^\d+(?:\.\d{1,2})?$/', $unitCost) !== 1
+                || preg_match('/^\d+(?:\.\d{1,4})?$/', $vatRate) !== 1) {
+                return null;
+            }
+
+            $net = bcmul($quantity, $unitCost, 2);
+            $lineVat = bcdiv(bcmul($net, $vatRate, 2), '100', 2);
+            $subtotal = bcadd($subtotal, $net, 2);
+            $vat = bcadd($vat, $lineVat, 2);
+        }
+
+        return [
+            'subtotal' => $subtotal,
+            'vat' => $vat,
+            'total' => bcadd($subtotal, $vat, 2),
+        ];
     }
 
     private static function blankBillLine(): array

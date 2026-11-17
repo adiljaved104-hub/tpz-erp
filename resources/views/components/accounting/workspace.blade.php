@@ -8,7 +8,7 @@
         ['key' => 'customers', 'label' => 'Customer Center', 'icon' => '♙', 'preview' => true],
         ['key' => 'vendors', 'label' => 'Vendor Center', 'icon' => '♧', 'preview' => true],
         ['key' => 'invoice', 'label' => 'Sales Invoice', 'icon' => '＋', 'preview' => true],
-        ['key' => 'bill', 'label' => 'Supplier Bill', 'icon' => '▤', 'preview' => true],
+        ['key' => 'payables', 'label' => 'Supplier Payables', 'icon' => '▤', 'permission' => \App\Enums\AccountingPermission::ViewPayables, 'url' => \App\Filament\Pages\Finance\SupplierPayables::getUrl()],
         ['key' => 'journal', 'label' => 'General Journal', 'icon' => '≋', 'permission' => \App\Enums\AccountingPermission::ViewJournals, 'url' => \App\Filament\Pages\Finance\AccountingJournals::getUrl()],
         ['key' => 'ledger', 'label' => 'General Ledger', 'icon' => '⇄', 'permission' => \App\Enums\AccountingPermission::ViewGeneralLedger, 'url' => \App\Filament\Pages\Finance\AccountingGeneralLedger::getUrl()],
         ['key' => 'trial', 'label' => 'Trial Balance', 'icon' => '▥', 'permission' => \App\Enums\AccountingPermission::ViewTrialBalance, 'url' => \App\Filament\Pages\Finance\AccountingTrialBalance::getUrl()],
@@ -17,10 +17,10 @@
         ['key' => 'banking', 'label' => 'Banking Center', 'icon' => '⇆', 'preview' => true],
         ['key' => 'reports', 'label' => 'Financial Reports Center', 'icon' => '▧', 'preview' => true],
     ];
-    $items = collect($items)->filter(fn ($item) => isset($item['preview']) || ! isset($item['permission']) || $authorization->allows($user, $item['permission']))->values();
+    $items = collect($items)->filter(fn ($item) => isset($item['preview']) || ($item['key'] === 'home' ? \App\Filament\Pages\Finance\AccountingHome::canAccess() : (! isset($item['permission']) || $authorization->allows($user, $item['permission']))))->values();
     $currentUrl = collect($items)->firstWhere('key', $current)['url'] ?? null;
 @endphp
-<div class="tpz-accounting-workspace" data-accounting-page="{{ $current }}" data-accounting-url="{{ $currentUrl }}" data-accounting-title="{{ $title }}">
+<div class="tpz-accounting-workspace {{ $current === 'payables' ? 'is-payables' : '' }}" data-accounting-page="{{ $current }}" data-accounting-url="{{ $currentUrl }}" data-accounting-title="{{ $title }}">
     <aside class="tpz-accounting-sidebar">
         <a class="tpz-accounting-brand" href="{{ \Filament\Facades\Filament::getUrl() }}" aria-label="Return to TPZ ERP"><span class="tpz-accounting-mark">TP</span><span><strong>TPZ ERP</strong><small>Accounting workspace</small></span></a>
         <div class="tpz-accounting-nav-label">Accounting</div>

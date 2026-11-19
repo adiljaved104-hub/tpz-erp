@@ -352,7 +352,8 @@ class InventoryWorkspace extends Page
         abort_unless($user instanceof User, 403);
 
         $request = app(StockRequestService::class)->visibleQuery($user)
-            ->whereKey($requestId)->firstOrFail();
+            ->whereKey($requestId)->first();
+        abort_unless($request instanceof StockRequest, 404);
         abort_unless(app(StockRequestService::class)->canView($user, $request), 403);
         abort_unless(app(StockRequestExecutionService::class)->canExecute($user, $request), 403);
 

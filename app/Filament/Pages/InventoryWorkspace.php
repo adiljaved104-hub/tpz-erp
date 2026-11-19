@@ -77,7 +77,9 @@ class InventoryWorkspace extends Page
         $authorization = app(InventoryAuthorization::class);
         $canInventory = $authorization->allows($user, InventoryPermission::View);
         $canLocationBalances = $authorization->allows($user, InventoryPermission::ViewLocationBalances);
-        $products = ($canInventory && $canLocationBalances)
+        // The location overview and low-stock analysis are only rendered on
+        // Overview; avoid computing them during inventory/search/module tabs.
+        $products = ($this->activeTab === 'overview' && $canInventory && $canLocationBalances)
             ? app(InventoryLocationOverviewService::class)->forUser($user, false)
             : collect();
         $inventoryQuery = $canInventory
@@ -94,13 +96,14 @@ class InventoryWorkspace extends Page
             });
         }
 
-        $inventory = $inventoryQuery?->latest('product_inventories.updated_at')
-            ->paginate(15, pageName: 'inventory-page') ?? collect();
+        $inventory = ($this->activeTab === 'inventory' && $inventoryQuery !== null)
+            ? $inventoryQuery->latest('product_inventories.updated_at')->paginate(15, pageName: 'inventory-page')
+            : collect();
 
         // Movement history must remain inside BOTH the existing responsibility scope
         // and the independent inventory.view_movements Access Control grant.
         $canSeeMovements = $authorization->allows($user, InventoryPermission::ViewMovements);
-        $recentMovements = $canSeeMovements
+        $recentMovements = $this->activeTab === 'overview' && $canSeeMovements
             ? app(InventoryReadService::class)->movements($user)->latest('occurred_at')->limit(6)->get()
             : collect();
 
@@ -140,8 +143,10 @@ class InventoryWorkspace extends Page
             : $inventoryDashboard['attention']->take(8)->values();
 
         $tabCounts = [];
-        if ($inventory instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
-            $tabCounts['inventory'] = $inventory->total();
+        if ($canInventory) {
+            $tabCounts['inventory'] = $inventory instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
+                ? $inventory->total()
+                : ($inventoryQuery?->count() ?? 0);
         }
         if (ProductInventoryResource::canViewAny()) {
             $tabCounts['myInventory'] = ProductInventoryResource::getEloquentQuery()->count();

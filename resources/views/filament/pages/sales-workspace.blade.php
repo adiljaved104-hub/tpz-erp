@@ -370,6 +370,20 @@
                         <p class="text-sm text-gray-500">No order lines available.</p>
                     @endforelse
                 </div>
+                @if($quickViewOrder['canReserve'])
+                    <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+                        @if($confirmQuickViewReserve)
+                            <p class="font-semibold">Confirm reservation of this Draft Sales Order?</p>
+                            <p class="mt-1">This will reserve inventory using the existing stock allocation rules. It cannot be undone from this panel.</p>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <x-filament::button color="success" size="sm" wire:click="reserveQuickViewDraft" wire:loading.attr="disabled" wire:target="reserveQuickViewDraft">Confirm &amp; Reserve</x-filament::button>
+                                <x-filament::button color="gray" size="sm" wire:click="$set('confirmQuickViewReserve', false)">Cancel</x-filament::button>
+                            </div>
+                        @else
+                            <x-filament::button color="success" size="sm" wire:click="prepareQuickViewReserve">Save &amp; Reserve</x-filament::button>
+                        @endif
+                    </div>
+                @endif
                 <div class="mt-auto flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-5 dark:border-gray-700">
                     <x-filament::button color="gray" wire:click="closeOrderQuickView">Back to workspace</x-filament::button>
                     <x-filament::button tag="a" :href="$quickViewOrder['url']">Open full order</x-filament::button>

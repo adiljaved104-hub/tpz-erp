@@ -3,6 +3,10 @@
 namespace App\Filament\Pages;
 
 use App\Enums\InventoryPermission;
+use App\Models\StockRequest;
+use App\Models\StockRequestExecution;
+use App\Services\Inventory\StockRequestExecutionService;
+use App\Services\Inventory\StockRequestService;
 use App\Enums\ProductPermission;
 use App\Filament\Pages\Inventory\InventoryOverview;
 use App\Filament\Pages\Inventory\StockAdjustments;
@@ -20,7 +24,10 @@ use App\Services\Dashboard\ErpDashboardService;
 use App\Services\Mobile\StockStatus;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Navigation\WorkspaceRecordPreviewService;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Validation\ValidationException;
 use Filament\Support\Icons\Heroicon;
 use Livewire\WithPagination;
 
@@ -49,6 +56,8 @@ class InventoryWorkspace extends Page
     // Store only the selected inventory ID; always load through the scoped
     // InventoryReadService instead of persisting record data in Livewire state.
     public ?int $quickViewInventoryId = null;
+
+    public ?int $pendingExecutionRequestId = null;
 
     public static function canAccess(): bool
     {
@@ -174,6 +183,7 @@ class InventoryWorkspace extends Page
 
         return [
             'quickViewInventory' => $this->loadInventoryQuickView($user, $authorization),
+            'pendingExecutionRequest' => $this->pendingExecutionRequest($user),
             'extraPreview' => $extraPreview,
             'inventoryCards' => $inventoryCards,
             'inventoryAttention' => $inventoryAttention,
@@ -280,6 +290,93 @@ class InventoryWorkspace extends Page
             'productUrl' => $mayViewProduct
                 ? ProductResource::getUrl('view', ['record' => $product])
                 : null,
+        ];
+    }
+
+
+    /**
+     * The request list remains scoped by StockRequestResource, then each
+     * transactional action re-checks the request visibility and Execute grant.
+     */
+    public function prepareStockRequestExecution(int $requestId): void
+    {
+        $this->authorizedExecutableRequest($requestId);
+        $this->pendingExecutionRequestId = $requestId;
+    }
+
+    public function cancelStockRequestExecution(): void
+    {
+        $this->pendingExecutionRequestId = null;
+    }
+
+    public function executePreparedStockRequest(): void
+    {
+        abort_unless($this->pendingExecutionRequestId !== null, 403);
+        $request = $this->authorizedExecutableRequest($this->pendingExecutionRequestId);
+        $this->pendingExecutionRequestId = null;
+
+        try {
+            $execution = app(StockRequestExecutionService::class)->execute(
+                $request, (string) str()->uuid(), auth()->user()
+            );
+            if ($execution instanceof StockRequestExecution) {
+                Notification::make()->success()->title('Stock Request executed successfully')->send();
+            }
+        } catch (AuthorizationException $e) {
+            throw $e;
+        } catch (ValidationException $e) {
+            Notification::make()->warning()->title('Stock Request execution was not completed')
+                ->body(collect($e->errors())->flatten()->first() ?? 'Review the request before retrying.')->send();
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->danger()->title('Stock Request execution failed')
+                ->body('Open the full request to review the issue.')->send();
+        }
+    }
+
+    public function canExecuteWorkspaceRequest(StockRequest $request): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && StockRequestResource::canView($request)
+            && app(StockRequestExecutionService::class)->canExecute($user, $request);
+    }
+
+    private function authorizedExecutableRequest(int $requestId): StockRequest
+    {
+        abort_unless(static::canAccess()
+            && $requestId > 0
+            && StockRequestResource::canViewAny(), 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User, 403);
+
+        $request = app(StockRequestService::class)->visibleQuery($user)
+            ->whereKey($requestId)->firstOrFail();
+        abort_unless(app(StockRequestService::class)->canView($user, $request), 403);
+        abort_unless(app(StockRequestExecutionService::class)->canExecute($user, $request), 403);
+
+        return $request;
+    }
+
+    private function pendingExecutionRequest(User $user): ?array
+    {
+        if ($this->pendingExecutionRequestId === null
+            || ! StockRequestResource::canViewAny()) {
+            return null;
+        }
+
+        $request = app(StockRequestService::class)->visibleQuery($user)
+            ->whereKey($this->pendingExecutionRequestId)->first();
+        if ($request === null || ! app(StockRequestService::class)->canView($user, $request)
+            || ! app(StockRequestExecutionService::class)->canExecute($user, $request)) {
+            $this->pendingExecutionRequestId = null;
+            return null;
+        }
+
+        return [
+            'reference' => $request->reference,
+            'summary' => app(StockRequestExecutionService::class)->summary($request),
         ];
     }
 

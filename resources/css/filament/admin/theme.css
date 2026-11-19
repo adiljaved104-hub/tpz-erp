@@ -3598,3 +3598,34 @@ html.tpz-native-workspace .tpz-reference-home--final .tpz-native-intelligence .e
         max-height: 22rem;
     }
 }
+
+/* Operational workspace module navigation: reveal all authorized modules on
+   additional rows rather than hiding them behind horizontal scrolling. */
+html.tpz-native-workspace .tpz-unified-workspace .tpz-workspace-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    align-content: start;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: visible;
+    overflow-y: visible;
+    gap: .35rem;
+    padding-bottom: .25rem;
+}
+html.tpz-native-workspace .tpz-unified-workspace .tpz-workspace-tabs > .tpz-workspace-tab {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: min(100%, 17rem);
+    white-space: normal;
+    text-align: center;
+}
+html.tpz-native-workspace .tpz-unified-workspace .tpz-workspace-tabs .tpz-native-tab-label {
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+@media (max-width: 35rem) {
+    html.tpz-native-workspace .tpz-unified-workspace .tpz-workspace-tabs > .tpz-workspace-tab {
+        max-width: 100%;
+    }
+}

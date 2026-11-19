@@ -8,6 +8,7 @@ on:
       - 'resources/views/filament/pages/sales-workspace.blade.php'
       - 'resources/views/filament/pages/inventory-workspace.blade.php'
       - 'tests/Feature/Navigation/NativeWorkspacesTest.php'
+      - 'tests/Feature/Orders/WebSalesWorkflowTest.php'
       - '.github/workflows/phase2c-workspace-transaction-qa.yml'
   workflow_dispatch:
 
@@ -74,4 +75,4 @@ jobs:
           DB_DATABASE: tpz_workspace_phase2c_test
           DB_USERNAME: tpz_test
           DB_PASSWORD: tpz_test
-        run: vendor/bin/phpunit tests/Feature/Navigation/NativeWorkspacesTest.php
+        run: vendor/bin/phpunit tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Orders/WebSalesWorkflowTest.php

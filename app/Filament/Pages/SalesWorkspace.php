@@ -3,6 +3,11 @@
 namespace App\Filament\Pages;
 
 use App\Actions\Orders\ReserveDraftOrder;
+use App\Enums\QcPermission;
+use App\Services\Authorization\QcAuthorization;
+use App\Services\Qc\RenewedQcDispatchService;
+use App\Services\Orders\WebSalesService;
+use App\Exceptions\InvalidOrderTransitionException;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\QuotationPermission;
@@ -68,6 +73,8 @@ class SalesWorkspace extends Page
     public ?string $quickViewOrderType = null;
 
     public bool $confirmQuickViewReserve = false;
+
+    public ?string $pendingWebSaleOperation = null;
 
     public static function canAccess(): bool
     {
@@ -306,6 +313,7 @@ class SalesWorkspace extends Page
         $this->quickViewOrderId = $id;
         $this->quickViewOrderType = $type;
         $this->confirmQuickViewReserve = false;
+        $this->pendingWebSaleOperation = null;
     }
 
     public function closeOrderQuickView(): void
@@ -313,6 +321,7 @@ class SalesWorkspace extends Page
         $this->quickViewOrderId = null;
         $this->quickViewOrderType = null;
         $this->confirmQuickViewReserve = false;
+        $this->pendingWebSaleOperation = null;
     }
 
 
@@ -366,6 +375,101 @@ class SalesWorkspace extends Page
         return $order;
     }
 
+
+    /**
+     * Web Sales fulfillment stays inside the original WebSalesService, including
+     * manual sourcing, reservation, invoice and stock movement controls.
+     * Renewed QC readiness is independently checked before every shipment.
+     */
+    public function prepareQuickViewWebSale(string $operation): void
+    {
+        abort_unless(in_array($operation, ['ship', 'deliver'], true), 403);
+        $this->authorizedWebSaleOperation($operation);
+        $this->pendingWebSaleOperation = $operation;
+    }
+
+    public function cancelQuickViewWebSale(): void
+    {
+        $this->pendingWebSaleOperation = null;
+    }
+
+    public function submitQuickViewWebSale(): void
+    {
+        abort_unless(in_array($this->pendingWebSaleOperation, ['ship', 'deliver'], true), 403);
+        $operation = $this->pendingWebSaleOperation;
+        $order = $this->authorizedWebSaleOperation($operation);
+        $this->pendingWebSaleOperation = null;
+
+        try {
+            if ($operation === 'ship') {
+                app(WebSalesService::class)->ship($order, (string) str()->uuid(), auth()->user());
+            } else {
+                app(WebSalesService::class)->deliver($order, auth()->user());
+            }
+            Notification::make()->success()->title(
+                $operation === 'ship' ? 'Web Sale marked Shipped' : 'Web Sale marked Delivered'
+            )->send();
+        } catch (AuthorizationException $e) {
+            throw $e;
+        } catch (ValidationException|InvalidOrderTransitionException $e) {
+            Notification::make()->warning()->title('Web Sale processing was not completed')
+                ->body($e instanceof ValidationException
+                    ? (collect($e->errors())->flatten()->first() ?? 'Review order status.')
+                    : $e->getMessage())->send();
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->danger()->title('Web Sale processing failed')
+                ->body('Open the full Web Sale to review fulfillment requirements.')->send();
+        }
+    }
+
+    private function authorizedWebSaleOperation(string $operation): \App\Models\Order
+    {
+        abort_unless(static::canAccess() && $this->quickViewOrderType === 'webSales'
+            && $this->quickViewOrderId !== null && $this->quickViewOrderId > 0, 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User
+            && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View), 403);
+
+        $order = app(WebSalesReadService::class)->orders($user)
+            ->whereKey($this->quickViewOrderId)->first();
+        abort_unless($order instanceof \App\Models\Order, 404);
+
+        if ($operation === 'ship') {
+            abort_unless($this->webSaleCanShip($order, $user), 403);
+        } elseif ($operation === 'deliver') {
+            abort_unless($this->webSaleCanDeliver($order, $user), 403);
+        } else {
+            abort(403);
+        }
+
+        return $order;
+    }
+
+    private function webSaleQcReady(\App\Models\Order $order, User $user): bool
+    {
+        $readiness = app(RenewedQcDispatchService::class)->readiness($order);
+
+        return $readiness['status'] === 'not_required' || (
+            $readiness['status'] === 'ready'
+            && app(QcAuthorization::class)->allows($user, QcPermission::ShipDispatch)
+        );
+    }
+
+    private function webSaleCanShip(\App\Models\Order $order, User $user): bool
+    {
+        return in_array($order->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true)
+            && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Update, $order)
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::Fulfill, $order)
+            && $this->webSaleQcReady($order, $user);
+    }
+
+    private function webSaleCanDeliver(\App\Models\Order $order, User $user): bool
+    {
+        return $order->status === OrderStatus::Fulfilled && $order->delivered_at === null
+            && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Update, $order);
+    }
+
     private function loadQuickViewOrder(User $user): ?array
     {
         if ($this->quickViewOrderId === null || $this->quickViewOrderType === null) {
@@ -410,6 +514,9 @@ class SalesWorkspace extends Page
 
         return [
             'type' => $type,
+            'canShip' => $type === 'webSales' && $this->webSaleCanShip($order, $user),
+            'canDeliver' => $type === 'webSales' && $this->webSaleCanDeliver($order, $user),
+            'qcReady' => $type !== 'webSales' || $this->webSaleQcReady($order, $user),
             'canReserve' => $type === 'orders'
                 && $order->status === OrderStatus::Draft
                 && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve, $order),

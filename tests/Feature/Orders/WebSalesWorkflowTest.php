@@ -11,6 +11,7 @@ use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
 use App\Enums\WebSalesPermission;
 use App\Filament\Pages\WebSalesDashboard;
+use App\Filament\Pages\SalesWorkspace;
 use App\Filament\Resources\WebSalesOrders\Pages\CreateWebSalesOrder;
 use App\Filament\Resources\WebSalesOrders\Pages\ListWebSalesOrders;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
@@ -28,9 +29,11 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Orders\WebSalesDashboardService;
+use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Orders\WebSalesReadService;
 use App\Services\Orders\WebSalesService;
 use Illuminate\Auth\Access\AuthorizationException;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -107,6 +110,41 @@ class WebSalesWorkflowTest extends TestCase
         $this->assertSame('565.71', bcsub('3000.00', '2434.2856', 2));
     }
 
+
+    public function test_workspace_quick_view_shows_delivered_timestamp_and_hides_empty_action_panel(): void
+    {
+        [$owner, , $product, $inventory] = $this->foundation(5, 0, '1217.1428');
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $service = app(WebSalesService::class);
+        $order = $service->createConfirmed($this->data($product), $owner);
+        $service->ship($order, (string) Str::uuid(), $owner);
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('openOrderQuickView', 'webSales', $order->id)
+            ->assertSee('Shipped')
+            ->assertSee('Mark Delivered')
+            ->assertDontSee('Delivered at');
+
+        $movementCount = StockMovement::query()->count();
+        $service->deliver($order->refresh(), $owner);
+        $service->deliver($order->refresh(), $owner);
+        $deliveredAt = $order->refresh()->delivered_at;
+        $this->assertNotNull($deliveredAt);
+        $this->assertSame($movementCount, StockMovement::query()->count());
+        $this->assertSame('Delivered', $order->webSalesStatusLabel());
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('openOrderQuickView', 'webSales', $order->id)
+            ->assertSee('Delivered')
+            ->assertSee('Delivered at')
+            ->assertSee($deliveredAt->format('d M Y, h:i A'))
+            ->assertDontSee('Mark Delivered')
+            ->assertDontSee('Mark Shipped')
+            ->assertDontSee('Confirm action');
+    }
     public function test_cancellation_releases_reservation_without_changing_available(): void
     {
         [$owner, , $product, $inventory] = $this->foundation(6);

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Orders\ReserveDraftOrder;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\QuotationPermission;
@@ -20,7 +21,10 @@ use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Navigation\WorkspaceRecordPreviewService;
 use App\Services\Orders\OrderReadService;
 use App\Services\Orders\WebSalesReadService;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Validation\ValidationException;
 use Filament\Support\Icons\Heroicon;
 use Livewire\WithPagination;
 
@@ -62,6 +66,8 @@ class SalesWorkspace extends Page
     public ?int $quickViewOrderId = null;
 
     public ?string $quickViewOrderType = null;
+
+    public bool $confirmQuickViewReserve = false;
 
     public static function canAccess(): bool
     {
@@ -299,12 +305,65 @@ class SalesWorkspace extends Page
 
         $this->quickViewOrderId = $id;
         $this->quickViewOrderType = $type;
+        $this->confirmQuickViewReserve = false;
     }
 
     public function closeOrderQuickView(): void
     {
         $this->quickViewOrderId = null;
         $this->quickViewOrderType = null;
+        $this->confirmQuickViewReserve = false;
+    }
+
+
+    /**
+     * Two explicit clicks are required before reserving stock. The operation
+     * re-resolves the record under responsibility scope and relies on the
+     * existing transactional ReserveDraftOrder service for all stock checks.
+     */
+    public function prepareQuickViewReserve(): void
+    {
+        $this->authorizedQuickViewDraft();
+        $this->confirmQuickViewReserve = true;
+    }
+
+    public function reserveQuickViewDraft(): void
+    {
+        abort_unless($this->confirmQuickViewReserve, 403);
+        $order = $this->authorizedQuickViewDraft();
+        // A failed attempt must require fresh explicit confirmation.
+        $this->confirmQuickViewReserve = false;
+
+        try {
+            app(ReserveDraftOrder::class)->handle($order, auth()->user());
+            Notification::make()->success()->title('Sales Order reserved successfully')->send();
+        } catch (AuthorizationException $e) {
+            throw $e;
+        } catch (ValidationException $e) {
+            Notification::make()->warning()->title('Cannot reserve Sales Order')
+                ->body(collect($e->errors())->flatten()->first() ?? 'Review stock allocation and try again.')->send();
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->danger()->title('Reservation was not completed')
+                ->body('Use the full order workflow to review the issue.')->send();
+        }
+    }
+
+    private function authorizedQuickViewDraft(): \App\Models\Order
+    {
+        abort_unless(static::canAccess()
+            && $this->quickViewOrderType === 'orders'
+            && $this->quickViewOrderId !== null
+            && $this->quickViewOrderId > 0, 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::View), 403);
+        $order = app(OrderReadService::class)->orders($user)
+            ->whereKey($this->quickViewOrderId)->firstOrFail();
+        abort_unless($order->status === OrderStatus::Draft
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve, $order), 403);
+
+        return $order;
     }
 
     private function loadQuickViewOrder(User $user): ?array
@@ -351,6 +410,9 @@ class SalesWorkspace extends Page
 
         return [
             'type' => $type,
+            'canReserve' => $type === 'orders'
+                && $order->status === OrderStatus::Draft
+                && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve, $order),
             'reference' => $order->reference,
             'status' => $order->status?->getLabel() ?? 'Unknown',
             'date' => $order->order_date?->format('d M Y') ?? '—',

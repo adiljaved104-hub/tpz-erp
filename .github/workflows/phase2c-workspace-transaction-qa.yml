@@ -45,9 +45,7 @@ jobs:
           php -l app/Filament/Pages/SalesWorkspace.php
           php -l app/Filament/Pages/InventoryWorkspace.php
           php -l tests/Feature/Navigation/NativeWorkspacesTest.php
-      - name: Blade compilation
-        run: php artisan view:cache
-      - name: Focused isolated MySQL migrations and Livewire regression
+      - name: Migrate disposable MySQL database
         env:
           APP_ENV: testing
           DB_CONNECTION: mysql
@@ -56,6 +54,24 @@ jobs:
           DB_DATABASE: tpz_workspace_phase2c_test
           DB_USERNAME: tpz_test
           DB_PASSWORD: tpz_test
-        run: |
-          php artisan migrate --force
-          vendor/bin/phpunit tests/Feature/Navigation/NativeWorkspacesTest.php
+        run: php artisan migrate --force
+      - name: Blade compilation
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: tpz_workspace_phase2c_test
+          DB_USERNAME: tpz_test
+          DB_PASSWORD: tpz_test
+        run: php artisan view:cache
+      - name: Focused isolated MySQL Livewire regression
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: tpz_workspace_phase2c_test
+          DB_USERNAME: tpz_test
+          DB_PASSWORD: tpz_test
+        run: vendor/bin/phpunit tests/Feature/Navigation/NativeWorkspacesTest.php

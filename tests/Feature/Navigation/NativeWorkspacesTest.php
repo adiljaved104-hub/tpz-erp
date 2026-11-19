@@ -270,4 +270,21 @@ class NativeWorkspacesTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_workspace_source_approval_requires_an_authorized_request(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->assertSet('pendingSourceDecisionRequestId', null)
+            ->call('submitSourceDecision')
+            ->assertForbidden();
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('prepareSourceDecision', 99999999)
+            ->assertNotFound();
+    }
+
 }

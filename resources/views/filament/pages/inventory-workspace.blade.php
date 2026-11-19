@@ -298,6 +298,9 @@
                                                 @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canExecuteWorkspaceRequest($record))
                                                     <x-filament::button type="button" size="xs" color="success" wire:click="prepareStockRequestExecution({{ $record->getKey() }})">Execute approved</x-filament::button>
                                                 @endif
+                                                @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canApproveWorkspaceRequest($record))
+                                                    <x-filament::button type="button" size="xs" color="primary" wire:click="prepareSourceDecision({{ $record->getKey() }})">Review sources</x-filament::button>
+                                                @endif
                                             </div>
                                         @endif
                                     </td>
@@ -393,6 +396,49 @@
                 <div class="mt-5 flex flex-wrap justify-end gap-2">
                     <x-filament::button color="gray" wire:click="cancelStockRequestExecution">Cancel</x-filament::button>
                     <x-filament::button color="success" wire:click="executePreparedStockRequest" wire:loading.attr="disabled" wire:target="executePreparedStockRequest">Confirm &amp; Execute</x-filament::button>
+                </div>
+            </section>
+        </div>
+    @endif
+
+    @if($pendingSourceDecision)
+        <div class="fixed inset-0 z-[110] flex items-center justify-center p-4" wire:key="stock-source-decision-confirmation">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="cancelSourceDecision" aria-label="Cancel source decision"></button>
+            <section role="dialog" aria-modal="true" aria-labelledby="stock-source-decision-title"
+                class="relative z-10 w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <h2 id="stock-source-decision-title" class="text-lg font-bold text-gray-950 dark:text-white">Review Stock Request sources</h2>
+                <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $pendingSourceDecision['reference'] }}</p>
+                <div class="mt-5 space-y-4">
+                    <label class="block text-sm font-semibold text-gray-900 dark:text-gray-100" for="workspace-source-line">Authorized stock source</label>
+                    <select id="workspace-source-line" wire:model="pendingSourceDecisionLineId"
+                        class="w-full rounded-lg border-gray-300 text-sm dark:bg-gray-900 dark:text-white">
+                        <option value="">Select a stock source</option>
+                        @foreach($pendingSourceDecision['options'] as $id => $label)
+                            <option value="{{ $id }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <fieldset class="flex gap-5 text-sm text-gray-900 dark:text-white">
+                        <legend class="mb-2 font-semibold">Decision</legend>
+                        <label><input type="radio" wire:model.live="sourceDecision" value="approved"> Approve</label>
+                        <label><input type="radio" wire:model.live="sourceDecision" value="rejected"> Reject</label>
+                    </fieldset>
+                    @if($sourceDecision === 'approved')
+                        <label class="block text-sm font-semibold text-gray-900 dark:text-white" for="workspace-source-quantity">Quantity to approve</label>
+                        <input id="workspace-source-quantity" type="number" min="1" step="1" wire:model="sourceApprovedQuantity"
+                            class="w-full rounded-lg border-gray-300 text-sm dark:bg-gray-900 dark:text-white">
+                    @endif
+                    <label class="block text-sm font-semibold text-gray-900 dark:text-white" for="workspace-source-note">
+                        {{ $sourceDecision === 'rejected' ? 'Rejection reason (required)' : 'Approval note (optional)' }}
+                    </label>
+                    <textarea id="workspace-source-note" wire:model="sourceDecisionNote" maxlength="2000" rows="3"
+                        class="w-full rounded-lg border-gray-300 text-sm dark:bg-gray-900 dark:text-white"></textarea>
+                    <p class="text-xs text-gray-500">Approving only records a source decision. Stock is not reserved or transferred until authorized execution.</p>
+                </div>
+                <div class="mt-5 flex flex-wrap justify-end gap-2">
+                    <x-filament::button color="gray" wire:click="cancelSourceDecision">Cancel</x-filament::button>
+                    <x-filament::button color="success" wire:click="submitSourceDecision" wire:loading.attr="disabled" wire:target="submitSourceDecision">
+                        Confirm source decision
+                    </x-filament::button>
                 </div>
             </section>
         </div>

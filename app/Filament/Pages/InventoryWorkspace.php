@@ -46,6 +46,10 @@ class InventoryWorkspace extends Page
 
     public string $search = '';
 
+    // Store only the selected inventory ID; always load through the scoped
+    // InventoryReadService instead of persisting record data in Livewire state.
+    public ?int $quickViewInventoryId = null;
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -169,6 +173,7 @@ class InventoryWorkspace extends Page
             : null;
 
         return [
+            'quickViewInventory' => $this->loadInventoryQuickView($user, $authorization),
             'extraPreview' => $extraPreview,
             'inventoryCards' => $inventoryCards,
             'inventoryAttention' => $inventoryAttention,
@@ -199,6 +204,82 @@ class InventoryWorkspace extends Page
                 'movements' => $canSeeMovements && StockMovementResource::canViewAny() ? StockMovementResource::getUrl() : null,
             ]),
             'canViewProducts' => ProductResource::canViewAny(),
+        ];
+    }
+
+
+    public function openInventoryQuickView(int $inventoryId): void
+    {
+        abort_unless(static::canAccess() && $inventoryId > 0, 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User
+            && app(InventoryAuthorization::class)->allows($user, InventoryPermission::View), 403);
+
+        // Check record-level responsibility every time, including on the
+        // action request; never trust an inventory ID sent by the browser.
+        abort_unless(app(InventoryReadService::class)->inventories($user)
+            ->whereKey($inventoryId)->exists(), 404);
+
+        $this->quickViewInventoryId = $inventoryId;
+    }
+
+    public function closeInventoryQuickView(): void
+    {
+        $this->quickViewInventoryId = null;
+    }
+
+    private function loadInventoryQuickView(User $user, InventoryAuthorization $authorization): ?array
+    {
+        if ($this->quickViewInventoryId === null) {
+            return null;
+        }
+
+        if ($this->quickViewInventoryId < 1 || ! static::canAccess()
+            || ! $authorization->allows($user, InventoryPermission::View)) {
+            $this->closeInventoryQuickView();
+
+            return null;
+        }
+
+        $inventory = app(InventoryReadService::class)->inventories($user)
+            ->whereKey($this->quickViewInventoryId)->first();
+
+        if ($inventory === null) {
+            $this->closeInventoryQuickView();
+
+            return null;
+        }
+
+        // Movements have an independent grant and their own responsibility
+        // scope. No financial costs or cross-employee allocations are loaded.
+        $movements = $authorization->allows($user, InventoryPermission::ViewMovements)
+            ? app(InventoryReadService::class)->movements($user)
+                ->where('product_inventory_id', $inventory->id)
+                ->latest('occurred_at')->limit(5)->get()
+            : collect();
+
+        $product = $inventory->product;
+        $mayViewProduct = $product !== null
+            && ProductResource::canViewAny()
+            && ProductResource::canView($product);
+
+        return [
+            'sku' => $product?->sku ?? '—',
+            'name' => $product?->name ?? '—',
+            'warehouse' => $inventory->warehouse?->name ?? '—',
+            'available' => (int) $inventory->available_quantity,
+            'reserved' => (int) $inventory->reserved_quantity,
+            'damaged' => (int) $inventory->damaged_quantity,
+            'movements' => $movements->map(fn ($movement): array => [
+                'reference' => $movement->reference ?? ('#'.$movement->id),
+                'type' => $movement->movement_type?->label() ?? 'Movement',
+                'quantity' => (int) $movement->quantity,
+                'date' => $movement->occurred_at?->format('d M Y, H:i') ?? '—',
+            ])->all(),
+            'movementsAllowed' => $authorization->allows($user, InventoryPermission::ViewMovements),
+            'productUrl' => $mayViewProduct
+                ? ProductResource::getUrl('view', ['record' => $product])
+                : null,
         ];
     }
 

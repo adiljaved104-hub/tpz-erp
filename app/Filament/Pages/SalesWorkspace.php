@@ -129,8 +129,15 @@ class SalesWorkspace extends Page
 
         // Pagination executes against the pre-existing responsibility-scoped queries.
         // Explicit page names prevent Sales and Web Sales from interfering with one another.
-        $orders = $ordersQuery?->latest('orders.order_date')->paginate(10, pageName: 'sales-page') ?? collect();
-        $webSales = $webSalesQuery?->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page') ?? collect();
+        // Only paginate the table currently visible (or both on Overview,
+        // which uses their first rows for recent updates). Inactive modules
+        // retain permission-scoped counts without loading their record pages.
+        $orders = $ordersQuery !== null && in_array($this->activeTab, ['overview', 'orders'], true)
+            ? $ordersQuery->latest('orders.order_date')->paginate(10, pageName: 'sales-page')
+            : collect();
+        $webSales = $webSalesQuery !== null && in_array($this->activeTab, ['overview', 'webSales'], true)
+            ? $webSalesQuery->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page')
+            : collect();
 
         $quotations = ($canQuotations && $this->activeTab === 'quotations')
             ? QuotationResource::getEloquentQuery()->latest('created_at')->paginate(10, pageName: 'quotation-page')
@@ -139,11 +146,11 @@ class SalesWorkspace extends Page
         $salesCounts = [];
         if ($canOrders) {
             $salesCounts['orders'] = $orders instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
-                ? $orders->total() : $orders->count();
+                ? $orders->total() : ($ordersQuery?->count() ?? 0);
         }
         if ($canWebSales) {
             $salesCounts['webSales'] = $webSales instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
-                ? $webSales->total() : $webSales->count();
+                ? $webSales->total() : ($webSalesQuery?->count() ?? 0);
         }
         if ($canQuotations) {
             $salesCounts['quotations'] = QuotationResource::getEloquentQuery()->count();

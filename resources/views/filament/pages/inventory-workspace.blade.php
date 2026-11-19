@@ -65,7 +65,7 @@
                 <button type="button" wire:key="extra-module-tab-{{ $index }}"
                     class="tpz-workspace-tab {{ $activeTab === 'extra' && $activeExtraModule === $index ? 'is-active' : '' }}"
                     aria-selected="{{ $activeTab === 'extra' && $activeExtraModule === $index ? 'true' : 'false' }}"
-                    wire:click="selectExtraModule({{ $index }})"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($module['icon'])" class="tpz-native-tab-icon size-4" /> {{ $module['label'] }}</button>
+                    wire:click="selectExtraModule({{ $index }})"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(\App\Support\WorkspaceVisuals::moduleIcon($module['label'], $module['icon']))" class="tpz-native-tab-icon size-4" /> {{ $module['label'] }}</button>
             @endforeach
         </nav>
 

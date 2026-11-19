@@ -56,6 +56,13 @@ class SalesWorkspace extends Page
 
     public string $to = '';
 
+    // Only an ID and a module type live in Livewire state. Every render
+    // reloads the requested record through its existing responsibility-scoped
+    // read service, so stale or tampered IDs cannot disclose data.
+    public ?int $quickViewOrderId = null;
+
+    public ?string $quickViewOrderType = null;
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -243,7 +250,10 @@ class SalesWorkspace extends Page
             ? app(WorkspaceRecordPreviewService::class)->forLink($selectedExtra)
             : null;
 
+        $quickViewOrder = $this->loadQuickViewOrder($user);
+
         return [
+            'quickViewOrder' => $quickViewOrder,
             'extraPreview' => $extraPreview,
             'salesCounts' => $salesCounts,
             'salesAttention' => $salesAttention,
@@ -263,6 +273,98 @@ class SalesWorkspace extends Page
                 'quotations' => $canQuotations ? QuotationResource::getUrl() : null,
                 'dashboard' => $canDashboard ? WebSalesDashboard::getUrl() : null,
             ]),
+        ];
+    }
+
+
+    /**
+     * Open a read-only record preview without leaving the current workspace.
+     * Both the initial action and subsequent renders reauthorize by role,
+     * permission and responsibility scope. Not a fulfillment action.
+     */
+    public function openOrderQuickView(string $type, int $id): void
+    {
+        abort_unless(static::canAccess() && in_array($type, ['orders', 'webSales'], true) && $id > 0, 403);
+
+        $user = auth()->user();
+        abort_unless($user instanceof User, 403);
+
+        // Do not use Order::find(): existing read services enforce record
+        // visibility and select only permitted commercial fields.
+        $query = $type === 'orders'
+            ? app(OrderReadService::class)->orders($user)
+            : app(WebSalesReadService::class)->orders($user);
+
+        abort_unless($query->whereKey($id)->exists(), 404);
+
+        $this->quickViewOrderId = $id;
+        $this->quickViewOrderType = $type;
+    }
+
+    public function closeOrderQuickView(): void
+    {
+        $this->quickViewOrderId = null;
+        $this->quickViewOrderType = null;
+    }
+
+    private function loadQuickViewOrder(User $user): ?array
+    {
+        if ($this->quickViewOrderId === null || $this->quickViewOrderType === null) {
+            return null;
+        }
+
+        if (! in_array($this->quickViewOrderType, ['orders', 'webSales'], true)
+            || $this->quickViewOrderId < 1 || ! static::canAccess()) {
+            $this->closeOrderQuickView();
+
+            return null;
+        }
+
+        $type = $this->quickViewOrderType;
+        $authorized = $type === 'orders'
+            ? app(OrderAuthorization::class)->allows($user, OrderPermission::View)
+            : app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View);
+
+        if (! $authorized) {
+            $this->closeOrderQuickView();
+
+            return null;
+        }
+
+        $query = $type === 'orders'
+            ? app(OrderReadService::class)->orders($user)
+            : app(WebSalesReadService::class)->orders($user);
+
+        $order = $query->with([
+            'warehouse:id,name',
+            // Restrict items to operational fields only; no selling price,
+            // cost, line totals or margin is loaded by this preview.
+            'items:id,order_id,line_number,sku,product_name,ordered_quantity',
+        ])->whereKey($this->quickViewOrderId)->first();
+
+        if ($order === null) {
+            // A record may become inaccessible after an assignment change.
+            $this->closeOrderQuickView();
+
+            return null;
+        }
+
+        return [
+            'type' => $type,
+            'reference' => $order->reference,
+            'status' => $order->status?->getLabel() ?? 'Unknown',
+            'date' => $order->order_date?->format('d M Y') ?? '—',
+            'warehouse' => $order->warehouse?->name ?? '—',
+            'customer' => $type === 'webSales' ? ($order->customer_name ?? '—') : null,
+            'channel' => $type === 'webSales' ? ($order->web_sales_channel?->getLabel() ?? '—') : null,
+            'items' => $order->items->map(fn ($item): array => [
+                'sku' => $item->sku,
+                'name' => $item->product_name,
+                'quantity' => (int) $item->ordered_quantity,
+            ])->all(),
+            'url' => $type === 'orders'
+                ? OrderResource::getUrl('view', ['record' => $order])
+                : WebSalesOrderResource::getUrl('view', ['record' => $order]),
         ];
     }
 

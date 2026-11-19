@@ -304,4 +304,37 @@ class NativeWorkspacesTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_web_sales_workspace_shipment_requires_selected_order_and_confirmation(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(SalesWorkspace::class)
+            ->assertSet('pendingWebSaleOperation', null)
+            ->call('submitQuickViewWebSale')
+            ->assertForbidden();
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('prepareQuickViewWebSale', 'ship')
+            ->assertForbidden();
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('prepareQuickViewWebSale', 'unexpected')
+            ->assertForbidden();
+    }
+
+    public function test_web_sales_workspace_quick_view_rejects_missing_order(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('openOrderQuickView', 'webSales', 99999999)
+            ->assertNotFound();
+    }
+
 }

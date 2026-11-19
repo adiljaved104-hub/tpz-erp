@@ -50,7 +50,7 @@
                     wire:click="selectModule('{{ $index }}')"
                     aria-selected="{{ $activeModule === (string) $index ? 'true' : 'false' }}"
                     class="tpz-workspace-tab {{ $activeModule === (string) $index ? 'is-active' : '' }}">
-                    <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($tab['icon'])" class="tpz-native-tab-icon size-4" />
+                    <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(\App\Support\WorkspaceVisuals::moduleIcon($tab['label'], $tab['icon']))" class="tpz-native-tab-icon size-4" />
                     <span class="tpz-native-tab-label">{{ $tab['label'] }}</span>
                     @php
                         $matchingMetric = $metrics->firstWhere('label', $tab['label']);

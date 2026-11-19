@@ -159,4 +159,85 @@ class NativeWorkspacesTest extends TestCase
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('products', 1);
     }
+    public function test_inventory_workspace_keeps_overview_stock_visible_but_omits_it_on_other_tabs(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $product = Product::factory()->create(['sku' => 'TPZ-PHASE2-STOCK-001']);
+        ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'available_quantity' => 6,
+        ]);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->assertSee('Authorized Inventory')
+            ->assertSee('TPZ-PHASE2-STOCK-001')
+            ->call('setTab', 'requests')
+            ->assertDontSee('Authorized Inventory')
+            ->call('setTab', 'inventory')
+            ->assertSee('Authorized Inventory')
+            ->assertSee('TPZ-PHASE2-STOCK-001');
+    }
+
+
+    public function test_sales_quick_view_rejects_missing_records_and_invalid_module_types(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(SalesWorkspace::class)
+            ->assertSet('quickViewOrderId', null)
+            ->call('closeOrderQuickView')
+            ->assertSet('quickViewOrderType', null);
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('openOrderQuickView', 'orders', 99999999)
+            ->assertNotFound();
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('openOrderQuickView', 'unknown', 1)
+            ->assertForbidden();
+    }
+
+    public function test_inventory_quick_view_loads_authorized_stock_and_can_close(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $product = Product::factory()->create(['sku' => 'TPZ-INVENTORY-QUICK-001']);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'available_quantity' => 12,
+            'reserved_quantity' => 3,
+            'damaged_quantity' => 1,
+        ]);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('openInventoryQuickView', $inventory->id)
+            ->assertSet('quickViewInventoryId', $inventory->id)
+            ->assertSee('TPZ-INVENTORY-QUICK-001')
+            ->assertSee('Recent permitted movements')
+            ->call('closeInventoryQuickView')
+            ->assertSet('quickViewInventoryId', null);
+    }
+
+    public function test_inventory_quick_view_rejects_unknown_inventory_id(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('openInventoryQuickView', 99999999)
+            ->assertNotFound();
+    }
+
 }

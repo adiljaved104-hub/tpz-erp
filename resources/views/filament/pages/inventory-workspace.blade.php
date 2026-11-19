@@ -301,6 +301,9 @@
                                                 @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canApproveWorkspaceRequest($record))
                                                     <x-filament::button type="button" size="xs" color="primary" wire:click="prepareSourceDecision({{ $record->getKey() }})">Review sources</x-filament::button>
                                                 @endif
+                                                @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canOwnerApproveTransfer($record))
+                                                    <x-filament::button type="button" size="xs" color="warning" wire:click="prepareOwnerApproveTransfer({{ $record->getKey() }})">Approve &amp; Transfer</x-filament::button>
+                                                @endif
                                             </div>
                                         @endif
                                     </td>
@@ -439,6 +442,44 @@
                     <x-filament::button color="success" wire:click="submitSourceDecision" wire:loading.attr="disabled" wire:target="submitSourceDecision">
                         Confirm source decision
                     </x-filament::button>
+                </div>
+            </section>
+        </div>
+    @endif
+
+    @if($pendingOwnerTransfer)
+        <div class="fixed inset-0 z-[110] flex items-center justify-center p-4" wire:key="owner-approve-transfer-dialog">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="cancelOwnerApproveTransfer" aria-label="Cancel owner transfer"></button>
+            <section role="dialog" aria-modal="true" aria-labelledby="owner-transfer-title"
+                class="relative z-10 w-full max-w-xl rounded-xl bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <h2 id="owner-transfer-title" class="text-lg font-bold text-gray-950 dark:text-white">Owner — Approve &amp; Transfer</h2>
+                <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $pendingOwnerTransfer['reference'] }}</p>
+                <p class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    Permanent transfer only. Previously approved, untransferred stock: <strong>{{ number_format($pendingOwnerTransfer['alreadyApproved']) }}</strong>.
+                    Pending sources are set to zero by default. Stock allocations will change only after confirmation.
+                </p>
+                <div class="mt-4 max-h-64 space-y-3 overflow-y-auto">
+                    @forelse($pendingOwnerTransfer['lines'] as $line)
+                        <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                            <div class="min-w-0 text-sm text-gray-900 dark:text-gray-100">
+                                <p class="font-semibold">{{ $line['label'] }}</p>
+                                <p class="text-gray-500">Remaining request: {{ number_format($line['remaining']) }}</p>
+                            </div>
+                            <label class="text-sm text-gray-900 dark:text-gray-100" for="owner-transfer-{{ $line['id'] }}">
+                                Approve now
+                                <input id="owner-transfer-{{ $line['id'] }}" type="number" step="1" min="0" max="{{ $line['remaining'] }}"
+                                    wire:model="ownerTransferQuantities.{{ $line['id'] }}"
+                                    class="mt-1 block w-24 rounded-lg border-gray-300 text-sm dark:bg-gray-900 dark:text-white">
+                            </label>
+                        </div>
+                    @empty
+                        <p class="text-sm text-gray-500">No pending stock sources. Only already approved quantities can be transferred.</p>
+                    @endforelse
+                </div>
+                <p class="mt-4 text-xs text-gray-500">Only the selected new quantities plus previously approved, untransferred units will transfer. The operation uses the existing Owner-only audited transaction and cannot be undone here.</p>
+                <div class="mt-5 flex flex-wrap justify-end gap-2">
+                    <x-filament::button color="gray" wire:click="cancelOwnerApproveTransfer">Cancel</x-filament::button>
+                    <x-filament::button color="success" wire:click="submitOwnerApproveTransfer" wire:loading.attr="disabled" wire:target="submitOwnerApproveTransfer">Confirm Approve &amp; Transfer</x-filament::button>
                 </div>
             </section>
         </div>

@@ -38,7 +38,7 @@
             @endif
         </header>
 
-        <nav class="tpz-workspace-tabs" aria-label="{{ $workspace['title'] }} sections" tabindex="0" title="Scroll horizontally or use the left/right arrow keys to see more modules" x-on:keydown.arrow-right.stop="$el.scrollBy({left: 190, behavior: 'smooth'})" x-on:keydown.arrow-left.stop="$el.scrollBy({left: -190, behavior: 'smooth'})">
+        <nav class="tpz-workspace-tabs" aria-label="{{ $workspace['title'] }} sections" >
             <button type="button" class="tpz-workspace-tab {{ $activeModule === 'overview' ? 'is-active' : '' }}"
                 aria-selected="{{ $activeModule === 'overview' ? 'true' : 'false' }}"
                 wire:click="selectModule('overview')">
@@ -50,7 +50,7 @@
                     wire:click="selectModule('{{ $index }}')"
                     aria-selected="{{ $activeModule === (string) $index ? 'true' : 'false' }}"
                     class="tpz-workspace-tab {{ $activeModule === (string) $index ? 'is-active' : '' }}">
-                    <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($tab['icon'])" class="tpz-native-tab-icon size-4" />
+                    <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(\App\Support\WorkspaceVisuals::moduleIcon($tab['label'], $tab['icon']))" class="tpz-native-tab-icon size-4" />
                     <span class="tpz-native-tab-label">{{ $tab['label'] }}</span>
                     @php
                         $matchingMetric = $metrics->firstWhere('label', $tab['label']);
@@ -148,22 +148,6 @@
                                 @endforeach
                             </tbody>
                         </table>
-                    </div>
-                </section>
-            @elseif($moduleTabs->isNotEmpty())
-                <section class="tpz-native-list-panel tpz-reference-module-index" aria-label="Authorized modules">
-                    <div class="tpz-native-panel-title">
-                        <span class="tpz-native-overview-icon"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-square-3-stack-3d')" class="size-5" /></span>
-                        <h2>Available Modules</h2>
-                    </div>
-                    <div class="tpz-native-module-list">
-                        @foreach($moduleTabs as $index => $tab)
-                            <button type="button" wire:key="module-jump-{{ $index }}" wire:click="selectModule('{{ $index }}')">
-                                <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve($tab['icon'])" class="size-5" />
-                                <span>{{ $tab['label'] }}</span>
-                                <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-chevron-right')" class="size-4" />
-                            </button>
-                        @endforeach
                     </div>
                 </section>
             @endif

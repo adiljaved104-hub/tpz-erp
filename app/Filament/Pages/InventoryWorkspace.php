@@ -96,7 +96,7 @@ class InventoryWorkspace extends Page
             });
         }
 
-        $inventory = ($this->activeTab === 'inventory' && $inventoryQuery !== null)
+        $inventory = (in_array($this->activeTab, ['overview', 'inventory'], true) && $inventoryQuery !== null)
             ? $inventoryQuery->latest('product_inventories.updated_at')->paginate(15, pageName: 'inventory-page')
             : collect();
 

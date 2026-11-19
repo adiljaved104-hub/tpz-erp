@@ -516,12 +516,18 @@ class SalesWorkspace extends Page
             'type' => $type,
             'canShip' => $type === 'webSales' && $this->webSaleCanShip($order, $user),
             'canDeliver' => $type === 'webSales' && $this->webSaleCanDeliver($order, $user),
-            'qcReady' => $type !== 'webSales' || $this->webSaleQcReady($order, $user),
+            'qcReady' => $type !== 'webSales' || ! in_array($order->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true) || $this->webSaleQcReady($order, $user),
+            'showQcWarning' => $type === 'webSales'
+                && in_array($order->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true)
+                && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Update, $order)
+                && app(OrderAuthorization::class)->allows($user, OrderPermission::Fulfill, $order)
+                && ! $this->webSaleQcReady($order, $user),
             'canReserve' => $type === 'orders'
                 && $order->status === OrderStatus::Draft
                 && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve, $order),
             'reference' => $order->reference,
-            'status' => $order->status?->getLabel() ?? 'Unknown',
+            'status' => $type === 'webSales' ? $order->webSalesStatusLabel() : ($order->status?->getLabel() ?? 'Unknown'),
+            'deliveredAt' => $type === 'webSales' ? $order->delivered_at?->format('d M Y, h:i A') : null,
             'date' => $order->order_date?->format('d M Y') ?? '—',
             'warehouse' => $order->warehouse?->name ?? '—',
             'customer' => $type === 'webSales' ? ($order->customer_name ?? '—') : null,

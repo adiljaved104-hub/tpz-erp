@@ -384,6 +384,36 @@
                         @endif
                     </div>
                 @endif
+                @if($quickViewOrder['type'] === 'webSales')
+                    <div class="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800">
+                        @if($pendingWebSaleOperation !== null)
+                            <p class="font-semibold text-gray-950 dark:text-white">
+                                {{ $pendingWebSaleOperation === 'ship' ? 'Confirm Mark Shipped?' : 'Confirm Mark Delivered?' }}
+                            </p>
+                            <p class="mt-1 text-gray-600 dark:text-gray-300">
+                                {{ $pendingWebSaleOperation === 'ship'
+                                    ? 'This posts the actual fulfillment and stock movements. QC and all fulfillment permissions are checked again before processing.'
+                                    : 'This records delivery on the already shipped order.' }}
+                            </p>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <x-filament::button color="success" size="sm" wire:click="submitQuickViewWebSale"
+                                    wire:loading.attr="disabled" wire:target="submitQuickViewWebSale">Confirm action</x-filament::button>
+                                <x-filament::button color="gray" size="sm" wire:click="cancelQuickViewWebSale">Cancel</x-filament::button>
+                            </div>
+                        @else
+                            <div class="flex flex-wrap gap-2">
+                                @if($quickViewOrder['canShip'])
+                                    <x-filament::button color="success" size="sm" wire:click="prepareQuickViewWebSale('ship')">Mark Shipped</x-filament::button>
+                                @elseif(!$quickViewOrder['qcReady'])
+                                    <p class="text-amber-800 dark:text-amber-200">Shipment requires current QC readiness and QC Dispatch Ship permission. Open the full order to complete QC.</p>
+                                @endif
+                                @if($quickViewOrder['canDeliver'])
+                                    <x-filament::button color="success" size="sm" wire:click="prepareQuickViewWebSale('deliver')">Mark Delivered</x-filament::button>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                @endif
                 <div class="mt-auto flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-5 dark:border-gray-700">
                     <x-filament::button color="gray" wire:click="closeOrderQuickView">Back to workspace</x-filament::button>
                     <x-filament::button tag="a" :href="$quickViewOrder['url']">Open full order</x-filament::button>

@@ -243,9 +243,7 @@
                                 <td class="text-right font-semibold tabular-nums">{{ number_format($row->available_quantity) }}</td>
                                 <td class="text-right tabular-nums">{{ number_format($row->reserved_quantity) }}</td>
                                 <td>
-                                    @if($canViewProducts && $row->product && \App\Filament\Resources\Products\ProductResource::canView($row->product))
-                                        <x-filament::button tag="a" size="xs" color="gray" :href="\App\Filament\Resources\Products\ProductResource::getUrl('view', ['record' => $row->product_id])">View product</x-filament::button>
-                                    @endif
+                                    <x-filament::button type="button" size="xs" color="gray" wire:click="openInventoryQuickView({{ $row->id }})">Quick View</x-filament::button>
                                 </td>
                             </tr>
                         @empty
@@ -328,4 +326,49 @@
             @include('filament.pages.partials.workspace-extra-preview')
         @endif
     </div>
+
+    @if($quickViewInventory)
+        <div class="fixed inset-0 z-[100] flex justify-end" wire:key="inventory-quick-view-panel">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="closeInventoryQuickView" aria-label="Close inventory quick view"></button>
+            <aside role="dialog" aria-modal="true" aria-labelledby="inventory-quick-view-title"
+                class="relative z-10 flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <div class="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 dark:border-gray-700">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Read-only Inventory · Quick View</p>
+                        <h2 id="inventory-quick-view-title" class="mt-1 text-lg font-bold text-gray-950 dark:text-white">{{ $quickViewInventory['sku'] }}</h2>
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $quickViewInventory['name'] }}</p>
+                    </div>
+                    <x-filament::button color="gray" size="sm" wire:click="closeInventoryQuickView">Close</x-filament::button>
+                </div>
+                <dl class="mt-5 grid grid-cols-2 gap-4 text-sm">
+                    <div class="col-span-2"><dt class="text-gray-500">Warehouse</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewInventory['warehouse'] }}</dd></div>
+                    <div><dt class="text-gray-500">Available</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['available']) }}</dd></div>
+                    <div><dt class="text-gray-500">Reserved</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['reserved']) }}</dd></div>
+                    <div><dt class="text-gray-500">Damaged</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['damaged']) }}</dd></div>
+                </dl>
+                @if($quickViewInventory['movementsAllowed'])
+                    <h3 class="mt-7 border-b border-gray-200 pb-2 font-semibold text-gray-950 dark:border-gray-700 dark:text-white">Recent permitted movements</h3>
+                    <div class="mt-3 space-y-2">
+                        @forelse($quickViewInventory['movements'] as $movement)
+                            <div class="flex items-start justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
+                                <div>
+                                    <p class="font-semibold text-gray-950 dark:text-white">{{ $movement['reference'] }}</p>
+                                    <p class="text-gray-600 dark:text-gray-300">{{ $movement['type'] }} · {{ $movement['date'] }}</p>
+                                </div>
+                                <span class="shrink-0 font-semibold tabular-nums">{{ number_format($movement['quantity']) }}</span>
+                            </div>
+                        @empty
+                            <p class="text-sm text-gray-500">No recent movements within your scope.</p>
+                        @endforelse
+                    </div>
+                @endif
+                <div class="mt-auto flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-5 dark:border-gray-700">
+                    <x-filament::button color="gray" wire:click="closeInventoryQuickView">Back to workspace</x-filament::button>
+                    @if($quickViewInventory['productUrl'])
+                        <x-filament::button tag="a" :href="$quickViewInventory['productUrl']">Open full product</x-filament::button>
+                    @endif
+                </div>
+            </aside>
+        </div>
+    @endif
 </x-filament-panels::page>

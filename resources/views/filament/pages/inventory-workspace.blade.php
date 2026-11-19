@@ -293,7 +293,12 @@
                                     <td>{{ $record->updated_at?->format('d M Y') ?? '—' }}</td>
                                     <td>
                                         @if($resourceClass::canView($record))
-                                            <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>
+                                            <div class="flex flex-wrap gap-2">
+                                                <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>
+                                                @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canExecuteWorkspaceRequest($record))
+                                                    <x-filament::button type="button" size="xs" color="success" wire:click="prepareStockRequestExecution({{ $record->getKey() }})">Execute approved</x-filament::button>
+                                                @endif
+                                            </div>
                                         @endif
                                     </td>
                                 </tr>
@@ -369,6 +374,27 @@
                     @endif
                 </div>
             </aside>
+        </div>
+    @endif
+
+    @if($pendingExecutionRequest)
+        <div class="fixed inset-0 z-[110] flex items-center justify-center p-4" wire:key="stock-request-execution-confirmation">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="cancelStockRequestExecution" aria-label="Cancel Stock Request execution"></button>
+            <section role="dialog" aria-modal="true" aria-labelledby="stock-request-execution-title"
+                class="relative z-10 w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <h2 id="stock-request-execution-title" class="text-lg font-bold text-gray-950 dark:text-white">Execute approved Stock Request?</h2>
+                <p class="mt-2 font-semibold text-gray-900 dark:text-gray-100">{{ $pendingExecutionRequest['reference'] }}</p>
+                <p class="mt-2 text-sm text-amber-800 dark:text-amber-200">This action reserves or transfers approved stock. It uses the existing audited execution workflow and cannot be undone here.</p>
+                <div class="mt-4 max-h-48 space-y-2 overflow-y-auto text-sm text-gray-700 dark:text-gray-300">
+                    @foreach($pendingExecutionRequest['summary'] as $line)
+                        <p class="rounded-lg border border-gray-200 p-2 dark:border-gray-700">{{ $line }}</p>
+                    @endforeach
+                </div>
+                <div class="mt-5 flex flex-wrap justify-end gap-2">
+                    <x-filament::button color="gray" wire:click="cancelStockRequestExecution">Cancel</x-filament::button>
+                    <x-filament::button color="success" wire:click="executePreparedStockRequest" wire:loading.attr="disabled" wire:target="executePreparedStockRequest">Confirm &amp; Execute</x-filament::button>
+                </div>
+            </section>
         </div>
     @endif
 </x-filament-panels::page>

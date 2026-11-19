@@ -3,6 +3,9 @@
 namespace App\Filament\Pages;
 
 use App\Enums\InventoryPermission;
+use App\Enums\StockRequestSourceStatus;
+use App\Models\StockRequestSourceLine;
+use App\Services\Inventory\StockRequestApprovalService;
 use App\Models\StockRequest;
 use App\Models\StockRequestExecution;
 use App\Services\Inventory\StockRequestExecutionService;
@@ -58,6 +61,16 @@ class InventoryWorkspace extends Page
     public ?int $quickViewInventoryId = null;
 
     public ?int $pendingExecutionRequestId = null;
+
+    public ?int $pendingSourceDecisionRequestId = null;
+
+    public ?int $pendingSourceDecisionLineId = null;
+
+    public string $sourceDecision = 'approved';
+
+    public int $sourceApprovedQuantity = 1;
+
+    public string $sourceDecisionNote = '';
 
     public static function canAccess(): bool
     {
@@ -184,6 +197,7 @@ class InventoryWorkspace extends Page
         return [
             'quickViewInventory' => $this->loadInventoryQuickView($user, $authorization),
             'pendingExecutionRequest' => $this->pendingExecutionRequest($user),
+            'pendingSourceDecision' => $this->pendingSourceDecision($user),
             'extraPreview' => $extraPreview,
             'inventoryCards' => $inventoryCards,
             'inventoryAttention' => $inventoryAttention,
@@ -378,6 +392,127 @@ class InventoryWorkspace extends Page
         return [
             'reference' => $request->reference,
             'summary' => app(StockRequestExecutionService::class)->summary($request),
+        ];
+    }
+
+
+    /**
+     * Only individual source-line decisions are surfaced here. The existing
+     * StockRequestApprovalService retains ownership, availability, locking,
+     * idempotency, and audit enforcement.
+     */
+    public function prepareSourceDecision(int $requestId): void
+    {
+        $request = $this->authorizedApprovalRequest($requestId);
+        $eligible = app(StockRequestApprovalService::class)
+            ->eligiblePendingLines($request, auth()->user());
+
+        abort_unless($eligible->isNotEmpty(), 403);
+
+        $this->pendingSourceDecisionRequestId = $requestId;
+        $this->pendingSourceDecisionLineId = null;
+        $this->sourceDecision = StockRequestSourceStatus::Approved->value;
+        $this->sourceApprovedQuantity = 1;
+        $this->sourceDecisionNote = '';
+    }
+
+    public function cancelSourceDecision(): void
+    {
+        $this->pendingSourceDecisionRequestId = null;
+        $this->pendingSourceDecisionLineId = null;
+        $this->sourceDecisionNote = '';
+    }
+
+    public function submitSourceDecision(): void
+    {
+        abort_unless($this->pendingSourceDecisionRequestId !== null
+            && $this->pendingSourceDecisionLineId !== null, 403);
+
+        $request = $this->authorizedApprovalRequest($this->pendingSourceDecisionRequestId);
+        $line = app(StockRequestApprovalService::class)
+            ->eligiblePendingLines($request, auth()->user())
+            ->firstWhere('id', $this->pendingSourceDecisionLineId);
+        abort_unless($line instanceof StockRequestSourceLine, 403);
+        abort_unless(in_array($this->sourceDecision, [
+            StockRequestSourceStatus::Approved->value, StockRequestSourceStatus::Rejected->value,
+        ], true), 403);
+
+        $decision = StockRequestSourceStatus::from($this->sourceDecision);
+        $note = trim($this->sourceDecisionNote);
+        $quantity = $decision === StockRequestSourceStatus::Approved
+            ? $this->sourceApprovedQuantity : null;
+
+        try {
+            app(StockRequestApprovalService::class)->decide(
+                $line, $decision, $note === '' ? null : $note,
+                (string) str()->uuid(), auth()->user(), $quantity
+            );
+            $this->cancelSourceDecision();
+            Notification::make()->success()->title(
+                $decision === StockRequestSourceStatus::Approved
+                    ? 'Stock source approval recorded' : 'Stock source rejection recorded'
+            )->send();
+        } catch (AuthorizationException $e) {
+            throw $e;
+        } catch (ValidationException $e) {
+            Notification::make()->warning()->title('Stock source decision was not recorded')
+                ->body(collect($e->errors())->flatten()->first() ?? 'Review the quantity or reason.')->send();
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->danger()->title('Stock source decision failed')
+                ->body('Open the full Stock Request for details.')->send();
+        }
+    }
+
+    public function canApproveWorkspaceRequest(StockRequest $request): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && StockRequestResource::canView($request)
+            && app(StockRequestApprovalService::class)
+                ->eligiblePendingLines($request, $user)->isNotEmpty();
+    }
+
+    private function authorizedApprovalRequest(int $requestId): StockRequest
+    {
+        abort_unless(static::canAccess() && $requestId > 0
+            && StockRequestResource::canViewAny(), 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User, 403);
+
+        $request = app(StockRequestService::class)->visibleQuery($user)
+            ->whereKey($requestId)->first();
+        abort_unless($request instanceof StockRequest, 404);
+        abort_unless(app(StockRequestService::class)->canView($user, $request), 403);
+
+        return $request;
+    }
+
+    private function pendingSourceDecision(User $user): ?array
+    {
+        if ($this->pendingSourceDecisionRequestId === null
+            || ! StockRequestResource::canViewAny()) {
+            return null;
+        }
+        $request = app(StockRequestService::class)->visibleQuery($user)
+            ->whereKey($this->pendingSourceDecisionRequestId)->first();
+        if ($request === null || ! app(StockRequestService::class)->canView($user, $request)) {
+            $this->cancelSourceDecision();
+            return null;
+        }
+        $eligible = app(StockRequestApprovalService::class)
+            ->eligiblePendingLines($request, $user);
+        if ($eligible->isEmpty()) {
+            $this->cancelSourceDecision();
+            return null;
+        }
+        return [
+            'reference' => $request->reference,
+            'options' => $eligible->mapWithKeys(fn (StockRequestSourceLine $line): array => [
+                $line->id => $line->item->sku.' — '.$line->source_label
+                    .' — '.max(0, (int) $line->proposed_quantity - (int) $line->approved_quantity).' remaining',
+            ])->all(),
         ];
     }
 

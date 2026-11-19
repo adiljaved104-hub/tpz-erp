@@ -183,4 +183,25 @@ class NativeWorkspacesTest extends TestCase
     }
 
 
+    public function test_sales_quick_view_rejects_missing_records_and_invalid_module_types(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(SalesWorkspace::class)
+            ->assertSet('quickViewOrderId', null)
+            ->call('closeOrderQuickView')
+            ->assertSet('quickViewOrderType', null);
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('openOrderQuickView', 'orders', 99999999)
+            ->assertNotFound();
+
+        Livewire::test(SalesWorkspace::class)
+            ->call('openOrderQuickView', 'unknown', 1)
+            ->assertForbidden();
+    }
+
 }

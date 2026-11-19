@@ -15,7 +15,7 @@ final class WorkspaceVisuals
      */
     public static function moduleIcon(string $label, mixed $icon): string
     {
-        if ($icon instanceof \\BackedEnum) {
+        if ($icon instanceof \BackedEnum) {
             $icon = $icon->value;
         }
 

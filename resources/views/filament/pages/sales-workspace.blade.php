@@ -349,6 +349,9 @@
                 </div>
                 <dl class="mt-5 grid grid-cols-2 gap-4 text-sm">
                     <div><dt class="text-gray-500">Status</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['status'] }}</dd></div>
+                    @if($quickViewOrder['type'] === 'webSales' && $quickViewOrder['deliveredAt'])
+                        <div><dt class="text-gray-500">Delivered at</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['deliveredAt'] }}</dd></div>
+                    @endif
                     <div><dt class="text-gray-500">Order date</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['date'] }}</dd></div>
                     <div><dt class="text-gray-500">Warehouse</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['warehouse'] }}</dd></div>
                     @if($quickViewOrder['type'] === 'webSales')
@@ -384,7 +387,7 @@
                         @endif
                     </div>
                 @endif
-                @if($quickViewOrder['type'] === 'webSales')
+                @if($quickViewOrder['type'] === 'webSales' && ($pendingWebSaleOperation !== null || $quickViewOrder['canShip'] || $quickViewOrder['canDeliver'] || $quickViewOrder['showQcWarning']))
                     <div class="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800">
                         @if($pendingWebSaleOperation !== null)
                             <p class="font-semibold text-gray-950 dark:text-white">
@@ -404,7 +407,7 @@
                             <div class="flex flex-wrap gap-2">
                                 @if($quickViewOrder['canShip'])
                                     <x-filament::button color="success" size="sm" wire:click="prepareQuickViewWebSale('ship')">Mark Shipped</x-filament::button>
-                                @elseif(!$quickViewOrder['qcReady'])
+                                @elseif($quickViewOrder['showQcWarning'])
                                     <p class="text-amber-800 dark:text-amber-200">Shipment requires current QC readiness and QC Dispatch Ship permission. Open the full order to complete QC.</p>
                                 @endif
                                 @if($quickViewOrder['canDeliver'])

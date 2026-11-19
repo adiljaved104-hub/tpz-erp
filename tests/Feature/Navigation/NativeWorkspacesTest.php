@@ -135,8 +135,8 @@ class NativeWorkspacesTest extends TestCase
         ]);
 
         Livewire::test(InventoryWorkspace::class)
-            ->assertSee('Recent inventory activity')
-            ->assertSee('View movement history');
+            ->assertSee('Recent Stock Updates')
+            ->assertSee('View Inventory');
     }
 
     public function test_owner_sees_existing_product_and_original_module_link_without_modifying_records(): void

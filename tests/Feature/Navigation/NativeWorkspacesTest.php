@@ -287,4 +287,21 @@ class NativeWorkspacesTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_owner_workspace_transfer_requires_an_authorized_request(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->assertSet('pendingOwnerTransferRequestId', null)
+            ->call('submitOwnerApproveTransfer')
+            ->assertForbidden();
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('prepareOwnerApproveTransfer', 99999999)
+            ->assertNotFound();
+    }
+
 }

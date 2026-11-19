@@ -62,6 +62,11 @@ class InventoryWorkspace extends Page
 
     public ?int $pendingExecutionRequestId = null;
 
+    public ?int $pendingOwnerTransferRequestId = null;
+
+    /** @var array<int|string, int|string> */
+    public array $ownerTransferQuantities = [];
+
     public ?int $pendingSourceDecisionRequestId = null;
 
     public ?int $pendingSourceDecisionLineId = null;
@@ -197,6 +202,7 @@ class InventoryWorkspace extends Page
         return [
             'quickViewInventory' => $this->loadInventoryQuickView($user, $authorization),
             'pendingExecutionRequest' => $this->pendingExecutionRequest($user),
+            'pendingOwnerTransfer' => $this->pendingOwnerTransfer($user),
             'pendingSourceDecision' => $this->pendingSourceDecision($user),
             'extraPreview' => $extraPreview,
             'inventoryCards' => $inventoryCards,
@@ -513,6 +519,140 @@ class InventoryWorkspace extends Page
                 $line->id => $line->item->sku.' — '.$line->source_label
                     .' — '.max(0, (int) $line->proposed_quantity - (int) $line->approved_quantity).' remaining',
             ])->all(),
+        ];
+    }
+
+
+    /**
+     * Owner-only combined approval and transfer for permanent Stock Requests.
+     * Pending quantities default to ZERO, so previously approved quantities
+     * never silently approve other sources.
+     */
+    public function prepareOwnerApproveTransfer(int $requestId): void
+    {
+        $request = $this->authorizedOwnerTransferRequest($requestId);
+        $this->pendingOwnerTransferRequestId = $request->id;
+        $this->ownerTransferQuantities = $request->sourceLines()
+            ->where('status', StockRequestSourceStatus::Pending->value)
+            ->orderBy('id')->pluck('id')->mapWithKeys(fn (int $id): array => [$id => 0])->all();
+    }
+
+    public function cancelOwnerApproveTransfer(): void
+    {
+        $this->pendingOwnerTransferRequestId = null;
+        $this->ownerTransferQuantities = [];
+    }
+
+    public function submitOwnerApproveTransfer(): void
+    {
+        abort_unless($this->pendingOwnerTransferRequestId !== null, 403);
+        $request = $this->authorizedOwnerTransferRequest($this->pendingOwnerTransferRequestId);
+
+        // Validate every submitted source against this exact request before
+        // passing it to the existing transaction/locking implementation.
+        $pending = $request->sourceLines()
+            ->where('status', StockRequestSourceStatus::Pending->value)
+            ->get()->keyBy('id');
+        $quantities = [];
+        foreach ($this->ownerTransferQuantities as $lineId => $rawQuantity) {
+            abort_unless(ctype_digit((string) $lineId) && $pending->has((int) $lineId), 403);
+            if (filter_var($rawQuantity, FILTER_VALIDATE_INT) === false || (int) $rawQuantity < 0) {
+                Notification::make()->warning()->title('Invalid approval quantity')
+                    ->body('Enter a whole number of zero or more.')->send();
+
+                return;
+            }
+            $line = $pending->get((int) $lineId);
+            $remaining = max(0, (int) $line->proposed_quantity - (int) $line->approved_quantity);
+            if ((int) $rawQuantity > $remaining) {
+                Notification::make()->warning()->title('Approval exceeds requested quantity')
+                    ->body('Review the remaining quantity for each source.')->send();
+
+                return;
+            }
+            if ((int) $rawQuantity > 0) {
+                $quantities[(int) $lineId] = (int) $rawQuantity;
+            }
+        }
+
+        $alreadyApproved = $request->sourceLines()->where('approved_quantity', '>', 0)
+            ->whereColumn('approved_quantity', '>', 'transferred_quantity')->exists();
+        if ($quantities === [] && ! $alreadyApproved) {
+            Notification::make()->warning()->title('No stock selected')
+                ->body('Enter a quantity for a pending source or approve stock first.')->send();
+
+            return;
+        }
+
+        try {
+            $execution = app(StockRequestExecutionService::class)->approveAndTransfer(
+                $request, (string) str()->uuid(), auth()->user(), $quantities
+            );
+            $this->cancelOwnerApproveTransfer();
+            if ($execution instanceof StockRequestExecution) {
+                Notification::make()->success()->title('Approved stock transferred successfully')->send();
+            }
+        } catch (AuthorizationException $e) {
+            throw $e;
+        } catch (ValidationException $e) {
+            Notification::make()->warning()->title('Approve & Transfer not completed')
+                ->body(collect($e->errors())->flatten()->first() ?? 'Review the request quantities.')->send();
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->danger()->title('Approve & Transfer failed')
+                ->body('Open the full Stock Request for details.')->send();
+        }
+    }
+
+    public function canOwnerApproveTransfer(StockRequest $request): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User
+            && StockRequestResource::canView($request)
+            && app(StockRequestExecutionService::class)->canApproveAndTransfer($user, $request);
+    }
+
+    private function authorizedOwnerTransferRequest(int $requestId): StockRequest
+    {
+        abort_unless(static::canAccess() && $requestId > 0
+            && StockRequestResource::canViewAny(), 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User, 403);
+        $request = app(StockRequestService::class)->visibleQuery($user)
+            ->whereKey($requestId)->first();
+        abort_unless($request instanceof StockRequest, 404);
+        abort_unless(app(StockRequestService::class)->canView($user, $request), 403);
+        abort_unless(app(StockRequestExecutionService::class)->canApproveAndTransfer($user, $request), 403);
+
+        return $request;
+    }
+
+    private function pendingOwnerTransfer(User $user): ?array
+    {
+        if ($this->pendingOwnerTransferRequestId === null || ! StockRequestResource::canViewAny()) {
+            return null;
+        }
+        $request = app(StockRequestService::class)->visibleQuery($user)
+            ->whereKey($this->pendingOwnerTransferRequestId)->first();
+        if ($request === null || ! app(StockRequestService::class)->canView($user, $request)
+            || ! app(StockRequestExecutionService::class)->canApproveAndTransfer($user, $request)) {
+            $this->cancelOwnerApproveTransfer();
+
+            return null;
+        }
+
+        return [
+            'reference' => $request->reference,
+            'alreadyApproved' => $request->sourceLines()
+                ->get()->sum(fn (StockRequestSourceLine $line): int => max(0, (int) $line->approved_quantity - (int) $line->transferred_quantity)),
+            'lines' => $request->sourceLines()->with('item')
+                ->where('status', StockRequestSourceStatus::Pending->value)->orderBy('id')->get()
+                ->map(fn (StockRequestSourceLine $line): array => [
+                    'id' => $line->id,
+                    'label' => $line->item->sku.' — '.$line->source_label,
+                    'remaining' => max(0, (int) $line->proposed_quantity - (int) $line->approved_quantity),
+                ])->all(),
         ];
     }
 

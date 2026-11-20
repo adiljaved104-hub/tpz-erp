@@ -50,9 +50,19 @@ use App\Filament\Navigation\PersonalizedNavigationManager;
 use App\Http\Responses\Auth\LoginResponse;
 use App\Models\AccountingAccount;
 use App\Models\AccountingBook;
+use App\Models\AccountingImportBatch;
+use App\Models\AccountingImportBatchItem;
+use App\Models\AccountingImportLink;
+use App\Models\AccountingImportMapping;
+use App\Models\AccountingImportReconciliation;
+use App\Models\AccountingImportSourceIdentity;
 use App\Models\AccountingJournal;
 use App\Models\AccountingJournalLine;
 use App\Models\AccountingPeriod;
+use App\Models\AccountingSupplierAdjustment;
+use App\Models\AccountingSupplierAdjustmentAllocation;
+use App\Models\AccountingSupplierBill;
+use App\Models\AccountingSupplierPayment;
 use App\Models\ActivityLog;
 use App\Models\AttendancePolicy;
 use App\Models\BackupSetting;
@@ -657,6 +667,16 @@ class AppServiceProvider extends ServiceProvider
             'accounting_book' => AccountingBook::class,
             'accounting_account' => AccountingAccount::class,
             'accounting_period' => AccountingPeriod::class,
+            'accounting_import_batch' => AccountingImportBatch::class,
+            'accounting_import_batch_item' => AccountingImportBatchItem::class,
+            'accounting_import_source_identity' => AccountingImportSourceIdentity::class,
+            'accounting_import_mapping' => AccountingImportMapping::class,
+            'accounting_import_link' => AccountingImportLink::class,
+            'accounting_import_reconciliation' => AccountingImportReconciliation::class,
+            'accounting_supplier_adjustment' => AccountingSupplierAdjustment::class,
+            'accounting_supplier_adjustment_allocation' => AccountingSupplierAdjustmentAllocation::class,
+            'accounting_supplier_bill' => AccountingSupplierBill::class,
+            'accounting_supplier_payment' => AccountingSupplierPayment::class,
             'accounting_journal' => AccountingJournal::class,
             'accounting_journal_line' => AccountingJournalLine::class,
             'employee_loan' => EmployeeLoan::class,

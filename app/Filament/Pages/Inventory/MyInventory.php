@@ -15,6 +15,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Livewire\WithPagination;
+use Livewire\Attributes\Url;
 
 class MyInventory extends Page
 {
@@ -30,6 +31,7 @@ class MyInventory extends Page
 
     public string $platform = '';
 
+    #[Url]
     public string $warehouse = '';
 
     public string $stockStatus = '';

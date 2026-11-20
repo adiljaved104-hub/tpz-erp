@@ -281,11 +281,19 @@ class ErpDashboardService
                         ->orWhereIn('id', $directIds->merge($platformIds)->merge($sharedIds)->unique()->all());
                 });
             }
-            $warehouses = $warehouseQuery->orderBy('name')->get(['name', 'code'])
+            $canFilterPhysicalStock = $this->inventory->allows($user, InventoryPermission::ViewLocationBalances);
+            $warehouses = $warehouseQuery->orderBy('name')->get(['id', 'name', 'code'])
                 ->map(fn ($warehouse): array => [
                     'name' => $warehouse->name,
                     'code' => $warehouse->code,
                     'units' => (int) ($warehouseCounts->get($warehouse->code) ?? 0),
+                    // Filament table filter is applied on the destination list,
+                    // not just highlighted on the Dashboard metric.
+                    'url' => $canFilterPhysicalStock
+                        ? ProductInventoryResource::getUrl('index', [
+                            'filters' => ['warehouse_id' => ['value' => (string) $warehouse->id]],
+                        ])
+                        : MyInventory::getUrl(['warehouse' => $warehouse->code]),
                 ])->all();
 
             $warehouseBreakdown = [

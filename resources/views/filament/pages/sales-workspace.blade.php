@@ -13,7 +13,7 @@
                     </x-filament::button>
                 @elseif($activeTab === 'overview')
                     @if(isset($links['createOrder']))
-                        <x-filament::button tag="a" :href="$links['createOrder']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
+                        <x-filament::button type="button" wire:click="mountAction('createSalesOrder')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
                     @endif
                     @if(isset($links['dashboard']))
                         <details class="tpz-reference-actions-menu">
@@ -25,10 +25,17 @@
                     @endif
                 @elseif($activeTab === 'orders')
                     @if(isset($links['createOrder']))
-                        <x-filament::button tag="a" :href="$links['createOrder']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
+                        <x-filament::button type="button" wire:click="mountAction('createSalesOrder')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
                     @endif
                     @if(isset($links['orders']))
                         <x-filament::button tag="a" color="gray" :href="$links['orders']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-shopping-bag')">All Sales Orders</x-filament::button>
+                    @endif
+                @elseif($activeTab === 'products')
+                    @if(isset($links['createProduct']))
+                        <x-filament::button type="button" wire:click="mountAction('createSalesProduct')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Add Product</x-filament::button>
+                    @endif
+                    @if(isset($links['products']))
+                        <x-filament::button tag="a" color="gray" :href="$links['products']">All Products</x-filament::button>
                     @endif
                 @elseif($activeTab === 'webSales')
                     @if(isset($links['createWebSale']))
@@ -52,7 +59,7 @@
 
         <nav class="tpz-workspace-tabs" aria-label="Sales workspace sections" tabindex="0" title="Scroll horizontally or use the left/right arrow keys to see more modules" x-on:keydown.arrow-right.stop="$el.scrollBy({left: 190, behavior: 'smooth'})" x-on:keydown.arrow-left.stop="$el.scrollBy({left: -190, behavior: 'smooth'})">
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" /> Overview</button>
-            @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
+            @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'products' => 'Products', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
                     <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve((['orders' => 'heroicon-o-shopping-bag', 'webSales' => 'heroicon-o-globe-alt', 'quotations' => 'heroicon-o-document-text'][$key] ?? 'heroicon-o-document-text'))" class="tpz-native-tab-icon size-4" /> <span class="tpz-native-tab-copy"><span>{{ $label }}</span>@if(isset($salesCounts[$key]))<strong class="tpz-native-tab-count">{{ number_format($salesCounts[$key]) }}</strong>@endif</span></button>
                 @endif
@@ -241,11 +248,12 @@
                 </div>
                 <div class="overflow-x-auto">
                     <table class="tpz-workspace-table">
-                        <thead><tr><th>Reference</th><th>Order date</th><th>Source</th><th class="text-right">Items / Units</th>@if($canSeeOrderValues)<th class="text-right">Order total (AED)</th>@endif<th>Status</th><th>Action</th></tr></thead>
+                        <thead><tr><th>Reference</th><th>Product Name</th><th>Order date</th><th>Source</th><th class="text-right">Items / Units</th>@if($canSeeOrderValues)<th class="text-right">Order total (AED)</th>@endif<th>Status</th><th>Action</th></tr></thead>
                         <tbody>
                             @forelse($orders as $order)
                                 <tr wire:key="sales-order-{{ $order->id }}">
                                     <td class="font-semibold text-gray-950 dark:text-white">{{ $order->reference }}</td>
+                                    <td class="max-w-xs"><span class="block truncate" title="{{ $order->items->pluck('product_name')->filter()->unique()->implode(' / ') }}">{{ $order->items->pluck('product_name')->filter()->unique()->take(2)->implode(' / ') ?: '—' }}@if($order->items->pluck('product_name')->filter()->unique()->count() > 2) +{{ $order->items->pluck('product_name')->filter()->unique()->count() - 2 }} more @endif</span></td>
                                     <td>{{ $order->order_date?->format('d M Y') ?? '—' }}</td>
                                     <td>{{ $order->source ? str($order->source->value)->headline() : '—' }}</td>
                                     <td class="text-right tabular-nums">{{ number_format($order->items_count ?? 0) }} / {{ number_format($order->total_units ?? 0) }}</td>
@@ -254,7 +262,7 @@
                                     <td><x-filament::button type="button" size="xs" color="gray" wire:click="openOrderQuickView('orders', {{ $order->id }})">Quick View</x-filament::button></td>
                                 </tr>
                             @empty
-                                <tr><td colspan="{{ $canSeeOrderValues ? 7 : 6 }}" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
+                                <tr><td colspan="{{ $canSeeOrderValues ? 8 : 7 }}" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
@@ -294,6 +302,40 @@
                 </div>
                 @if($webSales instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
                     <div class="mt-4">{{ $webSales->links() }}</div>
+                @endif
+            </x-filament::section>
+        @endif
+
+        @if($activeTab === 'products' && isset($links['products']))
+            <x-filament::section>
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Products</h2>
+                    <span class="text-xs text-gray-500">Only products authorized for your account are shown.</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="tpz-workspace-table">
+                        <thead><tr><th>SKU</th><th>Product Name</th><th>Model</th><th>Action</th></tr></thead>
+                        <tbody>
+                            @forelse($products as $product)
+                                <tr wire:key="sales-product-{{ $product->id }}">
+                                    <td class="font-semibold">{{ $product->sku }}</td>
+                                    <td>{{ $product->name }}</td>
+                                    <td>{{ $product->model ?? '—' }}</td>
+                                    <td>
+                                        @if(\App\Filament\Resources\Products\ProductResource::canView($product))
+                                            <x-filament::button tag="a" size="xs" color="gray"
+                                                :href="\App\Filament\Resources\Products\ProductResource::getUrl('view', ['record' => $product])">View</x-filament::button>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="4" class="py-8 text-center text-gray-500">No products in your authorized scope.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                @if($products instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
+                    <div class="mt-4">{{ $products->links() }}</div>
                 @endif
             </x-filament::section>
         @endif
@@ -373,6 +415,15 @@
                         <p class="text-sm text-gray-500">No order lines available.</p>
                     @endforelse
                 </div>
+                @if($quickViewOrder['canCorrectShipped'])
+                    <div class="mt-6">
+                        <x-filament::button color="warning" size="sm" type="button"
+                            wire:click="mountAction('correctShippedOrder', { orderId: {{ $quickViewOrderId }} })">
+                            Post-Shipment Correction
+                        </x-filament::button>
+                        <p class="mt-2 text-xs text-gray-500">Audited documentary correction only. Original stock movements remain unchanged.</p>
+                    </div>
+                @endif
                 @if($quickViewOrder['canReserve'])
                     <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
                         @if($confirmQuickViewReserve)

@@ -22,6 +22,9 @@ class AccountingAuthorization
             AccountingPermission::ManagePeriods,
             AccountingPermission::PostJournal,
             AccountingPermission::ReverseJournal,
+            AccountingPermission::ApproveSupplierPayables,
+            AccountingPermission::ViewImportCenter,
+            AccountingPermission::ManageImportCenter,
         ];
         if ($user->employee->role === EmployeeRole::Owner) {
             return true;

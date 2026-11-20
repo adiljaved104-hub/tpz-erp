@@ -10,6 +10,9 @@ use App\Enums\ProductPermission;
 use App\Services\Authorization\ProductAuthorization;
 use App\Actions\Orders\ReserveDraftOrder;
 use App\Actions\Orders\SaveAndReserveOrder;
+use App\Actions\Orders\SaveAsShippedOrder;
+use App\Services\Orders\OrderService;
+use Filament\Forms\Components\Checkbox;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\Filament\Resources\Orders\Schemas\OrderForm;
@@ -193,16 +196,45 @@ class SalesWorkspace extends Page
                 ->label('Create Sales Order')
                 ->modalHeading('Create Sales Order')
                 ->modalWidth('7xl')
-                ->schema(OrderForm::components())
-                ->visible(fn (): bool => OrderResource::canCreate()
-                    && auth()->user() instanceof User
-                    && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Reserve))
+                ->schema([...OrderForm::components(),
+                    Checkbox::make('confirm_physical_shipment')
+                        ->label('I confirm every item has physically left the warehouse')
+                        ->helperText('Required only for Save as Shipped. This action immediately posts fulfillment and stock movements.')
+                        ->visible(fn (): bool => auth()->user() instanceof User
+                            && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Fulfill))
+                        ->dehydrated(),
+                ])
+                ->visible(fn (): bool => OrderResource::canCreate())
                 ->modalSubmitActionLabel('Save & Reserve')
-                ->action(function (array $data): void {
+                ->modalSubmitAction(fn (Action $action): Action => $action
+                    ->visible(fn (): bool => auth()->user() instanceof User
+                        && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Reserve)))
+                ->extraModalFooterActions(fn (Action $action): array => [
+                    $action->makeModalSubmitAction('saveDraft', arguments: ['mode' => 'draft'])
+                        ->label('Save Draft')->color('gray'),
+                    ...(auth()->user() instanceof User
+                        && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Fulfill)
+                            ? [$action->makeModalSubmitAction('saveAsShipped', arguments: ['mode' => 'shipped'])
+                                ->label('Save as Shipped')->color('success')]
+                            : []),
+                ])
+                ->action(function (array $data, array $arguments): void {
                     abort_unless(OrderResource::canCreate(), 403);
                     $user = auth()->user();
-                    abort_unless($user instanceof User
-                        && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve), 403);
+                    abort_unless($user instanceof User, 403);
+                    $mode = $arguments['mode'] ?? 'reserved';
+                    abort_unless(in_array($mode, ['reserved', 'draft', 'shipped'], true), 403);
+                    $permission = match ($mode) {
+                        'draft' => OrderPermission::Create,
+                        'shipped' => OrderPermission::Fulfill,
+                        default => OrderPermission::Reserve,
+                    };
+                    abort_unless(app(OrderAuthorization::class)->allows($user, $permission), 403);
+                    if ($mode === 'shipped' && ! ($data['confirm_physical_shipment'] ?? false)) {
+                        throw ValidationException::withMessages([
+                            'confirm_physical_shipment' => 'Confirm that all products have physically left the warehouse before posting shipment.',
+                        ]);
+                    }
 
                     $items = collect($data['items'] ?? [])->values()->map(fn (array $item): OrderItemData => new OrderItemData(
                         productId: (int) $item['product_id'],
@@ -216,7 +248,7 @@ class SalesWorkspace extends Page
                         allocationSources: self::workspaceAllocationSources($item['allocation_sources'] ?? []),
                     ))->all();
 
-                    app(SaveAndReserveOrder::class)->handle(new SaveAndReserveOrderData(
+                    $dto = new SaveAndReserveOrderData(
                         warehouseId: (int) $data['warehouse_id'],
                         platformId: filled($data['marketplace_platform_id'] ?? null) ? (int) $data['marketplace_platform_id'] : null,
                         externalOrderNumber: $data['external_order_number'] ?? null,
@@ -225,11 +257,21 @@ class SalesWorkspace extends Page
                         notes: $data['notes'] ?? null,
                         items: $items,
                         idempotencyKey: (string) $data['idempotency_key'],
-                    ), $user);
+                    );
+
+                    match ($mode) {
+                        'draft' => app(OrderService::class)->saveDraft($dto, $user),
+                        'shipped' => app(SaveAsShippedOrder::class)->handle($dto, $user),
+                        default => app(SaveAndReserveOrder::class)->handle($dto, $user),
+                    };
 
                     $this->activeTab = 'orders';
                     $this->resetPage('sales-page');
-                    Notification::make()->success()->title('Sales Order created and reserved')->send();
+                    Notification::make()->success()->title(match ($mode) {
+                        'draft' => 'Sales Order draft saved',
+                        'shipped' => 'Sales Order created and shipped',
+                        default => 'Sales Order created and reserved',
+                    })->send();
                 }),
         ];
     }
@@ -346,7 +388,7 @@ class SalesWorkspace extends Page
         // which uses their first rows for recent updates). Inactive modules
         // retain permission-scoped counts without loading their record pages.
         $orders = $ordersQuery !== null && in_array($this->activeTab, ['overview', 'orders'], true)
-            ? $ordersQuery->latest('orders.order_date')->paginate(10, pageName: 'sales-page')
+            ? $ordersQuery->with('items:id,order_id,product_name,sku')->latest('orders.order_date')->paginate(10, pageName: 'sales-page')
             : collect();
         $webSales = $webSalesQuery !== null && in_array($this->activeTab, ['overview', 'webSales'], true)
             ? $webSalesQuery->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page')

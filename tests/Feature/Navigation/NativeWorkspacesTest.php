@@ -337,4 +337,19 @@ class NativeWorkspacesTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_sales_workspace_create_order_uses_native_modal_without_navigation(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(SalesWorkspace::class)
+            ->assertSee('Create Sales Order')
+            ->call('mountAction', 'createSalesOrder')
+            ->assertSee('Save &amp; Reserve', false);
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+
 }

@@ -56,38 +56,38 @@ class CreateWebSalesOrder extends CreateRecord
     public static function makeOrderData(array $data): WebSalesOrderData
     {
         return new WebSalesOrderData(
-                customerName: (string) $data['customer_name'],
-                customerPhone: (string) $data['customer_phone'],
-                customerAddress: $data['customer_address'] ?? null,
-                channel: $data['web_sales_channel'] instanceof WebSalesChannel
-                    ? $data['web_sales_channel']
-                    : WebSalesChannel::from($data['web_sales_channel']),
-                deliveryType: $data['delivery_type'] instanceof WebSalesDeliveryType
-                    ? $data['delivery_type']
-                    : WebSalesDeliveryType::from($data['delivery_type']),
-                courierName: $data['courier_name'] ?? null,
-                trackingNumber: $data['tracking_number'] ?? null,
-                items: array_map(fn (array $item): OrderItemData => new OrderItemData(
-                    productId: (int) ($item['product_id'] ?? 0), quantity: (int) $item['quantity'], sellingPrice: (string) $item['selling_price'],
-                    salesConfigurationId: filled($item['sales_configuration_id'] ?? null) ? (int) $item['sales_configuration_id'] : null,
-                    upgradeRecipeId: filled($item['upgrade_recipe_id'] ?? null) ? (int) $item['upgrade_recipe_id'] : null,
-                    allocationSources: self::allocationSources($item['allocation_sources'] ?? []),
-                    sourceType: (string) ($item['source_type'] ?? 'existing_product'),
-                    manualDescription: $item['manual_description'] ?? null,
-                    manualBrand: $item['manual_brand'] ?? null,
-                    manualCategory: $item['manual_category'] ?? null,
-                    manualModel: $item['manual_model'] ?? null,
-                    manualCondition: $item['manual_condition'] ?? null,
-                    supplierId: filled($item['supplier_id'] ?? null) ? (int) $item['supplier_id'] : null,
-                    supplierName: filled($item['supplier_name'] ?? null) ? trim((string) $item['supplier_name']) : null,
-                    sourceMode: (string) ($item['source_mode'] ?? 'warehouse_receipt'),
-                    actualUnitCost: $item['actual_unit_cost'] ?? null,
-                    purchaseCurrency: $item['purchase_currency'] ?? null,
-                    purchasedOn: $item['purchased_on'] ?? null,
-                ), array_values($data['items'])),
-                idempotencyKey: (string) $data['idempotency_key'],
-                notes: $data['notes'] ?? null,
-            );
+            customerName: (string) $data['customer_name'],
+            customerPhone: (string) $data['customer_phone'],
+            customerAddress: $data['customer_address'] ?? null,
+            channel: $data['web_sales_channel'] instanceof WebSalesChannel
+                ? $data['web_sales_channel']
+                : WebSalesChannel::from($data['web_sales_channel']),
+            deliveryType: $data['delivery_type'] instanceof WebSalesDeliveryType
+                ? $data['delivery_type']
+                : WebSalesDeliveryType::from($data['delivery_type']),
+            courierName: $data['courier_name'] ?? null,
+            trackingNumber: $data['tracking_number'] ?? null,
+            items: array_map(fn (array $item): OrderItemData => new OrderItemData(
+                productId: (int) ($item['product_id'] ?? 0), quantity: (int) $item['quantity'], sellingPrice: (string) $item['selling_price'],
+                salesConfigurationId: filled($item['sales_configuration_id'] ?? null) ? (int) $item['sales_configuration_id'] : null,
+                upgradeRecipeId: filled($item['upgrade_recipe_id'] ?? null) ? (int) $item['upgrade_recipe_id'] : null,
+                allocationSources: self::allocationSources($item['allocation_sources'] ?? []),
+                sourceType: (string) ($item['source_type'] ?? 'existing_product'),
+                manualDescription: $item['manual_description'] ?? null,
+                manualBrand: $item['manual_brand'] ?? null,
+                manualCategory: $item['manual_category'] ?? null,
+                manualModel: $item['manual_model'] ?? null,
+                manualCondition: $item['manual_condition'] ?? null,
+                supplierId: filled($item['supplier_id'] ?? null) ? (int) $item['supplier_id'] : null,
+                supplierName: filled($item['supplier_name'] ?? null) ? trim((string) $item['supplier_name']) : null,
+                sourceMode: (string) ($item['source_mode'] ?? 'warehouse_receipt'),
+                actualUnitCost: $item['actual_unit_cost'] ?? null,
+                purchaseCurrency: $item['purchase_currency'] ?? null,
+                purchasedOn: $item['purchased_on'] ?? null,
+            ), array_values($data['items'])),
+            idempotencyKey: (string) $data['idempotency_key'],
+            notes: $data['notes'] ?? null,
+        );
     }
 
     protected function getCreateFormAction(): Action

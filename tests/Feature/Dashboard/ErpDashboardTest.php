@@ -48,6 +48,39 @@ class ErpDashboardTest extends TestCase
         $this->assertSame('action', $cards->firstWhere('key', 'record_return')['type']);
     }
 
+
+    public function test_dashboard_warehouse_tiles_link_to_their_own_filtered_inventory(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner, 'Owner');
+        $noon = Warehouse::factory()->create([
+            'name' => 'Noon', 'code' => 'NOON_TEST',
+            'location_type' => InventoryLocationType::MarketplaceFulfilment, 'status' => true,
+        ]);
+        $amazon = Warehouse::factory()->create([
+            'name' => 'Amazon FBA', 'code' => 'AMAZON_TEST',
+            'location_type' => InventoryLocationType::MarketplaceFulfilment, 'status' => true,
+        ]);
+        $product = Product::factory()->create();
+        ProductInventory::factory()->create([
+            'product_id' => $product->id, 'warehouse_id' => $noon->id, 'available_quantity' => 3,
+        ]);
+        ProductInventory::factory()->create([
+            'product_id' => $product->id, 'warehouse_id' => $amazon->id, 'available_quantity' => 2,
+        ]);
+
+        $breakdown = app(ErpDashboardService::class)->forUser($owner)['warehouse_breakdown'];
+        $noonUrl = collect($breakdown['warehouses'])->firstWhere('code', 'NOON_TEST')['url'];
+        $amazonUrl = collect($breakdown['warehouses'])->firstWhere('code', 'AMAZON_TEST')['url'];
+        $this->assertStringContainsString('warehouse_id', $noonUrl);
+        $this->assertStringContainsString((string) $noon->id, $noonUrl);
+        $this->assertStringContainsString((string) $amazon->id, $amazonUrl);
+        $this->assertNotSame($noonUrl, $amazonUrl);
+
+        Livewire::actingAs($owner)->test(ErpDashboardOverview::class)
+            ->assertSee($noonUrl, false)
+            ->assertSee($amazonUrl, false);
+    }
+
     public function test_active_employee_dashboard_renders_compact_operational_cards_and_period_switches(): void
     {
         $owner = $this->user(EmployeeRole::Owner, 'Owner');

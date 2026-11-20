@@ -5,6 +5,14 @@ on:
     paths:
       - 'app/Filament/Pages/SalesWorkspace.php'
       - 'app/Filament/Pages/InventoryWorkspace.php'
+      - 'app/Filament/Pages/PurchasingWorkspace.php'
+      - 'app/Filament/Pages/Purchasing/QuickStockPurchase.php'
+      - 'resources/views/filament/pages/operational-workspace.blade.php'
+      - 'resources/views/filament/pages/quick-purchase-workspace-compatible.blade.php'
+      - 'resources/views/filament/pages/partials/workspace-products.blade.php'
+      - 'resources/views/filament/pages/partials/workspace-quick-purchase.blade.php'
+      - 'resources/views/filament/pages/inventory/stock-adjustments.blade.php'
+      - 'tests/Feature/Purchases/QuickStockPurchaseUiTest.php'
       - 'resources/views/filament/pages/sales-workspace.blade.php'
       - 'resources/views/filament/pages/inventory-workspace.blade.php'
       - 'tests/Feature/Navigation/NativeWorkspacesTest.php'
@@ -39,13 +47,27 @@ jobs:
           coverage: none
       - name: Install locked dependencies
         run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build locked frontend assets for rendered page tests
+        run: |
+          npm ci
+          npm run build
+          test -s public/build/manifest.json
       - name: Temporary application key
         run: echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
       - name: PHP syntax checks (changed actions)
         run: |
           php -l app/Filament/Pages/SalesWorkspace.php
+          php -l app/Filament/Pages/PurchasingWorkspace.php
+          php -l app/Filament/Pages/Purchasing/QuickStockPurchase.php
           php -l app/Filament/Pages/InventoryWorkspace.php
           php -l tests/Feature/Navigation/NativeWorkspacesTest.php
+          php -l tests/Feature/Purchases/QuickStockPurchaseUiTest.php
+      - name: Focused workspace formatting
+        run: vendor/bin/pint --test app/Filament/Pages/SalesWorkspace.php app/Filament/Pages/PurchasingWorkspace.php app/Filament/Pages/Purchasing/QuickStockPurchase.php tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Purchases/QuickStockPurchaseUiTest.php
       - name: Migrate disposable MySQL database
         env:
           APP_ENV: testing
@@ -75,4 +97,6 @@ jobs:
           DB_DATABASE: tpz_workspace_phase2c_test
           DB_USERNAME: tpz_test
           DB_PASSWORD: tpz_test
-        run: vendor/bin/phpunit tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Orders/WebSalesWorkflowTest.php
+        run: |
+          vendor/bin/phpunit tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Purchases/QuickStockPurchaseUiTest.php tests/Feature/Invoices/TaxInvoiceFoundationTest.php tests/Feature/Orders/WebSalesWorkflowTest.php
+          vendor/bin/phpunit --filter 'save_all|grid_filters|unauthorized_staff|adjustment_override|grid_keeps_edits|read_only_shared' tests/Feature/Inventory/InventoryAdjustmentTest.php

@@ -15,7 +15,9 @@
                     </div>
                 </div>
             </div>
-            @if($activeModule !== 'overview' && $selectedModuleData)
+            @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Pages\Purchasing\QuickStockPurchase::canAccess())
+                <x-filament::button type="button" wire:click="mountAction('quickPurchase')">Quick Purchase</x-filament::button>
+            @elseif($activeModule !== 'overview' && $selectedModuleData)
                 <x-filament::button tag="a" :href="$selectedModuleData['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                     Open {{ $selectedModuleData['label'] }}
                 </x-filament::button>
@@ -39,6 +41,9 @@
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="{{ $workspace['title'] }} sections" >
+            @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Resources\Products\ProductResource::canViewAny())
+                <button type="button" wire:click="selectProducts" class="tpz-workspace-tab {{ $activeModule === 'products' ? 'is-active' : '' }}">Products ({{ number_format($purchasingProductCount) }})</button>
+            @endif
             <button type="button" class="tpz-workspace-tab {{ $activeModule === 'overview' ? 'is-active' : '' }}"
                 aria-selected="{{ $activeModule === 'overview' ? 'true' : 'false' }}"
                 wire:click="selectModule('overview')">
@@ -62,6 +67,9 @@
             @endforeach
         </nav>
 
+        @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && $activeModule === 'products')
+            @include('filament.pages.partials.workspace-products')
+        @endif
         @if($activeModule === 'overview')
             @if($metrics->isNotEmpty())
                 <section class="tpz-unified-overview-panel" aria-label="Operational overview">

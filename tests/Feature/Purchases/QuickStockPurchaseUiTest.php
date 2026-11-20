@@ -18,6 +18,7 @@ use App\Models\ResponsibilityAssignmentBrand;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -243,6 +244,30 @@ class QuickStockPurchaseUiTest extends TestCase
             ->assertDontSee('Catalog Cost');
         $adminLine = $admin->instance()->getSchema('content')->getRawState()['items'][$adminLineKey];
         $this->assertNull($adminLine['unit_cost']);
+    }
+
+    public function test_embedded_purchase_posts_once_without_navigation_and_refreshes_workspace(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $holder = $this->user(EmployeeRole::Manager);
+        $warehouse = Warehouse::factory()->create();
+        $product = Product::factory()->create();
+        $this->defaultStockResponsibility($holder, $product);
+        $this->actingAs($owner);
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+        $component = Livewire::test(QuickStockPurchase::class, ['embedded' => true]);
+        $key = $component->instance()->getSchema('content')->getRawState()['idempotency_key'];
+        $data = $this->postingData($warehouse, $product, $key);
+        $component->fillForm($data)->set('data.items', $data['items'])
+            ->mountAction('post')->assertActionMounted('post')->callMountedAction()
+            ->assertHasNoErrors()
+            ->assertNotified('Stock received successfully')
+            ->assertDispatched('workspace-purchase-created')->assertNoRedirect();
+        $component->mountAction('post')->callMountedAction()
+            ->assertNotified('Existing Quick Stock Purchase opened')->assertNoRedirect();
+        $this->assertDatabaseCount('purchase_receipts', 1);
+        $this->assertDatabaseCount('stock_movements', 1);
+        $this->assertSame(2, ProductInventory::query()->sole()->available_quantity);
     }
 
     public function test_final_confirm_posts_a_valid_purchase_once_and_shows_success(): void

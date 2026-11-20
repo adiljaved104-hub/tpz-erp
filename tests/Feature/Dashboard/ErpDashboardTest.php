@@ -75,6 +75,10 @@ class ErpDashboardTest extends TestCase
         $this->assertStringContainsString((string) $noon->id, $noonUrl);
         $this->assertStringContainsString((string) $amazon->id, $amazonUrl);
         $this->assertNotSame($noonUrl, $amazonUrl);
+        parse_str((string) parse_url($noonUrl, PHP_URL_QUERY), $noonQuery);
+        parse_str((string) parse_url($amazonUrl, PHP_URL_QUERY), $amazonQuery);
+        $this->assertSame((string) $noon->id, $noonQuery['filters']['warehouse_id']['value'] ?? null);
+        $this->assertSame((string) $amazon->id, $amazonQuery['filters']['warehouse_id']['value'] ?? null);
 
         Livewire::actingAs($owner)->test(ErpDashboardOverview::class)
             ->assertSee($noonUrl, false)

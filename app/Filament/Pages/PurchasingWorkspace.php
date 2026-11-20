@@ -29,14 +29,14 @@ class PurchasingWorkspace extends BaseOperationalWorkspace
     {
         return [
             Action::make('quickPurchase')
-                ->label('Quick Purchase')->modalHeading('Quick Purchase')->modalWidth('6xl')
+                ->label('Quick Purchase')->modalHeading('Quick Purchase')->modalWidth('5xl')
                 ->visible(fn (): bool => static::canAccess() && QuickStockPurchase::canAccess())
                 ->modalSubmitAction(false)
                 ->modalContent(fn () => view('filament.pages.partials.workspace-quick-purchase')),
             Action::make('createPurchasingProduct')
                 ->label('Add Product')
                 ->modalHeading('Add Product')
-                ->modalWidth('5xl')
+                ->modalWidth('3xl')
                 ->schema(ProductForm::components())
                 ->visible(fn (): bool => static::canAccess() && ProductResource::canCreate())
                 ->modalSubmitActionLabel('Save Product')
@@ -121,7 +121,7 @@ class PurchasingWorkspace extends BaseOperationalWorkspace
 
     protected static string|\UnitEnum|null $navigationGroup = 'Purchasing';
 
-    protected static ?string $navigationLabel = 'Purchasing Workspace';
+    protected static ?string $navigationLabel = 'Purchase';
 
     protected static ?string $slug = 'purchasing-workspace';
 

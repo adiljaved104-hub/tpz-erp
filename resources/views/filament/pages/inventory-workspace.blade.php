@@ -243,9 +243,7 @@
                                 <td class="text-right font-semibold tabular-nums">{{ number_format($row->available_quantity) }}</td>
                                 <td class="text-right tabular-nums">{{ number_format($row->reserved_quantity) }}</td>
                                 <td>
-                                    @if($canViewProducts && $row->product && \App\Filament\Resources\Products\ProductResource::canView($row->product))
-                                        <x-filament::button tag="a" size="xs" color="gray" :href="\App\Filament\Resources\Products\ProductResource::getUrl('view', ['record' => $row->product_id])">View product</x-filament::button>
-                                    @endif
+                                    <x-filament::button type="button" size="xs" color="gray" wire:click="openInventoryQuickView({{ $row->id }})">Quick View</x-filament::button>
                                 </td>
                             </tr>
                         @empty
@@ -295,7 +293,18 @@
                                     <td>{{ $record->updated_at?->format('d M Y') ?? '—' }}</td>
                                     <td>
                                         @if($resourceClass::canView($record))
-                                            <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>
+                                            <div class="flex flex-wrap gap-2">
+                                                <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>
+                                                @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canExecuteWorkspaceRequest($record))
+                                                    <x-filament::button type="button" size="xs" color="success" wire:click="prepareStockRequestExecution({{ $record->getKey() }})">Execute approved</x-filament::button>
+                                                @endif
+                                                @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canApproveWorkspaceRequest($record))
+                                                    <x-filament::button type="button" size="xs" color="primary" wire:click="prepareSourceDecision({{ $record->getKey() }})">Review sources</x-filament::button>
+                                                @endif
+                                                @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canOwnerApproveTransfer($record))
+                                                    <x-filament::button type="button" size="xs" color="warning" wire:click="prepareOwnerApproveTransfer({{ $record->getKey() }})">Approve &amp; Transfer</x-filament::button>
+                                                @endif
+                                            </div>
                                         @endif
                                     </td>
                                 </tr>
@@ -328,4 +337,151 @@
             @include('filament.pages.partials.workspace-extra-preview')
         @endif
     </div>
+
+    @if($quickViewInventory)
+        <div class="fixed inset-0 z-[100] flex justify-end" wire:key="inventory-quick-view-panel">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="closeInventoryQuickView" aria-label="Close inventory quick view"></button>
+            <aside role="dialog" aria-modal="true" aria-labelledby="inventory-quick-view-title"
+                class="relative z-10 flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <div class="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 dark:border-gray-700">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Read-only Inventory · Quick View</p>
+                        <h2 id="inventory-quick-view-title" class="mt-1 text-lg font-bold text-gray-950 dark:text-white">{{ $quickViewInventory['sku'] }}</h2>
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $quickViewInventory['name'] }}</p>
+                    </div>
+                    <x-filament::button color="gray" size="sm" wire:click="closeInventoryQuickView">Close</x-filament::button>
+                </div>
+                <dl class="mt-5 grid grid-cols-2 gap-4 text-sm">
+                    <div class="col-span-2"><dt class="text-gray-500">Warehouse</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewInventory['warehouse'] }}</dd></div>
+                    <div><dt class="text-gray-500">Available</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['available']) }}</dd></div>
+                    <div><dt class="text-gray-500">Reserved</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['reserved']) }}</dd></div>
+                    <div><dt class="text-gray-500">Damaged</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['damaged']) }}</dd></div>
+                </dl>
+                @if($quickViewInventory['movementsAllowed'])
+                    <h3 class="mt-7 border-b border-gray-200 pb-2 font-semibold text-gray-950 dark:border-gray-700 dark:text-white">Recent permitted movements</h3>
+                    <div class="mt-3 space-y-2">
+                        @forelse($quickViewInventory['movements'] as $movement)
+                            <div class="flex items-start justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
+                                <div>
+                                    <p class="font-semibold text-gray-950 dark:text-white">{{ $movement['reference'] }}</p>
+                                    <p class="text-gray-600 dark:text-gray-300">{{ $movement['type'] }} · {{ $movement['date'] }}</p>
+                                </div>
+                                <span class="shrink-0 font-semibold tabular-nums">{{ number_format($movement['quantity']) }}</span>
+                            </div>
+                        @empty
+                            <p class="text-sm text-gray-500">No recent movements within your scope.</p>
+                        @endforelse
+                    </div>
+                @endif
+                <div class="mt-auto flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-5 dark:border-gray-700">
+                    <x-filament::button color="gray" wire:click="closeInventoryQuickView">Back to workspace</x-filament::button>
+                    @if($quickViewInventory['productUrl'])
+                        <x-filament::button tag="a" :href="$quickViewInventory['productUrl']">Open full product</x-filament::button>
+                    @endif
+                </div>
+            </aside>
+        </div>
+    @endif
+
+    @if($pendingExecutionRequest)
+        <div class="fixed inset-0 z-[110] flex items-center justify-center p-4" wire:key="stock-request-execution-confirmation">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="cancelStockRequestExecution" aria-label="Cancel Stock Request execution"></button>
+            <section role="dialog" aria-modal="true" aria-labelledby="stock-request-execution-title"
+                class="relative z-10 w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <h2 id="stock-request-execution-title" class="text-lg font-bold text-gray-950 dark:text-white">Execute approved Stock Request?</h2>
+                <p class="mt-2 font-semibold text-gray-900 dark:text-gray-100">{{ $pendingExecutionRequest['reference'] }}</p>
+                <p class="mt-2 text-sm text-amber-800 dark:text-amber-200">This action reserves or transfers approved stock. It uses the existing audited execution workflow and cannot be undone here.</p>
+                <div class="mt-4 max-h-48 space-y-2 overflow-y-auto text-sm text-gray-700 dark:text-gray-300">
+                    @foreach($pendingExecutionRequest['summary'] as $line)
+                        <p class="rounded-lg border border-gray-200 p-2 dark:border-gray-700">{{ $line }}</p>
+                    @endforeach
+                </div>
+                <div class="mt-5 flex flex-wrap justify-end gap-2">
+                    <x-filament::button color="gray" wire:click="cancelStockRequestExecution">Cancel</x-filament::button>
+                    <x-filament::button color="success" wire:click="executePreparedStockRequest" wire:loading.attr="disabled" wire:target="executePreparedStockRequest">Confirm &amp; Execute</x-filament::button>
+                </div>
+            </section>
+        </div>
+    @endif
+
+    @if($pendingSourceDecision)
+        <div class="fixed inset-0 z-[110] flex items-center justify-center p-4" wire:key="stock-source-decision-confirmation">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="cancelSourceDecision" aria-label="Cancel source decision"></button>
+            <section role="dialog" aria-modal="true" aria-labelledby="stock-source-decision-title"
+                class="relative z-10 w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <h2 id="stock-source-decision-title" class="text-lg font-bold text-gray-950 dark:text-white">Review Stock Request sources</h2>
+                <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $pendingSourceDecision['reference'] }}</p>
+                <div class="mt-5 space-y-4">
+                    <label class="block text-sm font-semibold text-gray-900 dark:text-gray-100" for="workspace-source-line">Authorized stock source</label>
+                    <select id="workspace-source-line" wire:model="pendingSourceDecisionLineId"
+                        class="w-full rounded-lg border-gray-300 text-sm dark:bg-gray-900 dark:text-white">
+                        <option value="">Select a stock source</option>
+                        @foreach($pendingSourceDecision['options'] as $id => $label)
+                            <option value="{{ $id }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <fieldset class="flex gap-5 text-sm text-gray-900 dark:text-white">
+                        <legend class="mb-2 font-semibold">Decision</legend>
+                        <label><input type="radio" wire:model.live="sourceDecision" value="approved"> Approve</label>
+                        <label><input type="radio" wire:model.live="sourceDecision" value="rejected"> Reject</label>
+                    </fieldset>
+                    @if($sourceDecision === 'approved')
+                        <label class="block text-sm font-semibold text-gray-900 dark:text-white" for="workspace-source-quantity">Quantity to approve</label>
+                        <input id="workspace-source-quantity" type="number" min="1" step="1" wire:model="sourceApprovedQuantity"
+                            class="w-full rounded-lg border-gray-300 text-sm dark:bg-gray-900 dark:text-white">
+                    @endif
+                    <label class="block text-sm font-semibold text-gray-900 dark:text-white" for="workspace-source-note">
+                        {{ $sourceDecision === 'rejected' ? 'Rejection reason (required)' : 'Approval note (optional)' }}
+                    </label>
+                    <textarea id="workspace-source-note" wire:model="sourceDecisionNote" maxlength="2000" rows="3"
+                        class="w-full rounded-lg border-gray-300 text-sm dark:bg-gray-900 dark:text-white"></textarea>
+                    <p class="text-xs text-gray-500">Approving only records a source decision. Stock is not reserved or transferred until authorized execution.</p>
+                </div>
+                <div class="mt-5 flex flex-wrap justify-end gap-2">
+                    <x-filament::button color="gray" wire:click="cancelSourceDecision">Cancel</x-filament::button>
+                    <x-filament::button color="success" wire:click="submitSourceDecision" wire:loading.attr="disabled" wire:target="submitSourceDecision">
+                        Confirm source decision
+                    </x-filament::button>
+                </div>
+            </section>
+        </div>
+    @endif
+
+    @if($pendingOwnerTransfer)
+        <div class="fixed inset-0 z-[110] flex items-center justify-center p-4" wire:key="owner-approve-transfer-dialog">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="cancelOwnerApproveTransfer" aria-label="Cancel owner transfer"></button>
+            <section role="dialog" aria-modal="true" aria-labelledby="owner-transfer-title"
+                class="relative z-10 w-full max-w-xl rounded-xl bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <h2 id="owner-transfer-title" class="text-lg font-bold text-gray-950 dark:text-white">Owner — Approve &amp; Transfer</h2>
+                <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ $pendingOwnerTransfer['reference'] }}</p>
+                <p class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    Permanent transfer only. Previously approved, untransferred stock: <strong>{{ number_format($pendingOwnerTransfer['alreadyApproved']) }}</strong>.
+                    Pending sources are set to zero by default. Stock allocations will change only after confirmation.
+                </p>
+                <div class="mt-4 max-h-64 space-y-3 overflow-y-auto">
+                    @forelse($pendingOwnerTransfer['lines'] as $line)
+                        <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                            <div class="min-w-0 text-sm text-gray-900 dark:text-gray-100">
+                                <p class="font-semibold">{{ $line['label'] }}</p>
+                                <p class="text-gray-500">Remaining request: {{ number_format($line['remaining']) }}</p>
+                            </div>
+                            <label class="text-sm text-gray-900 dark:text-gray-100" for="owner-transfer-{{ $line['id'] }}">
+                                Approve now
+                                <input id="owner-transfer-{{ $line['id'] }}" type="number" step="1" min="0" max="{{ $line['remaining'] }}"
+                                    wire:model="ownerTransferQuantities.{{ $line['id'] }}"
+                                    class="mt-1 block w-24 rounded-lg border-gray-300 text-sm dark:bg-gray-900 dark:text-white">
+                            </label>
+                        </div>
+                    @empty
+                        <p class="text-sm text-gray-500">No pending stock sources. Only already approved quantities can be transferred.</p>
+                    @endforelse
+                </div>
+                <p class="mt-4 text-xs text-gray-500">Only the selected new quantities plus previously approved, untransferred units will transfer. The operation uses the existing Owner-only audited transaction and cannot be undone here.</p>
+                <div class="mt-5 flex flex-wrap justify-end gap-2">
+                    <x-filament::button color="gray" wire:click="cancelOwnerApproveTransfer">Cancel</x-filament::button>
+                    <x-filament::button color="success" wire:click="submitOwnerApproveTransfer" wire:loading.attr="disabled" wire:target="submitOwnerApproveTransfer">Confirm Approve &amp; Transfer</x-filament::button>
+                </div>
+            </section>
+        </div>
+    @endif
 </x-filament-panels::page>

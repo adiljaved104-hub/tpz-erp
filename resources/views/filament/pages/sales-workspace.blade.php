@@ -251,7 +251,7 @@
                                     <td class="text-right tabular-nums">{{ number_format($order->items_count ?? 0) }} / {{ number_format($order->total_units ?? 0) }}</td>
                                     @if($canSeeOrderValues)<td class="text-right font-semibold tabular-nums">{{ number_format((float) ($order->grand_total ?? 0), 2) }}</td>@endif
                                     <td><x-filament::badge :color="$order->status?->getColor() ?? 'gray'">{{ $order->status?->getLabel() ?? 'Unknown' }}</x-filament::badge></td>
-                                    <td><x-filament::button tag="a" size="xs" color="gray" :href="\App\Filament\Resources\Orders\OrderResource::getUrl('view', ['record' => $order])">View</x-filament::button></td>
+                                    <td><x-filament::button type="button" size="xs" color="gray" wire:click="openOrderQuickView('orders', {{ $order->id }})">Quick View</x-filament::button></td>
                                 </tr>
                             @empty
                                 <tr><td colspan="{{ $canSeeOrderValues ? 7 : 6 }}" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
@@ -284,7 +284,7 @@
                                     <td class="text-right tabular-nums">{{ number_format($order->units ?? 0) }}</td>
                                     @if($canSeeWebSalesValues)<td class="text-right font-semibold tabular-nums">{{ number_format((float) ($order->grand_total ?? 0), 2) }}</td>@endif
                                     <td><x-filament::badge :color="$order->status?->getColor() ?? 'gray'">{{ $order->status?->getLabel() ?? 'Unknown' }}</x-filament::badge></td>
-                                    <td><x-filament::button tag="a" size="xs" color="gray" :href="\App\Filament\Resources\WebSalesOrders\WebSalesOrderResource::getUrl('view', ['record' => $order])">View</x-filament::button></td>
+                                    <td><x-filament::button type="button" size="xs" color="gray" wire:click="openOrderQuickView('webSales', {{ $order->id }})">Quick View</x-filament::button></td>
                                 </tr>
                             @empty
                                 <tr><td colspan="{{ $canSeeWebSalesValues ? 8 : 7 }}" class="py-8 text-center text-sm text-gray-500">No Web Sales Orders match these filters.</td></tr>
@@ -334,4 +334,94 @@
             @include('filament.pages.partials.workspace-extra-preview')
         @endif
     </div>
+
+    @if($quickViewOrder)
+        <div class="fixed inset-0 z-[100] flex justify-end" wire:key="sales-quick-view-panel">
+            <button type="button" class="absolute inset-0 bg-gray-950/60" wire:click="closeOrderQuickView" aria-label="Close order quick view"></button>
+            <aside role="dialog" aria-modal="true" aria-labelledby="sales-quick-view-title"
+                class="relative z-10 flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white p-5 shadow-2xl dark:bg-gray-900 sm:p-7">
+                <div class="flex items-start justify-between gap-4 border-b border-gray-200 pb-4 dark:border-gray-700">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Read-only {{ $quickViewOrder['type'] === 'webSales' ? 'Web Sale' : 'Sales Order' }} · Quick View</p>
+                        <h2 id="sales-quick-view-title" class="mt-1 text-lg font-bold text-gray-950 dark:text-white">{{ $quickViewOrder['reference'] }}</h2>
+                    </div>
+                    <x-filament::button color="gray" size="sm" wire:click="closeOrderQuickView">Close</x-filament::button>
+                </div>
+                <dl class="mt-5 grid grid-cols-2 gap-4 text-sm">
+                    <div><dt class="text-gray-500">Status</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['status'] }}</dd></div>
+                    @if($quickViewOrder['type'] === 'webSales' && $quickViewOrder['deliveredAt'])
+                        <div><dt class="text-gray-500">Delivered at</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['deliveredAt'] }}</dd></div>
+                    @endif
+                    <div><dt class="text-gray-500">Order date</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['date'] }}</dd></div>
+                    <div><dt class="text-gray-500">Warehouse</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['warehouse'] }}</dd></div>
+                    @if($quickViewOrder['type'] === 'webSales')
+                        <div><dt class="text-gray-500">Channel</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['channel'] }}</dd></div>
+                        <div class="col-span-2"><dt class="text-gray-500">Customer</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['customer'] }}</dd></div>
+                    @endif
+                </dl>
+                <h3 class="mt-7 border-b border-gray-200 pb-2 font-semibold text-gray-950 dark:border-gray-700 dark:text-white">Products and quantities</h3>
+                <div class="mt-3 space-y-2">
+                    @forelse($quickViewOrder['items'] as $item)
+                        <div class="flex items-start justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
+                            <div class="min-w-0">
+                                <p class="font-semibold text-gray-950 dark:text-white">{{ $item['sku'] }}</p>
+                                <p class="text-gray-600 dark:text-gray-300">{{ $item['name'] }}</p>
+                            </div>
+                            <span class="shrink-0 font-semibold tabular-nums">× {{ number_format($item['quantity']) }}</span>
+                        </div>
+                    @empty
+                        <p class="text-sm text-gray-500">No order lines available.</p>
+                    @endforelse
+                </div>
+                @if($quickViewOrder['canReserve'])
+                    <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+                        @if($confirmQuickViewReserve)
+                            <p class="font-semibold">Confirm reservation of this Draft Sales Order?</p>
+                            <p class="mt-1">This will reserve inventory using the existing stock allocation rules. It cannot be undone from this panel.</p>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <x-filament::button color="success" size="sm" wire:click="reserveQuickViewDraft" wire:loading.attr="disabled" wire:target="reserveQuickViewDraft">Confirm &amp; Reserve</x-filament::button>
+                                <x-filament::button color="gray" size="sm" wire:click="$set('confirmQuickViewReserve', false)">Cancel</x-filament::button>
+                            </div>
+                        @else
+                            <x-filament::button color="success" size="sm" wire:click="prepareQuickViewReserve">Save &amp; Reserve</x-filament::button>
+                        @endif
+                    </div>
+                @endif
+                @if($quickViewOrder['type'] === 'webSales' && ($pendingWebSaleOperation !== null || $quickViewOrder['canShip'] || $quickViewOrder['canDeliver'] || $quickViewOrder['showQcWarning']))
+                    <div class="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800">
+                        @if($pendingWebSaleOperation !== null)
+                            <p class="font-semibold text-gray-950 dark:text-white">
+                                {{ $pendingWebSaleOperation === 'ship' ? 'Confirm Mark Shipped?' : 'Confirm Mark Delivered?' }}
+                            </p>
+                            <p class="mt-1 text-gray-600 dark:text-gray-300">
+                                {{ $pendingWebSaleOperation === 'ship'
+                                    ? 'This posts the actual fulfillment and stock movements. QC and all fulfillment permissions are checked again before processing.'
+                                    : 'This records delivery on the already shipped order.' }}
+                            </p>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <x-filament::button color="success" size="sm" wire:click="submitQuickViewWebSale"
+                                    wire:loading.attr="disabled" wire:target="submitQuickViewWebSale">Confirm action</x-filament::button>
+                                <x-filament::button color="gray" size="sm" wire:click="cancelQuickViewWebSale">Cancel</x-filament::button>
+                            </div>
+                        @else
+                            <div class="flex flex-wrap gap-2">
+                                @if($quickViewOrder['canShip'])
+                                    <x-filament::button color="success" size="sm" wire:click="prepareQuickViewWebSale('ship')">Mark Shipped</x-filament::button>
+                                @elseif($quickViewOrder['showQcWarning'])
+                                    <p class="text-amber-800 dark:text-amber-200">Shipment requires current QC readiness and QC Dispatch Ship permission. Open the full order to complete QC.</p>
+                                @endif
+                                @if($quickViewOrder['canDeliver'])
+                                    <x-filament::button color="success" size="sm" wire:click="prepareQuickViewWebSale('deliver')">Mark Delivered</x-filament::button>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                @endif
+                <div class="mt-auto flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-5 dark:border-gray-700">
+                    <x-filament::button color="gray" wire:click="closeOrderQuickView">Back to workspace</x-filament::button>
+                    <x-filament::button tag="a" :href="$quickViewOrder['url']">Open full order</x-filament::button>
+                </div>
+            </aside>
+        </div>
+    @endif
 </x-filament-panels::page>

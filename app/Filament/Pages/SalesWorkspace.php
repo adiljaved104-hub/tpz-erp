@@ -2,6 +2,12 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Orders\ReserveDraftOrder;
+use App\Enums\QcPermission;
+use App\Services\Authorization\QcAuthorization;
+use App\Services\Qc\RenewedQcDispatchService;
+use App\Services\Orders\WebSalesService;
+use App\Exceptions\InvalidOrderTransitionException;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\QuotationPermission;
@@ -20,7 +26,10 @@ use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Navigation\WorkspaceRecordPreviewService;
 use App\Services\Orders\OrderReadService;
 use App\Services\Orders\WebSalesReadService;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Validation\ValidationException;
 use Filament\Support\Icons\Heroicon;
 use Livewire\WithPagination;
 
@@ -55,6 +64,17 @@ class SalesWorkspace extends Page
     public string $from = '';
 
     public string $to = '';
+
+    // Only an ID and a module type live in Livewire state. Every render
+    // reloads the requested record through its existing responsibility-scoped
+    // read service, so stale or tampered IDs cannot disclose data.
+    public ?int $quickViewOrderId = null;
+
+    public ?string $quickViewOrderType = null;
+
+    public bool $confirmQuickViewReserve = false;
+
+    public ?string $pendingWebSaleOperation = null;
 
     public static function canAccess(): bool
     {
@@ -129,8 +149,15 @@ class SalesWorkspace extends Page
 
         // Pagination executes against the pre-existing responsibility-scoped queries.
         // Explicit page names prevent Sales and Web Sales from interfering with one another.
-        $orders = $ordersQuery?->latest('orders.order_date')->paginate(10, pageName: 'sales-page') ?? collect();
-        $webSales = $webSalesQuery?->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page') ?? collect();
+        // Only paginate the table currently visible (or both on Overview,
+        // which uses their first rows for recent updates). Inactive modules
+        // retain permission-scoped counts without loading their record pages.
+        $orders = $ordersQuery !== null && in_array($this->activeTab, ['overview', 'orders'], true)
+            ? $ordersQuery->latest('orders.order_date')->paginate(10, pageName: 'sales-page')
+            : collect();
+        $webSales = $webSalesQuery !== null && in_array($this->activeTab, ['overview', 'webSales'], true)
+            ? $webSalesQuery->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page')
+            : collect();
 
         $quotations = ($canQuotations && $this->activeTab === 'quotations')
             ? QuotationResource::getEloquentQuery()->latest('created_at')->paginate(10, pageName: 'quotation-page')
@@ -139,11 +166,11 @@ class SalesWorkspace extends Page
         $salesCounts = [];
         if ($canOrders) {
             $salesCounts['orders'] = $orders instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
-                ? $orders->total() : $orders->count();
+                ? $orders->total() : ($ordersQuery?->count() ?? 0);
         }
         if ($canWebSales) {
             $salesCounts['webSales'] = $webSales instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
-                ? $webSales->total() : $webSales->count();
+                ? $webSales->total() : ($webSalesQuery?->count() ?? 0);
         }
         if ($canQuotations) {
             $salesCounts['quotations'] = QuotationResource::getEloquentQuery()->count();
@@ -236,7 +263,10 @@ class SalesWorkspace extends Page
             ? app(WorkspaceRecordPreviewService::class)->forLink($selectedExtra)
             : null;
 
+        $quickViewOrder = $this->loadQuickViewOrder($user);
+
         return [
+            'quickViewOrder' => $quickViewOrder,
             'extraPreview' => $extraPreview,
             'salesCounts' => $salesCounts,
             'salesAttention' => $salesAttention,
@@ -256,6 +286,260 @@ class SalesWorkspace extends Page
                 'quotations' => $canQuotations ? QuotationResource::getUrl() : null,
                 'dashboard' => $canDashboard ? WebSalesDashboard::getUrl() : null,
             ]),
+        ];
+    }
+
+
+    /**
+     * Open a read-only record preview without leaving the current workspace.
+     * Both the initial action and subsequent renders reauthorize by role,
+     * permission and responsibility scope. Not a fulfillment action.
+     */
+    public function openOrderQuickView(string $type, int $id): void
+    {
+        abort_unless(static::canAccess() && in_array($type, ['orders', 'webSales'], true) && $id > 0, 403);
+
+        $user = auth()->user();
+        abort_unless($user instanceof User, 403);
+
+        // Do not use Order::find(): existing read services enforce record
+        // visibility and select only permitted commercial fields.
+        $query = $type === 'orders'
+            ? app(OrderReadService::class)->orders($user)
+            : app(WebSalesReadService::class)->orders($user);
+
+        abort_unless($query->whereKey($id)->exists(), 404);
+
+        $this->quickViewOrderId = $id;
+        $this->quickViewOrderType = $type;
+        $this->confirmQuickViewReserve = false;
+        $this->pendingWebSaleOperation = null;
+    }
+
+    public function closeOrderQuickView(): void
+    {
+        $this->quickViewOrderId = null;
+        $this->quickViewOrderType = null;
+        $this->confirmQuickViewReserve = false;
+        $this->pendingWebSaleOperation = null;
+    }
+
+
+    /**
+     * Two explicit clicks are required before reserving stock. The operation
+     * re-resolves the record under responsibility scope and relies on the
+     * existing transactional ReserveDraftOrder service for all stock checks.
+     */
+    public function prepareQuickViewReserve(): void
+    {
+        $this->authorizedQuickViewDraft();
+        $this->confirmQuickViewReserve = true;
+    }
+
+    public function reserveQuickViewDraft(): void
+    {
+        abort_unless($this->confirmQuickViewReserve, 403);
+        $order = $this->authorizedQuickViewDraft();
+        // A failed attempt must require fresh explicit confirmation.
+        $this->confirmQuickViewReserve = false;
+
+        try {
+            app(ReserveDraftOrder::class)->handle($order, auth()->user());
+            Notification::make()->success()->title('Sales Order reserved successfully')->send();
+        } catch (AuthorizationException $e) {
+            throw $e;
+        } catch (ValidationException $e) {
+            Notification::make()->warning()->title('Cannot reserve Sales Order')
+                ->body(collect($e->errors())->flatten()->first() ?? 'Review stock allocation and try again.')->send();
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->danger()->title('Reservation was not completed')
+                ->body('Use the full order workflow to review the issue.')->send();
+        }
+    }
+
+    private function authorizedQuickViewDraft(): \App\Models\Order
+    {
+        abort_unless(static::canAccess()
+            && $this->quickViewOrderType === 'orders'
+            && $this->quickViewOrderId !== null
+            && $this->quickViewOrderId > 0, 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::View), 403);
+        $order = app(OrderReadService::class)->orders($user)
+            ->whereKey($this->quickViewOrderId)->firstOrFail();
+        abort_unless($order->status === OrderStatus::Draft
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve, $order), 403);
+
+        return $order;
+    }
+
+
+    /**
+     * Web Sales fulfillment stays inside the original WebSalesService, including
+     * manual sourcing, reservation, invoice and stock movement controls.
+     * Renewed QC readiness is independently checked before every shipment.
+     */
+    public function prepareQuickViewWebSale(string $operation): void
+    {
+        abort_unless(in_array($operation, ['ship', 'deliver'], true), 403);
+        $this->authorizedWebSaleOperation($operation);
+        $this->pendingWebSaleOperation = $operation;
+    }
+
+    public function cancelQuickViewWebSale(): void
+    {
+        $this->pendingWebSaleOperation = null;
+    }
+
+    public function submitQuickViewWebSale(): void
+    {
+        abort_unless(in_array($this->pendingWebSaleOperation, ['ship', 'deliver'], true), 403);
+        $operation = $this->pendingWebSaleOperation;
+        $order = $this->authorizedWebSaleOperation($operation);
+        $this->pendingWebSaleOperation = null;
+
+        try {
+            if ($operation === 'ship') {
+                app(WebSalesService::class)->ship($order, (string) str()->uuid(), auth()->user());
+            } else {
+                app(WebSalesService::class)->deliver($order, auth()->user());
+            }
+            Notification::make()->success()->title(
+                $operation === 'ship' ? 'Web Sale marked Shipped' : 'Web Sale marked Delivered'
+            )->send();
+        } catch (AuthorizationException $e) {
+            throw $e;
+        } catch (ValidationException|InvalidOrderTransitionException $e) {
+            Notification::make()->warning()->title('Web Sale processing was not completed')
+                ->body($e instanceof ValidationException
+                    ? (collect($e->errors())->flatten()->first() ?? 'Review order status.')
+                    : $e->getMessage())->send();
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->danger()->title('Web Sale processing failed')
+                ->body('Open the full Web Sale to review fulfillment requirements.')->send();
+        }
+    }
+
+    private function authorizedWebSaleOperation(string $operation): \App\Models\Order
+    {
+        abort_unless(static::canAccess() && $this->quickViewOrderType === 'webSales'
+            && $this->quickViewOrderId !== null && $this->quickViewOrderId > 0, 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User
+            && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View), 403);
+
+        $order = app(WebSalesReadService::class)->orders($user)
+            ->whereKey($this->quickViewOrderId)->first();
+        abort_unless($order instanceof \App\Models\Order, 404);
+
+        if ($operation === 'ship') {
+            abort_unless($this->webSaleCanShip($order, $user), 403);
+        } elseif ($operation === 'deliver') {
+            abort_unless($this->webSaleCanDeliver($order, $user), 403);
+        } else {
+            abort(403);
+        }
+
+        return $order;
+    }
+
+    private function webSaleQcReady(\App\Models\Order $order, User $user): bool
+    {
+        $readiness = app(RenewedQcDispatchService::class)->readiness($order);
+
+        return $readiness['status'] === 'not_required' || (
+            $readiness['status'] === 'ready'
+            && app(QcAuthorization::class)->allows($user, QcPermission::ShipDispatch)
+        );
+    }
+
+    private function webSaleCanShip(\App\Models\Order $order, User $user): bool
+    {
+        return in_array($order->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true)
+            && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Update, $order)
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::Fulfill, $order)
+            && $this->webSaleQcReady($order, $user);
+    }
+
+    private function webSaleCanDeliver(\App\Models\Order $order, User $user): bool
+    {
+        return $order->status === OrderStatus::Fulfilled && $order->delivered_at === null
+            && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Update, $order);
+    }
+
+    private function loadQuickViewOrder(User $user): ?array
+    {
+        if ($this->quickViewOrderId === null || $this->quickViewOrderType === null) {
+            return null;
+        }
+
+        if (! in_array($this->quickViewOrderType, ['orders', 'webSales'], true)
+            || $this->quickViewOrderId < 1 || ! static::canAccess()) {
+            $this->closeOrderQuickView();
+
+            return null;
+        }
+
+        $type = $this->quickViewOrderType;
+        $authorized = $type === 'orders'
+            ? app(OrderAuthorization::class)->allows($user, OrderPermission::View)
+            : app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View);
+
+        if (! $authorized) {
+            $this->closeOrderQuickView();
+
+            return null;
+        }
+
+        $query = $type === 'orders'
+            ? app(OrderReadService::class)->orders($user)
+            : app(WebSalesReadService::class)->orders($user);
+
+        $order = $query->with([
+            'warehouse:id,name',
+            // Restrict items to operational fields only; no selling price,
+            // cost, line totals or margin is loaded by this preview.
+            'items:id,order_id,line_number,sku,product_name,ordered_quantity',
+        ])->whereKey($this->quickViewOrderId)->first();
+
+        if ($order === null) {
+            // A record may become inaccessible after an assignment change.
+            $this->closeOrderQuickView();
+
+            return null;
+        }
+
+        return [
+            'type' => $type,
+            'canShip' => $type === 'webSales' && $this->webSaleCanShip($order, $user),
+            'canDeliver' => $type === 'webSales' && $this->webSaleCanDeliver($order, $user),
+            'qcReady' => $type !== 'webSales' || ! in_array($order->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true) || $this->webSaleQcReady($order, $user),
+            'showQcWarning' => $type === 'webSales'
+                && in_array($order->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true)
+                && app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::Update, $order)
+                && app(OrderAuthorization::class)->allows($user, OrderPermission::Fulfill, $order)
+                && ! $this->webSaleQcReady($order, $user),
+            'canReserve' => $type === 'orders'
+                && $order->status === OrderStatus::Draft
+                && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve, $order),
+            'reference' => $order->reference,
+            'status' => $type === 'webSales' ? $order->webSalesStatusLabel() : ($order->status?->getLabel() ?? 'Unknown'),
+            'deliveredAt' => $type === 'webSales' ? $order->delivered_at?->format('d M Y, h:i A') : null,
+            'date' => $order->order_date?->format('d M Y') ?? '—',
+            'warehouse' => $order->warehouse?->name ?? '—',
+            'customer' => $type === 'webSales' ? ($order->customer_name ?? '—') : null,
+            'channel' => $type === 'webSales' ? ($order->web_sales_channel?->getLabel() ?? '—') : null,
+            'items' => $order->items->map(fn ($item): array => [
+                'sku' => $item->sku,
+                'name' => $item->product_name,
+                'quantity' => (int) $item->ordered_quantity,
+            ])->all(),
+            'url' => $type === 'orders'
+                ? OrderResource::getUrl('view', ['record' => $order])
+                : WebSalesOrderResource::getUrl('view', ['record' => $order]),
         ];
     }
 

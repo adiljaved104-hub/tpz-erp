@@ -29,7 +29,7 @@ class OrdersTable
             TextColumn::make('warehouse.name')->label('Fulfilled From')->toggleable(isToggledHiddenByDefault: true),
             TextColumn::make('external_order_number')->label('External Order')->placeholder('—')->searchable(),
             TextColumn::make('items.product.sku')->label('Product SKU')->searchable()->toggleable(isToggledHiddenByDefault: true),
-            TextColumn::make('items.product.name')->label('Product')->searchable()->toggleable(isToggledHiddenByDefault: true),
+            TextColumn::make('items.product.name')->label('Product')->searchable()->toggleable(),
             TextColumn::make('items.product.model')->label('Model')->searchable()->toggleable(isToggledHiddenByDefault: true),
             TextColumn::make('order_date')->date('d M Y')->sortable(),
             TextColumn::make('handledBy.name')->label('Handled By')->searchable(),

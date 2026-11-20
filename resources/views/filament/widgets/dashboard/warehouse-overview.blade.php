@@ -1,6 +1,6 @@
 @if (! empty($warehouse_breakdown))
     @foreach ($warehouse_breakdown['warehouses'] as $warehouse)
-        <a href="{{ $warehouse_breakdown['url'] }}" class="tpz-native-mini-metric tpz-dashboard-warehouse-tile" aria-label="{{ $warehouse['name'] }} stock: {{ number_format($warehouse['units']) }} units">
+        <a href="{{ $warehouse['url'] }}" class="tpz-native-mini-metric tpz-dashboard-warehouse-tile" aria-label="{{ $warehouse['name'] }} stock: {{ number_format($warehouse['units']) }} units">
             <span class="tpz-native-mini-icon"><x-filament::icon icon="heroicon-o-building-office-2" class="size-5" /></span>
             <span class="tpz-native-mini-label" title="{{ $warehouse['name'] }}">{{ $warehouse['name'] }}</span>
             <strong>{{ number_format($warehouse['units']) }}</strong>

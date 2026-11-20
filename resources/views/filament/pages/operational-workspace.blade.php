@@ -50,8 +50,7 @@
             @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Resources\Products\ProductResource::canViewAny())
                 <button type="button" wire:click="selectProducts" aria-selected="{{ $activeModule === 'products' ? 'true' : 'false' }}" class="tpz-workspace-tab {{ $activeModule === 'products' ? 'is-active' : '' }}">
                     <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-cube')" class="tpz-native-tab-icon size-4" />
-                    <span class="tpz-native-tab-label">Products</span>
-                    <span class="tpz-native-tab-count">{{ number_format($purchasingProductCount) }}</span>
+                    <span class="tpz-native-tab-label">Products ({{ number_format($purchasingProductCount) }})</span>
                 </button>
             @endif
             @foreach($moduleTabs as $index => $tab)

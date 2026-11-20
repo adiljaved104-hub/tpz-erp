@@ -248,11 +248,12 @@
                 </div>
                 <div class="overflow-x-auto">
                     <table class="tpz-workspace-table">
-                        <thead><tr><th>Reference</th><th>Order date</th><th>Source</th><th class="text-right">Items / Units</th>@if($canSeeOrderValues)<th class="text-right">Order total (AED)</th>@endif<th>Status</th><th>Action</th></tr></thead>
+                        <thead><tr><th>Reference</th><th>Product Name</th><th>Order date</th><th>Source</th><th class="text-right">Items / Units</th>@if($canSeeOrderValues)<th class="text-right">Order total (AED)</th>@endif<th>Status</th><th>Action</th></tr></thead>
                         <tbody>
                             @forelse($orders as $order)
                                 <tr wire:key="sales-order-{{ $order->id }}">
                                     <td class="font-semibold text-gray-950 dark:text-white">{{ $order->reference }}</td>
+                                    <td class="max-w-xs"><span class="block truncate" title="{{ $order->items->pluck('product_name')->filter()->unique()->implode(' / ') }}">{{ $order->items->pluck('product_name')->filter()->unique()->take(2)->implode(' / ') ?: '—' }}@if($order->items->pluck('product_name')->filter()->unique()->count() > 2) +{{ $order->items->pluck('product_name')->filter()->unique()->count() - 2 }} more @endif</span></td>
                                     <td>{{ $order->order_date?->format('d M Y') ?? '—' }}</td>
                                     <td>{{ $order->source ? str($order->source->value)->headline() : '—' }}</td>
                                     <td class="text-right tabular-nums">{{ number_format($order->items_count ?? 0) }} / {{ number_format($order->total_units ?? 0) }}</td>
@@ -261,7 +262,7 @@
                                     <td><x-filament::button type="button" size="xs" color="gray" wire:click="openOrderQuickView('orders', {{ $order->id }})">Quick View</x-filament::button></td>
                                 </tr>
                             @empty
-                                <tr><td colspan="{{ $canSeeOrderValues ? 7 : 6 }}" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
+                                <tr><td colspan="{{ $canSeeOrderValues ? 8 : 7 }}" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

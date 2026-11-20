@@ -67,7 +67,7 @@ class SalesWorkspace extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Sales';
 
-    protected static ?string $navigationLabel = 'Sales Workspace';
+    protected static ?string $navigationLabel = 'Sales';
 
     protected static ?string $slug = 'sales-workspace';
 
@@ -109,7 +109,7 @@ class SalesWorkspace extends Page
         return [
             Action::make('createWorkspaceTaxInvoice')
                 ->label('Create Tax Invoice')
-                ->modalWidth('6xl')
+                ->modalWidth('4xl')
                 ->model(TaxInvoice::class)
                 ->visible(fn (): bool => static::canAccess() && TaxInvoiceResource::canCreate())
                 ->schema(fn (Schema $schema): Schema => TaxInvoiceResource::form($schema))
@@ -177,7 +177,7 @@ class SalesWorkspace extends Page
             Action::make('createSalesOrder')
                 ->label('Create Sales Order')
                 ->modalHeading('Create Sales Order')
-                ->modalWidth('6xl')
+                ->modalWidth('5xl')
                 ->schema([...OrderForm::components(),
                     Checkbox::make('confirm_physical_shipment')
                         ->label('I confirm every item has physically left the warehouse')

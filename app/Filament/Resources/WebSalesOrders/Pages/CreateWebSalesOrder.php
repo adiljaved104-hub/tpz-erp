@@ -29,7 +29,33 @@ class CreateWebSalesOrder extends CreateRecord
     protected function handleRecordCreation(array $data): Model
     {
         try {
-            $dto = new WebSalesOrderData(
+            $dto = self::makeOrderData($data);
+
+            return $this->completeDirectly
+                ? app(WebSalesService::class)->completeSale($dto, auth()->user())
+                : app(WebSalesService::class)->createConfirmed($dto, auth()->user());
+        } catch (ValidationException $exception) {
+            $itemKeys = array_keys($this->form->getRawState()['items'] ?? []);
+            foreach ($exception->errors() as $key => $messages) {
+                foreach ($messages as $message) {
+                    $this->addError($this->visibleErrorPath($key, $itemKeys), $message);
+                }
+            }
+            $this->dispatch('form-validation-error', livewireId: $this->getId());
+            Notification::make()->danger()->title('Web Sale could not be saved')->body(collect($exception->errors())->flatten()->unique()->join(' '))->send();
+            throw (new Halt)->rollBackDatabaseTransaction();
+        }
+    }
+
+    /**
+     * Shared with the Sales Workspace modal so the two entry points create
+     * exactly the same Web Sales payload and retain one service workflow.
+     *
+     * @param array<string, mixed> $data
+     */
+    public static function makeOrderData(array $data): WebSalesOrderData
+    {
+        return new WebSalesOrderData(
                 customerName: (string) $data['customer_name'],
                 customerPhone: (string) $data['customer_phone'],
                 customerAddress: $data['customer_address'] ?? null,
@@ -62,21 +88,6 @@ class CreateWebSalesOrder extends CreateRecord
                 idempotencyKey: (string) $data['idempotency_key'],
                 notes: $data['notes'] ?? null,
             );
-
-            return $this->completeDirectly
-                ? app(WebSalesService::class)->completeSale($dto, auth()->user())
-                : app(WebSalesService::class)->createConfirmed($dto, auth()->user());
-        } catch (ValidationException $exception) {
-            $itemKeys = array_keys($this->form->getRawState()['items'] ?? []);
-            foreach ($exception->errors() as $key => $messages) {
-                foreach ($messages as $message) {
-                    $this->addError($this->visibleErrorPath($key, $itemKeys), $message);
-                }
-            }
-            $this->dispatch('form-validation-error', livewireId: $this->getId());
-            Notification::make()->danger()->title('Web Sale could not be saved')->body(collect($exception->errors())->flatten()->unique()->join(' '))->send();
-            throw (new Halt)->rollBackDatabaseTransaction();
-        }
     }
 
     protected function getCreateFormAction(): Action

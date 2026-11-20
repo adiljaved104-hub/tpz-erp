@@ -66,4 +66,6 @@ jobs:
           php artisan view:cache
       - name: Dashboard links and inventory authorization
         env: *mysql_env
-        run: vendor/bin/phpunit tests/Feature/Dashboard/ErpDashboardTest.php tests/Feature/Navigation/NativeWorkspacesTest.php
+        run: |
+          vendor/bin/phpunit tests/Feature/Dashboard/ErpDashboardTest.php --filter test_dashboard_warehouse_tiles_link_to_their_own_filtered_inventory
+          vendor/bin/phpunit tests/Feature/Navigation/NativeWorkspacesTest.php

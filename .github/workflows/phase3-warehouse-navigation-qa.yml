@@ -10,6 +10,7 @@ on:
       - 'tests/Feature/Dashboard/ErpDashboardTest.php'
       - 'app/Filament/Pages/SalesWorkspace.php'
       - 'app/Filament/Resources/Orders/Schemas/OrderForm.php'
+      - 'app/Filament/Resources/Products/Schemas/ProductForm.php'
       - 'resources/views/filament/pages/sales-workspace.blade.php'
       - 'tests/Feature/Navigation/NativeWorkspacesTest.php'
       - '.github/workflows/phase3-warehouse-navigation-qa.yml'
@@ -50,6 +51,7 @@ jobs:
           php -l tests/Feature/Dashboard/ErpDashboardTest.php
           php -l app/Filament/Pages/SalesWorkspace.php
           php -l app/Filament/Resources/Orders/Schemas/OrderForm.php
+          php -l app/Filament/Resources/Products/Schemas/ProductForm.php
       - name: MySQL migration and Blade
         env: &mysql_env
           APP_ENV: testing

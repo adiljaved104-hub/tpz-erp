@@ -22,17 +22,38 @@
 
         .stock-adjustments-columns-option input { accent-color: rgb(249 115 22); }
         .stock-adjustments-columns-option { min-height: 2.25rem; }
-        .stock-adjustments-embedded .stock-adjustments-grid { min-width: 0 !important; table-layout: fixed !important; }
-        .stock-adjustments-embedded .stock-adjustments-grid th { width: calc(var(--column-width) * .64); min-width: 0; padding: .4rem; font-size: .7rem; }
-        .stock-adjustments-embedded .stock-adjustments-grid th:nth-child(2) { width: 20%; }
-        .stock-adjustments-embedded .stock-adjustments-grid td { padding: .4rem; overflow-wrap: anywhere; }
-        .stock-adjustments-embedded .stock-adjustments-product { width: auto; min-width: 0; overflow-wrap: break-word; }
-        .stock-adjustments-embedded .stock-adjustments-product .text-xs { white-space: nowrap; }
+        /* Phase 5 Owner UAT: compact controls with legible, non-overlapping headers. */
+        .stock-adjustments-embedded .stock-adjustments-grid { min-width: 1120px !important; table-layout: fixed !important; }
+        .stock-adjustments-embedded .stock-adjustments-grid th {
+            width: var(--column-width);
+            min-width: 0;
+            padding: .4rem .3rem;
+            font-size: .68rem;
+            line-height: 1.35;
+            white-space: normal;
+            overflow-wrap: normal;
+            word-break: normal;
+        }
+        .stock-adjustments-embedded .stock-adjustments-grid td {
+            padding: .45rem .3rem;
+            vertical-align: top;
+            overflow-wrap: break-word;
+            word-break: normal;
+        }
+        .stock-adjustments-embedded .stock-adjustments-grid .stock-adjustments-product { width: auto; min-width: 0; overflow-wrap: break-word; }
         .stock-adjustments-embedded .stock-adjustments-grid td.min-w-56 { min-width: 0; }
         .stock-adjustments-embedded .stock-adjustments-grid input,
-        .stock-adjustments-embedded .stock-adjustments-grid select { min-width: 0; padding-inline: .4rem; font-size: .75rem; }
-        .stock-adjustments-embedded .stock-adjustments-grid .fi-badge { font-size: .65rem; padding: .15rem .35rem; }
-        @media (max-width: 1023px) { .stock-adjustments-embedded .stock-adjustments-grid { min-width: 900px !important; } }
+        .stock-adjustments-embedded .stock-adjustments-grid select,
+        .stock-adjustments-embedded .stock-adjustments-grid textarea {
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+            box-sizing: border-box;
+            padding-inline: .3rem;
+            font-size: .73rem;
+        }
+        .stock-adjustments-embedded .stock-adjustments-grid .fi-badge { font-size: .65rem; padding: .15rem .3rem; }
+        @media (max-width: 1150px) { .stock-adjustments-embedded .stock-adjustments-grid { min-width: 1120px !important; } }
     </style>
     @php
         $rows = $this->rows();
@@ -80,22 +101,22 @@
                 <x-filament::button type="submit" :disabled="! $mayAdjust" wire:loading.attr="disabled" wire:target="saveAll">Save All</x-filament::button>
             </div>
             <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
-                <table class="stock-adjustments-grid w-full divide-y divide-gray-200 text-sm dark:divide-white/10" style="min-width: 1100px; table-layout: auto;">
+                <table class="stock-adjustments-grid w-full divide-y divide-gray-200 text-sm dark:divide-white/10" style="min-width: 1120px; table-layout: fixed;">
                     <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:bg-white/5 dark:text-gray-300">
                         <tr>
-                            <th class="px-2 py-2" style="--column-width: 60px;">Select</th>
-                            <th class="px-2 py-2" style="--column-width: 260px;">Product / SKU</th>
-                            @if ($this->columnVisible('brand'))<th class="px-2 py-2" style="--column-width: 100px;">Brand</th>@endif
-                            @if ($this->columnVisible('warehouse'))<th class="px-2 py-2" style="--column-width: 120px;">Warehouse</th>@endif
-                            @if ($this->columnVisible('saleable'))<th class="px-2 py-2" style="--column-width: 75px;">Saleable</th>@endif
-                            @if ($this->columnVisible('damaged'))<th class="px-2 py-2" style="--column-width: 75px;">Damaged</th>@endif
-                            @if ($this->columnVisible('reserved'))<th class="px-2 py-2" style="--column-width: 75px;">Reserved</th>@endif
-                            @if ($this->columnVisible('holder'))<th class="px-2 py-2" style="--column-width: 150px;">Stock Holder</th>@endif
-                            <th class="px-2 py-2" style="--column-width: 220px;">Adjustment Type</th>
-                            <th class="px-2 py-2" style="--column-width: 100px;">Qty</th>
-                            @if ($this->columnVisible('new_purchase'))<th class="px-2 py-2" style="--column-width: 120px;">New Purchase?</th>@endif
-                            <th class="px-2 py-2" style="--column-width: 240px;">Reason</th>
-                            @if ($this->columnVisible('status'))<th class="px-2 py-2" style="--column-width: 150px;">Status</th>@endif
+                            <th class="px-2 py-2" style="--column-width: 44px;">Select</th>
+                            <th class="px-2 py-2" style="--column-width: 190px;">Product / SKU</th>
+                            @if ($this->columnVisible('brand'))<th class="px-2 py-2" style="--column-width: 65px;">Brand</th>@endif
+                            @if ($this->columnVisible('warehouse'))<th class="px-2 py-2" style="--column-width: 90px;">Warehouse</th>@endif
+                            @if ($this->columnVisible('saleable'))<th class="px-2 py-2" style="--column-width: 62px;">Saleable</th>@endif
+                            @if ($this->columnVisible('damaged'))<th class="px-2 py-2" style="--column-width: 62px;">Damaged</th>@endif
+                            @if ($this->columnVisible('reserved'))<th class="px-2 py-2" style="--column-width: 62px;">Reserved</th>@endif
+                            @if ($this->columnVisible('holder'))<th class="px-2 py-2" style="--column-width: 110px;">Stock Holder</th>@endif
+                            <th class="px-2 py-2" style="--column-width: 145px;">Adjustment Type</th>
+                            <th class="px-2 py-2" style="--column-width: 65px;">Qty</th>
+                            @if ($this->columnVisible('new_purchase'))<th class="px-2 py-2" style="--column-width: 85px;">New Purchase?</th>@endif
+                            <th class="px-2 py-2" style="--column-width: 145px;">Reason</th>
+                            @if ($this->columnVisible('status'))<th class="px-2 py-2" style="--column-width: 95px;">Status</th>@endif
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-white/5">

@@ -15,6 +15,7 @@ use App\Filament\Resources\Suppliers\SupplierResource;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\On;
 use Livewire\WithPagination;
 
@@ -28,7 +29,7 @@ class PurchasingWorkspace extends BaseOperationalWorkspace
     {
         return [
             Action::make('quickPurchase')
-                ->label('Quick Purchase')->modalHeading('Quick Purchase')->modalWidth('7xl')
+                ->label('Quick Purchase')->modalHeading('Quick Purchase')->modalWidth('6xl')
                 ->visible(fn (): bool => static::canAccess() && QuickStockPurchase::canAccess())
                 ->modalSubmitAction(false)
                 ->modalContent(fn () => view('filament.pages.partials.workspace-quick-purchase')),
@@ -106,6 +107,14 @@ class PurchasingWorkspace extends BaseOperationalWorkspace
                     ->orderByDesc('id')->paginate(10, pageName: 'purchasing-products')
                 : collect(),
         ];
+    }
+
+    /** Quick Stock Purchase is opened from the header modal; do not duplicate it as a workspace tab. */
+    protected static function authorizedModuleTabs(): Collection
+    {
+        return parent::authorizedModuleTabs()
+            ->reject(fn (array $tab): bool => ($tab['class'] ?? null) === QuickStockPurchase::class)
+            ->values();
     }
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedShoppingCart;

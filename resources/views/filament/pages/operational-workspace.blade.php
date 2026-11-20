@@ -41,15 +41,18 @@
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="{{ $workspace['title'] }} sections" >
-            @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Resources\Products\ProductResource::canViewAny())
-                <button type="button" wire:click="selectProducts" class="tpz-workspace-tab {{ $activeModule === 'products' ? 'is-active' : '' }}">Products ({{ number_format($purchasingProductCount) }})</button>
-            @endif
             <button type="button" class="tpz-workspace-tab {{ $activeModule === 'overview' ? 'is-active' : '' }}"
                 aria-selected="{{ $activeModule === 'overview' ? 'true' : 'false' }}"
                 wire:click="selectModule('overview')">
                 <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" />
                 Overview
             </button>
+            @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Resources\Products\ProductResource::canViewAny())
+                <button type="button" wire:click="selectProducts" aria-selected="{{ $activeModule === 'products' ? 'true' : 'false' }}" class="tpz-workspace-tab {{ $activeModule === 'products' ? 'is-active' : '' }}">
+                    <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-cube')" class="tpz-native-tab-icon size-4" />
+                    <span class="tpz-native-tab-label">Products ({{ number_format($purchasingProductCount) }})</span>
+                </button>
+            @endif
             @foreach($moduleTabs as $index => $tab)
                 <button type="button" wire:key="workspace-tab-{{ $index }}"
                     wire:click="selectModule('{{ $index }}')"

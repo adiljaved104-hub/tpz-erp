@@ -13,7 +13,7 @@
                     </x-filament::button>
                 @elseif($activeTab === 'overview')
                     @if(isset($links['createOrder']))
-                        <x-filament::button tag="a" :href="$links['createOrder']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
+                        <x-filament::button type="button" wire:click="mountAction('createSalesOrder')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
                     @endif
                     @if(isset($links['dashboard']))
                         <details class="tpz-reference-actions-menu">
@@ -25,7 +25,7 @@
                     @endif
                 @elseif($activeTab === 'orders')
                     @if(isset($links['createOrder']))
-                        <x-filament::button tag="a" :href="$links['createOrder']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
+                        <x-filament::button type="button" wire:click="mountAction('createSalesOrder')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Sales Order</x-filament::button>
                     @endif
                     @if(isset($links['orders']))
                         <x-filament::button tag="a" color="gray" :href="$links['orders']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-shopping-bag')">All Sales Orders</x-filament::button>

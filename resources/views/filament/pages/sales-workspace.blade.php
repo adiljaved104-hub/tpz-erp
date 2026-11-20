@@ -349,6 +349,9 @@
                 </div>
                 <dl class="mt-5 grid grid-cols-2 gap-4 text-sm">
                     <div><dt class="text-gray-500">Status</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['status'] }}</dd></div>
+                    @if($quickViewOrder['type'] === 'webSales' && $quickViewOrder['deliveredAt'])
+                        <div><dt class="text-gray-500">Delivered at</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['deliveredAt'] }}</dd></div>
+                    @endif
                     <div><dt class="text-gray-500">Order date</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['date'] }}</dd></div>
                     <div><dt class="text-gray-500">Warehouse</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewOrder['warehouse'] }}</dd></div>
                     @if($quickViewOrder['type'] === 'webSales')
@@ -370,6 +373,50 @@
                         <p class="text-sm text-gray-500">No order lines available.</p>
                     @endforelse
                 </div>
+                @if($quickViewOrder['canReserve'])
+                    <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+                        @if($confirmQuickViewReserve)
+                            <p class="font-semibold">Confirm reservation of this Draft Sales Order?</p>
+                            <p class="mt-1">This will reserve inventory using the existing stock allocation rules. It cannot be undone from this panel.</p>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <x-filament::button color="success" size="sm" wire:click="reserveQuickViewDraft" wire:loading.attr="disabled" wire:target="reserveQuickViewDraft">Confirm &amp; Reserve</x-filament::button>
+                                <x-filament::button color="gray" size="sm" wire:click="$set('confirmQuickViewReserve', false)">Cancel</x-filament::button>
+                            </div>
+                        @else
+                            <x-filament::button color="success" size="sm" wire:click="prepareQuickViewReserve">Save &amp; Reserve</x-filament::button>
+                        @endif
+                    </div>
+                @endif
+                @if($quickViewOrder['type'] === 'webSales' && ($pendingWebSaleOperation !== null || $quickViewOrder['canShip'] || $quickViewOrder['canDeliver'] || $quickViewOrder['showQcWarning']))
+                    <div class="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800">
+                        @if($pendingWebSaleOperation !== null)
+                            <p class="font-semibold text-gray-950 dark:text-white">
+                                {{ $pendingWebSaleOperation === 'ship' ? 'Confirm Mark Shipped?' : 'Confirm Mark Delivered?' }}
+                            </p>
+                            <p class="mt-1 text-gray-600 dark:text-gray-300">
+                                {{ $pendingWebSaleOperation === 'ship'
+                                    ? 'This posts the actual fulfillment and stock movements. QC and all fulfillment permissions are checked again before processing.'
+                                    : 'This records delivery on the already shipped order.' }}
+                            </p>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <x-filament::button color="success" size="sm" wire:click="submitQuickViewWebSale"
+                                    wire:loading.attr="disabled" wire:target="submitQuickViewWebSale">Confirm action</x-filament::button>
+                                <x-filament::button color="gray" size="sm" wire:click="cancelQuickViewWebSale">Cancel</x-filament::button>
+                            </div>
+                        @else
+                            <div class="flex flex-wrap gap-2">
+                                @if($quickViewOrder['canShip'])
+                                    <x-filament::button color="success" size="sm" wire:click="prepareQuickViewWebSale('ship')">Mark Shipped</x-filament::button>
+                                @elseif($quickViewOrder['showQcWarning'])
+                                    <p class="text-amber-800 dark:text-amber-200">Shipment requires current QC readiness and QC Dispatch Ship permission. Open the full order to complete QC.</p>
+                                @endif
+                                @if($quickViewOrder['canDeliver'])
+                                    <x-filament::button color="success" size="sm" wire:click="prepareQuickViewWebSale('deliver')">Mark Delivered</x-filament::button>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                @endif
                 <div class="mt-auto flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-5 dark:border-gray-700">
                     <x-filament::button color="gray" wire:click="closeOrderQuickView">Back to workspace</x-filament::button>
                     <x-filament::button tag="a" :href="$quickViewOrder['url']">Open full order</x-filament::button>

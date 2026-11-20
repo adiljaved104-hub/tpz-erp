@@ -15,6 +15,7 @@ use App\Filament\Resources\Suppliers\SupplierResource;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\On;
 use Livewire\WithPagination;
 
@@ -109,7 +110,7 @@ class PurchasingWorkspace extends BaseOperationalWorkspace
     }
 
     /** Quick Stock Purchase is opened from the header modal; do not duplicate it as a workspace tab. */
-    protected static function authorizedModuleTabs(): \Illuminate\Support\Collection
+    protected static function authorizedModuleTabs(): Collection
     {
         return parent::authorizedModuleTabs()
             ->reject(fn (array $tab): bool => ($tab['class'] ?? null) === QuickStockPurchase::class)

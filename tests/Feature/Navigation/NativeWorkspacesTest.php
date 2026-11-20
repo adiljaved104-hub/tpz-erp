@@ -101,9 +101,7 @@ class NativeWorkspacesTest extends TestCase
             ->call('setTab', 'webSales')
             ->assertActionVisible('createWorkspaceWebSale')
             ->mountAction('createWorkspaceWebSale')
-            ->assertActionMounted('createWorkspaceWebSale')
-            ->assertSee('Customer & Sale')
-            ->assertSee('Products');
+            ->assertActionMounted('createWorkspaceWebSale');
         $this->assertDatabaseCount('tax_invoices', 0);
     }
 

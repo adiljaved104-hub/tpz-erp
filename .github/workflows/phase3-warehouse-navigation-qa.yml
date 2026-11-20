@@ -1,0 +1,71 @@
+name: Phase 3 Warehouse Navigation QA
+
+on:
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/ErpDashboardService.php'
+      - 'resources/views/filament/widgets/dashboard/warehouse-overview.blade.php'
+      - 'app/Filament/Pages/Inventory/MyInventory.php'
+      - 'app/Filament/Resources/Orders/Tables/OrdersTable.php'
+      - 'tests/Feature/Dashboard/ErpDashboardTest.php'
+      - 'app/Filament/Pages/SalesWorkspace.php'
+      - 'app/Filament/Resources/Orders/Schemas/OrderForm.php'
+      - 'app/Filament/Resources/Products/Schemas/ProductForm.php'
+      - 'resources/views/filament/pages/sales-workspace.blade.php'
+      - 'tests/Feature/Navigation/NativeWorkspacesTest.php'
+      - '.github/workflows/phase3-warehouse-navigation-qa.yml'
+  workflow_dispatch:
+
+jobs:
+  focused-mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_phase3_test
+          MYSQL_USER: tpz_test
+          MYSQL_PASSWORD: tpz_test
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, mysql, pdo_mysql, bcmath
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - run: echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+      - name: PHP syntax
+        run: |
+          php -l app/Services/Dashboard/ErpDashboardService.php
+          php -l app/Filament/Pages/Inventory/MyInventory.php
+          php -l app/Filament/Resources/Orders/Tables/OrdersTable.php
+          php -l tests/Feature/Dashboard/ErpDashboardTest.php
+          php -l app/Filament/Pages/SalesWorkspace.php
+          php -l app/Filament/Resources/Orders/Schemas/OrderForm.php
+          php -l app/Filament/Resources/Products/Schemas/ProductForm.php
+      - name: MySQL migration and Blade
+        env: &mysql_env
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: tpz_phase3_test
+          DB_USERNAME: tpz_test
+          DB_PASSWORD: tpz_test
+        run: |
+          php artisan migrate --force
+          php artisan view:cache
+      - name: Dashboard links and inventory authorization
+        env: *mysql_env
+        run: |
+          vendor/bin/phpunit tests/Feature/Dashboard/ErpDashboardTest.php --filter test_dashboard_warehouse_tiles_link_to_their_own_filtered_inventory
+          vendor/bin/phpunit tests/Feature/Navigation/NativeWorkspacesTest.php

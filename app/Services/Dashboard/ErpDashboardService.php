@@ -291,7 +291,7 @@ class ErpDashboardService
                     // not just highlighted on the Dashboard metric.
                     'url' => $canFilterPhysicalStock
                         ? ProductInventoryResource::getUrl('index', [
-                            'tableFilters' => ['warehouse_id' => ['value' => (string) $warehouse->id]],
+                            'filters' => ['warehouse_id' => ['value' => (string) $warehouse->id]],
                         ])
                         : MyInventory::getUrl(['warehouse' => $warehouse->code]),
                 ])->all();

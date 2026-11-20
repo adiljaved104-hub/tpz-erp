@@ -47,6 +47,15 @@ jobs:
           coverage: none
       - name: Install locked dependencies
         run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build locked frontend assets for rendered page tests
+        run: |
+          npm ci
+          npm run build
+          test -s public/build/manifest.json
       - name: Temporary application key
         run: echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
       - name: PHP syntax checks (changed actions)

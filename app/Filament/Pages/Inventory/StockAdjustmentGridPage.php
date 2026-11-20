@@ -5,6 +5,7 @@ namespace App\Filament\Pages\Inventory;
 use App\DTOs\Inventory\InventoryAdjustmentData;
 use App\Enums\InventoryPermission;
 use App\Enums\PurchasePermission;
+use App\Filament\Pages\InventoryWorkspace;
 use App\Filament\Pages\Purchasing\QuickStockPurchase;
 use App\Models\InventoryAdjustment;
 use App\Models\ProductInventory;
@@ -18,6 +19,7 @@ use App\Services\Inventory\InventoryAdjustmentService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Inventory\StockAdjustmentColumnRegistry;
 use App\Services\Search\SearchQuery;
+use App\Services\UserTimezoneResolver;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -27,6 +29,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 use Livewire\WithPagination;
 use Throwable;
 
@@ -35,6 +38,9 @@ abstract class StockAdjustmentGridPage extends Page
     use WithPagination;
 
     protected string $view = 'filament.pages.inventory.stock-adjustments';
+
+    #[Locked]
+    public bool $embedded = false;
 
     public string $search = '';
 
@@ -55,8 +61,6 @@ abstract class StockAdjustmentGridPage extends Page
     public string $historyType = '';
 
     public string $historyEmployee = '';
-
-    public string $historyStatus = '';
 
     public string $historyProduct = '';
 
@@ -81,10 +85,14 @@ abstract class StockAdjustmentGridPage extends Page
         return $actor instanceof User && app(InventoryAuthorization::class)->allows($actor, InventoryPermission::View);
     }
 
-    public function mount(): void
+    public function mount(bool $embedded = false): void
     {
-        abort_unless(static::canAccess(), 403);
+        $this->embedded = $embedded;
+        $this->hydrate();
         $this->visibleColumns = app(StockAdjustmentColumnRegistry::class)->resolve(auth()->user());
+        if ($this->embedded) {
+            return;
+        }
         $receiptItemId = (int) request()->query('receipt_item_id', 0);
         if ($receiptItemId < 1) {
             return;
@@ -101,7 +109,7 @@ abstract class StockAdjustmentGridPage extends Page
 
     public function hydrate(): void
     {
-        abort_unless(static::canAccess(), 403);
+        abort_unless(static::canAccess() && (! $this->embedded || InventoryWorkspace::canAccess()), 403);
     }
 
     public function updatedSearch(): void
@@ -220,7 +228,7 @@ abstract class StockAdjustmentGridPage extends Page
 
     public function resetHistoryFilters(): void
     {
-        $this->reset('historyFrom', 'historyTo', 'historyType', 'historyEmployee', 'historyStatus', 'historyProduct');
+        $this->reset('historyFrom', 'historyTo', 'historyType', 'historyEmployee', 'historyProduct');
     }
 
     public function updatedVisibleColumns(): void
@@ -484,11 +492,19 @@ abstract class StockAdjustmentGridPage extends Page
     public function recentHistory(): Collection
     {
         $ids = app(InventoryReadService::class)->adjustmentGridInventories(auth()->user())->select('product_inventories.id');
+        $validDate = static function (string $value): ?string {
+            if (! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $value, $parts)) {
+                return null;
+            }
+
+            return checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1]) ? $value : null;
+        };
+        $range = app(UserTimezoneResolver::class)->utcDateRange($validDate($this->historyFrom), $validDate($this->historyTo));
 
         return InventoryAdjustment::query()->with(['product:id,sku,name', 'warehouse:id,name', 'performedBy:id,name'])
             ->whereIn('product_inventory_id', $ids)
-            ->when($this->historyFrom !== '', fn (Builder $query): Builder => $query->whereDate('performed_at', '>=', $this->historyFrom))
-            ->when($this->historyTo !== '', fn (Builder $query): Builder => $query->whereDate('performed_at', '<=', $this->historyTo))
+            ->when($range['from'], fn (Builder $query, $from): Builder => $query->where('performed_at', '>=', $from))
+            ->when($range['until'], fn (Builder $query, $until): Builder => $query->where('performed_at', '<', $until))
             ->when($this->historyType !== '', fn (Builder $query): Builder => $query->where('type', $this->historyType))
             ->when($this->historyEmployee !== '', fn (Builder $query): Builder => $query->where('performed_by_user_id', (int) $this->historyEmployee))
             ->when($this->historyProduct !== '', fn (Builder $query): Builder => $query->whereHas('product', fn (Builder $product): Builder => $product->where('sku', 'like', '%'.$this->historyProduct.'%')->orWhere('name', 'like', '%'.$this->historyProduct.'%')))
@@ -498,9 +514,13 @@ abstract class StockAdjustmentGridPage extends Page
     /** @return array<string, mixed> */
     public function historyFilterOptions(): array
     {
+        $ids = app(InventoryReadService::class)->adjustmentGridInventories(auth()->user())->select('product_inventories.id');
+        $adjustments = InventoryAdjustment::query()->whereIn('product_inventory_id', $ids);
+
         return [
-            'types' => InventoryAdjustment::query()->whereNotNull('type')->distinct()->orderBy('type')->pluck('type')->all(),
-            'employees' => User::query()->whereIn('id', InventoryAdjustment::query()->whereNotNull('performed_by_user_id')->distinct()->pluck('performed_by_user_id'))->orderBy('name')->pluck('name', 'id')->all(),
+            'types' => (clone $adjustments)->whereNotNull('type')->distinct()->orderBy('type')->pluck('type')->all(),
+            'employees' => User::query()->whereIn('id', $adjustments->select('performed_by_user_id'))
+                ->orderBy('name')->pluck('name', 'id')->all(),
         ];
     }
 }

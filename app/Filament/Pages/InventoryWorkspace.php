@@ -2,36 +2,46 @@
 
 namespace App\Filament\Pages;
 
+use App\DTOs\StockRequests\CreateStockRequestData;
+use App\DTOs\StockRequests\StockRequestItemData;
 use App\Enums\InventoryPermission;
-use App\Enums\StockRequestSourceStatus;
-use App\Models\StockRequestSourceLine;
-use App\Services\Inventory\StockRequestApprovalService;
-use App\Models\StockRequest;
-use App\Models\StockRequestExecution;
-use App\Services\Inventory\StockRequestExecutionService;
-use App\Services\Inventory\StockRequestService;
 use App\Enums\ProductPermission;
+use App\Enums\StockRequestPurpose;
+use App\Enums\StockRequestSourceStatus;
 use App\Filament\Pages\Inventory\InventoryOverview;
 use App\Filament\Pages\Inventory\StockAdjustments;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\StockMovements\StockMovementResource;
+use App\Filament\Resources\StockRequests\Schemas\StockRequestForm;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
+use App\Models\StockRequest;
+use App\Models\StockRequestExecution;
+use App\Models\StockRequestSourceLine;
 use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
+use App\Services\Dashboard\ErpDashboardService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
-use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Inventory\StockRequestApprovalService;
+use App\Services\Inventory\StockRequestExecutionService;
+use App\Services\Inventory\StockRequestService;
 use App\Services\Mobile\StockStatus;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Navigation\WorkspaceRecordPreviewService;
+use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
-use Illuminate\Auth\Access\AuthorizationException;
-use Illuminate\Validation\ValidationException;
+use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 use Livewire\WithPagination;
 
 class InventoryWorkspace extends Page
@@ -76,6 +86,52 @@ class InventoryWorkspace extends Page
     public int $sourceApprovedQuantity = 1;
 
     public string $sourceDecisionNote = '';
+
+    #[Locked]
+    public ?string $stockRequestSubmissionKey = null;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('createStockRequest')
+                ->label('Create Stock Request')
+                ->modalWidth('5xl')
+                ->modalSubmitActionLabel('Submit Stock Request')
+                ->visible(fn (): bool => static::canAccess() && StockRequestResource::canCreate())
+                ->schema(StockRequestForm::components())
+                ->mountUsing(function (Schema $schema): void {
+                    abort_unless(static::canAccess() && StockRequestResource::canCreate(), 403);
+                    $this->stockRequestSubmissionKey = (string) Str::uuid();
+                    $schema->fill();
+                })
+                ->action(function (array $data): void {
+                    abort_unless(static::canAccess() && StockRequestResource::canCreate() && $this->stockRequestSubmissionKey !== null, 403);
+                    $actor = auth()->user();
+                    $purpose = StockRequestPurpose::from($data['purpose']);
+                    $orderId = $purpose === StockRequestPurpose::ForOrder ? (int) ($data['order_id'] ?? 0) : null;
+                    $service = app(StockRequestService::class);
+                    if ($orderId !== null && $service->requestableOrder($actor, $orderId) === null) {
+                        throw ValidationException::withMessages(['order_id' => 'Select an Order in your authorized scope.']);
+                    }
+
+                    $request = $service->create(new CreateStockRequestData(
+                        $purpose,
+                        $orderId,
+                        array_map(
+                            fn (array $item): StockRequestItemData => new StockRequestItemData((int) $item['product_inventory_id'], (int) $item['quantity']),
+                            array_values($data['items']),
+                        ),
+                        $data['reason'],
+                        $this->stockRequestSubmissionKey,
+                    ), $actor);
+
+                    if (StockRequestResource::canViewAny()) {
+                        $this->setTab('requests');
+                    }
+                    Notification::make()->success()->title("Stock Request {$request->reference} submitted")->send();
+                }),
+        ];
+    }
 
     public static function canAccess(): bool
     {
@@ -147,12 +203,12 @@ class InventoryWorkspace extends Page
             ->take(6)
             ->values();
 
-        // Read-only tab previews reuse the SAME scoped resource queries used by
-        // the existing list pages. Full edit/create workflows stay in Filament.
+        // Tab listings keep the same resource visibility scopes as Classic.
         $moduleQuery = match ($this->activeTab) {
             'products' => ProductResource::canViewAny() ? ProductResource::getEloquentQuery() : null,
             'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getEloquentQuery() : null,
-            'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getEloquentQuery() : null,
+            'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getEloquentQuery()
+                ->with('requester:id,name')->withSum('items as requested_quantity', 'quantity') : null,
             'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getEloquentQuery() : null,
             default => null,
         };
@@ -175,7 +231,7 @@ class InventoryWorkspace extends Page
 
         $tabCounts = [];
         if ($canInventory) {
-            $tabCounts['inventory'] = $inventory instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
+            $tabCounts['inventory'] = $inventory instanceof LengthAwarePaginator
                 ? $inventory->total()
                 : ($inventoryQuery?->count() ?? 0);
         }
@@ -227,7 +283,6 @@ class InventoryWorkspace extends Page
                 'inventory' => InventoryOverview::canAccess() ? InventoryOverview::getUrl() : null,
                 'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getUrl() : null,
                 'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getUrl() : null,
-                'createRequest' => StockRequestResource::canCreate() ? StockRequestResource::getUrl('create') : null,
                 'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getUrl() : null,
                 'createTransfer' => StockTransferResource::canCreate() ? StockTransferResource::getUrl('create') : null,
                 'adjustments' => StockAdjustments::canAccess() ? StockAdjustments::getUrl() : null,
@@ -236,7 +291,6 @@ class InventoryWorkspace extends Page
             'canViewProducts' => ProductResource::canViewAny(),
         ];
     }
-
 
     public function openInventoryQuickView(int $inventoryId): void
     {
@@ -312,7 +366,6 @@ class InventoryWorkspace extends Page
                 : null,
         ];
     }
-
 
     /**
      * The request list remains scoped by StockRequestResource, then each
@@ -392,6 +445,7 @@ class InventoryWorkspace extends Page
         if ($request === null || ! app(StockRequestService::class)->canView($user, $request)
             || ! app(StockRequestExecutionService::class)->canExecute($user, $request)) {
             $this->pendingExecutionRequestId = null;
+
             return null;
         }
 
@@ -400,7 +454,6 @@ class InventoryWorkspace extends Page
             'summary' => app(StockRequestExecutionService::class)->summary($request),
         ];
     }
-
 
     /**
      * Only individual source-line decisions are surfaced here. The existing
@@ -505,14 +558,17 @@ class InventoryWorkspace extends Page
             ->whereKey($this->pendingSourceDecisionRequestId)->first();
         if ($request === null || ! app(StockRequestService::class)->canView($user, $request)) {
             $this->cancelSourceDecision();
+
             return null;
         }
         $eligible = app(StockRequestApprovalService::class)
             ->eligiblePendingLines($request, $user);
         if ($eligible->isEmpty()) {
             $this->cancelSourceDecision();
+
             return null;
         }
+
         return [
             'reference' => $request->reference,
             'options' => $eligible->mapWithKeys(fn (StockRequestSourceLine $line): array => [
@@ -521,7 +577,6 @@ class InventoryWorkspace extends Page
             ])->all(),
         ];
     }
-
 
     /**
      * Owner-only combined approval and transfer for permanent Stock Requests.
@@ -656,7 +711,7 @@ class InventoryWorkspace extends Page
         ];
     }
 
-    private function extraModules(): \Illuminate\Support\Collection
+    private function extraModules(): Collection
     {
         return collect(app(NavigationPreferenceService::class)->workspaceModuleLinks(auth()->user(), 'Inventory & Warehouse'))
             ->reject(fn (array $item): bool => in_array($item['label'], [

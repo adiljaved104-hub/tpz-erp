@@ -2,9 +2,13 @@
 
 namespace Tests\Feature\Navigation;
 
+use App\DTOs\StockRequests\CreateStockRequestData;
+use App\DTOs\StockRequests\StockRequestItemData;
 use App\Enums\EmployeeRole;
+use App\Enums\StockRequestPurpose;
 use App\Filament\Pages\AdministrationWorkspace;
 use App\Filament\Pages\FinanceWorkspace;
+use App\Filament\Pages\Inventory\StockAdjustments;
 use App\Filament\Pages\InventoryWorkspace;
 use App\Filament\Pages\PurchasingWorkspace;
 use App\Filament\Pages\ReturnsQcWorkspace;
@@ -15,6 +19,9 @@ use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Purchase;
 use App\Models\StockMovement;
+use App\Models\StockRequest;
+use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Inventory\StockRequestService;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -42,6 +49,75 @@ class NativeWorkspacesTest extends TestCase
         $this->actingAs($staff);
         $this->assertFalse(SalesWorkspace::canAccess());
         $this->assertFalse(InventoryWorkspace::canAccess());
+    }
+
+    public function test_inventory_workspace_submits_and_lists_multi_product_stock_requests_without_moving_stock(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create(['name' => 'Workspace Requester'])->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+        $inventories = collect(['First Workspace Product', 'Second Workspace Product', 'Third Workspace Product'])
+            ->map(function (string $name) use ($owner): ProductInventory {
+                $stock = ProductInventory::factory()->create([
+                    'product_id' => Product::factory()->create(['name' => $name])->id,
+                    'available_quantity' => 5,
+                    'reserved_quantity' => 0,
+                ]);
+                app(InventoryAllocationService::class)->ensureShadowCoverage($stock, $owner);
+
+                return $stock;
+            });
+        $lines = $inventories->map(fn (ProductInventory $stock): array => ['product_inventory_id' => $stock->id, 'quantity' => 1])->all();
+        Livewire::test(InventoryWorkspace::class)
+            ->assertActionVisible('createStockRequest')
+            ->mountAction('createStockRequest')
+            ->assertActionMounted('createStockRequest')
+            ->fillForm(['purpose' => 'permanent_transfer', 'reason' => 'Need stock for workspace review'])
+            ->set('mountedActions.0.data.items', ['first' => $lines[0], 'duplicate' => $lines[0]])
+            ->callMountedAction()
+            ->assertHasErrors(['mountedActions.0.data.items.first.product_inventory_id']);
+        $this->assertDatabaseCount('stock_requests', 0);
+
+        $authorized = Livewire::test(InventoryWorkspace::class)
+            ->mountAction('createStockRequest')
+            ->fillForm(['purpose' => 'permanent_transfer', 'reason' => 'Need stock for workspace review'])
+            ->set('mountedActions.0.data.items', array_combine(['first', 'second', 'third'], $lines))
+            ->callMountedAction()
+            ->assertHasNoActionErrors()
+            ->assertSet('activeTab', 'requests')
+            ->assertSee('Workspace Requester')
+            ->assertSee('Show 1 more products')
+            ->assertSee('Third Workspace Product')
+            ->assertSee('Total Requested Quantity');
+
+        $request = StockRequest::query()->sole();
+        $this->assertSame(3, (int) $request->items()->sum('quantity'));
+        $retry = app(StockRequestService::class)->create(new CreateStockRequestData(
+            StockRequestPurpose::PermanentTransfer, null,
+            $inventories->map(fn (ProductInventory $stock): StockRequestItemData => new StockRequestItemData($stock->id, 1))->all(),
+            'Need stock for workspace review', $authorized->instance()->stockRequestSubmissionKey,
+        ), $owner);
+        $this->assertSame($request->id, $retry->id);
+        $this->assertDatabaseCount('stock_requests', 1);
+        $this->assertSame([5, 5, 5], $inventories->map(fn (ProductInventory $stock): int => $stock->refresh()->available_quantity)->all());
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_inventory_workspace_embeds_the_existing_adjustment_grid_and_checks_preview_access(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(InventoryWorkspace::class)->call('setTab', 'adjustments')
+            ->assertSee('Prepare Stock Adjustments')->assertSee('Save All')->assertSee('Reset History Filters')
+            ->assertDontSee('Open Stock Adjustments');
+
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, false);
+        Livewire::test(StockAdjustments::class, ['embedded' => true])->assertForbidden();
+        Livewire::test(StockAdjustments::class)->assertSee('Prepare Stock Adjustments');
     }
 
     public function test_owner_opt_in_controls_all_operational_workspace_routes(): void

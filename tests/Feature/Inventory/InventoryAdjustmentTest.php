@@ -574,6 +574,10 @@ class InventoryAdjustmentTest extends TestCase
         $this->assertSame(1, InventoryAdjustment::query()->distinct()->count('batch_key'));
         $this->assertSame(5, $inventory->refresh()->available_quantity);
         $this->assertSame(1, $other->refresh()->available_quantity);
+        $component->set('historyFrom', '2099-01-01');
+        $this->assertCount(0, $component->instance()->recentHistory());
+        $component->call('resetHistoryFilters')->set('historyType', 'saleable_decrease');
+        $this->assertCount(1, $component->instance()->recentHistory());
     }
 
     public function test_adjustment_grid_filters_column_visibility_and_top_save_all_do_not_post_inventory(): void

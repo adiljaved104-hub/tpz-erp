@@ -1,4 +1,4 @@
-<x-filament-panels::page>
+<x-dynamic-component :component="$embedded ? 'workspace-inline-panel' : 'filament-panels::page'">
     <style>
         .stock-adjustments-grid th {
             width: var(--column-width);
@@ -62,7 +62,7 @@
             </x-filament::dropdown>
             <label class="w-28"><span class="mb-1 block text-xs font-medium">Rows</span><x-filament::input.select wire:model.live="perPage"><option value="10">10</option><option value="20">20</option><option value="50">50</option></x-filament::input.select></label>
         </div>
-        <form wire:submit="saveAll" class="space-y-4">
+        <form wire:submit="saveAll" @if($embedded) wire:confirm="Post all selected stock adjustments? This creates audited inventory movements." @endif class="space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <p class="text-xs text-gray-500">Current stock holders reflect existing allocation; changing Adjustment Type does not reassign ownership. Save All posts selected drafts.</p>
                 <x-filament::button type="submit" :disabled="! $mayAdjust" wire:loading.attr="disabled" wire:target="saveAll">Save All</x-filament::button>
@@ -154,6 +154,15 @@
     </x-filament::section>
 
     <x-filament::section heading="Recent Adjustment History">
+        @php($historyOptions = $this->historyFilterOptions())
+        <div class="mb-4 grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <label class="grid gap-1 text-sm">From date<x-filament::input.wrapper><x-filament::input type="date" wire:model.live="historyFrom" /></x-filament::input.wrapper></label>
+            <label class="grid gap-1 text-sm">To date<x-filament::input.wrapper><x-filament::input type="date" wire:model.live="historyTo" /></x-filament::input.wrapper></label>
+            <label class="grid gap-1 text-sm">Product / SKU<x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.300ms="historyProduct" /></x-filament::input.wrapper></label>
+            <label class="grid gap-1 text-sm">Adjustment type<x-filament::input.wrapper><x-filament::input.select wire:model.live="historyType"><option value="">All types</option>@foreach($historyOptions['types'] as $type)<option value="{{ $type }}">{{ str($type)->headline() }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+            <label class="grid gap-1 text-sm">Performed by<x-filament::input.wrapper><x-filament::input.select wire:model.live="historyEmployee"><option value="">All visible employees</option>@foreach($historyOptions['employees'] as $id => $name)<option value="{{ $id }}">{{ $name }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+            <div><x-filament::button type="button" color="gray" size="sm" wire:click="resetHistoryFilters">Reset History Filters</x-filament::button></div>
+        </div>
         <div class="overflow-x-auto"><table class="w-full min-w-[800px] text-sm"><thead><tr class="border-b text-left"><th class="px-2 py-2">Reference</th><th class="px-2 py-2">Product</th><th class="px-2 py-2">Warehouse</th><th class="px-2 py-2">Type</th><th class="px-2 py-2">Qty</th><th class="px-2 py-2">GRN</th><th class="px-2 py-2">By</th><th class="px-2 py-2">When</th></tr></thead><tbody>@forelse ($this->recentHistory() as $adjustment)<tr class="border-b"><td class="px-2 py-2">{{ $adjustment->reference }}</td><td class="px-2 py-2">{{ $adjustment->product?->sku }}</td><td class="px-2 py-2">{{ $adjustment->warehouse?->name }}</td><td class="px-2 py-2">{{ str_replace('_', ' ', $adjustment->type) }}</td><td class="px-2 py-2">{{ abs($adjustment->available_delta) }}</td><td class="px-2 py-2">{{ $adjustment->grn_reference ?? '—' }}</td><td class="px-2 py-2">{{ $adjustment->performedBy?->name }}</td><td class="px-2 py-2">{{ $adjustment->performed_at?->format('d M Y H:i') }}</td></tr>@empty<tr><td colspan="8" class="px-2 py-6 text-center text-gray-500">No stock adjustments yet.</td></tr>@endforelse</tbody></table></div>
     </x-filament::section>
-</x-filament-panels::page>
+</x-dynamic-component>

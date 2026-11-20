@@ -388,7 +388,7 @@ class SalesWorkspace extends Page
         // which uses their first rows for recent updates). Inactive modules
         // retain permission-scoped counts without loading their record pages.
         $orders = $ordersQuery !== null && in_array($this->activeTab, ['overview', 'orders'], true)
-            ? $ordersQuery->latest('orders.order_date')->paginate(10, pageName: 'sales-page')
+            ? $ordersQuery->with('items:id,order_id,product_name,sku')->latest('orders.order_date')->paginate(10, pageName: 'sales-page')
             : collect();
         $webSales = $webSalesQuery !== null && in_array($this->activeTab, ['overview', 'webSales'], true)
             ? $webSalesQuery->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page')

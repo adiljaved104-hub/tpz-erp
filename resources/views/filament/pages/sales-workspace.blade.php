@@ -7,7 +7,10 @@
                 <p class="tpz-workspace-subtitle">Orders, Web Sales and quotation work within your authorized scope.</p>
             </div>
             <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected sales section">
-                @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
+                @if($activeTab === 'extra' && $activeExtraModule !== null && ($extraModules[$activeExtraModule]['url'] ?? '') === \App\Filament\Resources\TaxInvoices\TaxInvoiceResource::getUrl() && \App\Filament\Resources\TaxInvoices\TaxInvoiceResource::canCreate())
+                    <x-filament::button type="button" wire:click="mountAction('createWorkspaceTaxInvoice')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Tax Invoice</x-filament::button>
+                    <x-filament::button tag="a" color="gray" :href="$extraModules[$activeExtraModule]['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">All Tax Invoices</x-filament::button>
+                @elseif($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
                     <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                         Open {{ $extraModules[$activeExtraModule]['label'] }}
                     </x-filament::button>
@@ -330,9 +333,6 @@
                     <div class="mt-4">{{ $quotations->links() }}</div>
                 @endif
             </x-filament::section>
-        @endif
-        @if($activeTab === 'extra' && $activeExtraModule !== null && ($extraModules[$activeExtraModule]['url'] ?? '') === \App\Filament\Resources\TaxInvoices\TaxInvoiceResource::getUrl() && \App\Filament\Resources\TaxInvoices\TaxInvoiceResource::canCreate())
-            <x-filament::button type="button" wire:click="mountAction('createWorkspaceTaxInvoice')">Create Tax Invoice</x-filament::button>
         @endif
         @if($activeTab === 'extra')
             @include('filament.pages.partials.workspace-extra-preview')

@@ -18,7 +18,7 @@ class FinanceWorkspace extends BaseOperationalWorkspace
 
     protected static string|\UnitEnum|null $navigationGroup = 'Finance';
 
-    protected static ?string $navigationLabel = 'Finance & Accounting Workspace';
+    protected static ?string $navigationLabel = 'Finance and Accounting';
 
     protected static ?string $slug = 'finance-workspace';
 

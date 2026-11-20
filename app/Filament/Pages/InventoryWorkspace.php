@@ -54,7 +54,7 @@ class InventoryWorkspace extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory & Warehouse';
 
-    protected static ?string $navigationLabel = 'Inventory Workspace';
+    protected static ?string $navigationLabel = 'Inventory';
 
     protected static ?string $slug = 'inventory-workspace';
 

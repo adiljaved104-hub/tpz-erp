@@ -204,11 +204,11 @@ class SalesWorkspace extends Page
                             && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Fulfill))
                         ->dehydrated(),
                 ])
-                ->visible(fn (): bool => OrderResource::canCreate()
-                    && auth()->user() instanceof User
-                    && (app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Create)
-                        || app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Reserve)))
+                ->visible(fn (): bool => OrderResource::canCreate())
                 ->modalSubmitActionLabel('Save & Reserve')
+                ->modalSubmitAction(fn (Action $action): Action => $action
+                    ->visible(fn (): bool => auth()->user() instanceof User
+                        && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Reserve)))
                 ->extraModalFooterActions(fn (Action $action): array => [
                     $action->makeModalSubmitAction('saveDraft', arguments: ['mode' => 'draft'])
                         ->label('Save Draft')->color('gray'),

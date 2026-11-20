@@ -2,7 +2,27 @@
 
 namespace App\Filament\Pages;
 
+use App\Actions\Products\CreateProduct as CreateProductAction;
+use App\DTOs\Products\CreateProductData;
+use App\Filament\Resources\Products\ProductResource;
+use App\Filament\Resources\Products\Schemas\ProductForm;
+use App\Enums\ProductPermission;
+use App\Services\Authorization\ProductAuthorization;
 use App\Actions\Orders\ReserveDraftOrder;
+use App\Actions\Orders\SaveAndReserveOrder;
+use App\DTOs\Orders\OrderItemData;
+use App\DTOs\Orders\SaveAndReserveOrderData;
+use App\Filament\Resources\Orders\Schemas\OrderForm;
+use Filament\Actions\Action;
+use App\Services\Orders\OrderAmendmentService;
+use App\Services\Orders\OrderFulfillmentLocationService;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
+use Illuminate\Support\Str;
 use App\Enums\QcPermission;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Qc\RenewedQcDispatchService;
@@ -75,6 +95,179 @@ class SalesWorkspace extends Page
     public bool $confirmQuickViewReserve = false;
 
     public ?string $pendingWebSaleOperation = null;
+
+    /**
+     * Reuses the exact full Sales Order form fields, product search and
+     * existing atomic SaveAndReserveOrder action; no second reservation path.
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('createSalesProduct')
+                ->label('Add Product')
+                ->modalHeading('Add Product')
+                ->modalWidth('5xl')
+                ->schema(ProductForm::components())
+                ->visible(fn (): bool => ProductResource::canCreate())
+                ->modalSubmitActionLabel('Save Product')
+                ->action(function (array $data): void {
+                    abort_unless(ProductResource::canCreate(), 403);
+                    app(CreateProductAction::class)->handle(new CreateProductData(
+                        name: $data['name'],
+                        brandId: (int) $data['brand_id'],
+                        categoryId: (int) $data['category_id'],
+                        condition: $data['condition'],
+                        model: $data['model'] ?? null,
+                        processor: $data['processor'] ?? null,
+                        processorClass: $data['processor_class'] ?? null,
+                        processorModel: $data['processor_model'] ?? null,
+                        processorGeneration: $data['processor_generation'] ?? null,
+                        ram: $data['ram'] ?? null,
+                        storage: $data['storage'] ?? null,
+                        screenSize: $data['screen_size'] ?? null,
+                        graphics: $data['graphics'] ?? null,
+                        color: $data['color'] ?? null,
+                        touchScreen: filled($data['touch_screen'] ?? null) ? (bool) $data['touch_screen'] : null,
+                        isConvertible360: filled($data['is_convertible_360'] ?? null) ? (bool) $data['is_convertible_360'] : null,
+                        accountingTitleOverride: $data['accounting_title_override'] ?? null,
+                        websiteTitleOverride: $data['website_title_override'] ?? null,
+                        warranty: $data['warranty'],
+                        costPrice: $data['cost_price'] ?? null,
+                        costPriceProvided: array_key_exists('cost_price', $data),
+                        sellingPrice: $data['selling_price'] ?? null,
+                        sellingPriceProvided: array_key_exists('selling_price', $data),
+                        description: $data['description'] ?? null,
+                        duplicateOverrideReason: $data['duplicate_override_reason'] ?? null,
+                        duplicateOverrideConfirmed: (bool) ($data['duplicate_override_confirmed'] ?? false),
+                        responsibilityOverrideConfirmed: (bool) ($data['responsibility_override_confirmed'] ?? false),
+                    ), auth()->user());
+                    $this->activeTab = 'products';
+                    $this->resetPage('sales-product-page');
+                    Notification::make()->success()->title('Product added to catalog')->send();
+                }),
+            Action::make('correctShippedOrder')
+                ->label('Post-Shipment Correction')
+                ->modalHeading('Audited Post-Shipment Correction')
+                ->modalDescription('Only documentary date, external order reference, corrected fulfillment location and authorized selling prices may change. Original shipment, products, quantities, allocations and COGS remain unchanged.')
+                ->modalWidth('5xl')
+                ->modalSubmitActionLabel('Confirm Correction')
+                ->fillForm(function (array $arguments): array {
+                    $order = $this->authorizedWorkspaceShippedOrder((int) ($arguments['orderId'] ?? 0));
+                    $priceAllowed = app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $order)
+                        && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $order);
+                    return [
+                        'order_date' => $order->order_date?->format('Y-m-d'),
+                        'warehouse_id' => app(OrderAmendmentService::class)->correctedWarehouseId($order) ?? $order->warehouse_id,
+                        'external_order_number' => $order->external_order_number,
+                        'items' => $priceAllowed ? $order->items()->orderBy('line_number')->get()->map(fn ($item): array => [
+                            'id' => $item->id, 'product' => $item->sku.' · '.$item->product_name,
+                            'selling_price' => $item->selling_price,
+                        ])->all() : [],
+                        'idempotency_key' => (string) Str::uuid(),
+                    ];
+                })
+                ->schema([
+                    Hidden::make('idempotency_key'),
+                    DatePicker::make('order_date')->label('Corrected Order Date')->required(),
+                    Select::make('warehouse_id')->label('Corrected Warehouse (documentary only)')
+                        ->options(function (array $arguments): array {
+                            $order = $this->authorizedWorkspaceShippedOrder((int) ($arguments['orderId'] ?? 0));
+                            return app(OrderFulfillmentLocationService::class)->options($order->marketplace_platform_id);
+                        })->required()->searchable(),
+                    TextInput::make('external_order_number')->label('External Order Number')->maxLength(255),
+                    Repeater::make('items')->label('Selling Prices (products and quantities locked)')
+                        ->visible(fn (array $arguments): bool => $this->workspaceCanEditOrderPrice((int) ($arguments['orderId'] ?? 0)))
+                        ->schema([
+                            Hidden::make('id'),
+                            TextInput::make('product')->label('Product')->disabled()->dehydrated(false),
+                            TextInput::make('selling_price')->label('Selling Price (AED)')->numeric()->minValue(0)->required(),
+                        ])->addable(false)->deletable(false)->reorderable(false),
+                    Textarea::make('reason')->label('Reason for correction')->required()->minLength(5)->maxLength(2000),
+                ])
+                ->action(function (array $data, array $arguments): void {
+                    $order = $this->authorizedWorkspaceShippedOrder((int) ($arguments['orderId'] ?? 0));
+                    app(OrderAmendmentService::class)->correctShipped($order, $data, auth()->user());
+                    Notification::make()->success()->title('Post-shipment correction recorded')->send();
+                }),
+            Action::make('createSalesOrder')
+                ->label('Create Sales Order')
+                ->modalHeading('Create Sales Order')
+                ->modalWidth('7xl')
+                ->schema(OrderForm::components())
+                ->visible(fn (): bool => OrderResource::canCreate()
+                    && auth()->user() instanceof User
+                    && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Reserve))
+                ->modalSubmitActionLabel('Save & Reserve')
+                ->action(function (array $data): void {
+                    abort_unless(OrderResource::canCreate(), 403);
+                    $user = auth()->user();
+                    abort_unless($user instanceof User
+                        && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve), 403);
+
+                    $items = collect($data['items'] ?? [])->values()->map(fn (array $item): OrderItemData => new OrderItemData(
+                        productId: (int) $item['product_id'],
+                        quantity: (int) $item['quantity'],
+                        sellingPrice: (string) $item['selling_price'],
+                        discountTotal: (string) ($item['discount_total'] ?? '0.00'),
+                        vatRate: (string) ($item['vat_rate'] ?? '0.0000'),
+                        notes: $item['notes'] ?? null,
+                        salesConfigurationId: filled($item['sales_configuration_id'] ?? null) ? (int) $item['sales_configuration_id'] : null,
+                        upgradeRecipeId: filled($item['upgrade_recipe_id'] ?? null) ? (int) $item['upgrade_recipe_id'] : null,
+                        allocationSources: self::workspaceAllocationSources($item['allocation_sources'] ?? []),
+                    ))->all();
+
+                    app(SaveAndReserveOrder::class)->handle(new SaveAndReserveOrderData(
+                        warehouseId: (int) $data['warehouse_id'],
+                        platformId: filled($data['marketplace_platform_id'] ?? null) ? (int) $data['marketplace_platform_id'] : null,
+                        externalOrderNumber: $data['external_order_number'] ?? null,
+                        orderDate: (string) $data['order_date'],
+                        handledByEmployeeId: filled($data['handled_by_employee_id'] ?? null) ? (int) $data['handled_by_employee_id'] : null,
+                        notes: $data['notes'] ?? null,
+                        items: $items,
+                        idempotencyKey: (string) $data['idempotency_key'],
+                    ), $user);
+
+                    $this->activeTab = 'orders';
+                    $this->resetPage('sales-page');
+                    Notification::make()->success()->title('Sales Order created and reserved')->send();
+                }),
+        ];
+    }
+
+    public function workspaceCanCorrectShipped(\App\Models\Order $order): bool
+    {
+        $user = auth()->user();
+        return $user instanceof User
+            && app(OrderAmendmentService::class)->canCorrectShipped($order, $user);
+    }
+
+    private function workspaceCanEditOrderPrice(int $id): bool
+    {
+        $order = $this->authorizedWorkspaceShippedOrder($id);
+        return app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $order)
+            && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $order);
+    }
+
+    private function authorizedWorkspaceShippedOrder(int $id): \App\Models\Order
+    {
+        abort_unless(static::canAccess() && $id > 0, 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::View), 403);
+        $order = app(OrderReadService::class)->orders($user)->whereKey($id)->first();
+        abort_unless($order instanceof \App\Models\Order, 404);
+        abort_unless(app(OrderAmendmentService::class)->canCorrectShipped($order, $user), 403);
+        return $order;
+    }
+
+    private static function workspaceAllocationSources(array $rows): ?array
+    {
+        $sources = collect($rows)
+            ->filter(fn ($row): bool => is_array($row) && filled($row['account_id'] ?? null) && (int) ($row['quantity'] ?? 0) > 0)
+            ->mapWithKeys(fn (array $row): array => [(int) $row['account_id'] => (int) $row['quantity']])->all();
+
+        return $sources === [] ? null : $sources;
+    }
 
     public static function canAccess(): bool
     {
@@ -157,6 +350,10 @@ class SalesWorkspace extends Page
             : collect();
         $webSales = $webSalesQuery !== null && in_array($this->activeTab, ['overview', 'webSales'], true)
             ? $webSalesQuery->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page')
+            : collect();
+
+        $products = ProductResource::canViewAny() && $this->activeTab === 'products'
+            ? ProductResource::getEloquentQuery()->latest('products.id')->paginate(10, pageName: 'sales-product-page')
             : collect();
 
         $quotations = ($canQuotations && $this->activeTab === 'quotations')
@@ -272,6 +469,7 @@ class SalesWorkspace extends Page
             'salesAttention' => $salesAttention,
             'salesRecentUpdates' => $salesRecentUpdates,
             'quotations' => $quotations,
+            'products' => $products,
             'orders' => $orders,
             'webSales' => $webSales,
             'canSeeOrderValues' => $canOrders && app(OrderAuthorization::class)->allows($user, OrderPermission::ViewSellingPrice),
@@ -284,6 +482,8 @@ class SalesWorkspace extends Page
                 'createQuotation' => QuotationResource::canCreate() ? QuotationResource::getUrl('create') : null,
                 'webSales' => $canWebSales ? WebSalesOrderResource::getUrl() : null,
                 'quotations' => $canQuotations ? QuotationResource::getUrl() : null,
+                'products' => ProductResource::canViewAny() ? ProductResource::getUrl() : null,
+                'createProduct' => ProductResource::canCreate() ? ProductResource::getUrl('create') : null,
                 'dashboard' => $canDashboard ? WebSalesDashboard::getUrl() : null,
             ]),
         ];
@@ -514,6 +714,7 @@ class SalesWorkspace extends Page
 
         return [
             'type' => $type,
+            'canCorrectShipped' => $type === 'orders' && $this->workspaceCanCorrectShipped($order),
             'canShip' => $type === 'webSales' && $this->webSaleCanShip($order, $user),
             'canDeliver' => $type === 'webSales' && $this->webSaleCanDeliver($order, $user),
             'qcReady' => $type !== 'webSales' || ! in_array($order->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true) || $this->webSaleQcReady($order, $user),
@@ -570,6 +771,7 @@ class SalesWorkspace extends Page
             'orders' => app(OrderAuthorization::class)->allows($user, OrderPermission::View),
             'webSales' => app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View),
             'quotations' => app(QuotationAuthorization::class)->allows($user, QuotationPermission::View),
+            'products' => ProductResource::canViewAny(),
             default => false,
         };
         abort_unless($permitted, 403);
@@ -578,6 +780,7 @@ class SalesWorkspace extends Page
         $this->resetPage('sales-page');
         $this->resetPage('web-sales-page');
         $this->resetPage('quotation-page');
+        $this->resetPage('sales-product-page');
     }
 
     public function clearFilters(): void

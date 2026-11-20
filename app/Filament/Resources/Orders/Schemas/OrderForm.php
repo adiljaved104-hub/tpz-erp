@@ -36,7 +36,13 @@ class OrderForm
 {
     public static function configure(Schema $schema): Schema
     {
-        return $schema->components([
+        return $schema->components(self::components());
+    }
+
+    /** Shared single source for full-page and in-workspace Order creation. */
+    public static function components(): array
+    {
+        return [
             Section::make('Order')->schema([
                 Select::make('marketplace_platform_id')
                     ->label('Platform')
@@ -182,7 +188,7 @@ class OrderForm
             Section::make('Notes')->schema([
                 Textarea::make('notes')->maxLength(5000),
             ])->collapsed()->collapsible(),
-        ]);
+        ];
     }
 
     private static function productOptions(string $search, Get $get): array

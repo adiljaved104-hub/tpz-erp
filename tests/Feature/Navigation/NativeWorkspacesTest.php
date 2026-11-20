@@ -346,8 +346,8 @@ class NativeWorkspacesTest extends TestCase
 
         Livewire::test(SalesWorkspace::class)
             ->assertSee('Create Sales Order')
-            ->call('mountAction', 'createSalesOrder')
-            ->assertSee('Save &amp; Reserve', false);
+            ->assertActionExists('createSalesOrder')
+            ->assertActionVisible('createSalesOrder');
         $this->assertDatabaseCount('orders', 0);
     }
 

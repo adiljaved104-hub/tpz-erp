@@ -18,6 +18,7 @@ use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Orders\Schemas\OrderForm;
 use App\Filament\Resources\Quotations\QuotationResource;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
+use App\Filament\Resources\WebSalesOrders\Pages\CreateWebSalesOrder;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\Order;
 use App\Models\TaxInvoice;
@@ -107,6 +108,36 @@ class SalesWorkspace extends Page
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('createWorkspaceWebSale')
+                ->label('Create Web Sale')
+                ->modalHeading('Create Web Sale')
+                ->modalWidth('5xl')
+                ->modalSubmitActionLabel('Save & Confirm')
+                ->model(Order::class)
+                ->visible(fn (): bool => static::canAccess() && WebSalesOrderResource::canCreate())
+                ->schema(fn (Schema $schema): Schema => WebSalesOrderResource::form($schema))
+                ->action(function (array $data): void {
+                    abort_unless(static::canAccess() && WebSalesOrderResource::canCreate(), 403);
+                    try {
+                        $order = app(WebSalesService::class)->createConfirmed(
+                            CreateWebSalesOrder::makeOrderData($data),
+                            auth()->user(),
+                        );
+                    } catch (ValidationException $exception) {
+                        throw $exception;
+                    } catch (\Throwable $exception) {
+                        report($exception);
+                        Notification::make()->danger()->title('Web Sale could not be saved')
+                            ->body('Please review the form and try again.')->send();
+
+                        throw new Halt;
+                    }
+
+                    $this->activeTab = 'webSales';
+                    $this->resetPage('web-sales-page');
+                    Notification::make()->success()->title('Web Sale confirmed')
+                        ->body('Order '.$order->reference.' created.')->send();
+                }),
             Action::make('createWorkspaceTaxInvoice')
                 ->label('Create Tax Invoice')
                 ->modalWidth('4xl')

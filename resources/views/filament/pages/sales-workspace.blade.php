@@ -35,7 +35,7 @@
                     @endif
                 @elseif($activeTab === 'webSales')
                     @if(isset($links['createWebSale']))
-                        <x-filament::button tag="a" :href="$links['createWebSale']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Web Sale</x-filament::button>
+                        <x-filament::button type="button" wire:click="mountAction('createWorkspaceWebSale')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Web Sale</x-filament::button>
                     @endif
                     @if(isset($links['dashboard']))
                         <x-filament::button tag="a" color="gray" :href="$links['dashboard']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-chart-bar')">Web Sales Dashboard</x-filament::button>

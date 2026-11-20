@@ -55,6 +55,30 @@ class NativeWorkspacesTest extends TestCase
         $this->assertFalse(InventoryWorkspace::canAccess());
     }
 
+    public function test_short_workspace_labels_stay_in_primary_navigation_instead_of_workplace_tools(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+
+        $navigation = app(NavigationPreferenceService::class);
+        $navigation->setWorkspaceMode($owner, true);
+
+        $groups = $navigation->apply($owner, $navigation->authorizedNavigation());
+        $primary = collect($groups)
+            ->first(fn ($group): bool => blank($group->getLabel()));
+
+        $this->assertNotNull($primary);
+        $labels = collect($primary->getItems())->map(fn ($item): string => $item->getLabel())->all();
+
+        foreach (['Sales', 'Inventory', 'Purchase', 'Return & QC', 'Finance and Accounting'] as $workspace) {
+            $this->assertContains($workspace, $labels);
+        }
+
+        $this->assertNotContains('Sales Orders', $labels);
+        $this->assertNotContains('Tax Invoices', $labels);
+    }
+
     public function test_phase5_purchasing_products_and_quick_purchase_modal_reuse_existing_forms(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

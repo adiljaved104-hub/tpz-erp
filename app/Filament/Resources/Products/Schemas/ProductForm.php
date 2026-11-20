@@ -31,8 +31,13 @@ class ProductForm
 {
     public static function configure(Schema $schema): Schema
     {
-        return $schema
-            ->components([
+        return $schema->components(self::components());
+    }
+
+    /** Shared form for full-page creation and the Sales Workspace Products tab. */
+    public static function components(): array
+    {
+        return [
 
                 // =========================
                 // Basic Information
@@ -222,7 +227,7 @@ class ProductForm
                     ->rows(5)
                     ->columnSpanFull(),
 
-            ]);
+            ];
     }
 
     /** @return array<string, string> */

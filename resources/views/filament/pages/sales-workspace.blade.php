@@ -414,6 +414,15 @@
                         <p class="text-sm text-gray-500">No order lines available.</p>
                     @endforelse
                 </div>
+                @if($quickViewOrder['canCorrectShipped'])
+                    <div class="mt-6">
+                        <x-filament::button color="warning" size="sm" type="button"
+                            wire:click="mountAction('correctShippedOrder', { orderId: {{ $quickViewOrderId }} })">
+                            Post-Shipment Correction
+                        </x-filament::button>
+                        <p class="mt-2 text-xs text-gray-500">Audited documentary correction only. Original stock movements remain unchanged.</p>
+                    </div>
+                @endif
                 @if($quickViewOrder['canReserve'])
                     <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
                         @if($confirmQuickViewReserve)

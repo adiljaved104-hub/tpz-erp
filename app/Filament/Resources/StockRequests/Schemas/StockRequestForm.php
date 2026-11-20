@@ -20,7 +20,12 @@ class StockRequestForm
 {
     public static function configure(Schema $schema): Schema
     {
-        return $schema->components([
+        return $schema->components(self::components());
+    }
+
+    public static function components(): array
+    {
+        return [
             Section::make('Request Details')->columns(2)->schema([
                 Placeholder::make('requested_by')->label('Requested By')
                     ->content(function (): string {
@@ -40,7 +45,10 @@ class StockRequestForm
                     ->getSearchResultsUsing(fn (string $search): array => app(StockRequestService::class)->searchOrders(auth()->user(), $search)
                         ->mapWithKeys(fn (Order $order): array => [$order->id => trim("{$order->reference} · {$order->external_order_number}", ' ·')])->all())
                     ->getOptionLabelUsing(function ($value): ?string {
-                        $order = Order::query()->select(['id', 'reference', 'external_order_number'])->find($value);
+                        $user = auth()->user();
+                        $order = $user instanceof User && (int) $value > 0
+                            ? app(StockRequestService::class)->requestableOrder($user, (int) $value)
+                            : null;
 
                         return $order === null ? null : trim("{$order->reference} · {$order->external_order_number}", ' ·');
                     }),
@@ -79,6 +87,6 @@ class StockRequestForm
                     })->columnSpanFull(),
                 ]),
             ]),
-        ]);
+        ];
     }
 }

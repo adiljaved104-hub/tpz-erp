@@ -12,8 +12,8 @@
                         Open {{ $extraModules[$activeExtraModule]['label'] }}
                     </x-filament::button>
                 @elseif($activeTab === 'overview')
-                    @if(isset($links['createRequest']))
-                        <x-filament::button tag="a" :href="$links['createRequest']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Stock Request</x-filament::button>
+                    @if(\App\Filament\Resources\StockRequests\StockRequestResource::canCreate())
+                        <x-filament::button type="button" wire:click="mountAction('createStockRequest')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Stock Request</x-filament::button>
                     @endif
                     @if(isset($links['transfers']))
                         <details class="tpz-reference-actions-menu">
@@ -35,8 +35,8 @@
                 @elseif($activeTab === 'myInventory' && isset($links['myInventory']))
                     <x-filament::button tag="a" :href="$links['myInventory']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-user')">My Inventory</x-filament::button>
                 @elseif($activeTab === 'requests')
-                    @if(isset($links['createRequest']))
-                        <x-filament::button tag="a" :href="$links['createRequest']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Stock Request</x-filament::button>
+                    @if(\App\Filament\Resources\StockRequests\StockRequestResource::canCreate())
+                        <x-filament::button type="button" wire:click="mountAction('createStockRequest')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Stock Request</x-filament::button>
                     @endif
                     @if(isset($links['requests']))
                         <x-filament::button tag="a" color="gray" :href="$links['requests']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-clipboard-document-list')">All Requests</x-filament::button>
@@ -48,8 +48,6 @@
                     @if(isset($links['transfers']))
                         <x-filament::button tag="a" color="gray" :href="$links['transfers']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-truck')">All Transfers</x-filament::button>
                     @endif
-                @elseif($activeTab === 'adjustments' && isset($links['adjustments']))
-                    <x-filament::button tag="a" :href="$links['adjustments']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-adjustments-horizontal')">Open Stock Adjustments</x-filament::button>
                 @endif
             </div>
         </header>
@@ -274,13 +272,43 @@
                 </div>
                 <div class="overflow-x-auto">
                     <table class="tpz-workspace-table">
-                        <thead><tr><th>Reference / SKU</th><th>Details</th><th>Last updated</th><th>Action</th></tr></thead>
+                        <thead>
+                            @if($activeTab === 'requests')
+                                <tr><th>Stock Request Reference</th><th>Requested By</th><th>Purpose</th><th>Requested Products</th><th>Total Requested Quantity</th><th>Status</th><th>Requested At</th><th>Authorized Actions</th></tr>
+                            @else
+                                <tr><th>Reference / SKU</th><th>Details</th><th>Last updated</th><th>Action</th></tr>
+                            @endif
+                        </thead>
                         <tbody>
                             @forelse($moduleRecords as $record)
                                 <tr wire:key="native-module-{{ $activeTab }}-{{ $record->getKey() }}">
                                     <td class="font-semibold text-gray-950 dark:text-white">
                                         {{ $activeTab === 'products' ? $record->sku : ($activeTab === 'myInventory' ? ($record->product?->sku ?? '—') : ($record->reference ?? '—')) }}
                                     </td>
+                                    @if($activeTab === 'requests')
+                                        <td>{{ $record->requester?->name ?? '—' }}</td>
+                                        <td>{{ $record->purpose->getLabel() }}</td>
+                                        <td class="min-w-52 whitespace-normal">
+                                            <ul class="space-y-1 break-words">
+                                                @foreach($record->items->take(2) as $item)
+                                                    <li><strong>{{ $item->sku }}</strong> — {{ $item->product_name }} × {{ number_format($item->quantity) }}</li>
+                                                @endforeach
+                                            </ul>
+                                            @if($record->items->count() > 2)
+                                                <details class="mt-1">
+                                                    <summary class="cursor-pointer text-primary-600 dark:text-primary-400">Show {{ $record->items->count() - 2 }} more products</summary>
+                                                    <ul class="mt-1 space-y-1 break-words">
+                                                        @foreach($record->items->skip(2) as $item)
+                                                            <li><strong>{{ $item->sku }}</strong> — {{ $item->product_name }} × {{ number_format($item->quantity) }}</li>
+                                                        @endforeach
+                                                    </ul>
+                                                </details>
+                                            @endif
+                                        </td>
+                                        <td class="tabular-nums">{{ number_format((int) $record->requested_quantity) }}</td>
+                                        <td><x-filament::badge :color="$record->status->getColor()">{{ $record->status->getLabel() }}</x-filament::badge></td>
+                                        <td>{{ app(\App\Services\UserTimezoneResolver::class)->format($record->created_at, 'd M Y, h:i A') ?? '—' }}</td>
+                                    @else
                                     <td>
                                         @if($activeTab === 'products')
                                             {{ $record->name }}
@@ -291,6 +319,7 @@
                                         @endif
                                     </td>
                                     <td>{{ $record->updated_at?->format('d M Y') ?? '—' }}</td>
+                                    @endif
                                     <td>
                                         @if($resourceClass::canView($record))
                                             <div class="flex flex-wrap gap-2">
@@ -309,7 +338,7 @@
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="4" class="py-8 text-center text-gray-500">No records in your authorized scope.</td></tr>
+                                <tr><td colspan="{{ $activeTab === 'requests' ? 8 : 4 }}" class="py-8 text-center text-gray-500">No records in your authorized scope.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
@@ -321,15 +350,7 @@
         @endif
 
         @if($activeTab === 'adjustments' && isset($links['adjustments']))
-            <x-filament::section>
-                <div class="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                        <h2 class="text-base font-semibold text-gray-950 dark:text-white">Stock Adjustments</h2>
-                        <p class="mt-1 text-sm text-gray-500">Open the existing controlled adjustment form to make authorized stock changes.</p>
-                    </div>
-                    <x-filament::button tag="a" :href="$links['adjustments']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">Open Stock Adjustments</x-filament::button>
-                </div>
-            </x-filament::section>
+            @livewire(\App\Filament\Pages\Inventory\StockAdjustments::class, ['embedded' => true], key('workspace-stock-adjustments'))
         @endif
 
 

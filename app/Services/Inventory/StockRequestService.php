@@ -263,13 +263,22 @@ class StockRequestService
     public function searchOrders(User $actor, string $search): Collection
     {
         $search = trim($search);
-        if (mb_strlen($search) < 2) {
+        if (mb_strlen($search) < 2 || ! $this->orderAuthorization->allows($actor, OrderPermission::View)) {
             return collect();
         }
 
         return $this->orders->orders($actor)
             ->where(fn (Builder $query): Builder => $query->where('reference', 'like', "%{$search}%")->orWhere('external_order_number', 'like', "%{$search}%"))
             ->orderByDesc('id')->limit(20)->get();
+    }
+
+    public function requestableOrder(User $actor, int $orderId): ?Order
+    {
+        if (! $this->orderAuthorization->allows($actor, OrderPermission::View)) {
+            return null;
+        }
+
+        return $this->orders->orders($actor)->find($orderId);
     }
 
     /** @return array{holders: Collection<int, array{account_id:int,type:string,label:string,available_quantity:int}>, transferable_available:int, system_unassigned:int, system_account_id:?int, requestable_available:int} */

@@ -8,6 +8,10 @@ on:
       - 'app/Filament/Pages/Inventory/MyInventory.php'
       - 'app/Filament/Resources/Orders/Tables/OrdersTable.php'
       - 'tests/Feature/Dashboard/ErpDashboardTest.php'
+      - 'app/Filament/Pages/SalesWorkspace.php'
+      - 'app/Filament/Resources/Orders/Schemas/OrderForm.php'
+      - 'resources/views/filament/pages/sales-workspace.blade.php'
+      - 'tests/Feature/Navigation/NativeWorkspacesTest.php'
       - '.github/workflows/phase3-warehouse-navigation-qa.yml'
   workflow_dispatch:
 
@@ -44,6 +48,8 @@ jobs:
           php -l app/Filament/Pages/Inventory/MyInventory.php
           php -l app/Filament/Resources/Orders/Tables/OrdersTable.php
           php -l tests/Feature/Dashboard/ErpDashboardTest.php
+          php -l app/Filament/Pages/SalesWorkspace.php
+          php -l app/Filament/Resources/Orders/Schemas/OrderForm.php
       - name: MySQL migration and Blade
         env: &mysql_env
           APP_ENV: testing
@@ -58,4 +64,4 @@ jobs:
           php artisan view:cache
       - name: Dashboard links and inventory authorization
         env: *mysql_env
-        run: vendor/bin/phpunit tests/Feature/Dashboard/ErpDashboardTest.php
+        run: vendor/bin/phpunit tests/Feature/Dashboard/ErpDashboardTest.php tests/Feature/Navigation/NativeWorkspacesTest.php

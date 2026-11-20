@@ -14,6 +14,15 @@ use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
 use App\Filament\Resources\Orders\Schemas\OrderForm;
 use Filament\Actions\Action;
+use App\Services\Orders\OrderAmendmentService;
+use App\Services\Orders\OrderFulfillmentLocationService;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
+use Illuminate\Support\Str;
 use App\Enums\QcPermission;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Qc\RenewedQcDispatchService;
@@ -136,6 +145,50 @@ class SalesWorkspace extends Page
                     $this->resetPage('sales-product-page');
                     Notification::make()->success()->title('Product added to catalog')->send();
                 }),
+            Action::make('correctShippedOrder')
+                ->label('Post-Shipment Correction')
+                ->modalHeading('Audited Post-Shipment Correction')
+                ->modalDescription('Only documentary date, external order reference, corrected fulfillment location and authorized selling prices may change. Original shipment, products, quantities, allocations and COGS remain unchanged.')
+                ->modalWidth('5xl')
+                ->modalSubmitActionLabel('Confirm Correction')
+                ->fillForm(function (array $arguments): array {
+                    $order = $this->authorizedWorkspaceShippedOrder((int) ($arguments['orderId'] ?? 0));
+                    $priceAllowed = app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $order)
+                        && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $order);
+                    return [
+                        'order_date' => $order->order_date?->format('Y-m-d'),
+                        'warehouse_id' => app(OrderAmendmentService::class)->correctedWarehouseId($order) ?? $order->warehouse_id,
+                        'external_order_number' => $order->external_order_number,
+                        'items' => $priceAllowed ? $order->items()->orderBy('line_number')->get()->map(fn ($item): array => [
+                            'id' => $item->id, 'product' => $item->sku.' · '.$item->product_name,
+                            'selling_price' => $item->selling_price,
+                        ])->all() : [],
+                        'idempotency_key' => (string) Str::uuid(),
+                    ];
+                })
+                ->schema([
+                    Hidden::make('idempotency_key'),
+                    DatePicker::make('order_date')->label('Corrected Order Date')->required(),
+                    Select::make('warehouse_id')->label('Corrected Warehouse (documentary only)')
+                        ->options(function (array $arguments): array {
+                            $order = $this->authorizedWorkspaceShippedOrder((int) ($arguments['orderId'] ?? 0));
+                            return app(OrderFulfillmentLocationService::class)->options($order->marketplace_platform_id);
+                        })->required()->searchable(),
+                    TextInput::make('external_order_number')->label('External Order Number')->maxLength(255),
+                    Repeater::make('items')->label('Selling Prices (products and quantities locked)')
+                        ->visible(fn (array $arguments): bool => $this->workspaceCanEditOrderPrice((int) ($arguments['orderId'] ?? 0)))
+                        ->schema([
+                            Hidden::make('id'),
+                            TextInput::make('product')->label('Product')->disabled()->dehydrated(false),
+                            TextInput::make('selling_price')->label('Selling Price (AED)')->numeric()->minValue(0)->required(),
+                        ])->addable(false)->deletable(false)->reorderable(false),
+                    Textarea::make('reason')->label('Reason for correction')->required()->minLength(5)->maxLength(2000),
+                ])
+                ->action(function (array $data, array $arguments): void {
+                    $order = $this->authorizedWorkspaceShippedOrder((int) ($arguments['orderId'] ?? 0));
+                    app(OrderAmendmentService::class)->correctShipped($order, $data, auth()->user());
+                    Notification::make()->success()->title('Post-shipment correction recorded')->send();
+                }),
             Action::make('createSalesOrder')
                 ->label('Create Sales Order')
                 ->modalHeading('Create Sales Order')
@@ -179,6 +232,32 @@ class SalesWorkspace extends Page
                     Notification::make()->success()->title('Sales Order created and reserved')->send();
                 }),
         ];
+    }
+
+    public function workspaceCanCorrectShipped(\App\Models\Order $order): bool
+    {
+        $user = auth()->user();
+        return $user instanceof User
+            && app(OrderAmendmentService::class)->canCorrectShipped($order, $user);
+    }
+
+    private function workspaceCanEditOrderPrice(int $id): bool
+    {
+        $order = $this->authorizedWorkspaceShippedOrder($id);
+        return app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::ViewSellingPrice, $order)
+            && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::EditSellingPrice, $order);
+    }
+
+    private function authorizedWorkspaceShippedOrder(int $id): \App\Models\Order
+    {
+        abort_unless(static::canAccess() && $id > 0, 403);
+        $user = auth()->user();
+        abort_unless($user instanceof User
+            && app(OrderAuthorization::class)->allows($user, OrderPermission::View), 403);
+        $order = app(OrderReadService::class)->orders($user)->whereKey($id)->first();
+        abort_unless($order instanceof \App\Models\Order, 404);
+        abort_unless(app(OrderAmendmentService::class)->canCorrectShipped($order, $user), 403);
+        return $order;
     }
 
     private static function workspaceAllocationSources(array $rows): ?array
@@ -635,6 +714,7 @@ class SalesWorkspace extends Page
 
         return [
             'type' => $type,
+            'canCorrectShipped' => $type === 'orders' && $this->workspaceCanCorrectShipped($order),
             'canShip' => $type === 'webSales' && $this->webSaleCanShip($order, $user),
             'canDeliver' => $type === 'webSales' && $this->webSaleCanDeliver($order, $user),
             'qcReady' => $type !== 'webSales' || ! in_array($order->status, [OrderStatus::Reserved, OrderStatus::PendingReview], true) || $this->webSaleQcReady($order, $user),

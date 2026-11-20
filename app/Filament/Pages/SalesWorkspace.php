@@ -3,6 +3,11 @@
 namespace App\Filament\Pages;
 
 use App\Actions\Orders\ReserveDraftOrder;
+use App\Actions\Orders\SaveAndReserveOrder;
+use App\DTOs\Orders\OrderItemData;
+use App\DTOs\Orders\SaveAndReserveOrderData;
+use App\Filament\Resources\Orders\Schemas\OrderForm;
+use Filament\Actions\Action;
 use App\Enums\QcPermission;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Qc\RenewedQcDispatchService;
@@ -75,6 +80,67 @@ class SalesWorkspace extends Page
     public bool $confirmQuickViewReserve = false;
 
     public ?string $pendingWebSaleOperation = null;
+
+    /**
+     * Reuses the exact full Sales Order form fields, product search and
+     * existing atomic SaveAndReserveOrder action; no second reservation path.
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('createSalesOrder')
+                ->label('Create Sales Order')
+                ->modalHeading('Create Sales Order')
+                ->modalWidth('7xl')
+                ->schema(OrderForm::components())
+                ->visible(fn (): bool => OrderResource::canCreate()
+                    && auth()->user() instanceof User
+                    && app(OrderAuthorization::class)->allows(auth()->user(), OrderPermission::Reserve))
+                ->modalSubmitActionLabel('Save & Reserve')
+                ->action(function (array $data): void {
+                    abort_unless(OrderResource::canCreate(), 403);
+                    $user = auth()->user();
+                    abort_unless($user instanceof User
+                        && app(OrderAuthorization::class)->allows($user, OrderPermission::Reserve), 403);
+
+                    $items = collect($data['items'] ?? [])->values()->map(fn (array $item): OrderItemData => new OrderItemData(
+                        productId: (int) $item['product_id'],
+                        quantity: (int) $item['quantity'],
+                        sellingPrice: (string) $item['selling_price'],
+                        discountTotal: (string) ($item['discount_total'] ?? '0.00'),
+                        vatRate: (string) ($item['vat_rate'] ?? '0.0000'),
+                        notes: $item['notes'] ?? null,
+                        salesConfigurationId: filled($item['sales_configuration_id'] ?? null) ? (int) $item['sales_configuration_id'] : null,
+                        upgradeRecipeId: filled($item['upgrade_recipe_id'] ?? null) ? (int) $item['upgrade_recipe_id'] : null,
+                        allocationSources: self::workspaceAllocationSources($item['allocation_sources'] ?? []),
+                    ))->all();
+
+                    app(SaveAndReserveOrder::class)->handle(new SaveAndReserveOrderData(
+                        warehouseId: (int) $data['warehouse_id'],
+                        platformId: filled($data['marketplace_platform_id'] ?? null) ? (int) $data['marketplace_platform_id'] : null,
+                        externalOrderNumber: $data['external_order_number'] ?? null,
+                        orderDate: (string) $data['order_date'],
+                        handledByEmployeeId: filled($data['handled_by_employee_id'] ?? null) ? (int) $data['handled_by_employee_id'] : null,
+                        notes: $data['notes'] ?? null,
+                        items: $items,
+                        idempotencyKey: (string) $data['idempotency_key'],
+                    ), $user);
+
+                    $this->activeTab = 'orders';
+                    $this->resetPage('sales-page');
+                    Notification::make()->success()->title('Sales Order created and reserved')->send();
+                }),
+        ];
+    }
+
+    private static function workspaceAllocationSources(array $rows): ?array
+    {
+        $sources = collect($rows)
+            ->filter(fn ($row): bool => is_array($row) && filled($row['account_id'] ?? null) && (int) ($row['quantity'] ?? 0) > 0)
+            ->mapWithKeys(fn (array $row): array => [(int) $row['account_id'] => (int) $row['quantity']])->all();
+
+        return $sources === [] ? null : $sources;
+    }
 
     public static function canAccess(): bool
     {

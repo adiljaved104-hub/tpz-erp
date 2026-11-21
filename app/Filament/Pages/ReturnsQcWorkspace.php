@@ -9,6 +9,11 @@ use App\Filament\Resources\QcInspections\QcInspectionResource;
 use App\Filament\Resources\SafetClaims\SafetClaimResource;
 use App\Filament\Resources\WarrantyRepairs\WarrantyRepairResource;
 use App\Enums\CustomerReturnPermission;
+use App\Enums\MarketplaceRemovalSourceStockType;
+use App\Actions\Returns\CreateMarketplaceReturnRemoval as CreateMarketplaceRemovalAction;
+use App\DTOs\Returns\CreateMarketplaceReturnRemovalData;
+use App\DTOs\Returns\MarketplaceRemovalItemData;
+use App\Models\MarketplaceReturnRemoval;
 use App\Exceptions\CustomerReturnException;
 use App\Models\CustomerReturn;
 use App\Services\Authorization\CustomerReturnAuthorization;
@@ -34,10 +39,14 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
     #[Locked]
     public ?string $returnSubmissionKey = null;
 
+    #[Locked]
+    public ?string $removalSubmissionKey = null;
+
     public function mount(): void
     {
         parent::mount();
         $this->returnSubmissionKey = (string) Str::uuid();
+        $this->removalSubmissionKey = (string) Str::uuid();
     }
 
     protected function getHeaderActions(): array
@@ -84,6 +93,43 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
                     Notification::make()->success()
                         ->title($complete ? 'Return received and QC recorded' : 'Return saved pending')
                         ->body('Return '.($record->reference ?? '#'.$record->id).' created.')->send();
+                }),
+            Action::make('createMarketplaceRemoval')
+                ->label('Create Marketplace Removal')
+                ->modalHeading('Create Marketplace Return Removal')
+                ->modalWidth('6xl')
+                ->model(MarketplaceReturnRemoval::class)
+                ->visible(fn (): bool => static::canAccess() && MarketplaceReturnRemovalResource::canCreate())
+                ->schema(fn (Schema $schema): Schema => MarketplaceReturnRemovalResource::form($schema))
+                ->action(function (array $data): void {
+                    abort_unless(static::canAccess() && MarketplaceReturnRemovalResource::canCreate(), 403);
+                    try {
+                        $record = app(CreateMarketplaceRemovalAction::class)->handle(
+                            new CreateMarketplaceReturnRemovalData(
+                                (int) $data['marketplace_platform_id'],
+                                (int) $data['source_warehouse_id'],
+                                (int) $data['destination_warehouse_id'],
+                                array_map(fn (array $item): MarketplaceRemovalItemData => new MarketplaceRemovalItemData(
+                                    (int) $item['product_id'],
+                                    MarketplaceRemovalSourceStockType::from($item['source_stock_type']),
+                                    (int) $item['quantity'],
+                                    isset($item['customer_return_item_id']) ? (int) $item['customer_return_item_id'] : null,
+                                ), $data['items']),
+                                $this->removalSubmissionKey ?? (string) Str::uuid(),
+                                $data['external_removal_reference'] ?? null,
+                                $data['notes'] ?? null,
+                            ),
+                            auth()->user(),
+                        );
+                    } catch (CustomerReturnException $exception) {
+                        Notification::make()->danger()->title('Cannot request Marketplace Removal')
+                            ->body($exception->getMessage())->send();
+                        throw new Halt;
+                    }
+
+                    $this->removalSubmissionKey = (string) Str::uuid();
+                    Notification::make()->success()->title('Marketplace Removal created')
+                        ->body('Removal '.($record->reference ?? '#'.$record->id).' created.')->send();
                 }),
         ];
     }

@@ -331,6 +331,7 @@ class InventoryWorkspace extends Page
                 'movements' => $canSeeMovements && StockMovementResource::canViewAny() ? StockMovementResource::getUrl() : null,
             ]),
             'canViewProducts' => ProductResource::canViewAny(),
+            'canOpenInventoryQuickView' => $canInventory,
         ];
     }
 

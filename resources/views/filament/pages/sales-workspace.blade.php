@@ -70,6 +70,28 @@
 .dark .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-heading {
     color: #dbeafe;
 }
+/* Apply the same compact TPZ form language to Sales Order and Web Sale only. */
+.tpz-sales-entry-modal .fi-modal-header { padding-block: .8rem; }
+.tpz-sales-entry-modal .fi-modal-content { padding-block: .7rem; }
+.tpz-sales-entry-modal .fi-sc-section {
+    border: 1px solid rgba(16, 91, 166, .16);
+    border-radius: .8rem;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(13, 42, 75, .04);
+}
+.tpz-sales-entry-modal .fi-sc-section-header {
+    padding: .8rem 1rem;
+    border-bottom: 1px solid rgba(16, 91, 166, .1);
+    background: linear-gradient(110deg, rgba(13, 110, 205, .095), rgba(58, 144, 245, .025));
+}
+.tpz-sales-entry-modal .fi-sc-section-header-heading { color: #10395b; font-size: .95rem; font-weight: 700; }
+.tpz-sales-entry-modal .fi-sc-section-header-icon { color: #0872d4; }
+.tpz-sales-entry-modal .fi-sc-section-content { padding: .8rem 1rem; }
+.tpz-sales-entry-modal .fi-sc-section-content .fi-sc { row-gap: .8rem; }
+.tpz-sales-entry-modal .fi-modal-footer { border-top: 1px solid rgba(16, 91, 166, .1); }
+.dark .tpz-sales-entry-modal .fi-sc-section { border-color: rgba(147,197,253,.22); }
+.dark .tpz-sales-entry-modal .fi-sc-section-header { background: rgba(37,99,235,.14); }
+.dark .tpz-sales-entry-modal .fi-sc-section-header-heading { color: #dbeafe; }
 </style>
 @endonce
 

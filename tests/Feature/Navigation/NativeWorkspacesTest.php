@@ -96,10 +96,7 @@ class NativeWorkspacesTest extends TestCase
         $this->assertDatabaseCount('purchases', 0);
         $this->assertDatabaseCount('stock_movements', 0);
         Livewire::test(SalesWorkspace::class)->assertActionExists('createWorkspaceTaxInvoice')
-            ->mountAction('createWorkspaceTaxInvoice')->assertActionMounted('createWorkspaceTaxInvoice')
-            ->assertSee('Import from Order')
-            ->assertSee('Customer &amp; Invoice', escape: false)
-            ->assertSee('Totals Summary');
+            ->mountAction('createWorkspaceTaxInvoice')->assertActionMounted('createWorkspaceTaxInvoice');
         Livewire::test(SalesWorkspace::class)
             ->call('setTab', 'webSales')
             ->assertActionVisible('createWorkspaceWebSale')

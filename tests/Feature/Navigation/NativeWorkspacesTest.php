@@ -79,6 +79,63 @@ class NativeWorkspacesTest extends TestCase
         $this->assertNotContains('Tax Invoices', $labels);
     }
 
+    public function test_tax_invoice_workspace_tab_opens_authorized_invoice_preview(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $workspace = Livewire::test(SalesWorkspace::class);
+        $modules = $workspace->viewData('extraModules');
+        $taxInvoiceIndex = collect($modules)->search(fn (array $item): bool => $item['label'] === 'Tax Invoices');
+
+        $this->assertNotFalse($taxInvoiceIndex, 'Tax Invoices must be available in Sales Workspace');
+
+        $workspace->call('selectExtraModule', (int) $taxInvoiceIndex)
+            ->assertSet('activeTab', 'extra')
+            ->assertSet('activeExtraModule', (int) $taxInvoiceIndex)
+            ->assertSee('Tax Invoices');
+    }
+
+    public function test_inventory_products_tab_search_is_scoped_and_filters_sku_and_name(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $shown = Product::factory()->create(['sku' => 'TPZ-SEARCH-001', 'name' => 'Unique Alpha Device']);
+        $hidden = Product::factory()->create(['sku' => 'TPZ-SEARCH-002', 'name' => 'Unique Beta Device']);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('setTab', 'products')
+            ->assertSee($shown->name)
+            ->assertSee($hidden->name)
+            ->set('productSearch', 'Alpha')
+            ->assertSee($shown->name)
+            ->assertDontSee($hidden->name)
+            ->set('productSearch', 'TPZ-SEARCH-002')
+            ->assertSee($hidden->name)
+            ->assertDontSee($shown->name);
+    }
+
+    public function test_returns_workspace_create_modal_reuses_original_form_without_posting_stock(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(ReturnsQcWorkspace::class)
+            ->assertActionVisible('createCustomerReturn')
+            ->mountAction('createCustomerReturn')
+            ->assertActionMounted('createCustomerReturn');
+
+        $this->assertDatabaseCount('customer_returns', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
     public function test_phase5_purchasing_products_and_quick_purchase_modal_reuse_existing_forms(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
@@ -218,6 +275,37 @@ class NativeWorkspacesTest extends TestCase
         $this->assertSame($request->id, $retry->id);
         $this->assertDatabaseCount('stock_requests', 1);
         $this->assertSame([5, 5, 5], $inventories->map(fn (ProductInventory $stock): int => $stock->refresh()->available_quantity)->all());
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_stock_request_workspace_bulk_picker_adds_authorized_products_without_duplicates_or_stock_changes(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $first = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['name' => 'Picker Product One'])->id,
+            'available_quantity' => 6,
+            'reserved_quantity' => 0,
+        ]);
+        $second = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['name' => 'Picker Product Two'])->id,
+            'available_quantity' => 4,
+            'reserved_quantity' => 0,
+        ]);
+        app(InventoryAllocationService::class)->ensureShadowCoverage($first, $owner);
+        app(InventoryAllocationService::class)->ensureShadowCoverage($second, $owner);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->mountAction('createStockRequest')
+            ->set('mountedActions.0.data.quick_add_inventories', [$first->id, $second->id])
+            ->assertSet('mountedActions.0.data.items', fn ($items): bool => count($items) === 2)
+            ->set('mountedActions.0.data.quick_add_inventories', [$first->id])
+            ->assertSet('mountedActions.0.data.items', fn ($items): bool => count($items) === 2);
+
+        $this->assertDatabaseCount('stock_requests', 0);
         $this->assertDatabaseCount('stock_movements', 0);
     }
 
@@ -395,6 +483,25 @@ class NativeWorkspacesTest extends TestCase
         Livewire::test(SalesWorkspace::class)
             ->call('openOrderQuickView', 'unknown', 1)
             ->assertForbidden();
+    }
+
+    public function test_my_inventory_rows_show_product_name_as_well_as_sku(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $product = Product::factory()->create([
+            'sku' => 'TPZ-TITLE-VISIBLE-01',
+            'name' => 'Visible Inventory Product Name',
+        ]);
+        ProductInventory::factory()->create(['product_id' => $product->id]);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('setTab', 'myInventory')
+            ->assertSee('TPZ-TITLE-VISIBLE-01')
+            ->assertSee('Visible Inventory Product Name');
     }
 
     public function test_inventory_quick_view_loads_authorized_stock_and_can_close(): void

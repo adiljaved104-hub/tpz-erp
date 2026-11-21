@@ -98,6 +98,23 @@ class NativeWorkspacesTest extends TestCase
             ->assertSee('Tax Invoices');
     }
 
+    public function test_inventory_workspace_url_tab_is_restored_after_refresh(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::withQueryParams(['workspace_tab' => 'requests'])
+            ->test(InventoryWorkspace::class)
+            ->assertSet('activeTab', 'requests')
+            ->assertSee('Stock Requests');
+
+        Livewire::withQueryParams(['workspace_tab' => 'unsupported'])
+            ->test(InventoryWorkspace::class)
+            ->assertSet('activeTab', 'overview');
+    }
+
     public function test_inventory_products_tab_search_is_scoped_and_filters_sku_and_name(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

@@ -67,7 +67,12 @@ jobs:
           php -l tests/Feature/Navigation/NativeWorkspacesTest.php
           php -l tests/Feature/Purchases/QuickStockPurchaseUiTest.php
       - name: Focused workspace formatting
-        run: vendor/bin/pint --test app/Filament/Pages/SalesWorkspace.php app/Filament/Pages/PurchasingWorkspace.php app/Filament/Pages/Purchasing/QuickStockPurchase.php tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Purchases/QuickStockPurchaseUiTest.php
+        run: |
+          vendor/bin/pint --test app/Filament/Pages/SalesWorkspace.php app/Filament/Pages/PurchasingWorkspace.php app/Filament/Pages/Purchasing/QuickStockPurchase.php tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Purchases/QuickStockPurchaseUiTest.php || {
+            vendor/bin/pint app/Filament/Pages/SalesWorkspace.php
+            git diff -- app/Filament/Pages/SalesWorkspace.php
+            exit 1
+          }
       - name: Migrate disposable MySQL database
         env:
           APP_ENV: testing

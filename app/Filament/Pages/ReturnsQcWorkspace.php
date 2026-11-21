@@ -16,7 +16,7 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
 
     protected static string|\UnitEnum|null $navigationGroup = 'Returns & Service';
 
-    protected static ?string $navigationLabel = 'Returns & QC Workspace';
+    protected static ?string $navigationLabel = 'Return & QC';
 
     protected static ?string $slug = 'returns-qc-workspace';
 

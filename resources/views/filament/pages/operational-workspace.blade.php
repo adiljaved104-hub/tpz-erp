@@ -15,7 +15,9 @@
                     </div>
                 </div>
             </div>
-            @if($activeModule !== 'overview' && $selectedModuleData)
+            @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Pages\Purchasing\QuickStockPurchase::canAccess())
+                <x-filament::button type="button" wire:click="mountAction('quickPurchase')">Quick Purchase</x-filament::button>
+            @elseif($activeModule !== 'overview' && $selectedModuleData)
                 <x-filament::button tag="a" :href="$selectedModuleData['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                     Open {{ $selectedModuleData['label'] }}
                 </x-filament::button>
@@ -45,6 +47,12 @@
                 <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" />
                 Overview
             </button>
+            @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Resources\Products\ProductResource::canViewAny())
+                <button type="button" wire:click="selectProducts" aria-selected="{{ $activeModule === 'products' ? 'true' : 'false' }}" class="tpz-workspace-tab {{ $activeModule === 'products' ? 'is-active' : '' }}">
+                    <x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-cube')" class="tpz-native-tab-icon size-4" />
+                    <span class="tpz-native-tab-label">Products ({{ number_format($purchasingProductCount) }})</span>
+                </button>
+            @endif
             @foreach($moduleTabs as $index => $tab)
                 <button type="button" wire:key="workspace-tab-{{ $index }}"
                     wire:click="selectModule('{{ $index }}')"
@@ -62,6 +70,9 @@
             @endforeach
         </nav>
 
+        @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && $activeModule === 'products')
+            @include('filament.pages.partials.workspace-products')
+        @endif
         @if($activeModule === 'overview')
             @if($metrics->isNotEmpty())
                 <section class="tpz-unified-overview-panel" aria-label="Operational overview">

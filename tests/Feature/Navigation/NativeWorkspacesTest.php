@@ -10,6 +10,7 @@ use App\Filament\Pages\AdministrationWorkspace;
 use App\Filament\Pages\FinanceWorkspace;
 use App\Filament\Pages\Inventory\StockAdjustments;
 use App\Filament\Pages\InventoryWorkspace;
+use App\Filament\Pages\Purchasing\QuickStockPurchase;
 use App\Filament\Pages\PurchasingWorkspace;
 use App\Filament\Pages\ReturnsQcWorkspace;
 use App\Filament\Pages\SalesWorkspace;
@@ -20,11 +21,14 @@ use App\Models\ProductInventory;
 use App\Models\Purchase;
 use App\Models\StockMovement;
 use App\Models\StockRequest;
+use App\Models\TaxInvoice;
+use App\Services\CompanyProfileService;
 use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Inventory\StockRequestService;
 use App\Services\Navigation\NavigationPreferenceService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -49,6 +53,119 @@ class NativeWorkspacesTest extends TestCase
         $this->actingAs($staff);
         $this->assertFalse(SalesWorkspace::canAccess());
         $this->assertFalse(InventoryWorkspace::canAccess());
+    }
+
+    public function test_short_workspace_labels_stay_in_primary_navigation_instead_of_workplace_tools(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+
+        $navigation = app(NavigationPreferenceService::class);
+        $navigation->setWorkspaceMode($owner, true);
+
+        $groups = $navigation->apply($owner, $navigation->authorizedNavigation());
+        $primary = collect($groups)
+            ->first(fn ($group): bool => blank($group->getLabel()));
+
+        $this->assertNotNull($primary);
+        $labels = collect($primary->getItems())->map(fn ($item): string => $item->getLabel())->all();
+
+        foreach (['Sales', 'Inventory', 'Purchase', 'Return & QC', 'Finance and Accounting'] as $workspace) {
+            $this->assertContains($workspace, $labels);
+        }
+
+        $this->assertNotContains('Sales Orders', $labels);
+        $this->assertNotContains('Tax Invoices', $labels);
+    }
+
+    public function test_phase5_purchasing_products_and_quick_purchase_modal_reuse_existing_forms(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+        Product::factory()->create(['name' => 'Phase Five Full Product Title']);
+        Livewire::test(PurchasingWorkspace::class)
+            ->assertActionVisible('quickPurchase')
+            ->call('selectProducts')
+            ->assertSee('Phase Five Full Product Title')
+            ->set('productSearch', 'not-in-catalog')->assertDontSee('Phase Five Full Product Title')
+            ->assertActionVisible('createPurchasingProduct')
+            ->mountAction('quickPurchase')->assertActionMounted('quickPurchase');
+        $this->assertDatabaseCount('purchases', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+        Livewire::test(SalesWorkspace::class)->assertActionExists('createWorkspaceTaxInvoice')
+            ->mountAction('createWorkspaceTaxInvoice')->assertActionMounted('createWorkspaceTaxInvoice');
+        Livewire::test(SalesWorkspace::class)
+            ->call('setTab', 'webSales')
+            ->assertActionVisible('createWorkspaceWebSale')
+            ->mountAction('createWorkspaceWebSale')
+            ->assertActionMounted('createWorkspaceWebSale');
+        $this->assertDatabaseCount('tax_invoices', 0);
+    }
+
+    public function test_phase5_product_modal_creates_and_refreshes_catalog_without_inventory_changes(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+        $existing = Product::factory()->create();
+        Livewire::test(PurchasingWorkspace::class)
+            ->callAction('createPurchasingProduct', [
+                'name' => 'Phase Five Unique Monitor 42 inch',
+                'brand_id' => $existing->brand_id,
+                'category_id' => $existing->category_id,
+                'condition' => 'new', 'warranty' => 12,
+                'selling_price' => '100.00',
+            ])
+            ->assertHasNoActionErrors()
+            ->assertSet('activeModule', 'products')
+            ->assertSee('Phase Five Unique Monitor 42 inch')
+            ->assertSee('Products (2)');
+        $this->assertDatabaseCount('products', 2);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_phase5_staff_cannot_access_workspace_modals_or_embedded_purchase(): void
+    {
+        $this->actingAs(Employee::factory()->role(EmployeeRole::Staff)->create()->user);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        Livewire::test(PurchasingWorkspace::class)->assertForbidden();
+        Livewire::test(SalesWorkspace::class)->assertForbidden();
+        Livewire::test(QuickStockPurchase::class, ['embedded' => true])->assertForbidden();
+    }
+
+    public function test_phase5_invoice_modal_preserves_vat_idempotency_and_refreshes_records(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+        app(CompanyProfileService::class)->save([
+            'company_name_en' => 'Workspace Test Company', 'address_en' => 'Dubai, UAE',
+            'trn' => '100000000000001', 'phone' => '+9714000000',
+            'email' => 'accounts@example.test',
+        ], $owner);
+        $data = [
+            'customer_name' => 'Modal test customer', 'customer_address' => 'Dubai', 'order_reference' => 'PHASE5-INVOICE',
+            'invoice_date' => '2026-11-20', 'idempotency_key' => (string) Str::uuid(),
+            'title_mode' => 'auto', 'terms_profile' => 'auto',
+            'items' => [['description' => 'Monitor', 'quantity' => 2, 'unit_price_including_vat' => '105.00']],
+        ];
+        $workspace = Livewire::test(SalesWorkspace::class);
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $workspace->mountAction('createWorkspaceTaxInvoice')
+                ->set('mountedActions.0.data', $data)
+                ->callMountedAction()->assertHasNoActionErrors();
+        }
+        $this->assertDatabaseCount('tax_invoices', 1);
+        $invoice = TaxInvoice::query()->sole();
+        $this->assertSame('210.00', $invoice->grand_total);
+        $this->assertSame('10.00', $invoice->vat_amount);
+        $workspace->assertDontSee('createSalesProduct');
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     public function test_inventory_workspace_submits_and_lists_multi_product_stock_requests_without_moving_stock(): void

@@ -7,7 +7,10 @@
                 <p class="tpz-workspace-subtitle">Orders, Web Sales and quotation work within your authorized scope.</p>
             </div>
             <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected sales section">
-                @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
+                @if($activeTab === 'extra' && $activeExtraModule !== null && ($extraModules[$activeExtraModule]['url'] ?? '') === \App\Filament\Resources\TaxInvoices\TaxInvoiceResource::getUrl() && \App\Filament\Resources\TaxInvoices\TaxInvoiceResource::canCreate())
+                    <x-filament::button type="button" wire:click="mountAction('createWorkspaceTaxInvoice')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Tax Invoice</x-filament::button>
+                    <x-filament::button tag="a" color="gray" :href="$extraModules[$activeExtraModule]['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">All Tax Invoices</x-filament::button>
+                @elseif($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
                     <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                         Open {{ $extraModules[$activeExtraModule]['label'] }}
                     </x-filament::button>
@@ -30,16 +33,9 @@
                     @if(isset($links['orders']))
                         <x-filament::button tag="a" color="gray" :href="$links['orders']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-shopping-bag')">All Sales Orders</x-filament::button>
                     @endif
-                @elseif($activeTab === 'products')
-                    @if(isset($links['createProduct']))
-                        <x-filament::button type="button" wire:click="mountAction('createSalesProduct')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Add Product</x-filament::button>
-                    @endif
-                    @if(isset($links['products']))
-                        <x-filament::button tag="a" color="gray" :href="$links['products']">All Products</x-filament::button>
-                    @endif
                 @elseif($activeTab === 'webSales')
                     @if(isset($links['createWebSale']))
-                        <x-filament::button tag="a" :href="$links['createWebSale']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Web Sale</x-filament::button>
+                        <x-filament::button type="button" wire:click="mountAction('createWorkspaceWebSale')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Web Sale</x-filament::button>
                     @endif
                     @if(isset($links['dashboard']))
                         <x-filament::button tag="a" color="gray" :href="$links['dashboard']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-chart-bar')">Web Sales Dashboard</x-filament::button>
@@ -59,7 +55,7 @@
 
         <nav class="tpz-workspace-tabs" aria-label="Sales workspace sections" tabindex="0" title="Scroll horizontally or use the left/right arrow keys to see more modules" x-on:keydown.arrow-right.stop="$el.scrollBy({left: 190, behavior: 'smooth'})" x-on:keydown.arrow-left.stop="$el.scrollBy({left: -190, behavior: 'smooth'})">
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" /> Overview</button>
-            @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'products' => 'Products', 'quotations' => 'Quotations'] as $key => $label)
+            @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
                     <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve((['orders' => 'heroicon-o-shopping-bag', 'webSales' => 'heroicon-o-globe-alt', 'quotations' => 'heroicon-o-document-text'][$key] ?? 'heroicon-o-document-text'))" class="tpz-native-tab-icon size-4" /> <span class="tpz-native-tab-copy"><span>{{ $label }}</span>@if(isset($salesCounts[$key]))<strong class="tpz-native-tab-count">{{ number_format($salesCounts[$key]) }}</strong>@endif</span></button>
                 @endif
@@ -302,40 +298,6 @@
                 </div>
                 @if($webSales instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
                     <div class="mt-4">{{ $webSales->links() }}</div>
-                @endif
-            </x-filament::section>
-        @endif
-
-        @if($activeTab === 'products' && isset($links['products']))
-            <x-filament::section>
-                <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <h2 class="text-base font-semibold text-gray-950 dark:text-white">Products</h2>
-                    <span class="text-xs text-gray-500">Only products authorized for your account are shown.</span>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="tpz-workspace-table">
-                        <thead><tr><th>SKU</th><th>Product Name</th><th>Model</th><th>Action</th></tr></thead>
-                        <tbody>
-                            @forelse($products as $product)
-                                <tr wire:key="sales-product-{{ $product->id }}">
-                                    <td class="font-semibold">{{ $product->sku }}</td>
-                                    <td>{{ $product->name }}</td>
-                                    <td>{{ $product->model ?? '—' }}</td>
-                                    <td>
-                                        @if(\App\Filament\Resources\Products\ProductResource::canView($product))
-                                            <x-filament::button tag="a" size="xs" color="gray"
-                                                :href="\App\Filament\Resources\Products\ProductResource::getUrl('view', ['record' => $product])">View</x-filament::button>
-                                        @endif
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="4" class="py-8 text-center text-gray-500">No products in your authorized scope.</td></tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-                @if($products instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator)
-                    <div class="mt-4">{{ $products->links() }}</div>
                 @endif
             </x-filament::section>
         @endif

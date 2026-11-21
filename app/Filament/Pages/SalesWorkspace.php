@@ -175,7 +175,7 @@ class SalesWorkspace extends Page
                         throw new Halt;
                     }
 
-                    if (! ($arguments['downloadAndNew'] ?? false)) {
+                    if (($arguments['downloadAndNew'] ?? false) === false) {
                         Notification::make()->success()->title('Tax Invoice created')
                             ->body("Invoice {$invoice->invoice_number} saved.")->send();
 

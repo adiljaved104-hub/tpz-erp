@@ -1,3 +1,4 @@
+<x-filament-panels::page>
 @once
 <style>
 /* Tax Invoice popup only. Keep the Classic form and other workspace modals untouched. */
@@ -72,7 +73,7 @@
 </style>
 @endonce
 
-<x-filament-panels::page>
+
     <div class="tpz-workspace tpz-reference-sales">
         <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-start justify-between gap-4">
             <div>

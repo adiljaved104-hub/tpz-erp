@@ -15,7 +15,9 @@
                     </div>
                 </div>
             </div>
-            @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Pages\Purchasing\QuickStockPurchase::canAccess())
+            @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && \App\Filament\Resources\CustomerReturns\CustomerReturnResource::canCreate())
+                <x-filament::button type="button" wire:click="mountAction('createCustomerReturn')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Customer Return</x-filament::button>
+            @elseif($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Pages\Purchasing\QuickStockPurchase::canAccess())
                 <x-filament::button type="button" wire:click="mountAction('quickPurchase')">Quick Purchase</x-filament::button>
             @elseif($activeModule !== 'overview' && $selectedModuleData)
                 <x-filament::button tag="a" :href="$selectedModuleData['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">

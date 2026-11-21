@@ -321,7 +321,8 @@
                                         @if($activeTab === 'products')
                                             {{ $record->name }}
                                         @elseif($activeTab === 'myInventory')
-                                            {{ $record->warehouse?->name ?? 'Warehouse' }} · {{ number_format($record->available_quantity ?? 0) }} available
+                                            <span class="block max-w-xl whitespace-normal break-words font-semibold text-gray-950 dark:text-white">{{ $record->product?->name ?? 'Product name unavailable' }}</span>
+                                            <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ $record->warehouse?->name ?? 'Warehouse' }} · {{ number_format($record->available_quantity ?? 0) }} available</span>
                                         @else
                                             {{ str($record->status?->value ?? $record->status ?? 'Unknown')->headline() }}
                                         @endif

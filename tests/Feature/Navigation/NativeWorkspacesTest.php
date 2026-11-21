@@ -485,6 +485,25 @@ class NativeWorkspacesTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_my_inventory_rows_show_product_name_as_well_as_sku(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $product = Product::factory()->create([
+            'sku' => 'TPZ-TITLE-VISIBLE-01',
+            'name' => 'Visible Inventory Product Name',
+        ]);
+        ProductInventory::factory()->create(['product_id' => $product->id]);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('setTab', 'myInventory')
+            ->assertSee('TPZ-TITLE-VISIBLE-01')
+            ->assertSee('Visible Inventory Product Name');
+    }
+
     public function test_inventory_quick_view_loads_authorized_stock_and_can_close(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

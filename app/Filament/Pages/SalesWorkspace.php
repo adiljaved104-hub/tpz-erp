@@ -5,10 +5,8 @@ namespace App\Filament\Pages;
 use App\Actions\Orders\ReserveDraftOrder;
 use App\Actions\Orders\SaveAndReserveOrder;
 use App\Actions\Orders\SaveAsShippedOrder;
-use App\Actions\Products\CreateProduct as CreateProductAction;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
-use App\DTOs\Products\CreateProductData;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\QcPermission;
@@ -18,18 +16,19 @@ use App\Enums\WebSalesPermission;
 use App\Exceptions\InvalidOrderTransitionException;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Orders\Schemas\OrderForm;
-use App\Filament\Resources\Products\ProductResource;
-use App\Filament\Resources\Products\Schemas\ProductForm;
 use App\Filament\Resources\Quotations\QuotationResource;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
+use App\Filament\Resources\WebSalesOrders\Pages\CreateWebSalesOrder;
 use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\Order;
+use App\Models\TaxInvoice;
 use App\Models\User;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Invoices\TaxInvoiceService;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Navigation\WorkspaceRecordPreviewService;
 use App\Services\Orders\OrderAmendmentService;
@@ -49,6 +48,8 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Schema;
+use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -67,7 +68,7 @@ class SalesWorkspace extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Sales';
 
-    protected static ?string $navigationLabel = 'Sales Workspace';
+    protected static ?string $navigationLabel = 'Sales';
 
     protected static ?string $slug = 'sales-workspace';
 
@@ -107,47 +108,56 @@ class SalesWorkspace extends Page
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('createSalesProduct')
-                ->label('Add Product')
-                ->modalHeading('Add Product')
-                ->modalWidth('5xl')
-                ->schema(ProductForm::components())
-                ->visible(fn (): bool => ProductResource::canCreate())
-                ->modalSubmitActionLabel('Save Product')
+            Action::make('createWorkspaceWebSale')
+                ->label('Create Web Sale')
+                ->modalHeading('Create Web Sale')
+                ->modalWidth('4xl')
+                ->modalSubmitActionLabel('Save & Confirm')
+                ->model(Order::class)
+                ->visible(fn (): bool => static::canAccess() && WebSalesOrderResource::canCreate())
+                ->schema(fn (Schema $schema): Schema => WebSalesOrderResource::form($schema))
                 ->action(function (array $data): void {
-                    abort_unless(ProductResource::canCreate(), 403);
-                    app(CreateProductAction::class)->handle(new CreateProductData(
-                        name: $data['name'],
-                        brandId: (int) $data['brand_id'],
-                        categoryId: (int) $data['category_id'],
-                        condition: $data['condition'],
-                        model: $data['model'] ?? null,
-                        processor: $data['processor'] ?? null,
-                        processorClass: $data['processor_class'] ?? null,
-                        processorModel: $data['processor_model'] ?? null,
-                        processorGeneration: $data['processor_generation'] ?? null,
-                        ram: $data['ram'] ?? null,
-                        storage: $data['storage'] ?? null,
-                        screenSize: $data['screen_size'] ?? null,
-                        graphics: $data['graphics'] ?? null,
-                        color: $data['color'] ?? null,
-                        touchScreen: filled($data['touch_screen'] ?? null) ? (bool) $data['touch_screen'] : null,
-                        isConvertible360: filled($data['is_convertible_360'] ?? null) ? (bool) $data['is_convertible_360'] : null,
-                        accountingTitleOverride: $data['accounting_title_override'] ?? null,
-                        websiteTitleOverride: $data['website_title_override'] ?? null,
-                        warranty: $data['warranty'],
-                        costPrice: $data['cost_price'] ?? null,
-                        costPriceProvided: array_key_exists('cost_price', $data),
-                        sellingPrice: $data['selling_price'] ?? null,
-                        sellingPriceProvided: array_key_exists('selling_price', $data),
-                        description: $data['description'] ?? null,
-                        duplicateOverrideReason: $data['duplicate_override_reason'] ?? null,
-                        duplicateOverrideConfirmed: (bool) ($data['duplicate_override_confirmed'] ?? false),
-                        responsibilityOverrideConfirmed: (bool) ($data['responsibility_override_confirmed'] ?? false),
-                    ), auth()->user());
-                    $this->activeTab = 'products';
-                    $this->resetPage('sales-product-page');
-                    Notification::make()->success()->title('Product added to catalog')->send();
+                    abort_unless(static::canAccess() && WebSalesOrderResource::canCreate(), 403);
+                    try {
+                        $order = app(WebSalesService::class)->createConfirmed(
+                            CreateWebSalesOrder::makeOrderData($data),
+                            auth()->user(),
+                        );
+                    } catch (ValidationException $exception) {
+                        throw $exception;
+                    } catch (\Throwable $exception) {
+                        report($exception);
+                        Notification::make()->danger()->title('Web Sale could not be saved')
+                            ->body('Please review the form and try again.')->send();
+
+                        throw new Halt;
+                    }
+
+                    $this->activeTab = 'webSales';
+                    $this->resetPage('web-sales-page');
+                    Notification::make()->success()->title('Web Sale confirmed')
+                        ->body('Order '.$order->reference.' created.')->send();
+                }),
+            Action::make('createWorkspaceTaxInvoice')
+                ->label('Create Tax Invoice')
+                ->modalWidth('4xl')
+                ->model(TaxInvoice::class)
+                ->visible(fn (): bool => static::canAccess() && TaxInvoiceResource::canCreate())
+                ->schema(fn (Schema $schema): Schema => TaxInvoiceResource::form($schema))
+                ->action(function (array $data): void {
+                    abort_unless(static::canAccess() && TaxInvoiceResource::canCreate(), 403);
+                    try {
+                        app(TaxInvoiceService::class)->create($data, auth()->user());
+                    } catch (ValidationException $exception) {
+                        throw $exception;
+                    } catch (\Throwable $exception) {
+                        report($exception);
+                        Notification::make()->danger()->title('Invoice could not be created')
+                            ->body('Please review the form and try again.')->send();
+
+                        throw new Halt;
+                    }
+                    Notification::make()->success()->title('Tax Invoice created')->send();
                 }),
             Action::make('correctShippedOrder')
                 ->label('Post-Shipment Correction')
@@ -198,7 +208,7 @@ class SalesWorkspace extends Page
             Action::make('createSalesOrder')
                 ->label('Create Sales Order')
                 ->modalHeading('Create Sales Order')
-                ->modalWidth('7xl')
+                ->modalWidth('5xl')
                 ->schema([...OrderForm::components(),
                     Checkbox::make('confirm_physical_shipment')
                         ->label('I confirm every item has physically left the warehouse')
@@ -400,10 +410,6 @@ class SalesWorkspace extends Page
             ? $webSalesQuery->latest('orders.order_date')->paginate(10, pageName: 'web-sales-page')
             : collect();
 
-        $products = ProductResource::canViewAny() && $this->activeTab === 'products'
-            ? ProductResource::getEloquentQuery()->latest('products.id')->paginate(10, pageName: 'sales-product-page')
-            : collect();
-
         $quotations = ($canQuotations && $this->activeTab === 'quotations')
             ? QuotationResource::getEloquentQuery()->latest('created_at')->paginate(10, pageName: 'quotation-page')
             : collect();
@@ -517,7 +523,6 @@ class SalesWorkspace extends Page
             'salesAttention' => $salesAttention,
             'salesRecentUpdates' => $salesRecentUpdates,
             'quotations' => $quotations,
-            'products' => $products,
             'orders' => $orders,
             'webSales' => $webSales,
             'canSeeOrderValues' => $canOrders && app(OrderAuthorization::class)->allows($user, OrderPermission::ViewSellingPrice),
@@ -530,8 +535,6 @@ class SalesWorkspace extends Page
                 'createQuotation' => QuotationResource::canCreate() ? QuotationResource::getUrl('create') : null,
                 'webSales' => $canWebSales ? WebSalesOrderResource::getUrl() : null,
                 'quotations' => $canQuotations ? QuotationResource::getUrl() : null,
-                'products' => ProductResource::canViewAny() ? ProductResource::getUrl() : null,
-                'createProduct' => ProductResource::canCreate() ? ProductResource::getUrl('create') : null,
                 'dashboard' => $canDashboard ? WebSalesDashboard::getUrl() : null,
             ]),
         ];
@@ -793,7 +796,7 @@ class SalesWorkspace extends Page
     {
         return collect(app(NavigationPreferenceService::class)->workspaceModuleLinks(auth()->user(), 'Sales'))
             ->reject(fn (array $item): bool => in_array($item['label'], [
-                'Sales Orders', 'Web Sales Orders', 'Quotations', 'Web Sales Dashboard',
+                'Sales Orders', 'Web Sales Orders', 'Quotations', 'Web Sales Dashboard', 'Products',
             ], true))
             ->values();
     }
@@ -816,7 +819,6 @@ class SalesWorkspace extends Page
             'orders' => app(OrderAuthorization::class)->allows($user, OrderPermission::View),
             'webSales' => app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View),
             'quotations' => app(QuotationAuthorization::class)->allows($user, QuotationPermission::View),
-            'products' => ProductResource::canViewAny(),
             default => false,
         };
         abort_unless($permitted, 403);
@@ -825,7 +827,6 @@ class SalesWorkspace extends Page
         $this->resetPage('sales-page');
         $this->resetPage('web-sales-page');
         $this->resetPage('quotation-page');
-        $this->resetPage('sales-product-page');
     }
 
     public function clearFilters(): void

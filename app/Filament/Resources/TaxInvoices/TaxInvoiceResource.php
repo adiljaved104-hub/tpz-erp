@@ -85,10 +85,10 @@ class TaxInvoiceResource extends Resource
         return $schema->components([
             \Filament\Schemas\Components\Grid::make(['default' => 1, 'xl' => 12])
                 ->schema([
-                    $components[0]->columnSpan(['default' => 1, 'xl' => 6]),
-                    $components[1]->columnSpan(['default' => 1, 'xl' => 6]),
-                    $components[2]->columnSpan(['default' => 1, 'xl' => 8]),
-                    $components[3]->columnSpan(['default' => 1, 'xl' => 4]),
+                    $components[0]->icon('heroicon-o-arrow-down-tray')->columnSpan(['default' => 1, 'xl' => 6]),
+                    $components[1]->icon('heroicon-o-users')->columnSpan(['default' => 1, 'xl' => 6]),
+                    $components[2]->icon('heroicon-o-cube')->columnSpan(['default' => 1, 'xl' => 8]),
+                    $components[3]->icon('heroicon-o-calculator')->columnSpan(['default' => 1, 'xl' => 4]),
                 ]),
             $components[4],
         ]);

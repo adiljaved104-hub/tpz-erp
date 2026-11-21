@@ -139,6 +139,7 @@ class EmployeePermissionCatalog
                 $this->item(WebSalesPermission::Dashboard, 'Web Sales Dashboard'),
                 $this->item(WebSalesPermission::Create, 'Create Web Sales'),
                 $this->item(WebSalesPermission::Update, 'Update Web Sales', true),
+                $this->item(WebSalesPermission::SupplierDirectShip, 'Supplier-Direct Shipping', true),
                 $this->item(WebSalesPermission::ViewAll, 'View All Web Sales', true),
                 $this->item(WebSalesPermission::ViewRevenue, 'View Web Sales Revenue'),
                 $this->item(WebSalesPermission::ViewCost, 'View Web Sales Cost', true, true),

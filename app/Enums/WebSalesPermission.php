@@ -8,6 +8,7 @@ enum WebSalesPermission: string
     case Dashboard = 'web_sales.dashboard';
     case Create = 'web_sales.create';
     case Update = 'web_sales.update';
+    case SupplierDirectShip = 'web_sales.supplier_direct_ship';
     case ViewAll = 'web_sales.view_all';
     case ViewRevenue = 'web_sales.view_revenue';
     case ViewCost = 'web_sales.view_cost';

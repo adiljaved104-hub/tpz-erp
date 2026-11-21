@@ -255,7 +255,7 @@ class ManualSourcingService
                 'receipt_confirmed_at' => $total >= (int) $line->quantity ? now() : $line->receipt_confirmed_at,
                 'metadata' => array_merge($line->metadata ?? [], ['receipt_confirmed_by' => $actor->id, 'received_quantity' => $total]),
             ])->save();
-            $this->activity->log('web_sales.manual_sourcing_receipt_confirmed', $actor, $line, ['receipt_id' => $receipt->id, 'quantity' => $quantity, 'received_total' => $total]);
+            $this->activity->log('web_sales.manual_sourcing_receipt_confirmed', $actor, $line, ['receipt_id' => $receipt->id, 'quantity' => $quantity, 'received_quantity' => $total]);
 
             return $line->refresh();
         }, 5);

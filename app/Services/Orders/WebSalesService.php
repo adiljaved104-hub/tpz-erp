@@ -83,6 +83,8 @@ class WebSalesService
             return $this->orders->fulfill($order, $idempotencyKey, $actor);
         }
 
+        $this->manualShipment->assertCanShip($order, $actor);
+
         // Reference values are intentionally reserved before the business transaction.
         // The transaction guard must remain enabled so rolled-back values are never reused.
         $fulfillmentReferences = $this->orders->preallocateFulfillmentReferences($order);

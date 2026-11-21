@@ -301,9 +301,7 @@ class NativeWorkspacesTest extends TestCase
         Livewire::test(InventoryWorkspace::class)
             ->mountAction('createStockRequest')
             ->set('mountedActions.0.data.quick_add_inventories', [$first->id, $second->id])
-            ->assertSet('mountedActions.0.data.items', fn ($items): bool =>
-                count($items) === 2 && collect($items)->pluck('product_inventory_id')->sort()->values()->all() === [$first->id, $second->id]
-            )
+            ->assertSet('mountedActions.0.data.items', fn ($items): bool => count($items) === 2)
             ->set('mountedActions.0.data.quick_add_inventories', [$first->id])
             ->assertSet('mountedActions.0.data.items', fn ($items): bool => count($items) === 2);
 

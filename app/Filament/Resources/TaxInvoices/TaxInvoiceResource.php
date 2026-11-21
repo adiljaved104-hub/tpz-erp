@@ -80,7 +80,7 @@ class TaxInvoiceResource extends Resource
      */
     public static function workspaceForm(Schema $schema): Schema
     {
-        $components = self::formComponents();
+        $components = self::formComponents(workspace: true);
 
         return $schema->components([
             \Filament\Schemas\Components\Grid::make(['default' => 1, 'xl' => 12])
@@ -95,11 +95,13 @@ class TaxInvoiceResource extends Resource
     }
 
     /** @return array<int, \Filament\Schemas\Components\Component> */
-    private static function formComponents(): array
+    private static function formComponents(bool $workspace = false): array
     {
         return [
             Section::make('Import from Order')
-                ->description('Optional. Search by ERP Order Number or External / Marketplace Order ID, then review and adjust the Invoice before saving. Manual entry remains available.')
+                ->description($workspace
+                    ? 'Optional: import an ERP or marketplace Order, then review and adjust.'
+                    : 'Optional. Search by ERP Order Number or External / Marketplace Order ID, then review and adjust the Invoice before saving. Manual entry remains available.')
                 ->schema([
                     Select::make('title_mode')
                         ->label('Product Title Mode')
@@ -107,7 +109,9 @@ class TaxInvoiceResource extends Resource
                         ->default(ProductTitleMode::Auto->value)
                         ->required()
                         ->live()
-                        ->helperText('Auto selects the safest customer title from the source Order. The resolved description is snapshotted on issue.')
+                        ->helperText($workspace
+                            ? 'Auto selects the appropriate product title from the Order.'
+                            : 'Auto selects the safest customer title from the source Order. The resolved description is snapshotted on issue.')
                         ->afterStateUpdated(function ($state, Get $get, Set $set): void {
                             $user = auth()->user();
                             $sourceOrderId = $get('source_order_id');
@@ -165,13 +169,19 @@ class TaxInvoiceResource extends Resource
                             : 'Enter Invoice details manually, or import an Order above.'),
                 ]),
             Section::make('Customer & Invoice')
-                ->description('Customer details and the related sales reference for this issued Invoice.')
+                ->description($workspace ? 'Customer details and invoice reference.' : 'Customer details and the related sales reference for this issued Invoice.')
                 ->columns(['default' => 1, 'md' => 2])
                 ->schema([
                     TextInput::make('customer_name')
                         ->label('Customer Name')
                         ->required()
                         ->maxLength(255),
+                    ...($workspace ? [
+                    DatePicker::make('invoice_date')
+                        ->label('Invoice Date')
+                        ->default(today())
+                        ->required(),
+                    ] : []),
                     TextInput::make('customer_phone')
                         ->label('Customer Phone (Optional)')
                         ->tel()
@@ -182,7 +192,7 @@ class TaxInvoiceResource extends Resource
                     Textarea::make('customer_address')
                         ->label('Customer Address')
                         ->required()
-                        ->rows(3)
+                        ->rows($workspace ? 2 : 3)
                         ->columnSpanFull(),
                     TextInput::make('order_reference')
                         ->label('Order ID / Reference')
@@ -193,11 +203,15 @@ class TaxInvoiceResource extends Resource
                         ->options(collect(TaxInvoiceTermsProfile::cases())->mapWithKeys(fn (TaxInvoiceTermsProfile $profile): array => [$profile->value => $profile->label()])->all())
                         ->default(TaxInvoiceTermsProfile::Auto->value)
                         ->required()
-                        ->helperText('Auto uses only renewed terms when any source Order product is Renewed. Without an Order, Auto uses Standard. Standard uses only standard terms. Renewed uses only renewed terms.'),
+                        ->helperText($workspace
+                            ? 'Auto applies the appropriate Standard or Renewed terms.'
+                            : 'Auto uses only renewed terms when any source Order product is Renewed. Without an Order, Auto uses Standard. Standard uses only standard terms. Renewed uses only renewed terms.'),
+                    ...(! $workspace ? [
                     DatePicker::make('invoice_date')
                         ->label('Invoice Date')
                         ->default(today())
                         ->required(),
+                    ] : []),
                 ]),
             Section::make('Items')
                 ->description('Enter VAT-inclusive selling prices. Each line total updates automatically.')

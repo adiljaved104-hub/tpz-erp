@@ -21,6 +21,8 @@ abstract class BaseOperationalWorkspace extends Page
 
     public string $activeModule = 'overview';
 
+    public string $recordSearch = '';
+
     /** @return array{title: string, eyebrow: string, description: string, icon: string, sections: array<int, array{title: string, description: string, links: array<int, array{label: string, class: class-string, icon: string}>}>} */
     abstract protected static function workspaceDefinition(): array;
 
@@ -159,6 +161,28 @@ abstract class BaseOperationalWorkspace extends Page
 
         $scoped = $resource::getEloquentQuery();
         $data['total'] = (clone $scoped)->count();
+        $searchable = $this instanceof ReturnsQcWorkspace && in_array($resource, [
+            \App\Filament\Resources\CustomerReturns\CustomerReturnResource::class,
+            \App\Filament\Resources\MarketplaceReturnRemovals\MarketplaceReturnRemovalResource::class,
+        ], true);
+        // Apply filters to the resource's permission-scoped query only.
+        if ($searchable && trim($this->recordSearch) !== '') {
+            $needle = addcslashes(trim($this->recordSearch), '%_\\\\');
+            $scoped->where(function ($query) use ($needle, $resource): void {
+                $query->where('reference', 'like', '%'.$needle.'%');
+                if ($resource === \App\Filament\Resources\CustomerReturns\CustomerReturnResource::class) {
+                    $query->orWhereHas('displayItems', fn ($items) => $items
+                        ->where('sku_snapshot', 'like', '%'.$needle.'%')
+                        ->orWhere('product_name_snapshot', 'like', '%'.$needle.'%'));
+                } else {
+                    $query->orWhere('external_removal_reference', 'like', '%'.$needle.'%')
+                        ->orWhereHas('displayItems.product', fn ($product) => $product
+                            ->where('sku', 'like', '%'.$needle.'%')
+                            ->orWhere('name', 'like', '%'.$needle.'%'));
+                }
+            });
+        }
+        $data['filteredTotal'] = (clone $scoped)->count();
 
         if (! array_key_exists('view', $resource::getPages())) {
             return $data;
@@ -168,7 +192,7 @@ abstract class BaseOperationalWorkspace extends Page
         $keyName = (new $modelClass())->getQualifiedKeyName();
         $data['records'] = (clone $scoped)
             ->orderByDesc($keyName)
-            ->limit(8)
+            ->limit($searchable ? 20 : 8)
             ->get()
             ->filter(fn ($record): bool => $resource::canView($record))
             ->map(function ($record) use ($resource): array {
@@ -196,6 +220,7 @@ abstract class BaseOperationalWorkspace extends Page
     public function selectModule(string $index): void
     {
         abort_unless(static::canAccess(), 403);
+        $this->recordSearch = '';
         if ($index === 'overview') {
             $this->activeModule = 'overview';
             return;

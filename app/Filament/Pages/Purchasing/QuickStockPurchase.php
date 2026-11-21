@@ -10,6 +10,7 @@ use App\Enums\InventoryAllocationMode;
 use App\Enums\InventoryItemType;
 use App\Enums\ProductMatchContext;
 use App\Enums\PurchasePermission;
+use App\Filament\Pages\PurchasingWorkspace;
 use App\Filament\Resources\PurchaseReceipts\PurchaseReceiptResource;
 use App\Models\Employee;
 use App\Models\InventoryAllocationAccount;
@@ -48,10 +49,16 @@ use Filament\Schemas\Schema;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 use Throwable;
 
 class QuickStockPurchase extends Page
 {
+    #[Locked]
+    public bool $embedded = false;
+
+    protected string $view = 'filament.pages.quick-purchase-workspace-compatible';
+
     protected static ?string $slug = 'quick-stock-purchase';
 
     protected static ?string $navigationLabel = 'Quick Stock Purchase';
@@ -71,8 +78,10 @@ class QuickStockPurchase extends Page
             && app(PurchaseAuthorization::class)->allows($user, PurchasePermission::QuickReceive);
     }
 
-    public function mount(): void
+    public function mount(bool $embedded = false): void
     {
+        $this->embedded = $embedded;
+        abort_unless(! $embedded || PurchasingWorkspace::canAccess(), 403);
         abort_unless(static::canAccess(), 403);
         $employee = auth()->user()?->employee;
         $warehouseId = (int) request()->query('warehouse_id', 0);
@@ -97,6 +106,7 @@ class QuickStockPurchase extends Page
     public function hydrate(): void
     {
         abort_unless(static::canAccess(), 403);
+        abort_unless(! $this->embedded || PurchasingWorkspace::canAccess(), 403);
     }
 
     public function content(Schema $schema): Schema
@@ -285,6 +295,11 @@ class QuickStockPurchase extends Page
         }
 
         Notification::make()->success()->title($result->replayed ? 'Existing Quick Stock Purchase opened' : 'Stock received successfully')->send();
+        if ($this->embedded) {
+            $this->dispatch('workspace-purchase-created')->to(PurchasingWorkspace::class);
+
+            return;
+        }
         $this->redirect(PurchaseReceiptResource::getUrl('view', ['record' => $result->receipt]), navigate: true);
     }
 

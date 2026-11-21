@@ -6,6 +6,7 @@ use App\Contracts\EmployeePermissionOverrideResolver;
 use App\Enums\EmployeeRole;
 use App\Enums\OrderPermission;
 use App\Enums\WebSalesPermission;
+use App\Exceptions\SupplierDirectShippingAuthorizationException;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -55,12 +56,22 @@ class WebSalesAuthorization
             return true;
         }
 
+        if ($permission === WebSalesPermission::SupplierDirectShip
+            && (! $this->allows($user, WebSalesPermission::View, $order)
+                || ! $this->allows($user, WebSalesPermission::Update, $order))) {
+            return false;
+        }
+
         return $this->orders->allows($user, $this->matchingOrderPermission($permission), $order);
     }
 
     public function authorize(User $user, WebSalesPermission $permission, ?Order $order = null): void
     {
-        throw_unless($this->allows($user, $permission, $order), AuthorizationException::class);
+        if (! $this->allows($user, $permission, $order)) {
+            throw $permission === WebSalesPermission::SupplierDirectShip
+                ? new SupplierDirectShippingAuthorizationException
+                : new AuthorizationException;
+        }
     }
 
     private function matchingOrderPermission(WebSalesPermission $permission): OrderPermission
@@ -69,6 +80,7 @@ class WebSalesAuthorization
             WebSalesPermission::View, WebSalesPermission::ViewAll, WebSalesPermission::Dashboard => OrderPermission::View,
             WebSalesPermission::Create => OrderPermission::Create,
             WebSalesPermission::Update => OrderPermission::UpdateDraft,
+            WebSalesPermission::SupplierDirectShip => OrderPermission::Fulfill,
             WebSalesPermission::ViewRevenue => OrderPermission::ViewSellingPrice,
             WebSalesPermission::ViewCost => OrderPermission::ViewCost,
             WebSalesPermission::ViewGrossProfit => OrderPermission::ViewProfit,

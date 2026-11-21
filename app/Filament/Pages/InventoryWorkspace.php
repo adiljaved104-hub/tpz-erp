@@ -212,7 +212,7 @@ class InventoryWorkspace extends Page
         // Product search is limited to the authorized ProductResource query.
         $moduleQuery = match ($this->activeTab) {
             'products' => ProductResource::canViewAny() ? ProductResource::getEloquentQuery() : null,
-            'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getEloquentQuery() : null,
+            'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getEloquentQuery()->with('product:id,sku,name') : null,
             'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getEloquentQuery()
                 ->with('requester:id,name')->withSum('items as requested_quantity', 'quantity') : null,
             'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getEloquentQuery() : null,

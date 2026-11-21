@@ -18,7 +18,7 @@
 .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header {
     padding: .8rem 1rem;
     border-bottom: 1px solid rgba(16, 91, 166, .10);
-    background: rgba(15, 118, 195, .045);
+    background: linear-gradient(110deg, rgba(13, 110, 205, .095), rgba(58, 144, 245, .025));
 }
 .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-heading {
     color: #10395b;
@@ -53,17 +53,15 @@
 @media (max-width: 1100px) {
     .tpz-tax-invoice-modal .tpz-invoice-layout { gap: .75rem; }
 }
-@media (prefers-color-scheme: dark) {
-    .dark .tpz-tax-invoice-modal .tpz-invoice-card {
-        background: var(--fi-bg, #111827);
-        border-color: rgba(147,197,253,.25);
-    }
-    .dark .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header {
-        background: rgba(37,99,235,.14);
-    }
-    .dark .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-heading {
-        color: #dbeafe;
-    }
+.dark .tpz-tax-invoice-modal .tpz-invoice-card {
+    background: #111827;
+    border-color: rgba(147,197,253,.25);
+}
+.dark .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header {
+    background: rgba(37,99,235,.14);
+}
+.dark .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-heading {
+    color: #dbeafe;
 }
 </style>
 @endonce

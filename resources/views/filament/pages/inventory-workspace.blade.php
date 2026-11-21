@@ -332,7 +332,7 @@
                                     <td>
                                         @if($resourceClass::canView($record))
                                             <div class="flex flex-wrap gap-2">
-                                                @if($activeTab === 'myInventory')
+                                                @if($activeTab === 'myInventory' && $canOpenInventoryQuickView)
                                                     <x-filament::button type="button" size="xs" color="primary" wire:click="openInventoryQuickView({{ $record->getKey() }})">Quick View</x-filament::button>
                                                 @endif
                                                 <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>

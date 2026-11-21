@@ -270,6 +270,14 @@
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">{{ ['products' => 'Products', 'myInventory' => 'My Inventory', 'requests' => 'Stock Requests', 'transfers' => 'Stock Transfers'][$activeTab] }}</h2>
                     <x-filament::button tag="a" size="sm" color="gray" :href="$links[$activeTab]">Open full module</x-filament::button>
                 </div>
+                @if($activeTab === 'products')
+                    <div class="mb-4">
+                        <label for="tpz-product-search" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200">Search products</label>
+                        <x-filament::input.wrapper>
+                            <x-filament::input id="tpz-product-search" type="search" wire:model.live.debounce.350ms="productSearch" placeholder="Search SKU or product name" autocomplete="off" />
+                        </x-filament::input.wrapper>
+                    </div>
+                @endif
                 <div class="overflow-x-auto">
                     <table class="tpz-workspace-table">
                         <thead>
@@ -313,7 +321,8 @@
                                         @if($activeTab === 'products')
                                             {{ $record->name }}
                                         @elseif($activeTab === 'myInventory')
-                                            {{ $record->warehouse?->name ?? 'Warehouse' }} · {{ number_format($record->available_quantity ?? 0) }} available
+                                            <span class="block max-w-xl whitespace-normal break-words font-semibold text-gray-950 dark:text-white">{{ $record->product?->name ?? 'Product name unavailable' }}</span>
+                                            <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ $record->warehouse?->name ?? 'Warehouse' }} · {{ number_format($record->available_quantity ?? 0) }} available</span>
                                         @else
                                             {{ str($record->status?->value ?? $record->status ?? 'Unknown')->headline() }}
                                         @endif
@@ -354,7 +363,59 @@
         @endif
 
 
-        @if($activeTab === 'extra')
+        @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]) && $extraModules[$activeExtraModule]['label'] === 'My Allocated Stock' && $canSeeSummary)
+            <x-filament::section>
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div><h2 class="text-base font-semibold text-gray-950 dark:text-white">My Allocated Stock</h2>
+                        <p class="text-xs text-gray-500">Your own allocated quantities. Read-only and permission-scoped.</p></div>
+                    <x-filament::button tag="a" color="gray" size="sm" :href="$extraModules[$activeExtraModule]['url']">Open full module</x-filament::button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="tpz-workspace-table">
+                        <thead><tr><th>SKU / Product</th><th>Location</th><th class="text-right">Allocated</th><th class="text-right">Reserved</th><th class="text-right">Available</th></tr></thead>
+                        <tbody>
+                            @forelse($allocatedRows as $balance)
+                                <tr wire:key="allocated-stock-{{ $balance->id }}">
+                                    <td><strong>{{ $balance->inventory?->product?->sku ?? '—' }}</strong><span class="block whitespace-normal">{{ $balance->inventory?->product?->name ?? '—' }}</span></td>
+                                    <td>{{ $balance->inventory?->warehouse?->name ?? '—' }}</td>
+                                    <td class="text-right tabular-nums">{{ number_format($balance->allocated_quantity) }}</td>
+                                    <td class="text-right tabular-nums">{{ number_format($balance->reserved_quantity) }}</td>
+                                    <td class="text-right tabular-nums">{{ number_format($balance->availableQuantity()) }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="5" class="py-8 text-center text-gray-500">No personal stock allocations in your authorized scope.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </x-filament::section>
+        @elseif($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]) && $extraModules[$activeExtraModule]['label'] === 'Inventory by Location' && $canSeeSummary)
+            <x-filament::section>
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div><h2 class="text-base font-semibold text-gray-950 dark:text-white">Inventory by Location</h2>
+                        <p class="text-xs text-gray-500">Authorized stock balances by warehouse and marketplace location. Read-only.</p></div>
+                    <x-filament::button tag="a" color="gray" size="sm" :href="$extraModules[$activeExtraModule]['url']">Open full module</x-filament::button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="tpz-workspace-table">
+                        <thead><tr><th>SKU / Product</th><th>Location</th><th class="text-right">Available</th><th class="text-right">Reserved</th><th class="text-right">Sellable</th></tr></thead>
+                        <tbody>
+                            @forelse($locationRows as $index => $row)
+                                <tr wire:key="location-balance-{{ $index }}">
+                                    <td><strong>{{ $row['sku'] }}</strong><span class="block whitespace-normal">{{ $row['product'] }}</span></td>
+                                    <td>{{ $row['location'] }}</td>
+                                    <td class="text-right tabular-nums">{{ number_format($row['available']) }}</td>
+                                    <td class="text-right tabular-nums">{{ number_format($row['reserved']) }}</td>
+                                    <td class="text-right tabular-nums">{{ number_format($row['sellable']) }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="5" class="py-8 text-center text-gray-500">No location balances in your authorized scope.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </x-filament::section>
+        @elseif($activeTab === 'extra')
             @include('filament.pages.partials.workspace-extra-preview')
         @endif
     </div>

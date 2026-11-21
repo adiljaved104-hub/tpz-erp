@@ -1,4 +1,101 @@
 <x-filament-panels::page>
+@once
+<style>
+/* Tax Invoice popup only. Keep the Classic form and other workspace modals untouched. */
+.tpz-tax-invoice-modal .fi-modal-header { padding-block: .8rem; }
+.tpz-tax-invoice-modal .fi-modal-content { padding-block: .65rem; }
+.tpz-tax-invoice-modal .tpz-invoice-layout {
+    align-items: stretch !important;
+    gap: .85rem 1rem;
+}
+.tpz-tax-invoice-modal .tpz-invoice-card {
+    height: 100% !important;
+    min-height: 0;
+    border: 1px solid rgba(16, 91, 166, .15);
+    border-radius: .8rem;
+    background: var(--fi-bg, #fff);
+    box-shadow: 0 2px 10px rgba(13, 42, 75, .055);
+}
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header {
+    padding: .8rem 1rem;
+    border-bottom: 1px solid rgba(16, 91, 166, .10);
+    background: linear-gradient(110deg, rgba(13, 110, 205, .095), rgba(58, 144, 245, .025));
+}
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-icon {
+    color: #0872d4;
+    background: rgba(45, 143, 242, .12);
+    border-radius: .55rem;
+    padding: .4rem;
+}
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-heading {
+    color: #10395b;
+    font-size: .95rem;
+    font-weight: 700;
+}
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-content {
+    padding: .85rem 1rem;
+}
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-content-ctn,
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-content {
+    flex: 1 1 auto;
+}
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-sc {
+    row-gap: .75rem;
+}
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-fo-field-wrp {
+    gap: .2rem;
+}
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-fo-field-wrp-hint {
+    font-size: .7rem;
+}
+.tpz-tax-invoice-modal .tpz-invoice-card textarea { min-height: 2.75rem; }
+.tpz-tax-invoice-modal .tpz-invoice-card--bottom .fi-sc-repeater-item {
+    padding: .65rem;
+}
+.tpz-tax-invoice-modal .fi-modal-footer {
+    justify-content: flex-start;
+    border-top: 1px solid rgba(16, 91, 166, .10);
+}
+.tpz-tax-invoice-modal .fi-modal-footer .fi-btn { min-height: 2.25rem; }
+@media (max-width: 1100px) {
+    .tpz-tax-invoice-modal .tpz-invoice-layout { gap: .75rem; }
+}
+.dark .tpz-tax-invoice-modal .tpz-invoice-card {
+    background: #111827;
+    border-color: rgba(147,197,253,.25);
+}
+.dark .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header {
+    background: rgba(37,99,235,.14);
+}
+.dark .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-heading {
+    color: #dbeafe;
+}
+/* Apply the same compact TPZ form language to Sales Order and Web Sale only. */
+.tpz-sales-entry-modal .fi-modal-header { padding-block: .8rem; }
+.tpz-sales-entry-modal .fi-modal-content { padding-block: .7rem; }
+.tpz-sales-entry-modal .fi-sc-section {
+    border: 1px solid rgba(16, 91, 166, .16);
+    border-radius: .8rem;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(13, 42, 75, .04);
+}
+.tpz-sales-entry-modal .fi-sc-section-header {
+    padding: .8rem 1rem;
+    border-bottom: 1px solid rgba(16, 91, 166, .1);
+    background: linear-gradient(110deg, rgba(13, 110, 205, .095), rgba(58, 144, 245, .025));
+}
+.tpz-sales-entry-modal .fi-sc-section-header-heading { color: #10395b; font-size: .95rem; font-weight: 700; }
+.tpz-sales-entry-modal .fi-sc-section-header-icon { color: #0872d4; }
+.tpz-sales-entry-modal .fi-sc-section-content { padding: .8rem 1rem; }
+.tpz-sales-entry-modal .fi-sc-section-content .fi-sc { row-gap: .8rem; }
+.tpz-sales-entry-modal .fi-modal-footer { border-top: 1px solid rgba(16, 91, 166, .1); }
+.dark .tpz-sales-entry-modal .fi-sc-section { border-color: rgba(147,197,253,.22); }
+.dark .tpz-sales-entry-modal .fi-sc-section-header { background: rgba(37,99,235,.14); }
+.dark .tpz-sales-entry-modal .fi-sc-section-header-heading { color: #dbeafe; }
+</style>
+@endonce
+
+
     <div class="tpz-workspace tpz-reference-sales">
         <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-start justify-between gap-4">
             <div>

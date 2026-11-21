@@ -182,6 +182,9 @@ abstract class BaseOperationalWorkspace extends Page
                         ?? $record->title ?? ('Record #'.$record->getKey())),
                     'date' => $record->created_at?->format('d M Y') ?? '—',
                     'status' => is_string($status) ? str($status)->headline()->toString() : null,
+                    'products' => $record instanceof \App\Models\CustomerReturn
+                        ? $record->displayItems->map(fn ($item): string => trim(($item->sku_snapshot ?? '').' — '.($item->product_name_snapshot ?? '')))->filter()->implode(' / ')
+                        : null,
                     'url' => $resource::getUrl('view', ['record' => $record]),
                 ];
             })

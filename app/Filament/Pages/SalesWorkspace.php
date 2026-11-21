@@ -28,6 +28,7 @@ use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Invoices\TaxInvoiceDocumentService;
 use App\Services\Invoices\TaxInvoiceService;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Navigation\WorkspaceRecordPreviewService;
@@ -57,6 +58,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\WithPagination;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SalesWorkspace extends Page
 {
@@ -112,6 +114,7 @@ class SalesWorkspace extends Page
                 ->label('Create Web Sale')
                 ->modalHeading('Create Web Sale')
                 ->modalWidth('4xl')
+                ->extraModalWindowAttributes(['class' => 'tpz-sales-entry-modal'])
                 ->modalSubmitActionLabel('Save & Confirm')
                 ->model(Order::class)
                 ->visible(fn (): bool => static::canAccess() && WebSalesOrderResource::canCreate())
@@ -140,14 +143,29 @@ class SalesWorkspace extends Page
                 }),
             Action::make('createWorkspaceTaxInvoice')
                 ->label('Create Tax Invoice')
-                ->modalWidth('4xl')
+                ->modalHeading('Create Tax Invoice')
+                ->modalDescription('Enter VAT-inclusive prices. VAT and totals are calculated automatically; the invoice number is assigned when saved.')
+                ->modalWidth('6xl')
+                ->extraModalWindowAttributes(['class' => 'tpz-tax-invoice-modal'])
+                ->modalSubmitAction(false)
+                ->extraModalFooterActions(fn (Action $action): array => [
+                    $action->makeModalSubmitAction('saveDownloadAndNew', arguments: ['downloadAndNew' => true])
+                        ->label('Save, Download & New')
+                        ->icon('heroicon-o-arrow-down-tray')
+                        ->color('primary'),
+                    $action->makeModalSubmitAction('saveInvoice', arguments: ['downloadAndNew' => false])
+                        ->label('Save Invoice')
+                        ->icon('heroicon-o-check')
+                        ->color('gray'),
+                ])
                 ->model(TaxInvoice::class)
                 ->visible(fn (): bool => static::canAccess() && TaxInvoiceResource::canCreate())
-                ->schema(fn (Schema $schema): Schema => TaxInvoiceResource::form($schema))
-                ->action(function (array $data): void {
+                ->schema(fn (Schema $schema): Schema => TaxInvoiceResource::workspaceForm($schema))
+                ->action(function (array $data, array $arguments): ?StreamedResponse {
                     abort_unless(static::canAccess() && TaxInvoiceResource::canCreate(), 403);
+
                     try {
-                        app(TaxInvoiceService::class)->create($data, auth()->user());
+                        $invoice = app(TaxInvoiceService::class)->create($data, auth()->user());
                     } catch (ValidationException $exception) {
                         throw $exception;
                     } catch (\Throwable $exception) {
@@ -157,7 +175,40 @@ class SalesWorkspace extends Page
 
                         throw new Halt;
                     }
-                    Notification::make()->success()->title('Tax Invoice created')->send();
+
+                    if (($arguments['downloadAndNew'] ?? false) === false) {
+                        Notification::make()->success()->title('Tax Invoice created')
+                            ->body("Invoice {$invoice->invoice_number} saved.")->send();
+
+                        return null;
+                    }
+
+                    try {
+                        $documents = app(TaxInvoiceDocumentService::class);
+                        $pdfContent = $documents->pdf($invoice)->output();
+                        $filename = $documents->filename($invoice);
+                    } catch (\Throwable $exception) {
+                        report($exception);
+                        Notification::make()->warning()->title('Invoice saved, but PDF download failed')
+                            ->body("{$invoice->invoice_number} was created. You can download its PDF from Tax Invoices.")->send();
+                        $this->replaceMountedAction('createWorkspaceTaxInvoice');
+
+                        return null;
+                    }
+
+                    Notification::make()->success()->title('Invoice created')
+                        ->body("{$invoice->invoice_number} saved. Opening a new Invoice form.")->send();
+                    // Re-mounting creates a fresh form and idempotency key; no second
+                    // invoice is posted until the employee submits the next form.
+                    $this->replaceMountedAction('createWorkspaceTaxInvoice');
+
+                    return response()->streamDownload(
+                        static function () use ($pdfContent): void {
+                            echo $pdfContent;
+                        },
+                        $filename,
+                        ['Content-Type' => 'application/pdf'],
+                    );
                 }),
             Action::make('correctShippedOrder')
                 ->label('Post-Shipment Correction')
@@ -209,6 +260,7 @@ class SalesWorkspace extends Page
                 ->label('Create Sales Order')
                 ->modalHeading('Create Sales Order')
                 ->modalWidth('5xl')
+                ->extraModalWindowAttributes(['class' => 'tpz-sales-entry-modal'])
                 ->schema([...OrderForm::components(),
                     Checkbox::make('confirm_physical_shipment')
                         ->label('I confirm every item has physically left the warehouse')

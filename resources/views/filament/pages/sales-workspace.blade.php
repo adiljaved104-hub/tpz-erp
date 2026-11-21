@@ -20,6 +20,12 @@
     border-bottom: 1px solid rgba(16, 91, 166, .10);
     background: linear-gradient(110deg, rgba(13, 110, 205, .095), rgba(58, 144, 245, .025));
 }
+.tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-icon {
+    color: #0872d4;
+    background: rgba(45, 143, 242, .12);
+    border-radius: .55rem;
+    padding: .4rem;
+}
 .tpz-tax-invoice-modal .tpz-invoice-card .fi-sc-section-header-heading {
     color: #10395b;
     font-size: .95rem;

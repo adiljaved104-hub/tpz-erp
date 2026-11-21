@@ -84,14 +84,14 @@ class TaxInvoiceResource extends Resource
 
         return $schema->components([
             \Filament\Schemas\Components\Grid::make(['default' => 1, 'xl' => 12])
-                ->extraAttributes(['class' => 'items-stretch'])
+                ->extraAttributes(['class' => 'tpz-invoice-layout'])
                 ->schema([
                     // Keep each row's panels equal height (6/6 and 8/4),
                     // rather than leaving a shorter, floating panel.
-                    $components[0]->icon('heroicon-o-arrow-down-tray')->extraAttributes(['class' => 'h-full'])->columnSpan(['default' => 1, 'xl' => 6]),
-                    $components[1]->icon('heroicon-o-users')->extraAttributes(['class' => 'h-full'])->columnSpan(['default' => 1, 'xl' => 6]),
-                    $components[2]->icon('heroicon-o-cube')->extraAttributes(['class' => 'h-full'])->columnSpan(['default' => 1, 'xl' => 8]),
-                    $components[3]->icon('heroicon-o-calculator')->extraAttributes(['class' => 'h-full'])->columnSpan(['default' => 1, 'xl' => 4]),
+                    $components[0]->icon('heroicon-o-arrow-down-tray')->extraAttributes(['class' => 'tpz-invoice-card tpz-invoice-card--top'])->columnSpan(['default' => 1, 'xl' => 6]),
+                    $components[1]->icon('heroicon-o-users')->extraAttributes(['class' => 'tpz-invoice-card tpz-invoice-card--top'])->columnSpan(['default' => 1, 'xl' => 6]),
+                    $components[2]->icon('heroicon-o-cube')->extraAttributes(['class' => 'tpz-invoice-card tpz-invoice-card--bottom'])->columnSpan(['default' => 1, 'xl' => 8]),
+                    $components[3]->icon('heroicon-o-calculator')->extraAttributes(['class' => 'tpz-invoice-card tpz-invoice-card--bottom'])->columnSpan(['default' => 1, 'xl' => 4]),
                 ]),
             $components[4],
         ]);
@@ -226,7 +226,7 @@ class TaxInvoiceResource extends Resource
                             Textarea::make('description')
                                 ->label('Product Name / Description')
                                 ->required()
-                                ->rows(2)
+                                ->rows($workspace ? 1 : 2)
                                 ->maxLength(2000)
                                 ->columnSpan(['default' => 1, 'md' => 5]),
                             TextInput::make('quantity')

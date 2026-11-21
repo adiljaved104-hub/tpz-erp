@@ -1,4 +1,26 @@
 <x-filament-panels::page>
+    @once
+        <style>
+            .tpz-return-workspace-modal .fi-modal-header { padding-block: .8rem; }
+            .tpz-return-workspace-modal .fi-modal-content { padding-block: .7rem; }
+            .tpz-return-workspace-modal .fi-sc-section {
+                border: 1px solid rgba(16, 91, 166, .16);
+                border-radius: .8rem;
+                overflow: hidden;
+            }
+            .tpz-return-workspace-modal .fi-sc-section-header {
+                padding: .8rem 1rem;
+                border-bottom: 1px solid rgba(16, 91, 166, .1);
+                background: linear-gradient(110deg, rgba(13, 110, 205, .095), rgba(58, 144, 245, .025));
+            }
+            .tpz-return-workspace-modal .fi-sc-section-header-heading { color: #10395b; font-size: .95rem; font-weight: 700; }
+            .tpz-return-workspace-modal .fi-sc-section-content { padding: .8rem 1rem; }
+            .tpz-return-workspace-modal .fi-modal-footer { border-top: 1px solid rgba(16, 91, 166, .1); }
+            .dark .tpz-return-workspace-modal .fi-sc-section { border-color: rgba(147,197,253,.22); }
+            .dark .tpz-return-workspace-modal .fi-sc-section-header { background: rgba(37,99,235,.14); }
+            .dark .tpz-return-workspace-modal .fi-sc-section-header-heading { color: #dbeafe; }
+        </style>
+    @endonce
     <div class="tpz-workspace tpz-unified-workspace tpz-reference-workspace">
         <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-center justify-between gap-4">
             <div class="tpz-native-workspace-heading">

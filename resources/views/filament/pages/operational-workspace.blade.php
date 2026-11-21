@@ -189,11 +189,14 @@
                 @if($selectedModuleData['records']->isNotEmpty())
                     <div class="tpz-native-record-table-wrap">
                         <table class="tpz-native-record-table">
-                            <thead><tr><th>Reference</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Reference</th>@if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && $selectedModuleData['label'] === 'Customer Returns')<th>Product / SKU</th>@endif<th>Created</th><th>Status</th><th>Action</th></tr></thead>
                             <tbody>
                                 @foreach($selectedModuleData['records'] as $record)
                                     <tr wire:key="selected-record-{{ $loop->index }}">
                                         <td><strong>{{ $record['reference'] }}</strong></td>
+                                        @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && $selectedModuleData['label'] === 'Customer Returns')
+                                            <td class="min-w-64 max-w-md whitespace-normal break-words">{{ $record['products'] ?: '—' }}</td>
+                                        @endif
                                         <td>{{ $record['date'] }}</td>
                                         <td><span class="tpz-reference-status-badge tpz-reference-status-badge--{{ \App\Support\WorkspaceVisuals::recordTone($record['status'] ?? '') }}">{{ $record['status'] ?? '—' }}</span></td>
                                         <td><a href="{{ $record['url'] }}">View →</a></td>

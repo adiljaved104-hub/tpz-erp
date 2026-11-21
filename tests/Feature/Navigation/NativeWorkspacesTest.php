@@ -478,6 +478,34 @@ class NativeWorkspacesTest extends TestCase
             ->assertSet('quickViewInventoryId', null);
     }
 
+    public function test_my_inventory_tab_shows_product_title_and_quick_view(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $product = Product::factory()->create([
+            'sku' => 'TPZ-MYINV-001',
+            'name' => 'My Inventory Product Title Visible',
+        ]);
+        $inventory = ProductInventory::factory()->create([
+            'product_id' => $product->id,
+            'available_quantity' => 4,
+        ]);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('setTab', 'myInventory')
+            ->assertSee('TPZ-MYINV-001')
+            ->assertSee('My Inventory Product Title Visible')
+            ->assertSee('Quick View')
+            ->call('openInventoryQuickView', $inventory->id)
+            ->assertSet('quickViewInventoryId', $inventory->id)
+            ->assertSee('My Inventory Product Title Visible')
+            ->call('closeInventoryQuickView')
+            ->assertSet('quickViewInventoryId', null);
+    }
+
     public function test_inventory_quick_view_rejects_unknown_inventory_id(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

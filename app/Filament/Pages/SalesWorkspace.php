@@ -111,7 +111,7 @@ class SalesWorkspace extends Page
             Action::make('createWorkspaceWebSale')
                 ->label('Create Web Sale')
                 ->modalHeading('Create Web Sale')
-                ->modalWidth('5xl')
+                ->modalWidth('4xl')
                 ->modalSubmitActionLabel('Save & Confirm')
                 ->model(Order::class)
                 ->visible(fn (): bool => static::canAccess() && WebSalesOrderResource::canCreate())

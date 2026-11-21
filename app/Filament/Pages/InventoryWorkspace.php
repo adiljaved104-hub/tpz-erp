@@ -66,6 +66,8 @@ class InventoryWorkspace extends Page
 
     public string $search = '';
 
+    public string $productSearch = '';
+
     // Store only the selected inventory ID; always load through the scoped
     // InventoryReadService instead of persisting record data in Livewire state.
     public ?int $quickViewInventoryId = null;
@@ -204,6 +206,7 @@ class InventoryWorkspace extends Page
             ->values();
 
         // Tab listings keep the same resource visibility scopes as Classic.
+        // Product search is limited to the authorized ProductResource query.
         $moduleQuery = match ($this->activeTab) {
             'products' => ProductResource::canViewAny() ? ProductResource::getEloquentQuery() : null,
             'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getEloquentQuery() : null,
@@ -212,6 +215,14 @@ class InventoryWorkspace extends Page
             'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getEloquentQuery() : null,
             default => null,
         };
+        if ($this->activeTab === 'products' && $moduleQuery !== null && trim($this->productSearch) !== '') {
+            $needle = addcslashes(trim($this->productSearch), '%_\\\\');
+            $moduleQuery->where(function ($query) use ($needle): void {
+                $query->where('sku', 'like', '%'.$needle.'%')
+                    ->orWhere('name', 'like', '%'.$needle.'%');
+            });
+        }
+
         $moduleRecords = $moduleQuery?->latest()->paginate(10, pageName: 'module-page') ?? collect();
 
         // Reuse Classic's already permission-filtered operational cards,
@@ -759,5 +770,10 @@ class InventoryWorkspace extends Page
     public function updatedSearch(): void
     {
         $this->resetPage('inventory-page');
+    }
+
+    public function updatedProductSearch(): void
+    {
+        $this->resetPage('module-page');
     }
 }

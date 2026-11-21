@@ -8,7 +8,18 @@ use App\Filament\Resources\MarketplaceReturnRemovals\MarketplaceReturnRemovalRes
 use App\Filament\Resources\QcInspections\QcInspectionResource;
 use App\Filament\Resources\SafetClaims\SafetClaimResource;
 use App\Filament\Resources\WarrantyRepairs\WarrantyRepairResource;
+use App\Enums\CustomerReturnPermission;
+use App\Exceptions\CustomerReturnException;
+use App\Models\CustomerReturn;
+use App\Services\Authorization\CustomerReturnAuthorization;
+use App\Services\Returns\CustomerReturnUnifiedWorkflowService;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
+use Filament\Schemas\Schema;
+use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 
 class ReturnsQcWorkspace extends BaseOperationalWorkspace
 {
@@ -19,6 +30,63 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
     protected static ?string $navigationLabel = 'Return & QC';
 
     protected static ?string $slug = 'returns-qc-workspace';
+
+    #[Locked]
+    public ?string $returnSubmissionKey = null;
+
+    public function mount(): void
+    {
+        parent::mount();
+        $this->returnSubmissionKey = (string) Str::uuid();
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('createCustomerReturn')
+                ->label('Create Customer Return')
+                ->modalHeading('Create Customer Return')
+                ->modalWidth('6xl')
+                ->extraModalWindowAttributes(['class' => 'tpz-return-workspace-modal'])
+                ->modalSubmitAction(false)
+                ->extraModalFooterActions(fn (Action $action): array => [
+                    $action->makeModalSubmitAction('savePending', arguments: ['complete' => false])
+                        ->label('Save Pending'),
+                    $action->makeModalSubmitAction('receiveAndQc', arguments: ['complete' => true])
+                        ->label('Receive & Complete QC')
+                        ->color('success')
+                        ->visible(fn (): bool => app(CustomerReturnAuthorization::class)->allows(auth()->user(), CustomerReturnPermission::Receive)
+                            && app(CustomerReturnAuthorization::class)->allows(auth()->user(), CustomerReturnPermission::Inspect)),
+                ])
+                ->model(CustomerReturn::class)
+                ->visible(fn (): bool => static::canAccess() && CustomerReturnResource::canCreate())
+                ->schema(fn (Schema $schema): Schema => CustomerReturnResource::form($schema))
+                ->action(function (array $data, array $arguments): void {
+                    abort_unless(static::canAccess() && CustomerReturnResource::canCreate(), 403);
+                    $complete = (bool) ($arguments['complete'] ?? false);
+                    if ($complete) {
+                        abort_unless(app(CustomerReturnAuthorization::class)->allows(auth()->user(), CustomerReturnPermission::Receive)
+                            && app(CustomerReturnAuthorization::class)->allows(auth()->user(), CustomerReturnPermission::Inspect), 403);
+                    }
+
+                    try {
+                        $record = app(CustomerReturnUnifiedWorkflowService::class)->submit(
+                            $data, auth()->user(), $complete, $this->returnSubmissionKey ?? (string) Str::uuid(),
+                        );
+                    } catch (CustomerReturnException $exception) {
+                        Notification::make()->danger()->title('Cannot process return')
+                            ->body($exception->getMessage())->send();
+
+                        throw new Halt;
+                    }
+
+                    $this->returnSubmissionKey = (string) Str::uuid();
+                    Notification::make()->success()
+                        ->title($complete ? 'Return received and QC recorded' : 'Return saved pending')
+                        ->body('Return '.($record->reference ?? '#'.$record->id).' created.')->send();
+                }),
+        ];
+    }
 
     protected static function metricResources(): array
     {

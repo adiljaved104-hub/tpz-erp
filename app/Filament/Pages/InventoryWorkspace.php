@@ -23,6 +23,7 @@ use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Inventory\StockRequestApprovalService;
@@ -65,6 +66,8 @@ class InventoryWorkspace extends Page
     public ?int $activeExtraModule = null;
 
     public string $search = '';
+
+    public string $productSearch = '';
 
     // Store only the selected inventory ID; always load through the scoped
     // InventoryReadService instead of persisting record data in Livewire state.
@@ -204,6 +207,7 @@ class InventoryWorkspace extends Page
             ->values();
 
         // Tab listings keep the same resource visibility scopes as Classic.
+        // Product search is limited to the authorized ProductResource query.
         $moduleQuery = match ($this->activeTab) {
             'products' => ProductResource::canViewAny() ? ProductResource::getEloquentQuery() : null,
             'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getEloquentQuery() : null,
@@ -212,6 +216,14 @@ class InventoryWorkspace extends Page
             'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getEloquentQuery() : null,
             default => null,
         };
+        if ($this->activeTab === 'products' && $moduleQuery !== null && trim($this->productSearch) !== '') {
+            $needle = addcslashes(trim($this->productSearch), '%_\\\\');
+            $moduleQuery->where(function ($query) use ($needle): void {
+                $query->where('sku', 'like', '%'.$needle.'%')
+                    ->orWhere('name', 'like', '%'.$needle.'%');
+            });
+        }
+
         $moduleRecords = $moduleQuery?->latest()->paginate(10, pageName: 'module-page') ?? collect();
 
         // Reuse Classic's already permission-filtered operational cards,
@@ -255,12 +267,42 @@ class InventoryWorkspace extends Page
             ? app(WorkspaceRecordPreviewService::class)->forLink($selectedExtra)
             : null;
 
+        // Inline reads reuse the same narrowly scoped services as the existing
+        // modules. No allocation balances from other employees are exposed.
+        $allocatedRows = collect();
+        $locationRows = collect();
+        if (is_array($selectedExtra) && $canInventory && $canLocationBalances) {
+            if ($selectedExtra['label'] === 'My Allocated Stock') {
+                $allocatedRows = app(EmployeeOwnedInventoryReadService::class)
+                    ->balances($user)
+                    ->where('allocated_quantity', '>', 0)
+                    ->with(['inventory.product:id,sku,name', 'inventory.warehouse:id,name'])
+                    ->orderByDesc('allocated_quantity')
+                    ->limit(50)
+                    ->get();
+            } elseif ($selectedExtra['label'] === 'Inventory by Location') {
+                $locationRows = app(InventoryLocationOverviewService::class)
+                    ->forUser($user, false)
+                    ->flatMap(fn (array $item): array => collect($item['locations'])->map(fn (array $location): array => [
+                        'sku' => $item['product']->sku,
+                        'product' => $item['product']->name,
+                        'location' => $location['name'],
+                        'available' => (int) $location['available'],
+                        'reserved' => (int) $location['reserved'],
+                        'sellable' => (int) $location['sellable'],
+                    ])->all())
+                    ->take(50)->values();
+            }
+        }
+
         return [
             'quickViewInventory' => $this->loadInventoryQuickView($user, $authorization),
             'pendingExecutionRequest' => $this->pendingExecutionRequest($user),
             'pendingOwnerTransfer' => $this->pendingOwnerTransfer($user),
             'pendingSourceDecision' => $this->pendingSourceDecision($user),
             'extraPreview' => $extraPreview,
+            'allocatedRows' => $allocatedRows,
+            'locationRows' => $locationRows,
             'inventoryCards' => $inventoryCards,
             'inventoryAttention' => $inventoryAttention,
             'tabCounts' => $tabCounts,
@@ -759,5 +801,10 @@ class InventoryWorkspace extends Page
     public function updatedSearch(): void
     {
         $this->resetPage('inventory-page');
+    }
+
+    public function updatedProductSearch(): void
+    {
+        $this->resetPage('module-page');
     }
 }

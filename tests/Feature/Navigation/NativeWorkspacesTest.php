@@ -98,6 +98,44 @@ class NativeWorkspacesTest extends TestCase
             ->assertSee('Tax Invoices');
     }
 
+    public function test_inventory_products_tab_search_is_scoped_and_filters_sku_and_name(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $shown = Product::factory()->create(['sku' => 'TPZ-SEARCH-001', 'name' => 'Unique Alpha Device']);
+        $hidden = Product::factory()->create(['sku' => 'TPZ-SEARCH-002', 'name' => 'Unique Beta Device']);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->call('setTab', 'products')
+            ->assertSee($shown->name)
+            ->assertSee($hidden->name)
+            ->set('productSearch', 'Alpha')
+            ->assertSee($shown->name)
+            ->assertDontSee($hidden->name)
+            ->set('productSearch', 'TPZ-SEARCH-002')
+            ->assertSee($hidden->name)
+            ->assertDontSee($shown->name);
+    }
+
+    public function test_returns_workspace_create_modal_reuses_original_form_without_posting_stock(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(ReturnsQcWorkspace::class)
+            ->assertActionVisible('createCustomerReturn')
+            ->mountAction('createCustomerReturn')
+            ->assertActionMounted('createCustomerReturn');
+
+        $this->assertDatabaseCount('customer_returns', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
     public function test_phase5_purchasing_products_and_quick_purchase_modal_reuse_existing_forms(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

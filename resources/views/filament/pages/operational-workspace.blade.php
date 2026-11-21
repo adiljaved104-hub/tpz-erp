@@ -1,4 +1,26 @@
 <x-filament-panels::page>
+    @once
+        <style>
+            .tpz-return-workspace-modal .fi-modal-header { padding-block: .8rem; }
+            .tpz-return-workspace-modal .fi-modal-content { padding-block: .7rem; }
+            .tpz-return-workspace-modal .fi-sc-section {
+                border: 1px solid rgba(16, 91, 166, .16);
+                border-radius: .8rem;
+                overflow: hidden;
+            }
+            .tpz-return-workspace-modal .fi-sc-section-header {
+                padding: .8rem 1rem;
+                border-bottom: 1px solid rgba(16, 91, 166, .1);
+                background: linear-gradient(110deg, rgba(13, 110, 205, .095), rgba(58, 144, 245, .025));
+            }
+            .tpz-return-workspace-modal .fi-sc-section-header-heading { color: #10395b; font-size: .95rem; font-weight: 700; }
+            .tpz-return-workspace-modal .fi-sc-section-content { padding: .8rem 1rem; }
+            .tpz-return-workspace-modal .fi-modal-footer { border-top: 1px solid rgba(16, 91, 166, .1); }
+            .dark .tpz-return-workspace-modal .fi-sc-section { border-color: rgba(147,197,253,.22); }
+            .dark .tpz-return-workspace-modal .fi-sc-section-header { background: rgba(37,99,235,.14); }
+            .dark .tpz-return-workspace-modal .fi-sc-section-header-heading { color: #dbeafe; }
+        </style>
+    @endonce
     <div class="tpz-workspace tpz-unified-workspace tpz-reference-workspace">
         <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-center justify-between gap-4">
             <div class="tpz-native-workspace-heading">
@@ -15,7 +37,9 @@
                     </div>
                 </div>
             </div>
-            @if($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Pages\Purchasing\QuickStockPurchase::canAccess())
+            @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && \App\Filament\Resources\CustomerReturns\CustomerReturnResource::canCreate())
+                <x-filament::button type="button" wire:click="mountAction('createCustomerReturn')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Customer Return</x-filament::button>
+            @elseif($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Pages\Purchasing\QuickStockPurchase::canAccess())
                 <x-filament::button type="button" wire:click="mountAction('quickPurchase')">Quick Purchase</x-filament::button>
             @elseif($activeModule !== 'overview' && $selectedModuleData)
                 <x-filament::button tag="a" :href="$selectedModuleData['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
@@ -189,11 +213,14 @@
                 @if($selectedModuleData['records']->isNotEmpty())
                     <div class="tpz-native-record-table-wrap">
                         <table class="tpz-native-record-table">
-                            <thead><tr><th>Reference</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Reference</th>@if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && $selectedModuleData['label'] === 'Customer Returns')<th>Product / SKU</th>@endif<th>Created</th><th>Status</th><th>Action</th></tr></thead>
                             <tbody>
                                 @foreach($selectedModuleData['records'] as $record)
                                     <tr wire:key="selected-record-{{ $loop->index }}">
                                         <td><strong>{{ $record['reference'] }}</strong></td>
+                                        @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && $selectedModuleData['label'] === 'Customer Returns')
+                                            <td class="min-w-64 max-w-md whitespace-normal break-words">{{ $record['products'] ?: '—' }}</td>
+                                        @endif
                                         <td>{{ $record['date'] }}</td>
                                         <td><span class="tpz-reference-status-badge tpz-reference-status-badge--{{ \App\Support\WorkspaceVisuals::recordTone($record['status'] ?? '') }}">{{ $record['status'] ?? '—' }}</span></td>
                                         <td><a href="{{ $record['url'] }}">View →</a></td>

@@ -177,10 +177,10 @@ class TaxInvoiceResource extends Resource
                         ->required()
                         ->maxLength(255),
                     ...($workspace ? [
-                    DatePicker::make('invoice_date')
-                        ->label('Invoice Date')
-                        ->default(today())
-                        ->required(),
+                        DatePicker::make('invoice_date')
+                            ->label('Invoice Date')
+                            ->default(today())
+                            ->required(),
                     ] : []),
                     TextInput::make('customer_phone')
                         ->label('Customer Phone (Optional)')
@@ -207,10 +207,10 @@ class TaxInvoiceResource extends Resource
                             ? 'Auto applies the appropriate Standard or Renewed terms.'
                             : 'Auto uses only renewed terms when any source Order product is Renewed. Without an Order, Auto uses Standard. Standard uses only standard terms. Renewed uses only renewed terms.'),
                     ...(! $workspace ? [
-                    DatePicker::make('invoice_date')
-                        ->label('Invoice Date')
-                        ->default(today())
-                        ->required(),
+                        DatePicker::make('invoice_date')
+                            ->label('Invoice Date')
+                            ->default(today())
+                            ->required(),
                     ] : []),
                 ]),
             Section::make('Items')

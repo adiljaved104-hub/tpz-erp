@@ -270,6 +270,14 @@
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">{{ ['products' => 'Products', 'myInventory' => 'My Inventory', 'requests' => 'Stock Requests', 'transfers' => 'Stock Transfers'][$activeTab] }}</h2>
                     <x-filament::button tag="a" size="sm" color="gray" :href="$links[$activeTab]">Open full module</x-filament::button>
                 </div>
+                @if($activeTab === 'products')
+                    <div class="mb-4">
+                        <label for="tpz-product-search" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200">Search products</label>
+                        <x-filament::input.wrapper>
+                            <x-filament::input id="tpz-product-search" type="search" wire:model.live.debounce.350ms="productSearch" placeholder="Search SKU or product name" autocomplete="off" />
+                        </x-filament::input.wrapper>
+                    </div>
+                @endif
                 <div class="overflow-x-auto">
                     <table class="tpz-workspace-table">
                         <thead>

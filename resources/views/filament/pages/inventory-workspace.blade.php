@@ -321,7 +321,8 @@
                                         @if($activeTab === 'products')
                                             {{ $record->name }}
                                         @elseif($activeTab === 'myInventory')
-                                            {{ $record->warehouse?->name ?? 'Warehouse' }} · {{ number_format($record->available_quantity ?? 0) }} available
+                                            <span class="block max-w-xl whitespace-normal break-words font-semibold text-gray-950 dark:text-white">{{ $record->product?->name ?? 'Product name unavailable' }}</span>
+                                            <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ $record->warehouse?->name ?? 'Warehouse' }} · {{ number_format($record->available_quantity ?? 0) }} available</span>
                                         @else
                                             {{ str($record->status?->value ?? $record->status ?? 'Unknown')->headline() }}
                                         @endif
@@ -331,6 +332,9 @@
                                     <td>
                                         @if($resourceClass::canView($record))
                                             <div class="flex flex-wrap gap-2">
+                                                @if($activeTab === 'myInventory')
+                                                    <x-filament::button type="button" size="xs" color="primary" wire:click="openInventoryQuickView({{ $record->getKey() }})">Quick View</x-filament::button>
+                                                @endif
                                                 <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>
                                                 @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canExecuteWorkspaceRequest($record))
                                                     <x-filament::button type="button" size="xs" color="success" wire:click="prepareStockRequestExecution({{ $record->getKey() }})">Execute approved</x-filament::button>

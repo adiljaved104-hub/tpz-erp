@@ -72,6 +72,8 @@ class InventoryWorkspace extends Page
 
     public string $productSearch = '';
 
+    public string $myInventorySearch = '';
+
     // Store only the selected inventory ID; always load through the scoped
     // InventoryReadService instead of persisting record data in Livewire state.
     public ?int $quickViewInventoryId = null;
@@ -238,6 +240,15 @@ class InventoryWorkspace extends Page
             'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getEloquentQuery() : null,
             default => null,
         };
+        if ($this->activeTab === 'myInventory' && $moduleQuery !== null && trim($this->myInventorySearch) !== '') {
+            $needle = addcslashes(trim($this->myInventorySearch), '%_\\\\');
+            $moduleQuery->whereHas('product', function ($query) use ($needle): void {
+                $query->where(function ($product) use ($needle): void {
+                    $product->where('sku', 'like', '%'.$needle.'%')
+                        ->orWhere('name', 'like', '%'.$needle.'%');
+                });
+            });
+        }
         if ($this->activeTab === 'products' && $moduleQuery !== null && trim($this->productSearch) !== '') {
             $needle = addcslashes(trim($this->productSearch), '%_\\\\');
             $moduleQuery->where(function ($query) use ($needle): void {
@@ -836,6 +847,11 @@ class InventoryWorkspace extends Page
     }
 
     public function updatedProductSearch(): void
+    {
+        $this->resetPage('module-page');
+    }
+
+    public function updatedMyInventorySearch(): void
     {
         $this->resetPage('module-page');
     }

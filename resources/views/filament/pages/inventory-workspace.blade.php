@@ -270,6 +270,15 @@
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">{{ ['products' => 'Products', 'myInventory' => 'My Inventory', 'requests' => 'Stock Requests', 'transfers' => 'Stock Transfers'][$activeTab] }}</h2>
                     <x-filament::button tag="a" size="sm" color="gray" :href="$links[$activeTab]">Open full module</x-filament::button>
                 </div>
+                @if($activeTab === 'myInventory')
+                    <div class="mb-4 flex justify-end">
+                        <div class="w-full sm:w-80">
+                            <x-filament::input.wrapper>
+                                <x-filament::input type="search" wire:model.live.debounce.350ms="myInventorySearch" placeholder="Search by SKU or product" aria-label="Search My Inventory" />
+                            </x-filament::input.wrapper>
+                        </div>
+                    </div>
+                @endif
                 @if($activeTab === 'products')
                     <div class="mb-4">
                         <label for="tpz-product-search" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200">Search products</label>

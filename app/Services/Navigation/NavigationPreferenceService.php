@@ -216,11 +216,14 @@ class NavigationPreferenceService
         // Preserve a fallback for an unusual account that has access to a
         // resource but lacks the related workspace (never lose navigation).
         $workspaceNames = [
-            'Sales' => 'Sales Workspace',
-            'Inventory & Warehouse' => 'Inventory Workspace',
-            'Purchasing' => 'Purchasing Workspace',
-            'Returns & QC' => 'Returns & QC Workspace',
-            'Finance & Accounting' => 'Finance & Accounting Workspace',
+            // Match the actual workspace navigation labels, not page titles.
+            // Otherwise the selected workspace disappears from the primary
+            // sidebar and its modules spill into Workplace Tools.
+            'Sales' => 'Sales',
+            'Inventory & Warehouse' => 'Inventory',
+            'Purchasing' => 'Purchase',
+            'Returns & QC' => 'Return & QC',
+            'Finance & Accounting' => 'Finance and Accounting',
             'Team & HR' => 'Team & HR Workspace',
             'Administration' => 'Administration Workspace',
         ];

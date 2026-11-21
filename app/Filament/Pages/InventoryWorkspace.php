@@ -23,6 +23,7 @@ use App\Models\User;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
+use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Inventory\StockRequestApprovalService;
@@ -266,12 +267,42 @@ class InventoryWorkspace extends Page
             ? app(WorkspaceRecordPreviewService::class)->forLink($selectedExtra)
             : null;
 
+        // Inline reads reuse the same narrowly scoped services as the existing
+        // modules. No allocation balances from other employees are exposed.
+        $allocatedRows = collect();
+        $locationRows = collect();
+        if (is_array($selectedExtra) && $canInventory && $canLocationBalances) {
+            if ($selectedExtra['label'] === 'My Allocated Stock') {
+                $allocatedRows = app(EmployeeOwnedInventoryReadService::class)
+                    ->balances($user)
+                    ->where('allocated_quantity', '>', 0)
+                    ->with(['inventory.product:id,sku,name', 'inventory.warehouse:id,name'])
+                    ->orderByDesc('allocated_quantity')
+                    ->limit(50)
+                    ->get();
+            } elseif ($selectedExtra['label'] === 'Inventory by Location') {
+                $locationRows = app(InventoryLocationOverviewService::class)
+                    ->forUser($user, false)
+                    ->flatMap(fn (array $item): array => collect($item['locations'])->map(fn (array $location): array => [
+                        'sku' => $item['product']->sku,
+                        'product' => $item['product']->name,
+                        'location' => $location['name'],
+                        'available' => (int) $location['available'],
+                        'reserved' => (int) $location['reserved'],
+                        'sellable' => (int) $location['sellable'],
+                    ])->all())
+                    ->take(50)->values();
+            }
+        }
+
         return [
             'quickViewInventory' => $this->loadInventoryQuickView($user, $authorization),
             'pendingExecutionRequest' => $this->pendingExecutionRequest($user),
             'pendingOwnerTransfer' => $this->pendingOwnerTransfer($user),
             'pendingSourceDecision' => $this->pendingSourceDecision($user),
             'extraPreview' => $extraPreview,
+            'allocatedRows' => $allocatedRows,
+            'locationRows' => $locationRows,
             'inventoryCards' => $inventoryCards,
             'inventoryAttention' => $inventoryAttention,
             'tabCounts' => $tabCounts,

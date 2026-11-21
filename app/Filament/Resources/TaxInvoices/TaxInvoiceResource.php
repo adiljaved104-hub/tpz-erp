@@ -70,7 +70,34 @@ class TaxInvoiceResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
+        return $schema->components(self::formComponents());
+    }
+
+    /**
+     * The native Sales Workspace uses a dashboard-like two-column layout
+     * while sharing every field, dynamic rule and calculation with Classic.
+     * Keep the Classic Tax Invoice resource form unchanged.
+     */
+    public static function workspaceForm(Schema $schema): Schema
+    {
+        $components = self::formComponents();
+
         return $schema->components([
+            \Filament\Schemas\Components\Grid::make(['default' => 1, 'xl' => 12])
+                ->schema([
+                    $components[0]->columnSpan(['default' => 1, 'xl' => 6]),
+                    $components[1]->columnSpan(['default' => 1, 'xl' => 6]),
+                    $components[2]->columnSpan(['default' => 1, 'xl' => 8]),
+                    $components[3]->columnSpan(['default' => 1, 'xl' => 4]),
+                ]),
+            $components[4],
+        ]);
+    }
+
+    /** @return array<int, \Filament\Schemas\Components\Component> */
+    private static function formComponents(): array
+    {
+        return [
             Section::make('Import from Order')
                 ->description('Optional. Search by ERP Order Number or External / Marketplace Order ID, then review and adjust the Invoice before saving. Manual entry remains available.')
                 ->schema([
@@ -218,7 +245,7 @@ class TaxInvoiceResource extends Resource
                 Placeholder::make('totals_preview')->hiddenLabel()->content(fn (Get $get): HtmlString => self::totalsPreview($get))->columnSpanFull(),
             ]),
             Hidden::make('idempotency_key')->default(fn () => (string) str()->uuid()),
-        ]);
+        ];
     }
 
     public static function infolist(Schema $schema): Schema

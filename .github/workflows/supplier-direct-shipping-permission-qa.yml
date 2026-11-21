@@ -1,0 +1,80 @@
+name: Supplier-direct shipping permission QA
+
+on:
+  push:
+    branches: [codex/web-sales-supplier-direct-permission-20261121]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-mysql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_supplier_direct_shipping_test
+          MYSQL_USER: tpz_test
+          MYSQL_PASSWORD: disposable_ci_only
+          MYSQL_ROOT_PASSWORD: disposable_root_only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pdisposable_root_only"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_supplier_direct_shipping_test
+      DB_USERNAME: tpz_test
+      DB_PASSWORD: disposable_ci_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, bcmath, intl, zip, pdo_mysql
+          coverage: none
+      - name: Install locked dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Temporary key
+        run: echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Locked frontend build
+        run: |
+          npm ci
+          npm run build
+          test -s public/build/manifest.json
+      - name: Syntax and changed-file formatting
+        run: |
+          git diff origin/staging...HEAD --name-only -- '*.php' > "$RUNNER_TEMP/changed-php.txt"
+          mapfile -t php_files < "$RUNNER_TEMP/changed-php.txt"
+          test "${#php_files[@]}" -gt 0
+          for path in "${php_files[@]}"; do php -l "$path"; done
+          vendor/bin/pint --test "${php_files[@]}"
+      - name: Disposable MySQL migrations and Blade
+        run: |
+          mysql -h 127.0.0.1 -uroot -pdisposable_root_only -e "CREATE DATABASE tpz_supplier_direct_shipping_guard_test; GRANT ALL ON tpz_supplier_direct_shipping_guard_test.* TO 'tpz_test'@'%';"
+          php artisan migrate --force --no-interaction
+          DB_DATABASE=tpz_supplier_direct_shipping_guard_test php artisan migrate --force --no-interaction
+          php artisan view:cache
+      - name: Non-transaction-wrapped production guard regression
+        env:
+          DB_DATABASE: tpz_supplier_direct_shipping_guard_test
+        run: vendor/bin/phpunit --bootstrap tests/Support/SupplierDirectDisposableMysqlBootstrap.php tests/Feature/Orders/SupplierDirectShippingProductionGuardMySqlTest.php
+      - name: Focused permission, atomicity, invoice and existing Web Sales regressions
+        run: vendor/bin/phpunit --bootstrap tests/Support/SupplierDirectDisposableMysqlBootstrap.php tests/Feature/Orders/SupplierDirectShippingPermissionTest.php tests/Feature/Orders/ManualSourcingShipmentIntegrationTest.php tests/Feature/Orders/ManualSourcingShipmentProvenanceTest.php tests/Feature/Orders/WebSalesWorkflowTest.php tests/Feature/AccessControl/EmployeeAccessControlTest.php

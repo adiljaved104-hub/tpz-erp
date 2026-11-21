@@ -5,10 +5,12 @@ namespace App\Services\Orders;
 use App\DTOs\Purchases\CreatePurchaseData;
 use App\DTOs\Purchases\PurchaseItemData;
 use App\Enums\ManualSourcingStatus;
+use App\Enums\OrderPermission;
+use App\Enums\OrderStatus;
 use App\Enums\PurchaseEntryType;
-use App\Enums\PurchasePermission;
 use App\Enums\PurchaseStatus;
 use App\Enums\StockMovementType;
+use App\Enums\WebSalesPermission;
 use App\Models\ManualSourcingShipmentPosting;
 use App\Models\Order;
 use App\Models\Purchase;
@@ -16,18 +18,22 @@ use App\Models\PurchaseReceipt;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\ActivityLogger;
-use App\Services\Authorization\PurchaseAuthorization;
+use App\Services\Authorization\OrderAuthorization;
+use App\Services\Authorization\WebSalesAuthorization;
 use App\Services\Inventory\InventoryBalanceService;
 use App\Services\Purchases\PurchaseDocumentService;
 use App\Services\ReferenceSequenceService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use LogicException;
 
 /** Posts supplier-to-customer sourcing without creating warehouse stock. */
 class ManualSourcingShipmentService
 {
     public function __construct(
-        private readonly PurchaseAuthorization $purchases,
+        private readonly WebSalesAuthorization $webSales,
+        private readonly OrderAuthorization $orders,
         private readonly PurchaseDocumentService $documents,
         private readonly ReferenceSequenceService $references,
         private readonly InventoryBalanceService $balances,
@@ -35,11 +41,34 @@ class ManualSourcingShipmentService
         private readonly OrderLineFulfillmentService $lineFulfillments,
     ) {}
 
+    /** Check before reserving references, then again under the shipment's Order lock. */
+    public function assertCanShip(Order $order, User $actor): void
+    {
+        if (! $order->manualSourcingLines()->where('source_mode', 'supplier_direct')
+            ->where('status', '!=', ManualSourcingStatus::Fulfilled->value)->exists()) {
+            return;
+        }
+
+        $this->webSales->authorize($actor, WebSalesPermission::View, $order);
+        if (! app(WebSalesReadService::class)->canAccess($actor, $order)) {
+            throw new AuthorizationException;
+        }
+        $this->webSales->authorize($actor, WebSalesPermission::Update, $order);
+        $this->orders->authorize($actor, OrderPermission::Fulfill, $order);
+        if ($order->status === OrderStatus::PendingReview) {
+            $this->orders->authorize($actor, OrderPermission::Reserve, $order);
+        }
+        $this->webSales->authorize($actor, WebSalesPermission::SupplierDirectShip, $order);
+        if (! in_array($order->status, [OrderStatus::PendingReview, OrderStatus::Reserved], true)) {
+            throw ValidationException::withMessages(['order' => 'Supplier-direct shipping requires an eligible pending or reserved Web Sale.']);
+        }
+    }
+
     /** @return array<int,array{purchase_reference:string,receipt_reference:string,movement_references:array<int,string>}> */
     public function preallocateReferences(Order $order, string $shipmentKey): array
     {
         $references = [];
-        foreach ($order->manualSourcingLines()->where('status', '!=', ManualSourcingStatus::Fulfilled->value)->orderBy('id')->get() as $line) {
+        foreach ($order->manualSourcingLines()->where('source_mode', 'supplier_direct')->where('status', '!=', ManualSourcingStatus::Fulfilled->value)->orderBy('id')->get() as $line) {
             $postingKey = $this->postingKey($shipmentKey, (int) $line->id);
             if (ManualSourcingShipmentPosting::query()->where('idempotency_key', $postingKey)->exists()) {
                 continue;
@@ -57,12 +86,17 @@ class ManualSourcingShipmentService
         return $references;
     }
 
-    public function materialize(Order $order, string $shipmentKey, User $actor, ?array $preallocatedReferences = null): void
+    public function materialize(Order $order, string $shipmentKey, User $actor, array $preallocatedReferences): void
     {
-        $preallocatedReferences ??= $this->preallocateReferences($order, $shipmentKey);
+        // This is an internal part of WebSalesService::ship(), not a standalone
+        // purchasing capability. References must already be reserved outside it.
+        if (DB::transactionLevel() < 1) {
+            throw new LogicException('Supplier-direct materialization requires the enclosing Web Sales shipment transaction.');
+        }
         DB::transaction(function () use ($order, $shipmentKey, $actor, $preallocatedReferences): void {
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
-            foreach ($locked->manualSourcingLines()->lockForUpdate()->get() as $line) {
+            $this->assertCanShip($locked, $actor);
+            foreach ($locked->manualSourcingLines()->where('source_mode', 'supplier_direct')->lockForUpdate()->get() as $line) {
                 if ($line->status === ManualSourcingStatus::Fulfilled) {
                     continue;
                 }
@@ -70,16 +104,15 @@ class ManualSourcingShipmentService
                 if (ManualSourcingShipmentPosting::query()->where('idempotency_key', $postingKey)->lockForUpdate()->exists()) {
                     continue;
                 }
-                if ($line->source_mode !== 'supplier_direct') {
-                    throw ValidationException::withMessages(['items' => 'Only supplier-to-customer manual sourcing is materialized during shipment.']);
+                if ($line->status === ManualSourcingStatus::Cancelled) {
+                    throw ValidationException::withMessages(['items' => 'Cancelled manual sourcing cannot be shipped.']);
                 }
-                if ($line->actual_unit_cost === null || blank($line->purchase_currency) || $line->purchased_on === null) {
+                if ($line->actual_unit_cost === null || bccomp((string) $line->actual_unit_cost, '0', 4) <= 0 || blank($line->purchase_currency) || $line->purchased_on === null) {
                     throw ValidationException::withMessages(['items' => 'Manual sourced lines require actual purchase cost, currency, and purchase date before shipment.']);
                 }
                 if (strtoupper((string) $line->purchase_currency) !== 'AED') {
                     throw ValidationException::withMessages(['items' => 'The current purchasing ledger supports AED only.']);
                 }
-                $this->purchases->authorize($actor, PurchasePermission::QuickReceive);
                 $refs = $preallocatedReferences[$line->id] ?? null;
                 if ($refs === null) {
                     throw ValidationException::withMessages(['items' => 'Shipment references could not be prepared for every manual sourcing line. Please retry.']);

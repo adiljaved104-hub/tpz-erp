@@ -11,6 +11,7 @@ use App\Enums\WebSalesDeliveryType;
 use App\Enums\WebSalesPermission;
 use App\Exceptions\DefaultWarehouseException;
 use App\Exceptions\InvalidOrderTransitionException;
+use App\Exceptions\SupplierDirectShippingAuthorizationException;
 use App\Filament\Concerns\InteractsWithQcOrderAssignments;
 use App\Filament\Resources\CustomerReturns\CustomerReturnResource;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
@@ -41,6 +42,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
@@ -269,12 +271,18 @@ class ViewWebSalesOrder extends ViewRecord
         try {
             $this->record = $callback();
             Notification::make()->success()->title('Web Sale updated')->send();
+        } catch (SupplierDirectShippingAuthorizationException $exception) {
+            Notification::make()->warning()->title($title)->body($exception->getMessage())->send();
+            throw new Halt;
+        } catch (AuthorizationException $exception) {
+            Notification::make()->warning()->title($title)->body('Required Web Sales, fulfillment, or responsibility authorization is missing. Ask Owner/Admin to review your access for this order.')->send();
+            throw new Halt;
         } catch (ValidationException|InvalidOrderTransitionException|DefaultWarehouseException $exception) {
             Notification::make()->danger()->title($title)->body($exception instanceof ValidationException ? collect($exception->errors())->flatten()->join(' ') : $exception->getMessage())->send();
             throw new Halt;
         } catch (Throwable $exception) {
             report($exception);
-            Notification::make()->warning()->title($title)->body('The shipment could not be completed. No changes were saved. Please contact an administrator if the problem continues.')->send();
+            Notification::make()->warning()->title($title)->body('The action could not be completed. Refresh the order to check its current status, then contact an administrator if the problem continues.')->send();
             throw new Halt;
         }
     }

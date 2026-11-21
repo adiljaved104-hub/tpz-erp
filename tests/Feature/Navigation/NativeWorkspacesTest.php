@@ -79,6 +79,25 @@ class NativeWorkspacesTest extends TestCase
         $this->assertNotContains('Tax Invoices', $labels);
     }
 
+    public function test_tax_invoice_workspace_tab_opens_authorized_invoice_preview(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $workspace = Livewire::test(SalesWorkspace::class);
+        $modules = $workspace->viewData('extraModules');
+        $taxInvoiceIndex = collect($modules)->search(fn (array $item): bool => $item['label'] === 'Tax Invoices');
+
+        $this->assertNotFalse($taxInvoiceIndex, 'Tax Invoices must be available in Sales Workspace');
+
+        $workspace->call('selectExtraModule', (int) $taxInvoiceIndex)
+            ->assertSet('activeTab', 'extra')
+            ->assertSet('activeExtraModule', (int) $taxInvoiceIndex)
+            ->assertSee('Tax Invoices');
+    }
+
     public function test_phase5_purchasing_products_and_quick_purchase_modal_reuse_existing_forms(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

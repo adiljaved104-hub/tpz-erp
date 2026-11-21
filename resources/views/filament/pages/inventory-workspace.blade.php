@@ -234,8 +234,8 @@
                         @forelse($inventory as $row)
                             <tr wire:key="inventory-{{ $row->id }}">
                                 <td>
-                                    <div class="font-semibold text-gray-900 dark:text-white">{{ $row->product?->sku }}</div>
-                                    <div class="mt-0.5 text-xs text-gray-500">{{ $row->product?->name }}</div>
+                                    <div class="text-sm font-semibold text-gray-900 dark:text-white whitespace-normal break-words">{{ $row->product?->name ?? '—' }}</div>
+                                    <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ $row->product?->sku ?? '—' }}</div>
                                 </td>
                                 <td>{{ $row->warehouse?->name ?? '—' }}</td>
                                 <td class="text-right font-semibold tabular-nums">{{ number_format($row->available_quantity) }}</td>

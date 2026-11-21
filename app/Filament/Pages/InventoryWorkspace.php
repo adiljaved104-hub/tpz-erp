@@ -43,6 +43,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\WithPagination;
 
 class InventoryWorkspace extends Page
@@ -61,8 +62,10 @@ class InventoryWorkspace extends Page
 
     protected static ?int $navigationSort = 0;
 
+    #[Url(as: 'workspace_tab', history: true)]
     public string $activeTab = 'overview';
 
+    #[Url(as: 'workspace_module', history: true)]
     public ?int $activeExtraModule = null;
 
     public string $search = '';
@@ -160,6 +163,34 @@ class InventoryWorkspace extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+
+        // Tab and module are persisted in the URL, but URL values are untrusted.
+        // A refreshed or shared link must never expose a module that the
+        // currently signed-in employee cannot access.
+        if ($this->activeTab === 'extra') {
+            if ($this->activeExtraModule === null || ! $this->extraModules()->has($this->activeExtraModule)) {
+                $this->activeTab = 'overview';
+                $this->activeExtraModule = null;
+            }
+
+            return;
+        }
+
+        $permitted = match ($this->activeTab) {
+            'overview' => true,
+            'products' => ProductResource::canViewAny(),
+            'inventory' => InventoryOverview::canAccess(),
+            'myInventory' => ProductInventoryResource::canViewAny(),
+            'requests' => StockRequestResource::canViewAny(),
+            'transfers' => StockTransferResource::canViewAny(),
+            'adjustments' => StockAdjustments::canAccess(),
+            default => false,
+        };
+
+        if (! $permitted) {
+            $this->activeTab = 'overview';
+        }
+        $this->activeExtraModule = null;
     }
 
     protected function getViewData(): array

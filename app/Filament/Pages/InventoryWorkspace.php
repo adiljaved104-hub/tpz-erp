@@ -98,10 +98,12 @@ class InventoryWorkspace extends Page
         return [
             Action::make('createStockRequest')
                 ->label('Create Stock Request')
-                ->modalWidth('5xl')
+                ->modalHeading('Request Stock')
+                ->modalDescription('Choose authorized products, enter quantities and submit for approval. No stock moves until approved and executed.')
+                ->modalWidth('6xl')
                 ->modalSubmitActionLabel('Submit Stock Request')
                 ->visible(fn (): bool => static::canAccess() && StockRequestResource::canCreate())
-                ->schema(StockRequestForm::components())
+                ->schema(StockRequestForm::workspaceComponents())
                 ->mountUsing(function (Schema $schema): void {
                     abort_unless(static::canAccess() && StockRequestResource::canCreate(), 403);
                     $this->stockRequestSubmissionKey = (string) Str::uuid();

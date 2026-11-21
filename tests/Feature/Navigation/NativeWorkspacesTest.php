@@ -278,6 +278,37 @@ class NativeWorkspacesTest extends TestCase
         $this->assertDatabaseCount('stock_movements', 0);
     }
 
+    public function test_stock_request_workspace_bulk_picker_adds_authorized_products_without_duplicates_or_stock_changes(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $first = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['name' => 'Picker Product One'])->id,
+            'available_quantity' => 6,
+            'reserved_quantity' => 0,
+        ]);
+        $second = ProductInventory::factory()->create([
+            'product_id' => Product::factory()->create(['name' => 'Picker Product Two'])->id,
+            'available_quantity' => 4,
+            'reserved_quantity' => 0,
+        ]);
+        app(InventoryAllocationService::class)->ensureShadowCoverage($first, $owner);
+        app(InventoryAllocationService::class)->ensureShadowCoverage($second, $owner);
+
+        Livewire::test(InventoryWorkspace::class)
+            ->mountAction('createStockRequest')
+            ->set('mountedActions.0.data.quick_add_inventories', [$first->id, $second->id])
+            ->assertSet('mountedActions.0.data.items', fn ($items): bool => count($items) === 2)
+            ->set('mountedActions.0.data.quick_add_inventories', [$first->id])
+            ->assertSet('mountedActions.0.data.items', fn ($items): bool => count($items) === 2);
+
+        $this->assertDatabaseCount('stock_requests', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
     public function test_inventory_workspace_embeds_the_existing_adjustment_grid_and_checks_preview_access(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

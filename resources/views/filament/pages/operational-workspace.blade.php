@@ -37,8 +37,15 @@
                     </div>
                 </div>
             </div>
-            @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && \App\Filament\Resources\CustomerReturns\CustomerReturnResource::canCreate())
-                <x-filament::button type="button" wire:click="mountAction('createCustomerReturn')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Customer Return</x-filament::button>
+            @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace)
+                <div class="flex flex-wrap gap-2">
+                    @if(($activeModule === 'overview' || ($selectedModuleData['label'] ?? null) === 'Customer Returns') && \App\Filament\Resources\CustomerReturns\CustomerReturnResource::canCreate())
+                        <x-filament::button type="button" wire:click="mountAction('createCustomerReturn')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Customer Return</x-filament::button>
+                    @endif
+                    @if(($selectedModuleData['label'] ?? null) === 'Marketplace Return Removals' && \App\Filament\Resources\MarketplaceReturnRemovals\MarketplaceReturnRemovalResource::canCreate())
+                        <x-filament::button type="button" wire:click="mountAction('createMarketplaceRemoval')" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-plus')">Create Marketplace Removal</x-filament::button>
+                    @endif
+                </div>
             @elseif($this instanceof \App\Filament\Pages\PurchasingWorkspace && \App\Filament\Pages\Purchasing\QuickStockPurchase::canAccess())
                 <x-filament::button type="button" wire:click="mountAction('quickPurchase')">Quick Purchase</x-filament::button>
             @elseif($activeModule !== 'overview' && $selectedModuleData)
@@ -210,6 +217,16 @@
                         </div>
                     </div>
                 @endif
+                @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && in_array($selectedModuleData['label'], ['Customer Returns', 'Marketplace Return Removals'], true))
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-xs text-gray-500 dark:text-gray-400">{{ number_format($selectedModuleData['filteredTotal'] ?? 0) }} matching records (first 20 shown)</span>
+                        <div class="w-full sm:w-80">
+                            <x-filament::input.wrapper>
+                                <x-filament::input type="search" wire:model.live.debounce.350ms="recordSearch" placeholder="Search reference, SKU or product" aria-label="Search return records" />
+                            </x-filament::input.wrapper>
+                        </div>
+                    </div>
+                @endif
                 @if($selectedModuleData['records']->isNotEmpty())
                     <div class="tpz-native-record-table-wrap">
                         <table class="tpz-native-record-table">
@@ -230,7 +247,7 @@
                         </table>
                     </div>
                 @else
-                    <p class="tpz-native-no-preview">Open the existing module to access its authorized records, filters, and actions.</p>
+                    <p class="tpz-native-no-preview">{{ $this instanceof \App\Filament\Pages\ReturnsQcWorkspace && in_array($selectedModuleData['label'], ['Customer Returns', 'Marketplace Return Removals'], true) ? (filled($recordSearch) ? 'No matching records in your authorized scope.' : 'No records in your authorized scope. Use Create above if permitted.') : 'Open the existing module to access its authorized records, filters, and actions.' }}</p>
                 @endif
                 <div class="tpz-native-module-footer">
                     <x-filament::button tag="a" :href="$selectedModuleData['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">

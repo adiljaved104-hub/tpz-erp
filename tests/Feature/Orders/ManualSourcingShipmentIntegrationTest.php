@@ -14,9 +14,9 @@ use App\Enums\EmployeePermissionEffect;
 use App\Enums\EmployeeRole;
 use App\Enums\ManualSourcingStatus;
 use App\Enums\OrderStatus;
-use App\Enums\PurchasePermission;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesDeliveryType;
+use App\Enums\WebSalesPermission;
 use App\Models\AccountingObligation;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
@@ -68,6 +68,23 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
         $this->assertSame('500.0000', OrderFulfillmentItem::query()->sole()->inventory_unit_cost);
         $this->assertSame('500.0000', AccountingObligation::query()->where('source_type', 'order_line_fulfillment')->sole()->unit_cost);
         $this->assertSame('AED', AccountingObligation::query()->where('source_type', 'order_line_fulfillment')->sole()->currency);
+    }
+
+    public function test_admin_keeps_supplier_direct_shipping_without_standalone_quick_receive(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $admin = $this->user(EmployeeRole::Admin);
+        $order = $this->createOrder($admin, [$this->directItem(Supplier::factory()->create(), 'ADMIN-DIRECT')]);
+        EmployeePermissionOverride::query()->create([
+            'employee_id' => $admin->employee->id, 'permission_key' => 'purchase.quick_receive',
+            'effect' => EmployeePermissionEffect::Deny, 'granted_by_user_id' => $owner->id,
+            'reason' => 'Dedicated shipping must not require general purchasing access',
+        ]);
+        $shipped = app(WebSalesService::class)->ship($order, (string) Str::uuid(), $admin);
+        $this->assertSame(OrderStatus::Fulfilled, $shipped->status);
+        $this->assertDatabaseCount('manual_sourcing_shipment_postings', 1);
+        $this->assertDatabaseCount('purchases', 1);
+        $this->assertDatabaseCount('purchase_receipts', 1);
     }
 
     public function test_supplier_direct_shipping_accepts_an_on_spot_supplier_name_without_a_supplier_master(): void
@@ -199,14 +216,14 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
         $this->assertTrue(StockMovement::query()->get()->every(fn (StockMovement $movement): bool => $movement->available_delta === 0 && $movement->reserved_delta === 0 && $movement->damaged_delta === 0));
     }
 
-    public function test_purchase_quick_receive_denial_prevents_supplier_direct_shipment_and_side_effects(): void
+    public function test_explicit_supplier_direct_shipping_denial_prevents_admin_shipment_and_side_effects(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
         $admin = $this->user(EmployeeRole::Admin);
         $order = $this->createOrder($admin, [$this->directItem(Supplier::factory()->create(), 'DENIED-1')]);
         EmployeePermissionOverride::query()->create([
             'employee_id' => $admin->employee->id,
-            'permission_key' => PurchasePermission::QuickReceive->value,
+            'permission_key' => WebSalesPermission::SupplierDirectShip->value,
             'effect' => EmployeePermissionEffect::Deny,
             'granted_by_user_id' => $owner->id,
             'reason' => 'Manual Sourcing purchase authorization regression',
@@ -214,7 +231,7 @@ class ManualSourcingShipmentIntegrationTest extends TestCase
 
         try {
             app(WebSalesService::class)->ship($order, (string) Str::uuid(), $admin);
-            $this->fail('An employee without QuickReceive may not create a direct receipt.');
+            $this->fail('An employee denied Supplier-Direct Shipping may not create a direct receipt.');
         } catch (AuthorizationException) {
             $this->assertSame(OrderStatus::PendingReview, $order->refresh()->status);
         }

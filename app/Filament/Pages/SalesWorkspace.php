@@ -14,6 +14,7 @@ use App\Enums\QuotationPermission;
 use App\Enums\WebSalesChannel;
 use App\Enums\WebSalesPermission;
 use App\Exceptions\InvalidOrderTransitionException;
+use App\Exceptions\SupplierDirectShippingAuthorizationException;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\Orders\Schemas\OrderForm;
 use App\Filament\Resources\Quotations\QuotationResource;
@@ -709,6 +710,8 @@ class SalesWorkspace extends Page
             Notification::make()->success()->title(
                 $operation === 'ship' ? 'Web Sale marked Shipped' : 'Web Sale marked Delivered'
             )->send();
+        } catch (SupplierDirectShippingAuthorizationException $e) {
+            Notification::make()->warning()->title('Cannot ship Web Sale')->body($e->getMessage())->send();
         } catch (AuthorizationException $e) {
             throw $e;
         } catch (ValidationException|InvalidOrderTransitionException $e) {

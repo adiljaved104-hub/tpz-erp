@@ -43,6 +43,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\WithPagination;
 
 class InventoryWorkspace extends Page
@@ -61,8 +62,10 @@ class InventoryWorkspace extends Page
 
     protected static ?int $navigationSort = 0;
 
+    #[Url(as: 'tab', history: true, except: 'overview')]
     public string $activeTab = 'overview';
 
+    #[Url(as: 'module', history: true)]
     public ?int $activeExtraModule = null;
 
     public string $search = '';
@@ -160,6 +163,23 @@ class InventoryWorkspace extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+
+        // The tab is restored from the URL on a full browser refresh.
+        // Never trust query parameters to grant access to an ERP module.
+        if ($this->activeTab === 'extra') {
+            if ($this->activeExtraModule === null || ! $this->extraModules()->has($this->activeExtraModule)) {
+                $this->activeTab = 'overview';
+                $this->activeExtraModule = null;
+            }
+
+            return;
+        }
+
+        if (! $this->isPermittedWorkspaceTab($this->activeTab)) {
+            $this->activeTab = 'overview';
+        }
+
+        $this->activeExtraModule = null;
     }
 
     protected function getViewData(): array
@@ -775,29 +795,39 @@ class InventoryWorkspace extends Page
 
     public function setTab(string $tab): void
     {
-        // The workspace never bypasses module Access Control when selecting a tab.
-        if ($tab !== 'overview') {
-            $validTabs = ['products', 'inventory', 'myInventory', 'requests', 'transfers', 'adjustments'];
-            abort_unless(in_array($tab, $validTabs, true), 403);
-            /** @var User $user */
-            $user = auth()->user();
-            $authorization = app(InventoryAuthorization::class);
-            $permitted = match ($tab) {
-                'products' => ProductResource::canViewAny(),
-                'inventory' => InventoryOverview::canAccess(),
-                'myInventory' => ProductInventoryResource::canViewAny(),
-                'requests' => StockRequestResource::canViewAny(),
-                'transfers' => StockTransferResource::canViewAny(),
-                'adjustments' => StockAdjustments::canAccess(),
-                default => false,
-            };
-            abort_unless($permitted && static::canAccess(), 403);
-        }
+        // Both clicks and refresh restoration enforce the same access rules.
+        abort_unless($this->isPermittedWorkspaceTab($tab), 403);
 
         $this->activeTab = $tab;
         $this->activeExtraModule = null;
         $this->resetPage('inventory-page');
         $this->resetPage('module-page');
+    }
+
+    private function isPermittedWorkspaceTab(string $tab): bool
+    {
+        if (! static::canAccess()) {
+            return false;
+        }
+
+        if ($tab === 'overview') {
+            return true;
+        }
+
+        $user = auth()->user();
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return match ($tab) {
+            'products' => ProductResource::canViewAny(),
+            'inventory' => InventoryOverview::canAccess(),
+            'myInventory' => ProductInventoryResource::canViewAny(),
+            'requests' => StockRequestResource::canViewAny(),
+            'transfers' => StockTransferResource::canViewAny(),
+            'adjustments' => StockAdjustments::canAccess(),
+            default => false,
+        };
     }
 
     public function updatedSearch(): void

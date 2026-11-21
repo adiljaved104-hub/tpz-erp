@@ -114,6 +114,7 @@ class SalesWorkspace extends Page
                 ->label('Create Web Sale')
                 ->modalHeading('Create Web Sale')
                 ->modalWidth('4xl')
+                ->extraModalWindowAttributes(['class' => 'tpz-sales-entry-modal'])
                 ->modalSubmitActionLabel('Save & Confirm')
                 ->model(Order::class)
                 ->visible(fn (): bool => static::canAccess() && WebSalesOrderResource::canCreate())
@@ -259,6 +260,7 @@ class SalesWorkspace extends Page
                 ->label('Create Sales Order')
                 ->modalHeading('Create Sales Order')
                 ->modalWidth('5xl')
+                ->extraModalWindowAttributes(['class' => 'tpz-sales-entry-modal'])
                 ->schema([...OrderForm::components(),
                     Checkbox::make('confirm_physical_shipment')
                         ->label('I confirm every item has physically left the warehouse')

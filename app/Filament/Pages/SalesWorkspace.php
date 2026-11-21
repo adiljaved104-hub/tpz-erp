@@ -140,10 +140,12 @@ class SalesWorkspace extends Page
                 }),
             Action::make('createWorkspaceTaxInvoice')
                 ->label('Create Tax Invoice')
-                ->modalWidth('4xl')
+                ->modalHeading('Create Tax Invoice')
+                ->modalDescription('Enter VAT-inclusive prices. VAT and totals are calculated automatically; the invoice number is assigned when saved.')
+                ->modalWidth('7xl')
                 ->model(TaxInvoice::class)
                 ->visible(fn (): bool => static::canAccess() && TaxInvoiceResource::canCreate())
-                ->schema(fn (Schema $schema): Schema => TaxInvoiceResource::form($schema))
+                ->schema(fn (Schema $schema): Schema => TaxInvoiceResource::workspaceForm($schema))
                 ->action(function (array $data): void {
                     abort_unless(static::canAccess() && TaxInvoiceResource::canCreate(), 403);
                     try {

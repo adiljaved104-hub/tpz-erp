@@ -260,7 +260,16 @@
                                         @endif
                                         <td>{{ $record['date'] }}</td>
                                         <td><span class="tpz-reference-status-badge tpz-reference-status-badge--{{ \App\Support\WorkspaceVisuals::recordTone($record['status'] ?? '') }}">{{ $record['status'] ?? '—' }}</span></td>
-                                        <td><a href="{{ $record['url'] }}">View →</a></td>
+                                        <td>
+                                            @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && in_array($selectedModuleData['label'], ['Customer Returns', 'Marketplace Return Removals'], true))
+                                                <div class="flex flex-wrap items-center gap-3">
+                                                    <button type="button" class="font-semibold text-primary-600 hover:underline dark:text-primary-400" wire:click="openReturnQuickView('{{ $selectedModuleData['label'] === 'Customer Returns' ? 'customer' : 'removal' }}', {{ (int) $record['id'] }})">Quick View</button>
+                                                    <a href="{{ $record['url'] }}" class="text-xs text-gray-600 hover:underline dark:text-gray-300">Open full →</a>
+                                                </div>
+                                            @else
+                                                <a href="{{ $record['url'] }}">View →</a>
+                                            @endif
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>

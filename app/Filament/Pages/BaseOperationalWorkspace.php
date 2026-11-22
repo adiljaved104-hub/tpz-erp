@@ -220,6 +220,7 @@ abstract class BaseOperationalWorkspace extends Page
                 }
 
                 return [
+                    'id' => (int) $record->getKey(),
                     'reference' => (string) ($record->reference ?? $record->sku ?? $record->name
                         ?? $record->title ?? ('Record #'.$record->getKey())),
                     'date' => $record->created_at?->format('d M Y') ?? '—',

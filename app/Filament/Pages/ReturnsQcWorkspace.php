@@ -70,7 +70,8 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
         $resource = $kind === 'customer'
             ? CustomerReturnResource::class : MarketplaceReturnRemovalResource::class;
         abort_unless($resource::canViewAny(), 403);
-        $record = $resource::getEloquentQuery()->whereKey($id)->firstOrFail();
+        $record = $resource::getEloquentQuery()->whereKey($id)->first();
+        abort_if($record === null, 404);
         abort_unless($resource::canView($record), 403);
         if ($record instanceof CustomerReturn) {
             $record->loadMissing(['displayItems', 'platform:id,name',

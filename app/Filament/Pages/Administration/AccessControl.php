@@ -129,9 +129,10 @@ class AccessControl extends Page
         ];
     }
 
-    public function stageAccessPreset(string $presetKey): void
+    public function stageAccessPreset(): void
     {
         abort_unless(static::canAccess(), 403);
+        $presetKey = $this->selectedPreset;
         $preset = static::accessPresets()[$presetKey] ?? null;
         abort_unless($preset !== null, 404);
         $modules = app(AccessControlModuleRegistry::class)->keyed();
@@ -160,10 +161,11 @@ class AccessControl extends Page
         $this->showChangesPreview = true;
     }
 
-    public function stageCopyEmployeeAccess(int $sourceEmployeeId): void
+    public function stageCopyEmployeeAccess(): void
     {
         abort_unless(static::canAccess() && ! $this->isBulkMode(), 403);
         $target = $this->selectedEmployee();
+        $sourceEmployeeId = ctype_digit($this->copySourceEmployeeId) ? (int) $this->copySourceEmployeeId : 0;
         abort_unless(auth()->user()?->can('managePermissions', $target), 403);
         abort_unless($sourceEmployeeId > 0 && $sourceEmployeeId !== $target->id, 422);
         $source = Employee::query()->with('permissionOverrides')->findOrFail($sourceEmployeeId);
@@ -264,6 +266,9 @@ class AccessControl extends Page
         $this->selectedEmployeeId = $employeeId;
         $this->selectedEmployeeIds = [];
         $this->changeReason = '';
+        $this->selectedPreset = '';
+        $this->copySourceEmployeeId = '';
+        $this->showChangesPreview = false;
         $this->loadDraftSettings();
     }
 
@@ -394,6 +399,7 @@ class AccessControl extends Page
     {
         $this->draftSettings = $this->originalSettings;
         $this->changeReason = '';
+        $this->showChangesPreview = false;
     }
 
     public function saveChanges(): void

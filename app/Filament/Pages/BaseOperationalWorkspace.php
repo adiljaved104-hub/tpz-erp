@@ -23,6 +23,15 @@ abstract class BaseOperationalWorkspace extends Page
 
     public string $recordSearch = '';
 
+    public string $recordStatus = '';
+
+    public function clearRecordFilters(): void
+    {
+        abort_unless(static::canAccess(), 403);
+        $this->recordSearch = '';
+        $this->recordStatus = '';
+    }
+
     /** @return array{title: string, eyebrow: string, description: string, icon: string, sections: array<int, array{title: string, description: string, links: array<int, array{label: string, class: class-string, icon: string}>}>} */
     abstract protected static function workspaceDefinition(): array;
 
@@ -182,6 +191,15 @@ abstract class BaseOperationalWorkspace extends Page
                 }
             });
         }
+        if ($searchable && $this->recordStatus !== '') {
+            $statusClass = $resource === \App\Filament\Resources\CustomerReturns\CustomerReturnResource::class
+                ? \App\Enums\CustomerReturnStatus::class
+                : \App\Enums\MarketplaceReturnRemovalStatus::class;
+            // Whitelist enum-backed statuses rather than passing arbitrary input to the query.
+            if (in_array($this->recordStatus, array_column($statusClass::cases(), 'value'), true)) {
+                $scoped->where('status', $this->recordStatus);
+            }
+        }
         $data['filteredTotal'] = (clone $scoped)->count();
 
         if (! array_key_exists('view', $resource::getPages())) {
@@ -202,6 +220,7 @@ abstract class BaseOperationalWorkspace extends Page
                 }
 
                 return [
+                    'id' => (int) $record->getKey(),
                     'reference' => (string) ($record->reference ?? $record->sku ?? $record->name
                         ?? $record->title ?? ('Record #'.$record->getKey())),
                     'date' => $record->created_at?->format('d M Y') ?? '—',
@@ -221,6 +240,7 @@ abstract class BaseOperationalWorkspace extends Page
     {
         abort_unless(static::canAccess(), 403);
         $this->recordSearch = '';
+        $this->recordStatus = '';
         if ($index === 'overview') {
             $this->activeModule = 'overview';
             return;

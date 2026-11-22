@@ -566,7 +566,9 @@ class NativeWorkspacesTest extends TestCase
         Livewire::test(InventoryWorkspace::class)
             ->call('setTab', 'myInventory')
             ->assertSee('TPZ-TITLE-VISIBLE-01')
-            ->assertSee('Visible Inventory Product Name');
+            ->assertSee('Visible Inventory Product Name')
+            ->assertSee('Quick View')
+            ->assertSee('Open full');
     }
 
     public function test_inventory_quick_view_loads_authorized_stock_and_can_close(): void

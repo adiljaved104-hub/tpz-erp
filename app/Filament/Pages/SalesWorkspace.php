@@ -435,7 +435,12 @@ class SalesWorkspace extends Page
             }
             if (trim($this->search) !== '') {
                 $needle = addcslashes(trim($this->search), '%_\\\\');
-                $query->where('orders.reference', 'like', '%'.$needle.'%');
+                $query->where(function ($searchQuery) use ($needle): void {
+                    $searchQuery->where('orders.reference', 'like', '%'.$needle.'%')
+                        ->orWhereHas('items', fn ($items) => $items
+                            ->where('sku', 'like', '%'.$needle.'%')
+                            ->orWhere('product_name', 'like', '%'.$needle.'%'));
+                });
             }
         }
 

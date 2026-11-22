@@ -141,6 +141,28 @@ class NativeWorkspacesTest extends TestCase
             ->assertDontSee($shown->name);
     }
 
+    public function test_phase7b_return_quick_view_is_read_only_and_rejects_unknown_ids(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(ReturnsQcWorkspace::class)
+            ->assertActionVisible('quickViewReturn')
+            ->call('openReturnQuickView', 'unsupported', 123)->assertNotFound();
+
+        Livewire::test(ReturnsQcWorkspace::class)
+            ->call('openReturnQuickView', 'customer', 999999)->assertNotFound();
+
+        Livewire::test(ReturnsQcWorkspace::class)
+            ->call('openReturnQuickView', 'removal', 999999)->assertNotFound();
+
+        $this->assertDatabaseCount('customer_returns', 0);
+        $this->assertDatabaseCount('marketplace_return_removals', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
     public function test_returns_workspace_create_modal_reuses_original_form_without_posting_stock(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

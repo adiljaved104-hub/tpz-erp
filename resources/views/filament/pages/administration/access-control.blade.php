@@ -142,6 +142,69 @@
                     </x-filament::section>
                     </div>
 
+                    <x-filament::section heading="Quick Access Setup" description="Presets and copied permissions are draft-only. Review changes and select Save Changes to apply them." compact>
+                        <div class="grid gap-3 md:grid-cols-2">
+                            <div class="min-w-0 space-y-2">
+                                <label for="access-preset-select" class="block text-sm font-medium">Permission preset</label>
+                                <x-filament::input.wrapper>
+                                    <x-filament::input.select id="access-preset-select" wire:model="selectedPreset">
+                                        <option value="">Choose a starting point</option>
+                                        @foreach($accessPresets as $key => $preset)
+                                            <option value="{{ $key }}">{{ $preset['label'] }}</option>
+                                        @endforeach
+                                    </x-filament::input.select>
+                                </x-filament::input.wrapper>
+                                <x-filament::button type="button" color="gray" size="sm" wire:click="stageAccessPreset" :disabled="! $selectedEmployee && ! $bulkMode">Stage preset</x-filament::button>
+                                @if(isset($accessPresets[$selectedPreset]))
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ $accessPresets[$selectedPreset]['description'] }} Other permissions are unchanged.</p>
+                                @endif
+                            </div>
+                            @unless($bulkMode)
+                                <div class="min-w-0 space-y-2">
+                                    <label for="access-copy-search" class="block text-sm font-medium">Find employee to copy access from</label>
+                                    <x-filament::input.wrapper>
+                                        <x-filament::input id="access-copy-search" type="search" wire:model.live.debounce.300ms="copySourceSearch" placeholder="Search source name or employee ID" />
+                                    </x-filament::input.wrapper>
+                                    <label for="access-copy-source" class="block text-xs font-medium">Source employee</label>
+                                    <x-filament::input.wrapper>
+                                        <x-filament::input.select id="access-copy-source" wire:model="copySourceEmployeeId">
+                                            <option value="">Select source employee</option>
+                                            @foreach($copySourceEmployees as $employeeId => $employeeName)
+                                                <option value="{{ $employeeId }}">{{ $employeeName }}</option>
+                                            @endforeach
+                                        </x-filament::input.select>
+                                    </x-filament::input.wrapper>
+                                    <x-filament::button type="button" color="gray" size="sm" wire:click="stageCopyEmployeeAccess">Stage copied permissions</x-filament::button>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">Copies only explicit Allow/Block settings. Unspecified permissions retain their current values. Protected/financial access restrictions still apply.</p>
+                                </div>
+                            @endunless
+                        </div>
+                        @if($dirtyCount > 0)
+                            <div class="mt-4 rounded-xl border border-primary-200 bg-primary-50/60 p-3 dark:border-primary-500/30 dark:bg-primary-500/10" data-testid="access-change-preview">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <p class="text-sm font-semibold">{{ $dirtyCount }} pending permission changes · Nothing saved yet</p>
+                                    <x-filament::button type="button" size="xs" color="gray" wire:click="toggleChangesPreview">{{ $showChangesPreview ? 'Hide Preview' : 'Preview Changes' }}</x-filament::button>
+                                </div>
+                                @if($showChangesPreview)
+                                    <div class="mt-3 max-h-72 overflow-y-auto">
+                                        <table class="w-full text-left text-xs">
+                                            <thead><tr><th class="px-2 py-2">Permission</th><th class="px-2 py-2">Current</th><th class="px-2 py-2">Pending</th></tr></thead>
+                                            <tbody class="divide-y divide-gray-200 dark:divide-white/10">
+                                                @foreach($changePreviewRows as $change)
+                                                    <tr wire:key="preview-{{ sha1($change['key']) }}">
+                                                        <td class="px-2 py-2">{{ $change['label'] }} @if($change['financial'])<span class="text-warning-700">(Financial)</span>@endif</td>
+                                                        <td class="px-2 py-2">{{ str($change['from'])->headline() }}</td>
+                                                        <td class="px-2 py-2 font-semibold">{{ str($change['to'])->headline() }}</td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
+                    </x-filament::section>
+
                     <x-filament::section compact>
                         <div class="ac-permission-toolbar grid items-end gap-3">
                             <label class="min-w-0"><span class="mb-1.5 block text-sm font-medium">Search Modules or Permissions</span><x-filament::input.wrapper prefix-icon="heroicon-m-magnifying-glass"><x-filament::input wire:model.live.debounce.250ms="moduleSearch" type="search" placeholder="Products, invoice, export..." /></x-filament::input.wrapper></label>

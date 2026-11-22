@@ -343,7 +343,12 @@
                                     <td>
                                         @if($resourceClass::canView($record))
                                             <div class="flex flex-wrap gap-2">
-                                                <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>
+                                                @if($activeTab === 'myInventory')
+                                                    <x-filament::button type="button" size="xs" color="gray" wire:click="openInventoryQuickView({{ (int) $record->getKey() }})">Quick View</x-filament::button>
+                                                    <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">Open full</x-filament::button>
+                                                @else
+                                                    <x-filament::button tag="a" size="xs" color="gray" :href="$resourceClass::getUrl('view', ['record' => $record])">View</x-filament::button>
+                                                @endif
                                                 @if($activeTab === 'requests' && $record instanceof \App\Models\StockRequest && $this->canExecuteWorkspaceRequest($record))
                                                     <x-filament::button type="button" size="xs" color="success" wire:click="prepareStockRequestExecution({{ $record->getKey() }})">Execute approved</x-filament::button>
                                                 @endif

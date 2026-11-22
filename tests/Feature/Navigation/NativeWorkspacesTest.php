@@ -141,6 +141,50 @@ class NativeWorkspacesTest extends TestCase
             ->assertDontSee($shown->name);
     }
 
+    public function test_phase7b_return_quick_view_is_read_only_and_rejects_unknown_ids(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        Livewire::test(ReturnsQcWorkspace::class)
+            ->assertActionVisible('quickViewReturn')
+            ->call('openReturnQuickView', 'unsupported', 123)->assertNotFound();
+
+        Livewire::test(ReturnsQcWorkspace::class)
+            ->call('openReturnQuickView', 'customer', 999999)->assertNotFound();
+
+        Livewire::test(ReturnsQcWorkspace::class)
+            ->call('openReturnQuickView', 'removal', 999999)->assertNotFound();
+
+        $this->assertDatabaseCount('customer_returns', 0);
+        $this->assertDatabaseCount('marketplace_return_removals', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_phase7c_purchase_quick_view_requires_scoped_existing_record_without_writes(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $purchase = Purchase::factory()->create(['created_by_user_id' => $owner->id]);
+        Livewire::test(PurchasingWorkspace::class)
+            ->assertActionVisible('quickViewPurchase')
+            ->call('openPurchaseQuickView', $purchase->id)
+            ->assertActionMounted('quickViewPurchase')
+            ->assertSee($purchase->reference);
+
+        Livewire::test(PurchasingWorkspace::class)
+            ->call('openPurchaseQuickView', 999999)->assertNotFound();
+
+        $this->assertDatabaseCount('purchases', 1);
+        $this->assertDatabaseCount('purchase_receipts', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
     public function test_returns_workspace_create_modal_reuses_original_form_without_posting_stock(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
@@ -522,7 +566,9 @@ class NativeWorkspacesTest extends TestCase
         Livewire::test(InventoryWorkspace::class)
             ->call('setTab', 'myInventory')
             ->assertSee('TPZ-TITLE-VISIBLE-01')
-            ->assertSee('Visible Inventory Product Name');
+            ->assertSee('Visible Inventory Product Name')
+            ->assertSee('Quick View')
+            ->assertSee('Open full');
     }
 
     public function test_inventory_quick_view_loads_authorized_stock_and_can_close(): void

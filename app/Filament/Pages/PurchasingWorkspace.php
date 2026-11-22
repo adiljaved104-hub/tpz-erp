@@ -11,6 +11,10 @@ use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\Products\Schemas\ProductForm;
 use App\Filament\Resources\PurchaseReceipts\PurchaseReceiptResource;
 use App\Filament\Resources\Purchases\PurchaseResource;
+use App\Enums\PurchaseStatus;
+use App\Models\Purchase;
+use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Locked;
 use App\Filament\Resources\Suppliers\SupplierResource;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -25,9 +29,56 @@ class PurchasingWorkspace extends BaseOperationalWorkspace
 
     public string $productSearch = '';
 
+    #[Locked]
+    public ?int $quickPurchaseId = null;
+
+    public function openPurchaseQuickView(int $id): void
+    {
+        abort_unless(static::canAccess() && $id > 0, 403);
+        $this->authorizedQuickPurchase($id);
+        $this->quickPurchaseId = $id;
+        $this->mountAction('quickViewPurchase');
+    }
+
+    private function authorizedQuickPurchase(int $id): Purchase
+    {
+        abort_unless(static::canAccess() && PurchaseResource::canViewAny(), 403);
+        $purchase = PurchaseResource::getEloquentQuery()->whereKey($id)->first();
+        abort_if($purchase === null, 404);
+        abort_unless(PurchaseResource::canView($purchase), 403);
+
+        return $purchase->loadMissing(['supplier:id,name', 'warehouse:id,name',
+            'items' => fn ($query) => $query->select(['id', 'purchase_id', 'product_id',
+                'ordered_quantity', 'received_quantity', 'rejected_quantity'])
+                ->with('product:id,sku,name')]);
+    }
+
+    private function purchaseQuickViewContent(): View
+    {
+        abort_if($this->quickPurchaseId === null, 404);
+        $purchase = $this->authorizedQuickPurchase($this->quickPurchaseId);
+        $canReceive = $purchase->status->isOpenForReceiving() && auth()->user()->can('receive', $purchase);
+        $canApprove = $purchase->status === PurchaseStatus::Draft && auth()->user()->can('approve', $purchase);
+
+        return view('filament.pages.partials.purchasing-quick-view', [
+            'purchase' => $purchase,
+            'actionLabel' => $canReceive ? 'Open to Receive Stock'
+                : ($canApprove ? 'Open to Approve Purchase' : 'Open Full Purchase'),
+            'fullUrl' => PurchaseResource::getUrl('view', ['record' => $purchase]),
+        ]);
+    }
+
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('quickViewPurchase')
+                ->label('Quick View Purchase')
+                ->modalHeading('Purchase Details')
+                ->modalWidth('5xl')
+                ->modalContent(fn (): View => $this->purchaseQuickViewContent())
+                ->modalSubmitAction(false)
+                ->modalCancelActionLabel('Close')
+                ->visible(fn (): bool => static::canAccess() && PurchaseResource::canViewAny()),
             Action::make('quickPurchase')
                 ->label('Quick Purchase')->modalHeading('Quick Purchase')->modalWidth('5xl')
                 ->visible(fn (): bool => static::canAccess() && QuickStockPurchase::canAccess())

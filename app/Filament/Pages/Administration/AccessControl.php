@@ -95,6 +95,8 @@ class AccessControl extends Page
     /** Employee whose explicit overrides may be copied into the current draft. */
     public string $copySourceEmployeeId = '';
 
+    public string $copySourceSearch = '';
+
     public bool $showChangesPreview = false;
 
     /**
@@ -169,7 +171,8 @@ class AccessControl extends Page
         abort_unless(auth()->user()?->can('managePermissions', $target), 403);
         abort_unless($sourceEmployeeId > 0 && $sourceEmployeeId !== $target->id, 422);
         $source = Employee::query()->with('permissionOverrides')->findOrFail($sourceEmployeeId);
-        abort_unless($source->status && $source->role !== EmployeeRole::Owner, 403);
+        abort_unless($source->status && $source->role !== EmployeeRole::Owner
+            && auth()->user()?->can('managePermissions', $source), 403);
 
         $managed = app(AccessControlModuleRegistry::class)->managedPermissionKeys();
         $copy = [];
@@ -268,6 +271,7 @@ class AccessControl extends Page
         $this->changeReason = '';
         $this->selectedPreset = '';
         $this->copySourceEmployeeId = '';
+        $this->copySourceSearch = '';
         $this->showChangesPreview = false;
         $this->loadDraftSettings();
     }
@@ -583,10 +587,17 @@ class AccessControl extends Page
             'dirtyCount' => count($this->pendingChanges()),
             'hasFinancialChanges' => $this->hasFinancialChanges(),
             'accessPresets' => static::accessPresets(),
-            'copySourceEmployees' => Employee::query()->where('status', true)
-                ->where('role', '!=', EmployeeRole::Owner->value)
-                ->when($selected !== null, fn (Builder $query): Builder => $query->whereKeyNot($selected->getKey()))
-                ->orderBy('name')->pluck('name', 'id'),
+            'copySourceEmployees' => strlen(trim($this->copySourceSearch)) >= 2
+                ? Employee::query()->where('status', true)
+                    ->where('role', '!=', EmployeeRole::Owner->value)
+                    ->when($selected !== null, fn (Builder $query): Builder => $query->whereKeyNot($selected->getKey()))
+                    ->where(function (Builder $query): void {
+                        $search = addcslashes(trim($this->copySourceSearch), '%_\\\\');
+                        $query->where('name', 'like', '%'.$search.'%')
+                            ->orWhere('employee_id', 'like', '%'.$search.'%');
+                    })
+                    ->orderBy('name')->limit(15)->pluck('name', 'id')
+                : collect(),
             'changePreviewRows' => $this->changePreviewRows(),
             'reconciliation' => $registry->reconcile(),
         ];

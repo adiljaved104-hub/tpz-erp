@@ -218,12 +218,32 @@
                     </div>
                 @endif
                 @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && in_array($selectedModuleData['label'], ['Customer Returns', 'Marketplace Return Removals'], true))
-                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div class="mb-3 flex flex-wrap items-end justify-between gap-3">
                         <span class="text-xs text-gray-500 dark:text-gray-400">{{ number_format($selectedModuleData['filteredTotal'] ?? 0) }} matching records (first 20 shown)</span>
-                        <div class="w-full sm:w-80">
-                            <x-filament::input.wrapper>
-                                <x-filament::input type="search" wire:model.live.debounce.350ms="recordSearch" placeholder="Search reference, SKU or product" aria-label="Search return records" />
-                            </x-filament::input.wrapper>
+                        <div class="flex w-full flex-wrap items-end gap-2 sm:w-auto">
+                            <div class="min-w-48 flex-1 sm:w-72 sm:flex-none">
+                                <label for="tpz-return-record-search" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Search</label>
+                                <x-filament::input.wrapper>
+                                    <x-filament::input id="tpz-return-record-search" type="search" wire:model.live.debounce.350ms="recordSearch" placeholder="Reference, SKU or product" aria-label="Search return records" />
+                                </x-filament::input.wrapper>
+                            </div>
+                            <div class="min-w-36">
+                                <label for="tpz-return-record-status" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Status</label>
+                                <x-filament::input.wrapper>
+                                    <x-filament::input.select id="tpz-return-record-status" wire:model.live="recordStatus" aria-label="Filter return status">
+                                        <option value="">All statuses</option>
+                                        @php
+                                            $statusEnum = $selectedModuleData['label'] === 'Customer Returns'
+                                                ? \App\Enums\CustomerReturnStatus::class
+                                                : \App\Enums\MarketplaceReturnRemovalStatus::class;
+                                        @endphp
+                                        @foreach($statusEnum::cases() as $statusOption)
+                                            <option value="{{ $statusOption->value }}">{{ $statusOption->label() }}</option>
+                                        @endforeach
+                                    </x-filament::input.select>
+                                </x-filament::input.wrapper>
+                            </div>
+                            <x-filament::button type="button" color="gray" size="sm" wire:click="clearRecordFilters">Clear</x-filament::button>
                         </div>
                     </div>
                 @endif
@@ -240,14 +260,28 @@
                                         @endif
                                         <td>{{ $record['date'] }}</td>
                                         <td><span class="tpz-reference-status-badge tpz-reference-status-badge--{{ \App\Support\WorkspaceVisuals::recordTone($record['status'] ?? '') }}">{{ $record['status'] ?? '—' }}</span></td>
-                                        <td><a href="{{ $record['url'] }}">View →</a></td>
+                                        <td>
+                                            @if($this instanceof \App\Filament\Pages\ReturnsQcWorkspace && in_array($selectedModuleData['label'], ['Customer Returns', 'Marketplace Return Removals'], true))
+                                                <div class="flex flex-wrap items-center gap-3">
+                                                    <button type="button" class="font-semibold text-primary-600 hover:underline dark:text-primary-400" wire:click="openReturnQuickView('{{ $selectedModuleData['label'] === 'Customer Returns' ? 'customer' : 'removal' }}', {{ (int) $record['id'] }})">Quick View</button>
+                                                    <a href="{{ $record['url'] }}" class="text-xs text-gray-600 hover:underline dark:text-gray-300">Open full →</a>
+                                                </div>
+                                            @elseif($this instanceof \App\Filament\Pages\PurchasingWorkspace && $selectedModuleData['label'] === 'Purchase Orders')
+                                                <div class="flex flex-wrap items-center gap-3">
+                                                    <button type="button" class="font-semibold text-primary-600 hover:underline dark:text-primary-400" wire:click="openPurchaseQuickView({{ (int) $record['id'] }})">Quick View</button>
+                                                    <a href="{{ $record['url'] }}" class="text-xs text-gray-600 hover:underline dark:text-gray-300">Open full →</a>
+                                                </div>
+                                            @else
+                                                <a href="{{ $record['url'] }}">View →</a>
+                                            @endif
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
                 @else
-                    <p class="tpz-native-no-preview">{{ $this instanceof \App\Filament\Pages\ReturnsQcWorkspace && in_array($selectedModuleData['label'], ['Customer Returns', 'Marketplace Return Removals'], true) ? (filled($recordSearch) ? 'No matching records in your authorized scope.' : 'No records in your authorized scope. Use Create above if permitted.') : 'Open the existing module to access its authorized records, filters, and actions.' }}</p>
+                    <p class="tpz-native-no-preview">{{ $this instanceof \App\Filament\Pages\ReturnsQcWorkspace && in_array($selectedModuleData['label'], ['Customer Returns', 'Marketplace Return Removals'], true) ? ((filled($recordSearch) || filled($recordStatus)) ? 'No matching records in your authorized scope.' : 'No records in your authorized scope. Use Create above if permitted.') : 'Open the existing module to access its authorized records, filters, and actions.' }}</p>
                 @endif
                 <div class="tpz-native-module-footer">
                     <x-filament::button tag="a" :href="$selectedModuleData['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">

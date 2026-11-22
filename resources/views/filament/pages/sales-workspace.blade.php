@@ -308,7 +308,7 @@
                 <x-filament::button size="sm" color="gray" wire:click="clearFilters">Clear filters</x-filament::button>
             </div>
             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-                <x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.300ms="search" placeholder="Order reference" aria-label="Search order reference" /></x-filament::input.wrapper>
+                <x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.300ms="search" placeholder="Order reference, SKU or product" aria-label="Search order reference, SKU or product" /></x-filament::input.wrapper>
                 <x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.300ms="customer" placeholder="Web Sales customer" aria-label="Search Web Sales customer" /></x-filament::input.wrapper>
                 <x-filament::input.wrapper>
                     <x-filament::input.select wire:model.live="status" aria-label="Order status">

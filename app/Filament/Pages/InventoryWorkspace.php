@@ -855,4 +855,11 @@ class InventoryWorkspace extends Page
     {
         $this->resetPage('module-page');
     }
+
+    public function clearMyInventorySearch(): void
+    {
+        abort_unless(static::canAccess() && ProductInventoryResource::canViewAny(), 403);
+        $this->myInventorySearch = '';
+        $this->resetPage('module-page');
+    }
 }

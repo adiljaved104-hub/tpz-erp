@@ -80,6 +80,73 @@ class AccessControlMatrixTest extends TestCase
         $this->assertDatabaseCount('employee_permission_overrides', 0);
     }
 
+    public function test_phase7d_preset_stages_preview_without_saving_or_expanding_advanced_access(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->id)
+            ->set('selectedPreset', 'warehouse_viewer')
+            ->call('stageAccessPreset')
+            ->assertSee('pending permission changes')
+            ->assertSee('Preview Changes')
+            ->assertSee('View Inventory');
+
+        $this->assertSame('allow', $component->instance()->draftSettings[InventoryPermission::View->value]);
+        $this->assertSame('deny', $component->instance()->draftSettings[InventoryPermission::AdjustStock->value]);
+        $this->assertSame('inherit', $component->instance()->draftSettings[InventoryPermission::ViewFinancials->value]);
+        $this->assertDatabaseCount('employee_permission_overrides', 0);
+
+        $component->call('discardChanges')->assertHasNoErrors();
+        $this->assertSame('inherit', $component->instance()->draftSettings[InventoryPermission::View->value]);
+        $this->assertDatabaseCount('employee_permission_overrides', 0);
+    }
+
+    public function test_phase7d_copy_stages_only_explicit_overrides_without_auto_save(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $source = $this->employee(EmployeeRole::Staff);
+        $target = $this->employee(EmployeeRole::Staff);
+        app(EmployeePermissionOverrideService::class)->change(
+            $source, ProductPermission::View->value, EmployeePermissionEffect::Allow, null, $owner->user
+        );
+
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $target->id)
+            ->set('copySourceEmployeeId', (string) $source->id)
+            ->call('stageCopyEmployeeAccess')
+            ->assertHasNoErrors()
+            ->assertSee('pending permission changes');
+
+        $this->assertSame('allow', $component->instance()->draftSettings[ProductPermission::View->value]);
+        $this->assertSame('inherit', $component->instance()->draftSettings[ProductPermission::ViewCostPrice->value]);
+        $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $target->id]);
+
+        $component->call('saveChanges')->assertHasNoErrors();
+        $this->assertDatabaseHas('employee_permission_overrides', [
+            'employee_id' => $target->id, 'permission_key' => ProductPermission::View->value, 'effect' => 'allow',
+        ]);
+    }
+
+    public function test_phase7d_admin_cannot_copy_financial_override(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $admin = $this->employee(EmployeeRole::Admin);
+        $source = $this->employee(EmployeeRole::Staff);
+        $target = $this->employee(EmployeeRole::Staff);
+        app(EmployeePermissionOverrideService::class)->change(
+            $source, ExpensePermission::ViewAmount->value, EmployeePermissionEffect::Allow,
+            'Owner approved access', $owner->user
+        );
+
+        Livewire::actingAs($admin->user)->test(AccessControl::class)
+            ->call('selectEmployee', $target->id)
+            ->set('copySourceEmployeeId', (string) $source->id)
+            ->call('stageCopyEmployeeAccess')->assertForbidden();
+
+        $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $target->id]);
+    }
+
     public function test_inventory_presets_still_apply_every_primary_key_and_preserve_advanced(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);

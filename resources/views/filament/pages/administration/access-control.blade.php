@@ -154,7 +154,7 @@
                                         @endforeach
                                     </x-filament::input.select>
                                 </x-filament::input.wrapper>
-                                <x-filament::button type="button" color="gray" size="sm" wire:click="stageAccessPreset($wire.selectedPreset)" :disabled="! $selectedEmployee && ! $bulkMode">Stage preset</x-filament::button>
+                                <x-filament::button type="button" color="gray" size="sm" wire:click="stageAccessPreset" :disabled="! $selectedEmployee && ! $bulkMode">Stage preset</x-filament::button>
                                 @if(isset($accessPresets[$selectedPreset]))
                                     <p class="text-xs text-gray-500 dark:text-gray-400">{{ $accessPresets[$selectedPreset]['description'] }} Other permissions are unchanged.</p>
                                 @endif
@@ -170,7 +170,7 @@
                                             @endforeach
                                         </x-filament::input.select>
                                     </x-filament::input.wrapper>
-                                    <x-filament::button type="button" color="gray" size="sm" wire:click="stageCopyEmployeeAccess($wire.copySourceEmployeeId)">Stage copied permissions</x-filament::button>
+                                    <x-filament::button type="button" color="gray" size="sm" wire:click="stageCopyEmployeeAccess">Stage copied permissions</x-filament::button>
                                     <p class="text-xs text-gray-500 dark:text-gray-400">Copies only explicit Allow/Block settings. Unspecified permissions retain their current values. Protected/financial access restrictions still apply.</p>
                                 </div>
                             @endunless

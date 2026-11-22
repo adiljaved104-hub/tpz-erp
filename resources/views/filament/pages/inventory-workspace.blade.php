@@ -271,12 +271,14 @@
                     <x-filament::button tag="a" size="sm" color="gray" :href="$links[$activeTab]">Open full module</x-filament::button>
                 </div>
                 @if($activeTab === 'myInventory')
-                    <div class="mb-4 flex justify-end">
+                    <div class="mb-4 flex flex-wrap items-end justify-end gap-2">
                         <div class="w-full sm:w-80">
+                            <label for="tpz-my-inventory-search" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Search</label>
                             <x-filament::input.wrapper>
-                                <x-filament::input type="search" wire:model.live.debounce.350ms="myInventorySearch" placeholder="Search by SKU or product" aria-label="Search My Inventory" />
+                                <x-filament::input id="tpz-my-inventory-search" type="search" wire:model.live.debounce.350ms="myInventorySearch" placeholder="Search by SKU or product" aria-label="Search My Inventory" />
                             </x-filament::input.wrapper>
                         </div>
+                        <x-filament::button type="button" size="sm" color="gray" wire:click="clearMyInventorySearch">Clear</x-filament::button>
                     </div>
                 @endif
                 @if($activeTab === 'products')

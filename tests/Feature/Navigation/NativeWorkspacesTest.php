@@ -163,6 +163,28 @@ class NativeWorkspacesTest extends TestCase
         $this->assertDatabaseCount('stock_movements', 0);
     }
 
+    public function test_phase7c_purchase_quick_view_requires_scoped_existing_record_without_writes(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+
+        $purchase = Purchase::factory()->create(['created_by_user_id' => $owner->id]);
+        Livewire::test(PurchasingWorkspace::class)
+            ->assertActionVisible('quickViewPurchase')
+            ->call('openPurchaseQuickView', $purchase->id)
+            ->assertActionMounted('quickViewPurchase')
+            ->assertSee($purchase->reference);
+
+        Livewire::test(PurchasingWorkspace::class)
+            ->call('openPurchaseQuickView', 999999)->assertNotFound();
+
+        $this->assertDatabaseCount('purchases', 1);
+        $this->assertDatabaseCount('purchase_receipts', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
     public function test_returns_workspace_create_modal_reuses_original_form_without_posting_stock(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

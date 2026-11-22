@@ -266,6 +266,11 @@
                                                     <button type="button" class="font-semibold text-primary-600 hover:underline dark:text-primary-400" wire:click="openReturnQuickView('{{ $selectedModuleData['label'] === 'Customer Returns' ? 'customer' : 'removal' }}', {{ (int) $record['id'] }})">Quick View</button>
                                                     <a href="{{ $record['url'] }}" class="text-xs text-gray-600 hover:underline dark:text-gray-300">Open full →</a>
                                                 </div>
+                                            @elseif($this instanceof \App\Filament\Pages\PurchasingWorkspace && $selectedModuleData['label'] === 'Purchase Orders')
+                                                <div class="flex flex-wrap items-center gap-3">
+                                                    <button type="button" class="font-semibold text-primary-600 hover:underline dark:text-primary-400" wire:click="openPurchaseQuickView({{ (int) $record['id'] }})">Quick View</button>
+                                                    <a href="{{ $record['url'] }}" class="text-xs text-gray-600 hover:underline dark:text-gray-300">Open full →</a>
+                                                </div>
                                             @else
                                                 <a href="{{ $record['url'] }}">View →</a>
                                             @endif

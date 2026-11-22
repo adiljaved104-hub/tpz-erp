@@ -89,6 +89,128 @@ class AccessControl extends Page
 
     public string $changeReason = '';
 
+    /** Optional draft-only access preset; no database write until Save Changes. */
+    public string $selectedPreset = '';
+
+    /** Employee whose explicit overrides may be copied into the current draft. */
+    public string $copySourceEmployeeId = '';
+
+    public bool $showChangesPreview = false;
+
+    /**
+     * Curated, least-privilege starting points. These touch only module
+     * primary view/edit keys; advanced and financial permissions stay as-is.
+     *
+     * @return array<string, array{label: string, description: string, modules: array<string, string>}>
+     */
+    public static function accessPresets(): array
+    {
+        return [
+            'sales_assistant' => [
+                'label' => 'Sales Assistant',
+                'description' => 'View products, create/update sales orders and Web Sales, without financial or approval privileges.',
+                'modules' => ['products' => 'view', 'orders' => 'view_edit', 'web_sales' => 'view_edit'],
+            ],
+            'purchasing_assistant' => [
+                'label' => 'Purchasing Assistant',
+                'description' => 'View products and stock, manage supplier/purchase drafts; approval and receiving remain separate.',
+                'modules' => ['products' => 'view', 'inventory' => 'view', 'suppliers' => 'view_edit', 'purchases' => 'view_edit'],
+            ],
+            'warehouse_viewer' => [
+                'label' => 'Warehouse Viewer',
+                'description' => 'Read-only product, inventory, location and stock request visibility.',
+                'modules' => ['products' => 'view', 'inventory' => 'view', 'location_balances' => 'view', 'transfers' => 'view'],
+            ],
+            'returns_coordinator' => [
+                'label' => 'Returns Coordinator',
+                'description' => 'View/create returns, with inspection and claims approvals still independently controlled.',
+                'modules' => ['returns' => 'view_edit', 'marketplace_returns' => 'view', 'products' => 'view'],
+            ],
+        ];
+    }
+
+    public function stageAccessPreset(string $presetKey): void
+    {
+        abort_unless(static::canAccess(), 403);
+        $preset = static::accessPresets()[$presetKey] ?? null;
+        abort_unless($preset !== null, 404);
+        $modules = app(AccessControlModuleRegistry::class)->keyed();
+        $employees = $this->targetEmployees();
+        $staged = [];
+
+        // Validate the complete proposed change before updating any UI draft.
+        foreach ($preset['modules'] as $moduleKey => $level) {
+            $module = $modules[$moduleKey] ?? null;
+            abort_unless(is_array($module) && ! $module['derived'], 404);
+            foreach ($module['view_keys'] as $key) {
+                $staged[$key] = $level === 'none' ? 'deny' : 'allow';
+            }
+            foreach ($module['edit_keys'] as $key) {
+                $staged[$key] = $level === 'view_edit' ? 'allow' : 'deny';
+            }
+        }
+        foreach ($staged as $key => $setting) {
+            foreach ($employees as $employee) {
+                $this->authorizeManagedChange($employee, $key, $setting);
+            }
+        }
+
+        $this->draftSettings = array_replace($this->draftSettings, $staged);
+        $this->selectedPreset = $presetKey;
+        $this->showChangesPreview = true;
+    }
+
+    public function stageCopyEmployeeAccess(int $sourceEmployeeId): void
+    {
+        abort_unless(static::canAccess() && ! $this->isBulkMode(), 403);
+        $target = $this->selectedEmployee();
+        abort_unless(auth()->user()?->can('managePermissions', $target), 403);
+        abort_unless($sourceEmployeeId > 0 && $sourceEmployeeId !== $target->id, 422);
+        $source = Employee::query()->with('permissionOverrides')->findOrFail($sourceEmployeeId);
+        abort_unless($source->status && $source->role !== EmployeeRole::Owner, 403);
+
+        $managed = app(AccessControlModuleRegistry::class)->managedPermissionKeys();
+        $copy = [];
+        foreach ($source->permissionOverrides as $override) {
+            $key = $override->permission_key;
+            $setting = $override->effect?->value;
+            if (! in_array($key, $managed, true) || ! in_array($setting, ['allow', 'deny'], true)) {
+                continue;
+            }
+            $this->authorizeManagedChange($target, $key, $setting);
+            $copy[$key] = $setting;
+        }
+
+        // Explicit overrides are staged only; all other target settings stay.
+        $this->draftSettings = array_replace($this->draftSettings, $copy);
+        $this->copySourceEmployeeId = (string) $sourceEmployeeId;
+        $this->showChangesPreview = true;
+    }
+
+    public function toggleChangesPreview(): void
+    {
+        abort_unless(static::canAccess(), 403);
+        $this->showChangesPreview = ! $this->showChangesPreview;
+    }
+
+    /** @return array<int, array{key: string, label: string, from: string, to: string, financial: bool}> */
+    private function changePreviewRows(): array
+    {
+        $catalog = app(EmployeePermissionCatalog::class);
+
+        return collect($this->pendingChanges())->map(function (string $setting, string $key) use ($catalog): array {
+            $definition = $catalog->find($key);
+
+            return [
+                'key' => $key,
+                'label' => $definition['label'] ?? $key,
+                'from' => $this->originalSettings[$key] ?? 'inherit',
+                'to' => $setting,
+                'financial' => (bool) ($definition['financial'] ?? false),
+            ];
+        })->values()->all();
+    }
+
     public ?int $pendingEmployeeId = null;
 
     public ?string $pendingPermissionKey = null;
@@ -454,6 +576,12 @@ class AccessControl extends Page
             'roleOptions' => collect(EmployeeRole::cases())->mapWithKeys(fn (EmployeeRole $role): array => [$role->value => $role->getLabel()]),
             'dirtyCount' => count($this->pendingChanges()),
             'hasFinancialChanges' => $this->hasFinancialChanges(),
+            'accessPresets' => static::accessPresets(),
+            'copySourceEmployees' => Employee::query()->where('status', true)
+                ->where('role', '!=', EmployeeRole::Owner->value)
+                ->when($selected !== null, fn (Builder $query): Builder => $query->whereKeyNot($selected->getKey()))
+                ->orderBy('name')->pluck('name', 'id'),
+            'changePreviewRows' => $this->changePreviewRows(),
             'reconciliation' => $registry->reconcile(),
         ];
     }

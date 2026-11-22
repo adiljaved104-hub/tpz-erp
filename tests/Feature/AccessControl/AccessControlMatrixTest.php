@@ -89,7 +89,7 @@ class AccessControlMatrixTest extends TestCase
             ->set('selectedPreset', 'warehouse_viewer')
             ->call('stageAccessPreset')
             ->assertSee('pending permission changes')
-            ->assertSee('Preview Changes')
+            ->assertSee('Hide Preview')
             ->assertSee('View Inventory');
 
         $this->assertSame('allow', $component->instance()->draftSettings[InventoryPermission::View->value]);

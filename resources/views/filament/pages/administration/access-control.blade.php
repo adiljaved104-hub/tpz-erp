@@ -161,7 +161,11 @@
                             </div>
                             @unless($bulkMode)
                                 <div class="min-w-0 space-y-2">
-                                    <label for="access-copy-source" class="block text-sm font-medium">Copy explicit access from employee</label>
+                                    <label for="access-copy-search" class="block text-sm font-medium">Find employee to copy access from</label>
+                                    <x-filament::input.wrapper>
+                                        <x-filament::input id="access-copy-search" type="search" wire:model.live.debounce.300ms="copySourceSearch" placeholder="Search source name or employee ID" />
+                                    </x-filament::input.wrapper>
+                                    <label for="access-copy-source" class="block text-xs font-medium">Source employee</label>
                                     <x-filament::input.wrapper>
                                         <x-filament::input.select id="access-copy-source" wire:model="copySourceEmployeeId">
                                             <option value="">Select source employee</option>

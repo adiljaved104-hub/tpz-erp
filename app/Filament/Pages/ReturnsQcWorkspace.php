@@ -14,6 +14,9 @@ use App\Actions\Returns\CreateMarketplaceReturnRemoval as CreateMarketplaceRemov
 use App\DTOs\Returns\CreateMarketplaceReturnRemovalData;
 use App\DTOs\Returns\MarketplaceRemovalItemData;
 use App\Models\MarketplaceReturnRemoval;
+use App\Enums\CustomerReturnStatus;
+use App\Enums\MarketplaceReturnRemovalStatus;
+use Illuminate\Contracts\View\View;
 use App\Exceptions\CustomerReturnException;
 use App\Models\CustomerReturn;
 use App\Services\Authorization\CustomerReturnAuthorization;
@@ -42,6 +45,80 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
     #[Locked]
     public ?string $removalSubmissionKey = null;
 
+    #[Locked]
+    public ?int $quickViewId = null;
+
+    #[Locked]
+    public ?string $quickViewKind = null;
+
+    public function openReturnQuickView(string $kind, int $id): void
+    {
+        abort_unless(static::canAccess(), 403);
+        abort_unless(in_array($kind, ['customer', 'removal'], true) && $id > 0, 404);
+        $this->loadQuickViewRecord($kind, $id);
+        $this->quickViewKind = $kind;
+        $this->quickViewId = $id;
+        $this->mountAction('quickViewReturn');
+    }
+
+    /**
+     * A new scoped query is required every time the modal renders: IDs sent
+     * from the browser must never bypass the resource policy or row scope.
+     */
+    private function loadQuickViewRecord(string $kind, int $id): CustomerReturn|MarketplaceReturnRemoval
+    {
+        $resource = $kind === 'customer'
+            ? CustomerReturnResource::class : MarketplaceReturnRemovalResource::class;
+        abort_unless($resource::canViewAny(), 403);
+        $record = $resource::getEloquentQuery()->whereKey($id)->first();
+        abort_if($record === null, 404);
+        abort_unless($resource::canView($record), 403);
+        if ($record instanceof CustomerReturn) {
+            $record->loadMissing(['displayItems', 'platform:id,name',
+                'fulfillmentWarehouse:id,name', 'receivingWarehouse:id,name']);
+        } else {
+            $record->loadMissing(['displayItems', 'platform:id,name',
+                'sourceWarehouse:id,name', 'destinationWarehouse:id,name']);
+        }
+
+        return $record;
+    }
+
+    private function quickViewContent(): View
+    {
+        abort_unless($this->quickViewKind !== null && $this->quickViewId !== null, 404);
+        $record = $this->loadQuickViewRecord($this->quickViewKind, $this->quickViewId);
+        $isCustomer = $record instanceof CustomerReturn;
+        $status = $record->status;
+        $actionLabel = 'Open full record';
+        if ($isCustomer && $status === CustomerReturnStatus::Draft
+            && (auth()->user()->can('return.receive', $record)
+                || auth()->user()->can('return.record_marketplace_disposition', $record))) {
+            $actionLabel = 'Open to Process Return';
+        } elseif ($isCustomer && $status === CustomerReturnStatus::QcPending
+            && auth()->user()->can('return.inspect', $record)) {
+            $actionLabel = 'Open to Continue QC';
+        } elseif (! $isCustomer && $status === MarketplaceReturnRemovalStatus::Requested
+            && auth()->user()->can('marketplace_return.dispatch_to_company', $record)) {
+            $actionLabel = 'Open to Dispatch';
+        } elseif (! $isCustomer && $status === MarketplaceReturnRemovalStatus::Dispatched
+            && auth()->user()->can('marketplace_return.receive_company', $record)) {
+            $actionLabel = 'Open to Receive';
+        } elseif (! $isCustomer && $status === MarketplaceReturnRemovalStatus::Received
+            && auth()->user()->can('return.inspect')) {
+            $actionLabel = 'Open to Inspect';
+        }
+
+        return view('filament.pages.partials.returns-quick-view', [
+            'record' => $record,
+            'isCustomer' => $isCustomer,
+            'actionLabel' => $actionLabel,
+            'fullUrl' => $isCustomer
+                ? CustomerReturnResource::getUrl('view', ['record' => $record])
+                : MarketplaceReturnRemovalResource::getUrl('view', ['record' => $record]),
+        ]);
+    }
+
     public function mount(): void
     {
         parent::mount();
@@ -52,6 +129,14 @@ class ReturnsQcWorkspace extends BaseOperationalWorkspace
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('quickViewReturn')
+                ->label('Quick View')
+                ->modalHeading('Return / Removal Details')
+                ->modalWidth('5xl')
+                ->modalContent(fn (): View => $this->quickViewContent())
+                ->modalSubmitAction(false)
+                ->modalCancelActionLabel('Close')
+                ->visible(fn (): bool => static::canAccess()),
             Action::make('createCustomerReturn')
                 ->label('Create Customer Return')
                 ->modalHeading('Create Customer Return')

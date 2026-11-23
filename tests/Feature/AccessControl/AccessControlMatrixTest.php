@@ -80,6 +80,30 @@ class AccessControlMatrixTest extends TestCase
         $this->assertDatabaseCount('employee_permission_overrides', 0);
     }
 
+    public function test_phase7d2_compact_simple_access_reuses_existing_authorized_module_actions(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->id)
+            ->assertSeeHtml('data-testid="access-simple-editor"')
+            ->assertSeeHtml('data-testid="access-advanced-editor"')
+            ->assertSeeHtml('data-testid="simple-module-products"')
+            ->assertSee('Simple Access')
+            ->assertSee('Advanced Access')
+            ->call('setModuleAccess', 'products', 'view')
+            ->assertHasNoErrors();
+
+        $this->assertSame('allow', $component->instance()->draftSettings[ProductPermission::View->value]);
+        $this->assertSame('deny', $component->instance()->draftSettings[ProductPermission::Create->value]);
+        $this->assertSame('inherit', $component->instance()->draftSettings[ProductPermission::ViewCostPrice->value]);
+        $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $staff->id]);
+
+        $component->call('discardChanges')->assertHasNoErrors();
+        $this->assertSame('inherit', $component->instance()->draftSettings[ProductPermission::View->value]);
+    }
+
     public function test_phase7d_preset_stages_preview_without_saving_or_expanding_advanced_access(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);
@@ -405,7 +429,7 @@ class AccessControlMatrixTest extends TestCase
         $component->call('toggleEmployeeSelection', $second->id)
             ->assertSet('selectedEmployeeId', $first->id)
             ->assertSet('selectedEmployeeIds', [$second->id])
-            ->assertSee('1 employees selected');
+            ->assertSee('Single Employee');
         $assertRow($first, false, false);
         $assertRow($second, true, true);
 
@@ -529,8 +553,8 @@ class AccessControlMatrixTest extends TestCase
         $this->assertStringContainsString('Default role access is used unless you set a custom permission.', $html);
         $this->assertStringContainsString('Using Role Default', $html);
         $this->assertStringContainsString('Reset to Role Default', $html);
-        $this->assertStringContainsString('Allow for Employee', $html);
-        $this->assertStringContainsString('Block for Employee', $html);
+        $this->assertStringContainsString('>Allow</button>', $html);
+        $this->assertStringContainsString('>Block</button>', $html);
         $this->assertStringNotContainsString('Protected for this employee or actor.', $html);
         $this->assertStringContainsString('fi-input-wrp', $html);
         $this->assertStringContainsString('min-w-0', $html);
@@ -588,8 +612,8 @@ class AccessControlMatrixTest extends TestCase
                 ->call('setAdvancedExpanded', 'inventory', true)
                 ->call('stagePermission', InventoryPermission::Reserve->value, 'allow')
                 ->assertSee('Reset to Role Default')
-                ->assertSee($bulk ? 'Allow for Selected' : 'Allow for Employee')
-                ->assertSee($bulk ? 'Block for Selected' : 'Block for Employee')
+                ->assertSee('Allow')
+                ->assertSee('Block')
                 ->assertSee('Access:')
                 ->assertSee('Default Access:')
                 ->assertSee('Save Changes')->assertSee('Discard');

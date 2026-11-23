@@ -165,8 +165,8 @@ class AccessControl extends Page
 
     public function stageCopyEmployeeAccess(): void
     {
-        abort_unless(static::canAccess() && ! $this->isBulkMode(), 403);
-        $target = $this->selectedEmployee();
+        abort_unless(static::canAccess() && count($this->selectedEmployeeIds) <= 1, 403);
+        $target = $this->targetEmployees()->firstOrFail();
         $sourceEmployeeId = ctype_digit($this->copySourceEmployeeId) ? (int) $this->copySourceEmployeeId : 0;
         abort_unless(auth()->user()?->can('managePermissions', $target), 403);
         abort_unless($sourceEmployeeId > 0 && $sourceEmployeeId !== $target->id, 422);
@@ -237,7 +237,9 @@ class AccessControl extends Page
     {
         abort_unless(static::canAccess(), 403);
         $this->selectedEmployeeId = $this->employeeQuery()->value('id');
-        $firstGroup = array_key_first(app(AccessControlModuleRegistry::class)->groups());
+        // Start the compact editor on a useful operational group rather than the derived Dashboard.
+        $groups = app(AccessControlModuleRegistry::class)->groups();
+        $firstGroup = array_key_exists('products_inventory', $groups) ? 'products_inventory' : array_key_first($groups);
         $this->expandedGroups = $firstGroup === null ? [] : [$firstGroup];
         $this->loadDraftSettings();
     }
@@ -570,8 +572,11 @@ class AccessControl extends Page
             $this->selectedEmployeeId = (int) $employees->first()->getKey();
             $this->loadDraftSettings();
         }
-        $bulkMode = $this->isBulkMode();
-        $selected = $bulkMode ? null : $this->selectedEmployeeOrNull();
+        // Exactly one checked employee is presented as a single target, even
+        // though the existing save service retains its one-ID atomic path.
+        $selectedCount = count(array_unique(array_map('intval', $this->selectedEmployeeIds)));
+        $bulkMode = $selectedCount > 1;
+        $selected = $bulkMode ? null : ($selectedCount === 1 ? $this->bulkEmployees()->first() : $this->selectedEmployeeOrNull());
         $targets = $bulkMode ? $this->bulkEmployees() : ($selected === null ? new EloquentCollection : new EloquentCollection([$selected]));
         $registry = app(AccessControlModuleRegistry::class);
 

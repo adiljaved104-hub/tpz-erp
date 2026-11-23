@@ -2,7 +2,7 @@
     <div
         class="ac-page space-y-5"
         data-testid="module-access-control"
-        x-data="{ employeePanelOpen: window.innerWidth >= 1280, wasDesktop: window.innerWidth >= 1280 }"
+        x-data="{ employeePanelOpen: window.innerWidth >= 1280, wasDesktop: window.innerWidth >= 1280, accessMode: 'simple' }"
         x-init="$nextTick(() => employeePanelOpen = window.innerWidth >= 1280)"
         x-on:resize.window.debounce.150ms="
             const desktop = window.innerWidth >= 1280;
@@ -40,9 +40,9 @@
                 Select Employee
             </x-filament::button>
             @if ($bulkMode)
-                <span>{{ $selectedEmployees->count() }} employees selected · Bulk Access mode</span>
+                <span>{{ $selectedEmployees->count() === 1 ? $selectedEmployees->first()?->name.' · Single Employee Access' : $selectedEmployees->count().' employees · Bulk Access' }}</span>
             @elseif ($selectedEmployee)
-                <span>{{ $selectedEmployee->name }} · {{ $selectedEmployee->employee_id }}</span>
+                <span>{{ $selectedEmployee->name }} · {{ $selectedEmployee->employee_id }}@if(count($selectedEmployeeIds) === 1) · Single Employee @endif</span>
             @endif
         </div>
 
@@ -60,15 +60,15 @@
                         <x-filament::badge :color="$selectedEmployeeIds === [] ? 'gray' : 'primary'">{{ count($selectedEmployeeIds) }} selected</x-filament::badge>
                     </div>
                     @error('employees')<p class="mb-3 text-sm text-danger-600">{{ $message }}</p>@enderror
-                    <div class="ac-employee-list space-y-2" data-testid="employee-picker">
+                    <div class="ac-employee-list space-y-1" data-testid="employee-picker">
                         @forelse ($employees as $employee)
                             @php
                                 $bulkSelectable = $employee->status && auth()->user()?->can('managePermissions', $employee);
                                 $bulkSelected = in_array($employee->id, $selectedEmployeeIds, true);
-                                $rowSelected = $bulkMode ? $bulkSelected : $selectedEmployeeId === $employee->id;
+                                $rowSelected = $selectedEmployeeIds !== [] ? $bulkSelected : $selectedEmployeeId === $employee->id;
                             @endphp
                             <div wire:key="access-employee-{{ $employee->id }}" data-testid="employee-row-{{ $employee->id }}" @class([
-                                'ac-employee-row group w-full min-w-0 rounded-xl border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600',
+                                'ac-employee-row group w-full min-w-0 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600',
                                 'is-selected' => $rowSelected,
                                 'border-primary-500 bg-primary-50 shadow-sm ring-1 ring-primary-500/20 dark:bg-primary-500/10' => $rowSelected,
                                 'border-gray-200 bg-white hover:border-primary-300 hover:bg-gray-50 dark:border-white/10 dark:bg-gray-900 dark:hover:border-primary-500/50 dark:hover:bg-white/5' => ! $rowSelected,
@@ -106,7 +106,7 @@
                         <div class="ac-selected-card-body flex gap-4">
                             <div class="min-w-0">
                                 @if ($bulkMode)
-                                    <div class="ac-identity-badges flex flex-wrap items-center gap-2"><h2 class="text-lg font-semibold">Bulk Access</h2><x-filament::badge color="primary">{{ $selectedEmployees->count() }} employees selected</x-filament::badge></div>
+                                    <div class="ac-identity-badges flex flex-wrap items-center gap-2"><h2 class="text-lg font-semibold">{{ $selectedEmployees->count() === 1 ? $selectedEmployees->first()?->name : 'Bulk Access' }}</h2><x-filament::badge color="primary">{{ $selectedEmployees->count() === 1 ? 'Single Employee' : $selectedEmployees->count().' employees selected' }}</x-filament::badge></div>
                                     <p class="mt-1.5 text-sm text-gray-500">Only permissions explicitly changed below will be applied. Unchanged and mixed settings remain untouched.</p>
                                 @else
                                     <div class="ac-identity-badges flex flex-wrap items-center gap-2">
@@ -142,8 +142,10 @@
                     </x-filament::section>
                     </div>
 
-                    <x-filament::section heading="Quick Access Setup" description="Presets and copied permissions are draft-only. Review changes and select Save Changes to apply them." compact>
-                        <div class="grid gap-3 md:grid-cols-2">
+                    <x-filament::section compact>
+                        <details class="group" data-testid="access-quick-setup">
+                            <summary class="flex cursor-pointer items-center justify-between gap-2 text-sm font-semibold"><span>Quick Setup · Presets &amp; Copy Access</span><span class="text-xs font-normal text-gray-500">Optional · draft only</span></summary>
+                        <div class="mt-4 grid gap-3 md:grid-cols-2">
                             <div class="min-w-0 space-y-2">
                                 <label for="access-preset-select" class="block text-sm font-medium">Permission preset</label>
                                 <x-filament::input.wrapper>
@@ -179,6 +181,7 @@
                                 </div>
                             @endunless
                         </div>
+                        </details>
                         @if($dirtyCount > 0)
                             <div class="mt-4 rounded-xl border border-primary-200 bg-primary-50/60 p-3 dark:border-primary-500/30 dark:bg-primary-500/10" data-testid="access-change-preview">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
@@ -216,6 +219,59 @@
                         </div>
                     </x-filament::section>
 
+                    <x-filament::section compact>
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div><h2 class="text-base font-semibold">Module Permissions</h2><p class="text-xs text-gray-500">Simple access does not grant advanced, approval or financial permissions.</p></div>
+                            <div class="inline-flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-white/5" role="group" aria-label="Access editor view">
+                                <button type="button" x-on:click="accessMode = 'simple'" x-bind:aria-pressed="accessMode === 'simple'" x-bind:class="accessMode === 'simple' ? 'bg-white shadow-sm text-primary-700 dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300'" class="rounded-md px-3 py-1.5 text-sm font-semibold">Simple Access</button>
+                                <button type="button" x-on:click="accessMode = 'advanced'" x-bind:aria-pressed="accessMode === 'advanced'" x-bind:class="accessMode === 'advanced' ? 'bg-white shadow-sm text-primary-700 dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300'" class="rounded-md px-3 py-1.5 text-sm font-semibold">Advanced Access</button>
+                            </div>
+                        </div>
+                    </x-filament::section>
+                    <div x-show="accessMode === 'simple'" data-testid="access-simple-editor">
+                        <div class="space-y-3">
+                            @forelse($modulesByGroup as $simpleGroupKey => $simpleModules)
+                                <details class="rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-900" @if(in_array($simpleGroupKey, $expandedGroups, true)) open @endif>
+                                    <summary class="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm font-semibold">
+                                        <span>{{ $groups[$simpleGroupKey]['label'] }} <span class="ml-1 text-xs font-normal text-gray-500">({{ count($simpleModules) }} modules)</span></span>
+                                        <x-heroicon-m-chevron-down class="h-4 w-4 text-gray-500" />
+                                    </summary>
+                                    <div class="overflow-x-auto border-t border-gray-100 dark:border-white/10">
+                                        <table class="w-full min-w-[36rem] text-left text-sm">
+                                            <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-white/5"><tr><th class="px-4 py-2">Module</th><th class="px-3 py-2">Current access</th><th class="px-3 py-2">Set access</th><th class="px-3 py-2">Details</th></tr></thead>
+                                            <tbody class="divide-y divide-gray-100 dark:divide-white/10">
+                                            @foreach($simpleModules as $simpleModule)
+                                                <tr wire:key="simple-access-{{ $simpleModule['key'] }}" data-testid="simple-module-{{ $simpleModule['key'] }}">
+                                                    <td class="px-4 py-2.5"><span class="font-medium">{{ $simpleModule['label'] }}</span>@if($simpleModule['changed_count'] > 0)<span class="ml-1 text-xs font-semibold text-amber-600">Unsaved</span>@endif</td>
+                                                    <td class="px-3 py-2.5 text-xs">{{ match($simpleModule['primary_level']) {'view_edit' => 'View & Edit', 'view' => 'View', 'none' => 'None', 'derived' => 'Derived', default => 'Mixed'} }}</td>
+                                                    <td class="px-3 py-2.5">
+                                                        @if($simpleModule['derived'])
+                                                            <span class="text-xs text-gray-500">Follows existing access</span>
+                                                        @elseif($simpleModule['can_manage_primary'])
+                                                            <div class="inline-flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-white/5" role="group" aria-label="{{ $simpleModule['label'] }} quick access">
+                                                                @foreach(['none' => 'None', 'view' => 'View', 'view_edit' => 'View & Edit'] as $simpleLevel => $simpleLabel)
+                                                                    <button type="button" wire:click="setModuleAccess(@js($simpleModule['key']), @js($simpleLevel))" @disabled(($simpleLevel === 'view' && $simpleModule['view_keys'] === []) || ($simpleLevel === 'view_edit' && $simpleModule['edit_keys'] === [])) aria-pressed="{{ $simpleModule['primary_level'] === $simpleLevel ? 'true' : 'false' }}" @class(['rounded-md px-2 py-1.5 text-xs font-semibold disabled:opacity-40', 'bg-white text-primary-700 shadow-sm dark:bg-gray-800' => $simpleModule['primary_level'] === $simpleLevel])>{{ $simpleLabel }}</button>
+                                                                @endforeach
+                                                            </div>
+                                                        @else
+                                                            <span class="text-xs text-gray-500">Protected</span>
+                                                        @endif
+                                                    </td>
+                                                    <td class="px-3 py-2.5">
+                                                        <button type="button" class="text-xs font-semibold text-primary-600 hover:underline dark:text-primary-400" x-on:click="accessMode = 'advanced'; $nextTick(() => { const group = document.querySelector('[data-testid=\'access-group-{{ $simpleGroupKey }}\']'); if (group) { group.open = true; group.scrollIntoView({behavior: 'smooth', block: 'start'}); } })">Advanced ⚙</button>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
+                            @empty
+                                <p class="rounded-lg bg-white p-5 text-sm text-gray-500">No modules match the current filters.</p>
+                            @endforelse
+                        </div>
+                    </div>
+                    <div x-show="accessMode === 'advanced'" data-testid="access-advanced-editor">
                     @forelse ($modulesByGroup as $groupKey => $modules)
                         @php($groupDefinition = $groups[$groupKey])
                         <details class="ac-group group rounded-xl border border-gray-200 bg-white shadow-sm open:ring-1 open:ring-gray-950/5 dark:border-white/10 dark:bg-gray-900 dark:open:ring-white/10" @if (in_array($groupKey, $expandedGroups, true)) open @endif data-testid="access-group-{{ $groupKey }}" wire:key="access-group-{{ $groupKey }}" x-on:toggle.self.debounce.50ms="$wire.setGroupExpanded(@js($groupKey), $event.target.open)">
@@ -282,10 +338,10 @@
                                                 @php($expandMethod = $section === 'edit' ? 'setEditExpanded' : 'setAdvancedExpanded')
                                                 <details class="ac-advanced group/advanced mt-3 rounded-lg border border-gray-200 dark:border-white/10" @if (in_array($module['key'], $expandedModules, true)) open @endif data-testid="access-{{ $section }}-{{ $module['key'] }}" wire:key="access-{{ $section }}-{{ $module['key'] }}" x-on:toggle.self.debounce.50ms="$wire.{{ $expandMethod }}(@js($module['key']), $event.target.open)">
                                                     <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium marker:hidden"><span>{{ $sectionLabel }} <span class="text-xs font-normal text-gray-500">({{ count($module[$section.'_permissions']) }})</span></span><x-heroicon-m-chevron-down class="h-4 w-4 text-gray-400 transition group-open/advanced:rotate-180" /></summary>
-                                                    <div class="space-y-2 border-t border-gray-100 p-3 dark:border-white/10">
+                                                    <div class="space-y-1 border-t border-gray-100 p-2 dark:border-white/10">
                                                         @foreach ($module[$section.'_permissions'] as $permissionDefinition)
                                                             @php($permission = $module['permissions'][$permissionDefinition['key']])
-                                                            <div class="ac-advanced-row ac-permission-row grid min-w-0 gap-3 rounded-lg bg-gray-50 p-3 dark:bg-white/5" data-testid="{{ $section }}-permission-{{ sha1($permission['key']) }}">
+                                                            <div class="ac-advanced-row ac-permission-row grid min-w-0 gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-white/5" data-testid="{{ $section }}-permission-{{ sha1($permission['key']) }}">
                                                                 <div class="ac-permission-info min-w-0">
                                                                     <div class="ac-permission-badges flex flex-wrap items-center gap-1.5">
                                                                         <span class="ac-permission-title text-sm font-medium">{{ $permission['label'] }}</span>
@@ -295,7 +351,7 @@
                                                                         @if ($permission['setting'] === 'mixed')<x-filament::badge size="sm" color="gray">Mixed — unchanged</x-filament::badge>@elseif ($permission['technician_restricted'] && $permission['setting'] === 'allow')<x-filament::badge size="sm" color="danger">Stored Allow ignored</x-filament::badge>@elseif ($permission['setting'] === 'inherit')<x-filament::badge size="sm" color="gray">Using Role Default</x-filament::badge>@elseif ($permission['setting'] === 'allow')<x-filament::badge size="sm" color="success">Allowed for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@else<x-filament::badge size="sm" color="danger">Blocked for {{ $bulkMode ? 'selected employees' : 'this employee' }}</x-filament::badge>@endif
                                                                         @if ($permission['changed'])<x-filament::badge size="sm" color="warning">Not Saved Yet</x-filament::badge>@endif
                                                                     </div>
-                                                                    <p class="mt-1 text-xs text-gray-500">Default Access: {{ $permission['role_default'] === null ? 'Mixed' : ($permission['role_default'] ? 'Access' : 'No Access') }}</p>
+                                                                    <span class="sr-only">Default Access: {{ $permission['role_default'] === null ? 'Mixed' : ($permission['role_default'] ? 'Access' : 'No Access') }}</span>
                                                                     @if ($permission['technician_restricted'])<p class="mt-1 text-xs text-danger-600">This permission cannot be enabled while a Technician is selected. Any stored Allow is ignored.</p>@endif
                                                                     @if ($permission['key'] === 'inventory.consume_from_all_allocations')
                                                                         <p class="mt-1 text-xs text-gray-500">Allows manual selection of allocation holders in Sales Orders and Web Sales. Without it, ERP automatically uses the employee's authorized allocation.</p>
@@ -303,7 +359,7 @@
                                                                 </div>
                                                                 @if ($permission['can_manage'])
                                                                     <div class="ac-segmented ac-segmented-advanced grid grid-cols-3 gap-1 rounded-lg bg-gray-200/70 p-1 dark:bg-black/20" role="radiogroup" aria-label="{{ $permission['label'] }} override">
-                                                                        @foreach (['inherit' => 'Reset to Role Default', 'allow' => $bulkMode ? 'Allow for Selected' : 'Allow for Employee', 'deny' => $bulkMode ? 'Block for Selected' : 'Block for Employee'] as $setting => $settingLabel)
+                                                                        @foreach (['inherit' => 'Default', 'allow' => 'Allow', 'deny' => 'Block'] as $setting => $settingLabel)
                                                                             <button type="button" wire:click="stagePermission(@js($permission['key']), '{{ $setting }}')" aria-pressed="{{ $permission['setting'] === $setting ? 'true' : 'false' }}" @disabled($setting === 'allow' && $permission['technician_restricted']) @class(['rounded-md px-2 py-1.5 text-xs font-semibold transition', 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200 dark:bg-gray-800 dark:text-primary-300 dark:ring-white/10' => $permission['setting'] === $setting, 'text-gray-600 hover:bg-white/70 dark:text-gray-300 dark:hover:bg-white/5' => $permission['setting'] !== $setting, 'cursor-not-allowed opacity-50' => $setting === 'allow' && $permission['technician_restricted']])>{{ $settingLabel }}</button>
                                                                         @endforeach
                                                                     </div>
@@ -323,6 +379,7 @@
                         <x-filament::section><p class="py-8 text-center text-sm text-gray-500">No modules match the current filters.</p></x-filament::section>
                     @endforelse
 
+                    </div>
                     @if ($dirtyCount > 0)
                         <div class="ac-savebar sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning-300 bg-white/95 p-3 shadow-xl backdrop-blur dark:border-warning-500/40 dark:bg-gray-900/95" data-testid="save-access-bar"><p class="text-sm"><strong>{{ $dirtyCount }}</strong> permission {{ str('change')->plural($dirtyCount) }} not saved yet</p><div class="ac-savebar-actions flex flex-wrap gap-2"><x-filament::button color="gray" size="sm" wire:click="discardChanges">Discard</x-filament::button><x-filament::button size="sm" wire:click="saveChanges" wire:loading.attr="disabled" wire:target="saveChanges">Save Changes</x-filament::button></div></div>
                     @endif

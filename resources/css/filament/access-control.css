@@ -804,3 +804,46 @@ button.ac-employee-row.is-selected {
         align-items: stretch;
     }
 }
+
+
+/* Access Control: keep the floating assistant out of the sticky Save/Discard bar.
+   These selectors apply only while this page is present; all other ERP pages
+   retain the normal AI launcher and expanded assistant positioning. */
+body:has([data-testid='module-access-control']) .tpz-ai-root {
+    right: 1rem;
+    bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+}
+
+body:has([data-testid='module-access-control']) .tpz-ai-root .tpz-ai-launcher {
+    width: 3rem;
+    height: 3rem;
+    min-width: 3rem;
+    justify-content: center;
+    padding: 0;
+    border-radius: 999px;
+}
+
+body:has([data-testid='module-access-control']) .tpz-ai-root .tpz-ai-launcher span:last-child {
+    display: none;
+}
+
+body:has([data-testid='module-access-control']) .tpz-ai-root .tpz-ai-panel {
+    /* The open assistant remains at its normal position; only its launcher docks higher. */
+    bottom: 1.5rem;
+}
+
+body:has([data-testid='module-access-control']) .tpz-ai-root .tpz-ai-panel.tpz-ai-full {
+    bottom: 1rem;
+}
+
+@media (max-width: 639px) {
+    body:has([data-testid='module-access-control']) .tpz-ai-root {
+        right: 0.75rem;
+        bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    body:has([data-testid='module-access-control']) .tpz-ai-root .tpz-ai-panel,
+    body:has([data-testid='module-access-control']) .tpz-ai-root .tpz-ai-panel.tpz-ai-full {
+        bottom: 0;
+    }
+}

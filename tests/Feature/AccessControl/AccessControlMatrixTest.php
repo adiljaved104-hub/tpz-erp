@@ -553,8 +553,8 @@ class AccessControlMatrixTest extends TestCase
         $this->assertStringContainsString('Default role access is used unless you set a custom permission.', $html);
         $this->assertStringContainsString('Using Role Default', $html);
         $this->assertStringContainsString('Reset to Role Default', $html);
-        $this->assertStringContainsString('Allow for Employee', $html);
-        $this->assertStringContainsString('Block for Employee', $html);
+        $this->assertStringContainsString('>Allow</button>', $html);
+        $this->assertStringContainsString('>Block</button>', $html);
         $this->assertStringNotContainsString('Protected for this employee or actor.', $html);
         $this->assertStringContainsString('fi-input-wrp', $html);
         $this->assertStringContainsString('min-w-0', $html);
@@ -612,8 +612,8 @@ class AccessControlMatrixTest extends TestCase
                 ->call('setAdvancedExpanded', 'inventory', true)
                 ->call('stagePermission', InventoryPermission::Reserve->value, 'allow')
                 ->assertSee('Reset to Role Default')
-                ->assertSee($bulk ? 'Allow for Selected' : 'Allow for Employee')
-                ->assertSee($bulk ? 'Block for Selected' : 'Block for Employee')
+                ->assertSee('Allow')
+                ->assertSee('Block')
                 ->assertSee('Access:')
                 ->assertSee('Default Access:')
                 ->assertSee('Save Changes')->assertSee('Discard');

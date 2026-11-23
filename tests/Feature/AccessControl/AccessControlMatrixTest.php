@@ -80,6 +80,99 @@ class AccessControlMatrixTest extends TestCase
         $this->assertDatabaseCount('employee_permission_overrides', 0);
     }
 
+    public function test_phase7d2_compact_simple_access_reuses_existing_authorized_module_actions(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->id)
+            ->assertSeeHtml('data-testid="access-simple-editor"')
+            ->assertSeeHtml('data-testid="access-advanced-editor"')
+            ->assertSeeHtml('data-testid="access-focused-advanced"')
+            ->assertSee('Show all modules')
+            ->assertSeeHtml('data-testid="simple-module-products"')
+            ->assertSee('Simple Access')
+            ->assertSee('Advanced Access')
+            ->call('setModuleAccess', 'products', 'view')
+            ->assertHasNoErrors();
+
+        $this->assertSame('allow', $component->instance()->draftSettings[ProductPermission::View->value]);
+        $this->assertSame('deny', $component->instance()->draftSettings[ProductPermission::Create->value]);
+        $this->assertSame('inherit', $component->instance()->draftSettings[ProductPermission::ViewCostPrice->value]);
+        $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $staff->id]);
+
+        $component->call('discardChanges')->assertHasNoErrors();
+        $this->assertSame('inherit', $component->instance()->draftSettings[ProductPermission::View->value]);
+    }
+
+    public function test_phase7d_preset_stages_preview_without_saving_or_expanding_advanced_access(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->id)
+            ->set('selectedPreset', 'warehouse_viewer')
+            ->call('stageAccessPreset')
+            ->assertSee('pending permission changes')
+            ->assertSee('Hide Preview')
+            ->assertSee('View Inventory');
+
+        $this->assertSame('allow', $component->instance()->draftSettings[InventoryPermission::View->value]);
+        $this->assertSame('deny', $component->instance()->draftSettings[InventoryPermission::AdjustStock->value]);
+        $this->assertSame('inherit', $component->instance()->draftSettings[InventoryPermission::ViewFinancials->value]);
+        $this->assertDatabaseCount('employee_permission_overrides', 0);
+
+        $component->call('discardChanges')->assertHasNoErrors();
+        $this->assertSame('inherit', $component->instance()->draftSettings[InventoryPermission::View->value]);
+        $this->assertDatabaseCount('employee_permission_overrides', 0);
+    }
+
+    public function test_phase7d_copy_stages_only_explicit_overrides_without_auto_save(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $source = $this->employee(EmployeeRole::Staff);
+        $target = $this->employee(EmployeeRole::Staff);
+        app(EmployeePermissionOverrideService::class)->change(
+            $source, ProductPermission::View->value, EmployeePermissionEffect::Allow, null, $owner->user
+        );
+
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $target->id)
+            ->set('copySourceEmployeeId', (string) $source->id)
+            ->call('stageCopyEmployeeAccess')
+            ->assertHasNoErrors()
+            ->assertSee('pending permission changes');
+
+        $this->assertSame('allow', $component->instance()->draftSettings[ProductPermission::View->value]);
+        $this->assertSame('inherit', $component->instance()->draftSettings[ProductPermission::ViewCostPrice->value]);
+        $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $target->id]);
+
+        $component->call('saveChanges')->assertHasNoErrors();
+        $this->assertDatabaseHas('employee_permission_overrides', [
+            'employee_id' => $target->id, 'permission_key' => ProductPermission::View->value, 'effect' => 'allow',
+        ]);
+    }
+
+    public function test_phase7d_admin_cannot_copy_financial_override(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $admin = $this->employee(EmployeeRole::Admin);
+        $source = $this->employee(EmployeeRole::Staff);
+        $target = $this->employee(EmployeeRole::Staff);
+        app(EmployeePermissionOverrideService::class)->change(
+            $source, ExpensePermission::ViewAmount->value, EmployeePermissionEffect::Allow,
+            'Owner approved access', $owner->user
+        );
+
+        Livewire::actingAs($admin->user)->test(AccessControl::class)
+            ->call('selectEmployee', $target->id)
+            ->set('copySourceEmployeeId', (string) $source->id)
+            ->call('stageCopyEmployeeAccess')->assertForbidden();
+
+        $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $target->id]);
+    }
+
     public function test_inventory_presets_still_apply_every_primary_key_and_preserve_advanced(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);
@@ -338,7 +431,7 @@ class AccessControlMatrixTest extends TestCase
         $component->call('toggleEmployeeSelection', $second->id)
             ->assertSet('selectedEmployeeId', $first->id)
             ->assertSet('selectedEmployeeIds', [$second->id])
-            ->assertSee('1 employees selected');
+            ->assertSee('Single Employee');
         $assertRow($first, false, false);
         $assertRow($second, true, true);
 
@@ -462,8 +555,8 @@ class AccessControlMatrixTest extends TestCase
         $this->assertStringContainsString('Default role access is used unless you set a custom permission.', $html);
         $this->assertStringContainsString('Using Role Default', $html);
         $this->assertStringContainsString('Reset to Role Default', $html);
-        $this->assertStringContainsString('Allow for Employee', $html);
-        $this->assertStringContainsString('Block for Employee', $html);
+        $this->assertStringContainsString('>Allow</button>', $html);
+        $this->assertStringContainsString('>Block</button>', $html);
         $this->assertStringNotContainsString('Protected for this employee or actor.', $html);
         $this->assertStringContainsString('fi-input-wrp', $html);
         $this->assertStringContainsString('min-w-0', $html);
@@ -521,8 +614,8 @@ class AccessControlMatrixTest extends TestCase
                 ->call('setAdvancedExpanded', 'inventory', true)
                 ->call('stagePermission', InventoryPermission::Reserve->value, 'allow')
                 ->assertSee('Reset to Role Default')
-                ->assertSee($bulk ? 'Allow for Selected' : 'Allow for Employee')
-                ->assertSee($bulk ? 'Block for Selected' : 'Block for Employee')
+                ->assertSee('Allow')
+                ->assertSee('Block')
                 ->assertSee('Access:')
                 ->assertSee('Default Access:')
                 ->assertSee('Save Changes')->assertSee('Discard');

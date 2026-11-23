@@ -568,6 +568,10 @@ class AccessControlMatrixTest extends TestCase
         $this->assertStringContainsString("[data-testid='module-access-control']", $stylesheet);
         $this->assertStringContainsString('@media (min-width: 1280px)', $stylesheet);
         $this->assertStringContainsString('@media (max-width: 639px)', $stylesheet);
+        $this->assertStringContainsString("body:has([data-testid='module-access-control']) .tpz-ai-root", $stylesheet);
+        $this->assertStringContainsString('bottom: calc(7rem + env(safe-area-inset-bottom, 0px))', $stylesheet);
+        $this->assertStringContainsString('bottom: calc(10rem + env(safe-area-inset-bottom, 0px))', $stylesheet);
+        $this->assertStringContainsString('.tpz-ai-panel.tpz-ai-full', $stylesheet);
         $this->assertStringNotContainsString('min-width: 24rem', $stylesheet);
         $this->assertStringContainsString('repeat(auto-fit, minmax(min(100%, 12rem), 1fr))', $stylesheet);
         $this->assertStringContainsString('@container access-control-module', $stylesheet);

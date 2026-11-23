@@ -80,6 +80,30 @@ class AccessControlMatrixTest extends TestCase
         $this->assertDatabaseCount('employee_permission_overrides', 0);
     }
 
+    public function test_phase7d2_compact_simple_access_reuses_existing_authorized_module_actions(): void
+    {
+        $owner = $this->employee(EmployeeRole::Owner);
+        $staff = $this->employee(EmployeeRole::Staff);
+
+        $component = Livewire::actingAs($owner->user)->test(AccessControl::class)
+            ->call('selectEmployee', $staff->id)
+            ->assertSeeHtml('data-testid="access-simple-editor"')
+            ->assertSeeHtml('data-testid="access-advanced-editor"')
+            ->assertSeeHtml('data-testid="simple-module-products"')
+            ->assertSee('Simple Access')
+            ->assertSee('Advanced Access')
+            ->call('setModuleAccess', 'products', 'view')
+            ->assertHasNoErrors();
+
+        $this->assertSame('allow', $component->instance()->draftSettings[ProductPermission::View->value]);
+        $this->assertSame('deny', $component->instance()->draftSettings[ProductPermission::Create->value]);
+        $this->assertSame('inherit', $component->instance()->draftSettings[ProductPermission::ViewCostPrice->value]);
+        $this->assertDatabaseMissing('employee_permission_overrides', ['employee_id' => $staff->id]);
+
+        $component->call('discardChanges')->assertHasNoErrors();
+        $this->assertSame('inherit', $component->instance()->draftSettings[ProductPermission::View->value]);
+    }
+
     public function test_phase7d_preset_stages_preview_without_saving_or_expanding_advanced_access(): void
     {
         $owner = $this->employee(EmployeeRole::Owner);
@@ -405,7 +429,7 @@ class AccessControlMatrixTest extends TestCase
         $component->call('toggleEmployeeSelection', $second->id)
             ->assertSet('selectedEmployeeId', $first->id)
             ->assertSet('selectedEmployeeIds', [$second->id])
-            ->assertSee('1 employees selected');
+            ->assertSee('Single Employee');
         $assertRow($first, false, false);
         $assertRow($second, true, true);
 

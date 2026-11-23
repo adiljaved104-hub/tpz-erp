@@ -2,7 +2,7 @@
     <div
         class="ac-page space-y-5"
         data-testid="module-access-control"
-        x-data="{ employeePanelOpen: window.innerWidth >= 1280, wasDesktop: window.innerWidth >= 1280 }"
+        x-data="{ employeePanelOpen: window.innerWidth >= 1280, wasDesktop: window.innerWidth >= 1280, accessMode: 'simple' }"
         x-init="$nextTick(() => employeePanelOpen = window.innerWidth >= 1280)"
         x-on:resize.window.debounce.150ms="
             const desktop = window.innerWidth >= 1280;
@@ -40,7 +40,7 @@
                 Select Employee
             </x-filament::button>
             @if ($bulkMode)
-                <span>{{ $selectedEmployees->count() }} employees selected · Bulk Access mode</span>
+                <span>{{ $selectedEmployees->count() === 1 ? $selectedEmployees->first()?->name.' · Single Employee Access' : $selectedEmployees->count().' employees · Bulk Access' }}</span>
             @elseif ($selectedEmployee)
                 <span>{{ $selectedEmployee->name }} · {{ $selectedEmployee->employee_id }}</span>
             @endif
@@ -60,7 +60,7 @@
                         <x-filament::badge :color="$selectedEmployeeIds === [] ? 'gray' : 'primary'">{{ count($selectedEmployeeIds) }} selected</x-filament::badge>
                     </div>
                     @error('employees')<p class="mb-3 text-sm text-danger-600">{{ $message }}</p>@enderror
-                    <div class="ac-employee-list space-y-2" data-testid="employee-picker">
+                    <div class="ac-employee-list space-y-1" data-testid="employee-picker">
                         @forelse ($employees as $employee)
                             @php
                                 $bulkSelectable = $employee->status && auth()->user()?->can('managePermissions', $employee);
@@ -68,7 +68,7 @@
                                 $rowSelected = $bulkMode ? $bulkSelected : $selectedEmployeeId === $employee->id;
                             @endphp
                             <div wire:key="access-employee-{{ $employee->id }}" data-testid="employee-row-{{ $employee->id }}" @class([
-                                'ac-employee-row group w-full min-w-0 rounded-xl border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600',
+                                'ac-employee-row group w-full min-w-0 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600',
                                 'is-selected' => $rowSelected,
                                 'border-primary-500 bg-primary-50 shadow-sm ring-1 ring-primary-500/20 dark:bg-primary-500/10' => $rowSelected,
                                 'border-gray-200 bg-white hover:border-primary-300 hover:bg-gray-50 dark:border-white/10 dark:bg-gray-900 dark:hover:border-primary-500/50 dark:hover:bg-white/5' => ! $rowSelected,
@@ -106,7 +106,7 @@
                         <div class="ac-selected-card-body flex gap-4">
                             <div class="min-w-0">
                                 @if ($bulkMode)
-                                    <div class="ac-identity-badges flex flex-wrap items-center gap-2"><h2 class="text-lg font-semibold">Bulk Access</h2><x-filament::badge color="primary">{{ $selectedEmployees->count() }} employees selected</x-filament::badge></div>
+                                    <div class="ac-identity-badges flex flex-wrap items-center gap-2"><h2 class="text-lg font-semibold">{{ $selectedEmployees->count() === 1 ? $selectedEmployees->first()?->name : 'Bulk Access' }}</h2><x-filament::badge color="primary">{{ $selectedEmployees->count() === 1 ? 'Single Employee' : $selectedEmployees->count().' employees selected' }}</x-filament::badge></div>
                                     <p class="mt-1.5 text-sm text-gray-500">Only permissions explicitly changed below will be applied. Unchanged and mixed settings remain untouched.</p>
                                 @else
                                     <div class="ac-identity-badges flex flex-wrap items-center gap-2">
@@ -142,8 +142,10 @@
                     </x-filament::section>
                     </div>
 
-                    <x-filament::section heading="Quick Access Setup" description="Presets and copied permissions are draft-only. Review changes and select Save Changes to apply them." compact>
-                        <div class="grid gap-3 md:grid-cols-2">
+                    <x-filament::section compact>
+                        <details class="group" data-testid="access-quick-setup">
+                            <summary class="flex cursor-pointer items-center justify-between gap-2 text-sm font-semibold"><span>Quick Setup · Presets &amp; Copy Access</span><span class="text-xs font-normal text-gray-500">Optional · draft only</span></summary>
+                        <div class="mt-4 grid gap-3 md:grid-cols-2">
                             <div class="min-w-0 space-y-2">
                                 <label for="access-preset-select" class="block text-sm font-medium">Permission preset</label>
                                 <x-filament::input.wrapper>
@@ -179,6 +181,7 @@
                                 </div>
                             @endunless
                         </div>
+                        </details>
                         @if($dirtyCount > 0)
                             <div class="mt-4 rounded-xl border border-primary-200 bg-primary-50/60 p-3 dark:border-primary-500/30 dark:bg-primary-500/10" data-testid="access-change-preview">
                                 <div class="flex flex-wrap items-center justify-between gap-2">

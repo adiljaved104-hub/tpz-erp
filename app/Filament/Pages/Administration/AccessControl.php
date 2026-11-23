@@ -237,7 +237,9 @@ class AccessControl extends Page
     {
         abort_unless(static::canAccess(), 403);
         $this->selectedEmployeeId = $this->employeeQuery()->value('id');
-        $firstGroup = array_key_first(app(AccessControlModuleRegistry::class)->groups());
+        // Start the compact editor on a useful operational group rather than the derived Dashboard.
+        $groups = app(AccessControlModuleRegistry::class)->groups();
+        $firstGroup = array_key_exists('products_inventory', $groups) ? 'products_inventory' : array_key_first($groups);
         $this->expandedGroups = $firstGroup === null ? [] : [$firstGroup];
         $this->loadDraftSettings();
     }

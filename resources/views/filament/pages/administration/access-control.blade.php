@@ -219,6 +219,59 @@
                         </div>
                     </x-filament::section>
 
+                    <x-filament::section compact>
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div><h2 class="text-base font-semibold">Module Permissions</h2><p class="text-xs text-gray-500">Simple access does not grant advanced, approval or financial permissions.</p></div>
+                            <div class="inline-flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-white/5" role="group" aria-label="Access editor view">
+                                <button type="button" x-on:click="accessMode = 'simple'" x-bind:aria-pressed="accessMode === 'simple'" x-bind:class="accessMode === 'simple' ? 'bg-white shadow-sm text-primary-700 dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300'" class="rounded-md px-3 py-1.5 text-sm font-semibold">Simple Access</button>
+                                <button type="button" x-on:click="accessMode = 'advanced'" x-bind:aria-pressed="accessMode === 'advanced'" x-bind:class="accessMode === 'advanced' ? 'bg-white shadow-sm text-primary-700 dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300'" class="rounded-md px-3 py-1.5 text-sm font-semibold">Advanced Access</button>
+                            </div>
+                        </div>
+                    </x-filament::section>
+                    <div x-show="accessMode === 'simple'" data-testid="access-simple-editor">
+                        <div class="space-y-3">
+                            @forelse($modulesByGroup as $simpleGroupKey => $simpleModules)
+                                <details class="rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-900" @if(in_array($simpleGroupKey, $expandedGroups, true)) open @endif>
+                                    <summary class="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm font-semibold">
+                                        <span>{{ $groups[$simpleGroupKey]['label'] }} <span class="ml-1 text-xs font-normal text-gray-500">({{ count($simpleModules) }} modules)</span></span>
+                                        <x-heroicon-m-chevron-down class="h-4 w-4 text-gray-500" />
+                                    </summary>
+                                    <div class="overflow-x-auto border-t border-gray-100 dark:border-white/10">
+                                        <table class="w-full min-w-[36rem] text-left text-sm">
+                                            <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-white/5"><tr><th class="px-4 py-2">Module</th><th class="px-3 py-2">Current access</th><th class="px-3 py-2">Set access</th><th class="px-3 py-2">Details</th></tr></thead>
+                                            <tbody class="divide-y divide-gray-100 dark:divide-white/10">
+                                            @foreach($simpleModules as $simpleModule)
+                                                <tr wire:key="simple-access-{{ $simpleModule['key'] }}" data-testid="simple-module-{{ $simpleModule['key'] }}">
+                                                    <td class="px-4 py-2.5"><span class="font-medium">{{ $simpleModule['label'] }}</span>@if($simpleModule['changed_count'] > 0)<span class="ml-1 text-xs font-semibold text-amber-600">Unsaved</span>@endif</td>
+                                                    <td class="px-3 py-2.5 text-xs">{{ match($simpleModule['primary_level']) {'view_edit' => 'View & Edit', 'view' => 'View', 'none' => 'None', 'derived' => 'Derived', default => 'Mixed'} }}</td>
+                                                    <td class="px-3 py-2.5">
+                                                        @if($simpleModule['derived'])
+                                                            <span class="text-xs text-gray-500">Follows existing access</span>
+                                                        @elseif($simpleModule['can_manage_primary'])
+                                                            <div class="inline-flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-white/5" role="group" aria-label="{{ $simpleModule['label'] }} quick access">
+                                                                @foreach(['none' => 'None', 'view' => 'View', 'view_edit' => 'View & Edit'] as $simpleLevel => $simpleLabel)
+                                                                    <button type="button" wire:click="setModuleAccess(@js($simpleModule['key']), @js($simpleLevel))" @disabled(($simpleLevel === 'view' && $simpleModule['view_keys'] === []) || ($simpleLevel === 'view_edit' && $simpleModule['edit_keys'] === [])) aria-pressed="{{ $simpleModule['primary_level'] === $simpleLevel ? 'true' : 'false' }}" @class(['rounded-md px-2 py-1.5 text-xs font-semibold disabled:opacity-40', 'bg-white text-primary-700 shadow-sm dark:bg-gray-800' => $simpleModule['primary_level'] === $simpleLevel])>{{ $simpleLabel }}</button>
+                                                                @endforeach
+                                                            </div>
+                                                        @else
+                                                            <span class="text-xs text-gray-500">Protected</span>
+                                                        @endif
+                                                    </td>
+                                                    <td class="px-3 py-2.5">
+                                                        <button type="button" class="text-xs font-semibold text-primary-600 hover:underline dark:text-primary-400" x-on:click="accessMode = 'advanced'; $nextTick(() => { const group = document.querySelector('[data-testid=\'access-group-{{ $simpleGroupKey }}\']'); if (group) { group.open = true; group.scrollIntoView({behavior: 'smooth', block: 'start'}); } })">Advanced ⚙</button>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
+                            @empty
+                                <p class="rounded-lg bg-white p-5 text-sm text-gray-500">No modules match the current filters.</p>
+                            @endforelse
+                        </div>
+                    </div>
+                    <div x-show="accessMode === 'advanced'" data-testid="access-advanced-editor">
                     @forelse ($modulesByGroup as $groupKey => $modules)
                         @php($groupDefinition = $groups[$groupKey])
                         <details class="ac-group group rounded-xl border border-gray-200 bg-white shadow-sm open:ring-1 open:ring-gray-950/5 dark:border-white/10 dark:bg-gray-900 dark:open:ring-white/10" @if (in_array($groupKey, $expandedGroups, true)) open @endif data-testid="access-group-{{ $groupKey }}" wire:key="access-group-{{ $groupKey }}" x-on:toggle.self.debounce.50ms="$wire.setGroupExpanded(@js($groupKey), $event.target.open)">
@@ -326,6 +379,7 @@
                         <x-filament::section><p class="py-8 text-center text-sm text-gray-500">No modules match the current filters.</p></x-filament::section>
                     @endforelse
 
+                    </div>
                     @if ($dirtyCount > 0)
                         <div class="ac-savebar sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning-300 bg-white/95 p-3 shadow-xl backdrop-blur dark:border-warning-500/40 dark:bg-gray-900/95" data-testid="save-access-bar"><p class="text-sm"><strong>{{ $dirtyCount }}</strong> permission {{ str('change')->plural($dirtyCount) }} not saved yet</p><div class="ac-savebar-actions flex flex-wrap gap-2"><x-filament::button color="gray" size="sm" wire:click="discardChanges">Discard</x-filament::button><x-filament::button size="sm" wire:click="saveChanges" wire:loading.attr="disabled" wire:target="saveChanges">Save Changes</x-filament::button></div></div>
                     @endif

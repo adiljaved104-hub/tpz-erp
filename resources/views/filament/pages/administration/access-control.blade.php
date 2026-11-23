@@ -42,7 +42,7 @@
             @if ($bulkMode)
                 <span>{{ $selectedEmployees->count() === 1 ? $selectedEmployees->first()?->name.' · Single Employee Access' : $selectedEmployees->count().' employees · Bulk Access' }}</span>
             @elseif ($selectedEmployee)
-                <span>{{ $selectedEmployee->name }} · {{ $selectedEmployee->employee_id }}</span>
+                <span>{{ $selectedEmployee->name }} · {{ $selectedEmployee->employee_id }}@if(count($selectedEmployeeIds) === 1) · Single Employee @endif</span>
             @endif
         </div>
 

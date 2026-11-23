@@ -2,7 +2,7 @@
     <div
         class="ac-page space-y-5"
         data-testid="module-access-control"
-        x-data="{ employeePanelOpen: window.innerWidth >= 1280, wasDesktop: window.innerWidth >= 1280, accessMode: 'simple' }"
+        x-data="{ employeePanelOpen: window.innerWidth >= 1280, wasDesktop: window.innerWidth >= 1280, accessMode: 'simple', focusedModule: null }"
         x-init="$nextTick(() => employeePanelOpen = window.innerWidth >= 1280)"
         x-on:resize.window.debounce.150ms="
             const desktop = window.innerWidth >= 1280;
@@ -223,8 +223,8 @@
                         <div class="flex flex-wrap items-center justify-between gap-3">
                             <div><h2 class="text-base font-semibold">Module Permissions</h2><p class="text-xs text-gray-500">Simple access does not grant advanced, approval or financial permissions.</p></div>
                             <div class="inline-flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-white/5" role="group" aria-label="Access editor view">
-                                <button type="button" x-on:click="accessMode = 'simple'" x-bind:aria-pressed="accessMode === 'simple'" x-bind:class="accessMode === 'simple' ? 'bg-white shadow-sm text-primary-700 dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300'" class="rounded-md px-3 py-1.5 text-sm font-semibold">Simple Access</button>
-                                <button type="button" x-on:click="accessMode = 'advanced'" x-bind:aria-pressed="accessMode === 'advanced'" x-bind:class="accessMode === 'advanced' ? 'bg-white shadow-sm text-primary-700 dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300'" class="rounded-md px-3 py-1.5 text-sm font-semibold">Advanced Access</button>
+                                <button type="button" x-on:click="accessMode = 'simple'; focusedModule = null" x-bind:aria-pressed="accessMode === 'simple'" x-bind:class="accessMode === 'simple' ? 'bg-white shadow-sm text-primary-700 dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300'" class="rounded-md px-3 py-1.5 text-sm font-semibold">Simple Access</button>
+                                <button type="button" x-on:click="accessMode = 'advanced'; focusedModule = null" x-bind:aria-pressed="accessMode === 'advanced'" x-bind:class="accessMode === 'advanced' ? 'bg-white shadow-sm text-primary-700 dark:bg-gray-800' : 'text-gray-600 dark:text-gray-300'" class="rounded-md px-3 py-1.5 text-sm font-semibold">Advanced Access</button>
                             </div>
                         </div>
                     </x-filament::section>
@@ -258,7 +258,7 @@
                                                         @endif
                                                     </td>
                                                     <td class="px-3 py-2.5">
-                                                        <button type="button" class="text-xs font-semibold text-primary-600 hover:underline dark:text-primary-400" x-on:click="accessMode = 'advanced'; $nextTick(() => { const group = document.querySelector('[data-testid=\'access-group-{{ $simpleGroupKey }}\']'); if (group) { group.open = true; group.scrollIntoView({behavior: 'smooth', block: 'start'}); } })">Advanced ⚙</button>
+                                                        <button type="button" class="text-xs font-semibold text-primary-600 hover:underline dark:text-primary-400" x-on:click="focusedModule = @js($simpleModule['key']); accessMode = 'advanced'; $nextTick(() => { const group = document.querySelector('[data-testid=\'access-group-{{ $simpleGroupKey }}\']'); if (group) group.open = true; $nextTick(() => { const module = document.querySelector('[data-testid=\'access-module-{{ $simpleModule['key'] }}\']'); if (module) { module.querySelectorAll('details.ac-advanced').forEach(el => el.open = true); module.scrollIntoView({behavior: 'smooth', block: 'start'}); } }); })">Advanced ⚙</button>
                                                     </td>
                                                 </tr>
                                             @endforeach
@@ -272,9 +272,13 @@
                         </div>
                     </div>
                     <div x-show="accessMode === 'advanced'" data-testid="access-advanced-editor">
+                        <div x-show="focusedModule !== null" class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary-200 bg-primary-50/60 px-4 py-3 dark:border-primary-500/30 dark:bg-primary-500/10" data-testid="access-focused-advanced">
+                            <span class="text-sm font-medium">Viewing detailed permissions for the selected module</span>
+                            <button type="button" x-on:click="focusedModule = null" class="text-sm font-semibold text-primary-700 hover:underline dark:text-primary-300">Show all modules</button>
+                        </div>
                     @forelse ($modulesByGroup as $groupKey => $modules)
                         @php($groupDefinition = $groups[$groupKey])
-                        <details class="ac-group group rounded-xl border border-gray-200 bg-white shadow-sm open:ring-1 open:ring-gray-950/5 dark:border-white/10 dark:bg-gray-900 dark:open:ring-white/10" @if (in_array($groupKey, $expandedGroups, true)) open @endif data-testid="access-group-{{ $groupKey }}" wire:key="access-group-{{ $groupKey }}" x-on:toggle.self.debounce.50ms="$wire.setGroupExpanded(@js($groupKey), $event.target.open)">
+                        <details class="ac-group group rounded-xl border border-gray-200 bg-white shadow-sm open:ring-1 open:ring-gray-950/5 dark:border-white/10 dark:bg-gray-900 dark:open:ring-white/10" @if (in_array($groupKey, $expandedGroups, true)) open @endif x-show="focusedModule === null || @js(collect($modules)->pluck('key')->all()).includes(focusedModule)" data-testid="access-group-{{ $groupKey }}" wire:key="access-group-{{ $groupKey }}" x-on:toggle.self.debounce.50ms="$wire.setGroupExpanded(@js($groupKey), $event.target.open)">
                             <summary class="ac-group-header cursor-pointer list-none px-4 py-3.5 marker:hidden sm:px-5">
                                         <div class="ac-group-title flex min-w-0 items-start gap-3">
                                     <div class="flex min-w-0 items-start gap-3">
@@ -298,7 +302,7 @@
                                 @foreach ($modules as $module)
                                     @php($allowOverrideCount = collect($module['permissions'])->where('setting', 'allow')->count())
                                     @php($denyOverrideCount = collect($module['permissions'])->where('setting', 'deny')->count())
-                                    <article class="ac-module-card min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900" data-testid="access-module-{{ $module['key'] }}" wire:key="access-module-{{ $module['key'] }}">
+                                    <article class="ac-module-card min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900" x-show="focusedModule === null || focusedModule === @js($module['key'])" style="scroll-margin-top: 9rem" data-testid="access-module-{{ $module['key'] }}" wire:key="access-module-{{ $module['key'] }}">
                                         <div class="ac-module-heading flex min-w-0 items-start justify-between gap-3">
                                             <div class="min-w-0"><h4 class="font-semibold">{{ $module['label'] }}</h4>@if ($module['description'])<p class="mt-1 text-xs leading-5 text-gray-500">{{ $module['description'] }}</p>@endif</div>
                                             <div class="ac-module-badges flex flex-wrap justify-end gap-1">

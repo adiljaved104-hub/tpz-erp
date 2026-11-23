@@ -89,6 +89,8 @@ class AccessControlMatrixTest extends TestCase
             ->call('selectEmployee', $staff->id)
             ->assertSeeHtml('data-testid="access-simple-editor"')
             ->assertSeeHtml('data-testid="access-advanced-editor"')
+            ->assertSeeHtml('data-testid="access-focused-advanced"')
+            ->assertSee('Show all modules')
             ->assertSeeHtml('data-testid="simple-module-products"')
             ->assertSee('Simple Access')
             ->assertSee('Advanced Access')

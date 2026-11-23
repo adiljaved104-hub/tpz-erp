@@ -65,7 +65,7 @@
                             @php
                                 $bulkSelectable = $employee->status && auth()->user()?->can('managePermissions', $employee);
                                 $bulkSelected = in_array($employee->id, $selectedEmployeeIds, true);
-                                $rowSelected = $bulkMode ? $bulkSelected : $selectedEmployeeId === $employee->id;
+                                $rowSelected = $selectedEmployeeIds !== [] ? $bulkSelected : $selectedEmployeeId === $employee->id;
                             @endphp
                             <div wire:key="access-employee-{{ $employee->id }}" data-testid="employee-row-{{ $employee->id }}" @class([
                                 'ac-employee-row group w-full min-w-0 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600',

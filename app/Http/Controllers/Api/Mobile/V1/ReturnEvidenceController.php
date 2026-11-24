@@ -12,6 +12,7 @@ use App\Models\QcOrderAssignment;
 use App\Services\Returns\CustomerReturnEvidenceAuthorization;
 use App\Services\Returns\CustomerReturnEvidenceService;
 use App\Services\Returns\CustomerReturnVideoUploadService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -21,33 +22,52 @@ class ReturnEvidenceController extends Controller
 {
     public function dashboard(Request $request): JsonResponse
     {
-        $request->validate(['page' => ['nullable', 'integer', 'min:1']]);
-        $eligible = app(CustomerReturnEvidenceAuthorization::class)->eligible($request->user())->select('customer_returns.id');
+        $data = $request->validate([
+            'scope' => ['nullable', 'in:pending,uploaded,needs_review,all'],
+            'q' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $scope = $data['scope'] ?? 'pending';
+        $term = trim((string) ($data['q'] ?? ''));
+        $authorizedReturns = app(CustomerReturnEvidenceAuthorization::class)->eligible($request->user());
+        $eligible = (clone $authorizedReturns)->select('customer_returns.id');
         $items = CustomerReturnItem::query()->whereIn('customer_return_id', $eligible);
         $waiting = (clone $items)->whereDoesntHave('findings.evidence');
         $uploaded = (clone $items)->whereHas('findings.evidence')->count();
-        $needsReview = app(CustomerReturnEvidenceAuthorization::class)->eligible($request->user())
-            ->where(function ($query): void {
-                $query->whereHas('quarantines', fn ($quarantines) => $quarantines->whereNull('reviewed_at'))
-                    ->orWhereHas('items', fn ($items) => $items
-                        ->whereHas('inspections')
-                        ->whereHas('findings', fn ($findings) => $findings->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package'])))
-                    ->orWhereHas('items', fn ($items) => $items
-                        ->whereHas('inspections', fn ($inspections) => $inspections->where('result', 'sellable'))
-                        ->whereDoesntHave('inspections', fn ($inspections) => $inspections->where('result', 'damaged'))
-                        ->whereHas('findings', fn ($findings) => $findings->whereIn('problem_type', ['damaged', 'defective', 'missing_accessories'])))
-                    ->orWhereHas('items', fn ($items) => $items
-                        ->whereHas('inspections', fn ($inspections) => $inspections->where('result', 'damaged'))
-                        ->whereDoesntHave('inspections', fn ($inspections) => $inspections->where('result', 'sellable'))
-                        ->whereHas('findings', fn ($findings) => $findings->where('problem_type', 'sellable')));
-            })->count();
+        $needsReview = $this->needsReview(clone $authorizedReturns)->count();
+        $withUploadedEvidence = (clone $authorizedReturns)->whereHas('items.findings.evidence')->count();
+        $waitingReturns = (clone $authorizedReturns)->whereHas('items', fn (Builder $query) => $query
+            ->whereDoesntHave('findings.evidence'))->count();
         $pending = (clone $waiting)->with(['customerReturn.order:id,reference', 'inspections', 'removalItems.inspections'])
             ->orderByDesc('id')->paginate(20);
+        $results = clone $authorizedReturns;
+        match ($scope) {
+            'pending' => $results->whereHas('items', fn (Builder $query) => $query->whereDoesntHave('findings.evidence')),
+            'uploaded' => $results->whereHas('items.findings.evidence'),
+            'needs_review' => $this->needsReview($results),
+            'all' => $results,
+        };
+        if ($term !== '') {
+            $this->search($results, $term);
+        }
+        $page = $results
+            ->with(['order:id,reference,external_order_number', 'platform:id,name'])
+            ->withCount([
+                'items',
+                'items as items_waiting_for_evidence_count' => fn (Builder $query) => $query->whereDoesntHave('findings.evidence'),
+                'items as items_with_evidence_count' => fn (Builder $query) => $query->whereHas('findings.evidence'),
+            ])
+            ->orderByDesc('id')->paginate(20)
+            ->through(fn (CustomerReturn $return) => $this->presentQueueReturn($return));
 
         return response()->json([
-            'returns_waiting_for_evidence' => (clone $waiting)->count(),
+            'returns_waiting_for_evidence' => $waitingReturns,
             'evidence_uploaded' => $uploaded,
+            'returns_with_uploaded_evidence' => $withUploadedEvidence,
             'returns_needing_review' => $needsReview,
+            'all_authorized_returns' => (clone $authorizedReturns)->count(),
+            'scope' => $scope,
+            'results' => $page,
             'pending' => $pending->through(fn (CustomerReturnItem $item) => [
                 'return_id' => $item->customer_return_id,
                 'item_id' => $item->id,
@@ -60,6 +80,54 @@ class ReturnEvidenceController extends Controller
                 'evidence_status' => 'Evidence Pending',
             ]),
         ]);
+    }
+
+    private function needsReview(Builder $query): Builder
+    {
+        return $query->where(function (Builder $returns): void {
+            $returns->whereHas('quarantines', fn (Builder $quarantines) => $quarantines->whereNull('reviewed_at'))
+                ->orWhereHas('items', fn (Builder $items) => $items
+                    ->whereHas('inspections')
+                    ->whereHas('findings', fn (Builder $findings) => $findings->whereIn('problem_type', ['wrong_item', 'serial_mismatch', 'empty_package'])))
+                ->orWhereHas('items', fn (Builder $items) => $items
+                    ->whereHas('inspections', fn (Builder $inspections) => $inspections->where('result', 'sellable'))
+                    ->whereDoesntHave('inspections', fn (Builder $inspections) => $inspections->where('result', 'damaged'))
+                    ->whereHas('findings', fn (Builder $findings) => $findings->whereIn('problem_type', ['damaged', 'defective', 'missing_accessories'])))
+                ->orWhereHas('items', fn (Builder $items) => $items
+                    ->whereHas('inspections', fn (Builder $inspections) => $inspections->where('result', 'damaged'))
+                    ->whereDoesntHave('inspections', fn (Builder $inspections) => $inspections->where('result', 'sellable'))
+                    ->whereHas('findings', fn (Builder $findings) => $findings->where('problem_type', 'sellable')));
+        });
+    }
+
+    private function search(Builder $query, string $term): void
+    {
+        $like = '%'.addcslashes($term, '%_\\').'%';
+        $query->where(function (Builder $returns) use ($like, $term): void {
+            $returns->where('reference', 'like', $like)
+                ->orWhereHas('order', fn (Builder $orders) => $orders
+                    ->where('reference', 'like', $like)
+                    ->orWhere('external_order_number', 'like', $like)
+                    ->when(ctype_digit($term), fn (Builder $numbers) => $numbers->orWhere('id', (int) $term)))
+                ->orWhereHas('items', fn (Builder $items) => $items
+                    ->where('sku_snapshot', 'like', $like)
+                    ->orWhere('product_name_snapshot', 'like', $like));
+        });
+    }
+
+    private function presentQueueReturn(CustomerReturn $return): array
+    {
+        return [
+            'return_id' => $return->id,
+            'return_reference' => $return->reference,
+            'order_reference' => $return->order?->reference,
+            'marketplace_order_id' => $return->order?->external_order_number,
+            'marketplace' => $return->platform?->name,
+            'status' => $return->status->value,
+            'items_count' => $return->items_count,
+            'items_waiting_for_evidence' => $return->items_waiting_for_evidence_count,
+            'items_with_evidence' => $return->items_with_evidence_count,
+        ];
     }
 
     public function index(Request $request): JsonResponse

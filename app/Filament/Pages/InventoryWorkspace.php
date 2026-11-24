@@ -9,6 +9,7 @@ use App\Enums\ProductPermission;
 use App\Enums\StockRequestPurpose;
 use App\Enums\StockRequestSourceStatus;
 use App\Filament\Pages\Inventory\InventoryOverview;
+use App\Filament\Pages\Inventory\StockByHolder;
 use App\Filament\Pages\Inventory\StockAdjustments;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Filament\Resources\Products\ProductResource;
@@ -27,6 +28,7 @@ use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Inventory\StockRequestApprovalService;
+use App\Services\Inventory\StockByHolderReportService;
 use App\Services\Inventory\StockRequestExecutionService;
 use App\Services\Inventory\StockRequestService;
 use App\Services\Mobile\StockStatus;
@@ -73,6 +75,14 @@ class InventoryWorkspace extends Page
     public string $productSearch = '';
 
     public string $myInventorySearch = '';
+
+    public string $ownershipSearch = '';
+
+    public string $ownershipHolderId = '';
+
+    public string $ownershipBrandId = '';
+
+    public string $ownershipWarehouseId = '';
 
     // Store only the selected inventory ID; always load through the scoped
     // InventoryReadService instead of persisting record data in Livewire state.
@@ -296,6 +306,20 @@ class InventoryWorkspace extends Page
         $selectedExtra = $this->activeTab === 'extra' && $this->activeExtraModule !== null
             ? $this->extraModules()->get($this->activeExtraModule)
             : null;
+        $showOwnership = is_array($selectedExtra)
+            && $selectedExtra['label'] === 'Stock Ownership'
+            && StockByHolder::canAccess();
+        $ownershipReport = $showOwnership ? app(StockByHolderReportService::class) : null;
+        $ownershipFilters = [
+            'search' => $this->ownershipSearch,
+            'holder_id' => $this->ownershipHolderId,
+            'brand_id' => $this->ownershipBrandId,
+            'warehouse_id' => $this->ownershipWarehouseId,
+        ];
+        $ownershipBalances = $ownershipReport?->balances($ownershipFilters)
+            ->orderBy('account_id')->orderBy('product_inventory_id')
+            ->paginate(15, pageName: 'ownership-page');
+        $ownershipHolders = $ownershipReport?->holders() ?? collect();
         $extraPreview = is_array($selectedExtra)
             ? app(WorkspaceRecordPreviewService::class)->forLink($selectedExtra)
             : null;
@@ -334,6 +358,11 @@ class InventoryWorkspace extends Page
             'pendingOwnerTransfer' => $this->pendingOwnerTransfer($user),
             'pendingSourceDecision' => $this->pendingSourceDecision($user),
             'extraPreview' => $extraPreview,
+            'showOwnership' => $showOwnership,
+            'ownershipBalances' => $ownershipBalances,
+            'ownershipHolders' => $ownershipHolders,
+            'ownershipBrands' => $showOwnership ? \App\Models\ProductBrand::query()->orderBy('name')->pluck('name', 'id') : collect(),
+            'ownershipWarehouses' => $showOwnership ? \App\Models\Warehouse::query()->orderBy('name')->pluck('name', 'id') : collect(),
             'allocatedRows' => $allocatedRows,
             'locationRows' => $locationRows,
             'inventoryCards' => $inventoryCards,
@@ -802,6 +831,36 @@ class InventoryWorkspace extends Page
         abort_unless(static::canAccess() && $this->extraModules()->has($index), 403);
         $this->activeTab = 'extra';
         $this->activeExtraModule = $index;
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipSearch(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipHolderId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipBrandId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipWarehouseId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function clearOwnershipFilters(): void
+    {
+        abort_unless(static::canAccess() && StockByHolder::canAccess()
+            && $this->activeTab === 'extra'
+            && $this->extraModules()->get($this->activeExtraModule)['label'] === 'Stock Ownership', 403);
+        $this->reset('ownershipSearch', 'ownershipHolderId', 'ownershipBrandId', 'ownershipWarehouseId');
+        $this->resetPage('ownership-page');
     }
 
     public function setTab(string $tab): void

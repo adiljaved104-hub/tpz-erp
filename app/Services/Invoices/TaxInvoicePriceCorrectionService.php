@@ -4,32 +4,42 @@ namespace App\Services\Invoices;
 
 use App\Enums\InvoicePermission;
 use App\Models\TaxInvoice;
-use App\Models\TaxInvoicePriceCorrection;
+use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\InvoiceAuthorization;
-use App\Services\ReferenceSequenceService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class TaxInvoicePriceCorrectionService
 {
     public function __construct(
         private readonly InvoiceAuthorization $authorization,
-        private readonly InvoiceSettingsService $settings,
-        private readonly ReferenceSequenceService $references,
         private readonly ActivityLogger $activity,
     ) {}
 
     /**
-     * Issued rows are never edited: the original is voided and a newly
-     * numbered replacement is issued atomically, retaining item identities,
-     * quantities, document snapshots and the ORIGINAL invoice VAT rate.
+     * Invoices already issued to customers must never be voided and reissued
+     * merely to change a unit price. Request an adjustment review instead.
      *
-     * @param  array<string, mixed>  $data
+     * @param array<string, mixed> $data
      */
-    public function replace(TaxInvoice $invoice, array $data, User $actor): TaxInvoice
+    public function replace(TaxInvoice $invoice, array $data, User $actor): never
+    {
+        $this->authorization->authorize($actor, InvoicePermission::EditPrices, $invoice);
+        throw ValidationException::withMessages([
+            'reason' => 'Void-and-reissue price correction is disabled. Use Request VAT Adjustment Review.',
+        ]);
+    }
+
+    /**
+     * Create a non-posting, append-only proposal. This does NOT issue a tax
+     * credit note, an additional invoice, a ledger journal or a VAT return
+     * adjustment. Finance must review the correct documents and tax period.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function propose(TaxInvoice $invoice, array $data, User $actor): TaxInvoicePriceAdjustmentProposal
     {
         $this->authorization->authorize($actor, InvoicePermission::EditPrices, $invoice);
 
@@ -40,106 +50,101 @@ class TaxInvoicePriceCorrectionService
             'items.*.unit_price_including_vat' => ['required', 'numeric', 'decimal:0,2', 'gt:0'],
         ])->validate();
 
-        return DB::transaction(function () use ($invoice, $validated, $actor): TaxInvoice {
+        return DB::transaction(function () use ($invoice, $validated, $actor): TaxInvoicePriceAdjustmentProposal {
             $locked = TaxInvoice::query()->lockForUpdate()->findOrFail($invoice->getKey());
             $this->authorization->authorize($actor, InvoicePermission::EditPrices, $locked);
 
-            if ($locked->status !== 'issued'
-                || TaxInvoicePriceCorrection::query()->where('original_invoice_id', $locked->id)->exists()) {
-                throw ValidationException::withMessages(['reason' => 'This Invoice has already been voided or replaced.']);
+            if ($locked->status !== 'issued') {
+                throw ValidationException::withMessages(['reason' => 'Only issued invoices may be reviewed for a VAT price adjustment.']);
+            }
+            if (TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $locked->id)
+                ->where('status', 'pending_review')->exists()) {
+                throw ValidationException::withMessages(['reason' => 'This invoice already has a pending adjustment review.']);
             }
 
-            $oldItems = $locked->items()->get();
+            $lines = $locked->items()->get();
             $prices = [];
             foreach ($validated['items'] as $line) {
                 $id = (int) $line['id'];
-                if (array_key_exists($id, $prices)) {
-                    throw ValidationException::withMessages(['items' => 'Duplicate Invoice line supplied.']);
+                if (isset($prices[$id])) {
+                    throw ValidationException::withMessages(['items' => 'Duplicate invoice item.']);
                 }
                 $prices[$id] = bcadd((string) $line['unit_price_including_vat'], '0', 2);
             }
-            if (count($prices) !== $oldItems->count()
-                || $oldItems->pluck('id')->diff(array_keys($prices))->isNotEmpty()) {
-                throw ValidationException::withMessages(['items' => 'Invoice lines have changed. Reload and try again.']);
+            if (count($prices) !== $lines->count()
+                || $lines->pluck('id')->diff(array_keys($prices))->isNotEmpty()) {
+                throw ValidationException::withMessages(['items' => 'Invoice lines do not match the issued document.']);
             }
 
-            $changed = false;
-            $gross = '0.00';
+            $original = [];
+            $proposed = [];
+            $documents = [
+                'additional_tax_invoice' => ['gross' => '0.00', 'net' => '0.00', 'vat' => '0.00', 'lines' => []],
+                'tax_credit_note' => ['gross' => '0.00', 'net' => '0.00', 'vat' => '0.00', 'lines' => []],
+            ];
+            $newGross = '0.00';
             $divisor = bcadd('1', bcdiv((string) $locked->vat_rate, '100', 8), 8);
-            $preparedLines = [];
-
-            foreach ($oldItems as $oldItem) {
-                $newPrice = $prices[$oldItem->id];
-                $changed = $changed || bccomp((string) $oldItem->unit_price_including_vat, $newPrice, 2) !== 0;
-                $lineGross = bcmul((string) $oldItem->quantity, $newPrice, 2);
-                $lineNet = bcadd(bcdiv($lineGross, $divisor, 4), '0.005', 2);
-                $gross = bcadd($gross, $lineGross, 2);
-                $preparedLines[] = [$oldItem, $newPrice, $lineGross, $lineNet];
+            $changed = false;
+            foreach ($lines as $line) {
+                $oldPrice = (string) $line->unit_price_including_vat;
+                $price = $prices[$line->id];
+                $oldGross = (string) $line->total_including_vat;
+                $newLineGross = bcmul((string) $line->quantity, $price, 2);
+                $newLineNet = bcadd(bcdiv($newLineGross, $divisor, 4), '0.005', 2);
+                $newLineVat = bcsub($newLineGross, $newLineNet, 2);
+                $oldNet = (string) $line->subtotal_excluding_vat;
+                $oldVat = (string) $line->vat_amount;
+                $deltaGross = bcsub($newLineGross, $oldGross, 2);
+                $deltaNet = bcsub($newLineNet, $oldNet, 2);
+                $deltaVat = bcsub($newLineVat, $oldVat, 2);
+                $newGross = bcadd($newGross, $newLineGross, 2);
+                $changed = $changed || bccomp($oldPrice, $price, 2) !== 0;
+                $original[] = ['item_id' => $line->id, 'description' => $line->description,
+                    'quantity' => (int) $line->quantity, 'unit_price_including_vat' => $oldPrice,
+                    'gross' => $oldGross, 'net' => $oldNet, 'vat' => $oldVat];
+                $proposed[] = ['item_id' => $line->id, 'description' => $line->description,
+                    'quantity' => (int) $line->quantity, 'unit_price_including_vat' => $price,
+                    'gross' => $newLineGross, 'net' => $newLineNet, 'vat' => $newLineVat];
+                if (bccomp($deltaGross, '0', 2) === 0) {
+                    continue;
+                }
+                $kind = bccomp($deltaGross, '0', 2) > 0 ? 'additional_tax_invoice' : 'tax_credit_note';
+                foreach (['gross' => $deltaGross, 'net' => $deltaNet, 'vat' => $deltaVat] as $field => $delta) {
+                    $amount = ltrim($delta, '-');
+                    $documents[$kind][$field] = bcadd($documents[$kind][$field], $amount, 2);
+                }
+                $documents[$kind]['lines'][] = [
+                    'item_id' => $line->id, 'description' => $line->description,
+                    'quantity' => (int) $line->quantity,
+                    'original_price' => $oldPrice, 'proposed_price' => $price,
+                    'difference_gross' => ltrim($deltaGross, '-'),
+                    'difference_net' => ltrim($deltaNet, '-'),
+                    'difference_vat' => ltrim($deltaVat, '-'),
+                ];
             }
             if (! $changed) {
-                throw ValidationException::withMessages(['items' => 'Change at least one unit price before submitting.']);
+                throw ValidationException::withMessages(['items' => 'At least one price must change.']);
             }
 
-            $net = bcadd(bcdiv($gross, $divisor, 4), '0.005', 2);
-            $vat = bcsub($gross, $net, 2);
-            $settings = $this->settings->settings();
-
-            $replacement = $locked->replicate();
-            $replacement->forceFill([
-                'invoice_number' => $this->references->nextTaxInvoiceNumber(
-                    $settings->invoice_prefix,
-                    (int) $settings->starting_number,
-                ),
-                'invoice_date' => now()->toDateString(),
-                'issued_at' => now(),
-                'created_by_user_id' => $actor->id,
-                'idempotency_key' => (string) Str::uuid(),
-                'verification_token' => bin2hex(random_bytes(32)),
-                'status' => 'issued',
-                'voided_at' => null,
-                'voided_by_user_id' => null,
-                'void_reason' => null,
-                'subtotal_excluding_vat' => $net,
-                'vat_amount' => $vat,
-                'grand_total' => $gross,
-            ]);
-            $replacement->save();
-
-            foreach ($preparedLines as [$oldItem, $newPrice, $lineGross, $lineNet]) {
-                $newItem = $oldItem->replicate();
-                $newItem->forceFill([
-                    'tax_invoice_id' => $replacement->id,
-                    'unit_price_including_vat' => $newPrice,
-                    'subtotal_excluding_vat' => $lineNet,
-                    'vat_amount' => bcsub($lineGross, $lineNet, 2),
-                    'total_including_vat' => $lineGross,
-                ]);
-                $newItem->save();
-            }
-
-            $locked->forceFill([
-                'status' => 'void',
-                'voided_at' => now(),
-                'voided_by_user_id' => $actor->id,
-                'void_reason' => 'Superseded by '.$replacement->invoice_number.': '.trim($validated['reason']),
-            ])->save();
-
-            TaxInvoicePriceCorrection::query()->create([
-                'original_invoice_id' => $locked->id,
-                'replacement_invoice_id' => $replacement->id,
-                'actor_user_id' => $actor->id,
+            $proposal = TaxInvoicePriceAdjustmentProposal::query()->create([
+                'tax_invoice_id' => $locked->id,
+                'requested_by_user_id' => $actor->id,
+                'status' => 'pending_review',
                 'reason' => trim($validated['reason']),
+                'original_line_snapshot' => $original,
+                'proposed_line_snapshot' => $proposed,
+                'adjustment_documents_preview' => $documents,
+                'old_gross' => $locked->grand_total,
+                'new_gross' => $newGross,
+                'gross_difference' => bcsub($newGross, (string) $locked->grand_total, 2),
             ]);
-
-            $this->activity->log('tax_invoice.price_replaced', $actor, $locked, [
-                'original_invoice_id' => $locked->id,
-                'replacement_invoice_id' => $replacement->id,
-                'replacement_reference' => $replacement->invoice_number,
-                'reason' => trim($validated['reason']),
+            $this->activity->log('tax_invoice.price_adjustment_review_requested', $actor, $locked, [
+                'invoice_id' => $locked->id,
+                'proposal_id' => $proposal->id,
                 'actor_id' => $actor->id,
             ]);
 
-            return $replacement->load('items');
+            return $proposal;
         }, 3);
     }
 }

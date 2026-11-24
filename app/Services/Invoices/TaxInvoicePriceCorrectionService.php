@@ -19,7 +19,7 @@ class TaxInvoicePriceCorrectionService
      * Invoices already issued to customers must never be voided and reissued
      * merely to change a unit price. Request an adjustment review instead.
      *
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function replace(TaxInvoice $invoice, array $data, User $actor): never
     {
@@ -34,7 +34,7 @@ class TaxInvoicePriceCorrectionService
      * credit note, an additional invoice, a ledger journal or a VAT return
      * adjustment. Finance must review the correct documents and tax period.
      *
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function propose(TaxInvoice $invoice, array $data, User $actor): TaxInvoicePriceAdjustmentProposal
     {

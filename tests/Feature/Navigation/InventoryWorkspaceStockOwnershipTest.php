@@ -5,6 +5,7 @@ namespace Tests\Feature\Navigation;
 use App\Enums\EmployeeRole;
 use App\Filament\Pages\InventoryWorkspace;
 use App\Models\Employee;
+use App\Models\InventoryAllocationBalance;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Warehouse;
@@ -31,13 +32,13 @@ class InventoryWorkspaceStockOwnershipTest extends TestCase
             'available_quantity' => 10,
             'reserved_quantity' => 0,
         ]);
-        app(InventoryAllocationService::class)->reconcile(
-            $inventory,
-            app(InventoryAllocationService::class)->employeeAccount($owner->id),
-            5,
-            $user,
-            'Workspace owner balance test',
-        );
+        $account = app(InventoryAllocationService::class)->employeeAccount($owner->id);
+        InventoryAllocationBalance::query()->create([
+            'account_id' => $account->id,
+            'product_inventory_id' => $inventory->id,
+            'allocated_quantity' => 5,
+            'reserved_quantity' => 0,
+        ]);
 
         $this->actingAs($user);
         Filament::setCurrentPanel(Filament::getPanel('admin'));

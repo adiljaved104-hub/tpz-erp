@@ -10,7 +10,7 @@ use App\Filament\Resources\TaxInvoices\Pages\ViewTaxInvoice;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\TaxInvoice;
-use App\Models\TaxInvoicePriceCorrection;
+use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\CompanyProfileService;
@@ -27,40 +27,55 @@ class TaxInvoicePriceCorrectionTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_owner_corrects_only_prices_with_original_vat_and_document_immutability(): void
+    public function test_owner_can_request_review_without_voiding_or_reissuing_the_original(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
         $this->profile($owner);
         $invoice = $this->invoice($owner);
         $original = $invoice->getRawOriginal();
-        $oldItems = $invoice->items()->get()->map->getRawOriginal()->all();
+        $items = $invoice->items()->get()->map->getRawOriginal()->all();
 
-        $corrected = app(TaxInvoicePriceCorrectionService::class)->replace($invoice, $this->change($invoice, '630.00'), $owner);
+        $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice, '630.00'), $owner);
 
-        $this->assertNotSame($invoice->id, $corrected->id);
-        $this->assertNotSame($invoice->invoice_number, $corrected->invoice_number);
-        $this->assertSame('void', $invoice->fresh()->status);
-        $this->assertSame('issued', $corrected->status);
-        $this->assertSame('630.00', $corrected->items->first()->unit_price_including_vat);
-        $this->assertSame('1260.00', $corrected->grand_total);
-        $this->assertSame('1200.00', $corrected->subtotal_excluding_vat);
-        $this->assertSame('60.00', $corrected->vat_amount);
-        $this->assertSame($invoice->vat_rate, $corrected->vat_rate);
-        $this->assertEqualsCanonicalizing($invoice->seller_snapshot, $corrected->seller_snapshot);
-        $this->assertSame($invoice->items()->first()->description, $corrected->items->first()->description);
-        $this->assertSame($invoice->items()->first()->quantity, $corrected->items->first()->quantity);
-        $this->assertSame($oldItems, $invoice->items()->get()->map->getRawOriginal()->all());
-        $this->assertSame($original['invoice_number'], $invoice->fresh()->invoice_number);
-        $this->assertSame($original['grand_total'], $invoice->fresh()->getRawOriginal('grand_total'));
-
-        $link = TaxInvoicePriceCorrection::query()->sole();
-        $this->assertSame($invoice->id, $link->original_invoice_id);
-        $this->assertSame($corrected->id, $link->replacement_invoice_id);
-        $this->assertSame($owner->id, $link->actor_user_id);
-        $this->assertSame('Price entered incorrectly.', $link->reason);
+        $this->assertSame('pending_review', $proposal->status);
+        $this->assertSame($invoice->id, $proposal->tax_invoice_id);
+        $this->assertSame('1050.00', $proposal->old_gross);
+        $this->assertSame('1260.00', $proposal->new_gross);
+        $this->assertSame('210.00', $proposal->gross_difference);
+        $this->assertSame('210.00', $proposal->adjustment_documents_preview['additional_tax_invoice']['gross']);
+        $this->assertSame('10.00', $proposal->adjustment_documents_preview['additional_tax_invoice']['vat']);
+        $this->assertEmpty($proposal->adjustment_documents_preview['tax_credit_note']['lines']);
+        $this->assertSame($original, $invoice->fresh()->getRawOriginal());
+        $this->assertSame($items, $invoice->items()->get()->map->getRawOriginal()->all());
+        $this->assertSame(1, TaxInvoice::query()->count());
     }
 
-    public function test_permission_and_invoice_scope_are_enforced(): void
+    public function test_decreased_price_creates_credit_note_preview_without_modifying_invoice(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+
+        $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice, '420.00'), $owner);
+
+        $this->assertSame('-210.00', $proposal->gross_difference);
+        $this->assertSame('210.00', $proposal->adjustment_documents_preview['tax_credit_note']['gross']);
+        $this->assertSame('10.00', $proposal->adjustment_documents_preview['tax_credit_note']['vat']);
+        $this->assertEmpty($proposal->adjustment_documents_preview['additional_tax_invoice']['lines']);
+        $this->assertSame('issued', $invoice->fresh()->status);
+    }
+
+    public function test_legacy_void_and_reissue_correction_is_disabled(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+
+        $this->expectException(ValidationException::class);
+        app(TaxInvoicePriceCorrectionService::class)->replace($invoice, $this->change($invoice), $owner);
+    }
+
+    public function test_independent_permission_and_invoice_scope_are_enforced(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
         $staff = $this->user(EmployeeRole::Staff);
@@ -71,8 +86,8 @@ class TaxInvoicePriceCorrectionTest extends TestCase
 
         $this->assertFalse(app(InvoiceAuthorization::class)->allows($staff, InvoicePermission::EditPrices, $mine));
         try {
-            app(TaxInvoicePriceCorrectionService::class)->replace($mine, $this->change($mine), $staff);
-            $this->fail('An employee without the independent grant replaced the Invoice.');
+            app(TaxInvoicePriceCorrectionService::class)->propose($mine, $this->change($mine), $staff);
+            $this->fail('Unprivileged staff submitted a price proposal.');
         } catch (AuthorizationException) {
             $this->assertTrue(true);
         }
@@ -80,27 +95,37 @@ class TaxInvoicePriceCorrectionTest extends TestCase
         $this->allow($staff, $owner);
         $this->assertTrue(app(InvoiceAuthorization::class)->allows($staff, InvoicePermission::EditPrices, $mine));
         $this->expectException(AuthorizationException::class);
-        app(TaxInvoicePriceCorrectionService::class)->replace($theirs, $this->change($theirs), $staff);
+        app(TaxInvoicePriceCorrectionService::class)->propose($theirs, $this->change($theirs), $staff);
     }
 
-    public function test_duplicate_or_noop_correction_is_rejected(): void
+    public function test_noop_and_second_pending_request_are_blocked(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
         $this->profile($owner);
         $invoice = $this->invoice($owner);
         try {
-            app(TaxInvoicePriceCorrectionService::class)->replace($invoice, $this->change($invoice, '525.00'), $owner);
-            $this->fail('No-op price correction was accepted.');
+            app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice, '525.00'), $owner);
+            $this->fail('No-op proposal accepted.');
         } catch (ValidationException) {
-            $this->assertSame('issued', $invoice->fresh()->status);
+            $this->assertSame(0, TaxInvoicePriceAdjustmentProposal::query()->count());
         }
 
-        app(TaxInvoicePriceCorrectionService::class)->replace($invoice, $this->change($invoice), $owner);
+        app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $owner);
         $this->expectException(ValidationException::class);
-        app(TaxInvoicePriceCorrectionService::class)->replace($invoice, $this->change($invoice), $owner);
+        app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $owner);
     }
 
-    public function test_browser_action_is_hidden_without_independent_permission(): void
+    public function test_proposal_is_append_only(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+        $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $owner);
+        $this->expectException(\LogicException::class);
+        $proposal->update(['reason' => 'Edited']);
+    }
+
+    public function test_browser_action_is_hidden_without_independent_permission_or_with_pending_request(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
         $staff = $this->user(EmployeeRole::Staff);
@@ -114,10 +139,10 @@ class TaxInvoicePriceCorrectionTest extends TestCase
         Livewire::actingAs($staff)->test(ViewTaxInvoice::class, ['record' => $invoice->id])
             ->assertActionVisible('correctPrices');
 
-        app(TaxInvoicePriceCorrectionService::class)->replace($invoice, $this->change($invoice), $staff);
+        app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $staff);
         Livewire::actingAs($staff)->test(ViewTaxInvoice::class, ['record' => $invoice->id])
             ->assertActionHidden('correctPrices')
-            ->assertActionVisible('priceCorrectionHistory');
+            ->assertActionVisible('priceAdjustmentRequests');
     }
 
     private function change(TaxInvoice $invoice, string $price = '630.00'): array

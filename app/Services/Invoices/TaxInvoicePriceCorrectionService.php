@@ -56,7 +56,7 @@ class TaxInvoicePriceCorrectionService
                 if (array_key_exists($id, $prices)) {
                     throw ValidationException::withMessages(['items' => 'Duplicate Invoice line supplied.']);
                 }
-                $prices[$id] = number_format((float) $line['unit_price_including_vat'], 2, '.', '');
+                $prices[$id] = bcadd((string) $line['unit_price_including_vat'], '0', 2);
             }
             if (count($prices) !== $oldItems->count()
                 || $oldItems->pluck('id')->diff(array_keys($prices))->isNotEmpty()) {

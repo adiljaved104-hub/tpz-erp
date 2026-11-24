@@ -290,6 +290,38 @@ class NativeWorkspacesTest extends TestCase
         $this->assertDatabaseCount('stock_movements', 0);
     }
 
+    public function test_workspace_tax_invoice_download_and_new_dispatches_fresh_form_reopen(): void
+    {
+        $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+        app(CompanyProfileService::class)->save([
+            'company_name_en' => 'Workspace Test Company', 'address_en' => 'Dubai, UAE',
+            'trn' => '100000000000001', 'phone' => '+9714000000',
+            'email' => 'accounts@example.test',
+        ], $owner);
+
+        Livewire::test(SalesWorkspace::class)
+            ->mountAction('createWorkspaceTaxInvoice')
+            ->set('mountedActions.0.data', [
+                'customer_name' => 'New invoice after download',
+                'customer_address' => 'Dubai',
+                'order_reference' => 'WORKSPACE-DOWNLOAD-NEW',
+                'invoice_date' => '2026-11-24',
+                'idempotency_key' => (string) Str::uuid(),
+                'title_mode' => 'auto',
+                'terms_profile' => 'auto',
+                'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '105.00']],
+            ])
+            ->callMountedAction(arguments: ['downloadAndNew' => true])
+            ->assertHasNoActionErrors()
+            ->assertDispatched('tpz-tax-invoice-reopen')
+            ->assertFileDownloaded();
+
+        $this->assertDatabaseCount('tax_invoices', 1);
+    }
+
     public function test_inventory_workspace_submits_and_lists_multi_product_stock_requests_without_moving_stock(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create(['name' => 'Workspace Requester'])->user;

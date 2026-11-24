@@ -96,7 +96,7 @@
 @endonce
 
 
-    <div class="tpz-workspace tpz-reference-sales">
+    <div class="tpz-workspace tpz-reference-sales" x-data="{}" x-on:tpz-tax-invoice-reopen.window="setTimeout(() => $wire.mountAction('createWorkspaceTaxInvoice'), 250)">
         <header class="tpz-workspace-header tpz-workspace-header--plain flex flex-wrap items-start justify-between gap-4">
             <div>
                 <nav class="tpz-native-breadcrumb" aria-label="Breadcrumb"><span>Sales</span><span aria-hidden="true">/</span><span aria-current="page">Sales Workspace</span></nav>

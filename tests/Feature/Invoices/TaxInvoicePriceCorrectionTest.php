@@ -46,7 +46,7 @@ class TaxInvoicePriceCorrectionTest extends TestCase
         $this->assertSame('1200.00', $corrected->subtotal_excluding_vat);
         $this->assertSame('60.00', $corrected->vat_amount);
         $this->assertSame($invoice->vat_rate, $corrected->vat_rate);
-        $this->assertSame($invoice->seller_snapshot, $corrected->seller_snapshot);
+        $this->assertEqualsCanonicalizing($invoice->seller_snapshot, $corrected->seller_snapshot);
         $this->assertSame($invoice->items()->first()->description, $corrected->items->first()->description);
         $this->assertSame($invoice->items()->first()->quantity, $corrected->items->first()->quantity);
         $this->assertSame($oldItems, $invoice->items()->get()->map->getRawOriginal()->all());

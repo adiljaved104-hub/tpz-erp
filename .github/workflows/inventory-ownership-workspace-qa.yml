@@ -66,4 +66,4 @@ jobs:
           git diff -- app/Filament/Pages/InventoryWorkspace.php
       - run: php artisan migrate --force --no-ansi
       - run: php artisan view:cache --no-ansi
-      - run: php artisan test --no-ansi tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Inventory/EmployeeOwnedInventoryTest.php
+      - run: php artisan test --no-ansi tests/Feature/Navigation/InventoryWorkspaceStockOwnershipTest.php tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Inventory/EmployeeOwnedInventoryTest.php

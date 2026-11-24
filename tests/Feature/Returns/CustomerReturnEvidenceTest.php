@@ -569,10 +569,15 @@ class CustomerReturnEvidenceTest extends TestCase
     {
         [$owner, $return] = $this->receivedReturn();
         $item = $return->items()->firstOrFail();
+        $return->order->update(['external_order_number' => 'AMZ-RETURN-EVIDENCE-22']);
+        $movements = StockMovement::query()->count();
         $this->withToken($owner->createToken('Return dashboard')->plainTextToken);
         $this->getJson('/api/mobile/v1/workspace/qc/return-evidence/dashboard')
             ->assertOk()->assertJsonPath('returns_waiting_for_evidence', 1)
             ->assertJsonPath('evidence_uploaded', 0)
+            ->assertJsonPath('all_authorized_returns', 1)
+            ->assertJsonPath('results.data.0.return_id', $return->id)
+            ->assertJsonPath('results.data.0.marketplace_order_id', 'AMZ-RETURN-EVIDENCE-22')
             ->assertJsonPath('pending.data.0.item_id', $item->id)
             ->assertJsonPath('pending.data.0.qc_result', null);
 
@@ -586,11 +591,21 @@ class CustomerReturnEvidenceTest extends TestCase
         ])->assertOk();
         $this->getJson('/api/mobile/v1/workspace/qc/return-evidence/dashboard')
             ->assertOk()->assertJsonPath('returns_waiting_for_evidence', 0)
-            ->assertJsonPath('evidence_uploaded', 1);
+            ->assertJsonPath('evidence_uploaded', 1)
+            ->assertJsonCount(0, 'results.data');
+        $this->getJson('/api/mobile/v1/workspace/qc/return-evidence/dashboard?scope=uploaded')
+            ->assertOk()->assertJsonPath('returns_with_uploaded_evidence', 1)
+            ->assertJsonPath('results.data.0.return_id', $return->id)
+            ->assertJsonPath('results.data.0.items_with_evidence', 1);
+        $this->getJson('/api/mobile/v1/workspace/qc/return-evidence/dashboard?scope=all&q=AMZ-RETURN-EVIDENCE-22')
+            ->assertOk()->assertJsonPath('results.data.0.return_reference', $return->reference);
+        $this->assertDatabaseCount('customer_return_evidence', 2);
+        $this->assertSame($movements, StockMovement::query()->count(), 'Evidence uploads must not post stock.');
 
         app(CustomerReturnService::class)->inspect($item, new InspectCustomerReturnItemData(1, 0, (string) Str::uuid()), $owner);
         $this->getJson('/api/mobile/v1/workspace/qc/return-evidence/'.$return->id)
             ->assertOk()->assertJsonPath('data.items.0.qc_result', 'sellable')
+            ->assertJsonPath('data.marketplace_order_id', 'AMZ-RETURN-EVIDENCE-22')
             ->assertJsonPath('data.video_upload.max_bytes', 204800 * 1024)
             ->assertJsonPath('data.video_upload.max_duration_seconds', 300)
             ->assertJsonPath('data.video_upload.chunk_bytes', CustomerReturnVideoUploadService::CHUNK_BYTES)

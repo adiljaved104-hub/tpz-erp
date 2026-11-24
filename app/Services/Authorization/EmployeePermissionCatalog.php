@@ -149,6 +149,7 @@ class EmployeePermissionCatalog
                 $this->item(InvoicePermission::ViewAll, 'View All Invoices', true),
                 $this->item(InvoicePermission::Create, 'Create Tax Invoices'),
                 $this->item(InvoicePermission::EditCustomerDetails, 'Edit Invoice Customer Details'),
+                $this->item(InvoicePermission::EditPrices, 'Correct Tax Invoice Prices (Void & Reissue)', true, true),
                 $this->item(InvoicePermission::Void, 'Void Tax Invoices', true),
                 $this->item(InvoicePermission::DownloadPdf, 'Download Invoice PDF'),
                 $this->item(InvoicePermission::Export, 'Export Invoices'),

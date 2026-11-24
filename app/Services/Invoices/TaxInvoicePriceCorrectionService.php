@@ -27,7 +27,7 @@ class TaxInvoicePriceCorrectionService
      * numbered replacement is issued atomically, retaining item identities,
      * quantities, document snapshots and the ORIGINAL invoice VAT rate.
      *
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     public function replace(TaxInvoice $invoice, array $data, User $actor): TaxInvoice
     {

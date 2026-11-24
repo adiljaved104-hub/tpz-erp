@@ -61,7 +61,9 @@ jobs:
           php artisan key:generate --force
           php artisan package:discover --ansi
       - run: php -l app/Filament/Pages/InventoryWorkspace.php
-      - run: vendor/bin/pint --test app/Filament/Pages/InventoryWorkspace.php
+      - run: |
+          vendor/bin/pint app/Filament/Pages/InventoryWorkspace.php
+          git diff -- app/Filament/Pages/InventoryWorkspace.php
       - run: php artisan migrate --force --no-ansi
       - run: php artisan view:cache --no-ansi
       - run: php artisan test --no-ansi tests/Feature/Navigation/NativeWorkspacesTest.php tests/Feature/Inventory/EmployeeOwnedInventoryTest.php

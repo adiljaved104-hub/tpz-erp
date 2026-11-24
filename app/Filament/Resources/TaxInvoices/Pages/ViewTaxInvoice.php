@@ -4,6 +4,7 @@ namespace App\Filament\Resources\TaxInvoices\Pages;
 
 use App\Enums\InvoicePermission;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
+use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\TaxInvoicePriceCorrection;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
@@ -41,15 +42,16 @@ class ViewTaxInvoice extends ViewRecord
                 ->url(TaxInvoiceResource::getUrl('index')),
             TaxInvoiceResource::editCustomerDetailsAction(),
             Action::make('correctPrices')
-                ->label('Correct Prices')
+                ->label('Request Price Adjustment')
                 ->icon('heroicon-o-pencil-square')
                 ->color('warning')
-                ->modalHeading('Correct Invoice Prices — Void & Reissue')
-                ->modalDescription('The original issued Invoice and its line prices are preserved. A new Invoice number is generated with corrected prices, and this original is voided. Quantities, product names and the original VAT rate are unchanged.')
+                ->modalHeading('Request VAT Price Adjustment Review')
+                ->modalDescription('Submit changed VAT-inclusive prices for finance review. The original issued Invoice remains valid and unchanged. No credit note, additional tax invoice, payment, journal or VAT adjustment is issued at this stage.')
                 ->modalWidth('4xl')
                 ->visible(fn (): bool => $this->record->status === 'issued'
                     && ($user = auth()->user()) instanceof User
-                    && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::EditPrices, $this->record))
+                    && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::EditPrices, $this->record)
+                    && ! TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)->where('status', 'pending_review')->exists())
                 ->fillForm(fn (): array => [
                     'items' => $this->record->items()->get()->map(fn ($item): array => [
                         'id' => $item->id,
@@ -75,16 +77,29 @@ class ViewTaxInvoice extends ViewRecord
                     Textarea::make('reason')->label('Reason for Price Correction')
                         ->required()->maxLength(2000),
                 ])
-                ->modalSubmitActionLabel('Void Original & Issue Replacement')
+                ->modalSubmitActionLabel('Submit for Finance Review')
                 ->requiresConfirmation()
                 ->action(function (array $data): void {
                     $user = auth()->user();
                     abort_unless($user instanceof User, 403);
-                    $replacement = app(TaxInvoicePriceCorrectionService::class)->replace($this->record, $data, $user);
-                    Notification::make()->success()->title('Replacement Tax Invoice issued')
-                        ->body('Original Invoice voided. New Invoice: '.$replacement->invoice_number)->send();
-                    $this->redirect(TaxInvoiceResource::getUrl('view', ['record' => $replacement]));
+                    $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($this->record, $data, $user);
+                    Notification::make()->success()->title('Finance review requested')
+                        ->body('Request #'.$proposal->id.' saved. Issued Invoice remains unchanged; no VAT adjustment has been posted.')->send();
                 }),
+            Action::make('priceAdjustmentRequests')
+                ->label('Price Adjustment Requests')
+                ->icon('heroicon-o-document-text')
+                ->color('gray')
+                ->slideOver()
+                ->modalHeading('VAT Adjustment Review Requests')
+                ->modalSubmitAction(false)
+                ->modalCancelActionLabel('Close')
+                ->visible(fn (): bool => TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)->exists())
+                ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.price-adjustment-proposals', [
+                    'proposals' => TaxInvoicePriceAdjustmentProposal::query()
+                        ->with('requestedBy')
+                        ->where('tax_invoice_id', $this->record->id)->latest()->get(),
+                ])),
             Action::make('priceCorrectionHistory')
                 ->label('Price Correction History')
                 ->icon('heroicon-o-clock')

@@ -431,6 +431,8 @@
                     </table>
                 </div>
             </x-filament::section>
+        @elseif($activeTab === 'extra' && $showOwnership)
+            @include('filament.pages.partials.workspace-stock-ownership')
         @elseif($activeTab === 'extra')
             @include('filament.pages.partials.workspace-extra-preview')
         @endif

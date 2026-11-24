@@ -4,6 +4,7 @@ namespace App\Filament\Resources\TaxInvoices\Pages;
 
 use App\Enums\InvoicePermission;
 use App\Models\TaxInvoicePriceCorrection;
+use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Invoices\TaxInvoicePriceCorrectionService;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
@@ -47,7 +48,7 @@ class ViewTaxInvoice extends ViewRecord
                 ->modalDescription('The original issued Invoice and its line prices are preserved. A new Invoice number is generated with corrected prices, and this original is voided. Quantities, product names and the original VAT rate are unchanged.')
                 ->modalWidth('4xl')
                 ->visible(fn (): bool => $this->record->status === 'issued'
-                    && ($user = auth()->user()) instanceof \App\Models\User
+                    && ($user = auth()->user()) instanceof User
                     && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::EditPrices, $this->record))
                 ->fillForm(fn (): array => [
                     'items' => $this->record->items()->get()->map(fn ($item): array => [
@@ -78,7 +79,7 @@ class ViewTaxInvoice extends ViewRecord
                 ->requiresConfirmation()
                 ->action(function (array $data): void {
                     $user = auth()->user();
-                    abort_unless($user instanceof \App\Models\User, 403);
+                    abort_unless($user instanceof User, 403);
                     $replacement = app(TaxInvoicePriceCorrectionService::class)->replace($this->record, $data, $user);
                     Notification::make()->success()->title('Replacement Tax Invoice issued')
                         ->body('Original Invoice voided. New Invoice: '.$replacement->invoice_number)->send();

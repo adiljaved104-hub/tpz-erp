@@ -57,8 +57,10 @@ class TaxInvoicePriceCorrectionService
             if ($locked->status !== 'issued') {
                 throw ValidationException::withMessages(['reason' => 'Only issued invoices may be reviewed for a VAT price adjustment.']);
             }
-            if (TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $locked->id)
-                ->where('status', 'pending_review')->exists()) {
+            $hasPendingProposal = TaxInvoicePriceAdjustmentProposal::query()
+                ->where('tax_invoice_id', $locked->id)
+                ->where('status', 'pending_review')->exists();
+            if ($hasPendingProposal) {
                 throw ValidationException::withMessages(['reason' => 'This invoice already has a pending adjustment review.']);
             }
 
@@ -71,8 +73,8 @@ class TaxInvoicePriceCorrectionService
                 }
                 $prices[$id] = bcadd((string) $line['unit_price_including_vat'], '0', 2);
             }
-            if (count($prices) !== $lines->count()
-                || $lines->pluck('id')->diff(array_keys($prices))->isNotEmpty()) {
+            $itemIdsMismatch = $lines->pluck('id')->diff(array_keys($prices))->isNotEmpty();
+            if (count($prices) !== $lines->count() || $itemIdsMismatch) {
                 throw ValidationException::withMessages(['items' => 'Invoice lines do not match the issued document.']);
             }
 

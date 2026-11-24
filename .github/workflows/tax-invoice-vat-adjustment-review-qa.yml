@@ -71,7 +71,9 @@ jobs:
           php -l database/migrations/2026_11_24_170000_create_tax_invoice_price_adjustment_proposals.php
       - name: Formatting
         run: |
-          vendor/bin/pint --test app/Enums/InvoicePermission.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php app/Services/Invoices/TaxInvoicePriceCorrectionService.php app/Models/TaxInvoicePriceAdjustmentProposal.php app/Filament/Resources/TaxInvoices/Pages/ViewTaxInvoice.php tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php database/migrations/2026_11_24_170000_create_tax_invoice_price_adjustment_proposals.php
+          vendor/bin/pint app/Enums/InvoicePermission.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php app/Services/Invoices/TaxInvoicePriceCorrectionService.php app/Models/TaxInvoicePriceAdjustmentProposal.php app/Filament/Resources/TaxInvoices/Pages/ViewTaxInvoice.php tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php database/migrations/2026_11_24_170000_create_tax_invoice_price_adjustment_proposals.php
+          git diff -- app/Services/Invoices/TaxInvoicePriceCorrectionService.php
+          git diff --exit-code
       - name: Migrate isolated MySQL
         run: php artisan migrate --force --no-ansi
       - name: Blade compile

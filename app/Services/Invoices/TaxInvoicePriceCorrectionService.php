@@ -13,10 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 class TaxInvoicePriceCorrectionService
 {
-    public function __construct(
-        private readonly InvoiceAuthorization $authorization,
-        private readonly ActivityLogger $activity,
-    ) {}
+    public function __construct(private readonly InvoiceAuthorization $authorization, private readonly ActivityLogger $activity) {}
 
     /**
      * Invoices already issued to customers must never be voided and reissued

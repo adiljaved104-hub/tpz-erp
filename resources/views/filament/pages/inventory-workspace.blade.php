@@ -431,6 +431,86 @@
                     </table>
                 </div>
             </x-filament::section>
+        @elseif($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]) && $extraModules[$activeExtraModule]['label'] === 'Stock Ownership' && \App\Filament\Pages\Inventory\StockByHolder::canAccess())
+            <div class="space-y-4" data-testid="workspace-stock-ownership">
+                <x-filament::section>
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-gray-950 dark:text-white">Stock Ownership</h2>
+                            <p class="mt-1 text-xs text-gray-500">Live allocation-ledger balances by employee, team and unassigned/system account. Responsibility alone does not establish ownership.</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            @if(\App\Filament\Pages\Administration\InventoryAllocations::canAccess())
+                                <x-filament::button tag="a" color="gray" size="sm" :href="\App\Filament\Pages\Administration\InventoryAllocations::getUrl()">Allocation Management</x-filament::button>
+                            @endif
+                            <x-filament::button tag="a" color="gray" size="sm" :href="$extraModules[$activeExtraModule]['url']">Open full module</x-filament::button>
+                        </div>
+                    </div>
+                    <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                        @foreach(['Total Held' => 'total_held', 'Available' => 'available', 'Reserved' => 'reserved', 'Models' => 'models', 'Unassigned / System' => 'unassigned'] as $label => $key)
+                            <div class="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/10 dark:bg-white/5">
+                                <p class="text-xs font-medium text-gray-500">{{ $label }}</p>
+                                <p class="mt-1 text-2xl font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($ownershipMetrics[$key] ?? 0) }}</p>
+                            </div>
+                        @endforeach
+                    </div>
+                </x-filament::section>
+                <x-filament::section heading="Stock by Holder" description="Select an employee, team or system account to view its individual allocations.">
+                    <div class="overflow-x-auto">
+                        <table class="tpz-workspace-table min-w-[42rem]">
+                            <thead><tr><th>Holder</th><th class="text-right">Total Held</th><th class="text-right">Available</th><th class="text-right">Reserved</th><th class="text-right">Models</th></tr></thead>
+                            <tbody>
+                                @forelse($ownershipSummaries as $holder)
+                                    <tr wire:key="workspace-owner-summary-{{ $holder->account_id }}">
+                                        <td><button type="button" class="font-semibold text-primary-600 hover:underline dark:text-primary-400" wire:click="chooseOwnershipHolder({{ (int) $holder->account_id }})">{{ app(\App\Filament\Pages\Inventory\StockByHolder::class)->holderLabel($holder) }}</button></td>
+                                        <td class="text-right tabular-nums">{{ number_format($holder->total_held) }}</td>
+                                        <td class="text-right tabular-nums">{{ number_format($holder->total_held - $holder->reserved_quantity) }}</td>
+                                        <td class="text-right tabular-nums">{{ number_format($holder->reserved_quantity) }}</td>
+                                        <td class="text-right tabular-nums">{{ number_format($holder->model_count) }}</td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="5" class="py-6 text-center text-gray-500">No allocated stock matches these filters.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </x-filament::section>
+                <x-filament::section heading="Allocation Details" description="Available = Total Held minus Reserved. Filters apply to summaries and detailed balances.">
+                    <div class="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                        <label class="text-sm"><span class="mb-1 block text-xs font-medium">Holder</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="ownershipHolderId"><option value="">All holders</option>@foreach($ownershipHolderOptions as $id => $label)<option value="{{ $id }}">{{ $label }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                        <label class="text-sm"><span class="mb-1 block text-xs font-medium">Product / Model</span><x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.350ms="ownershipSearch" placeholder="SKU or product name" /></x-filament::input.wrapper></label>
+                        <label class="text-sm"><span class="mb-1 block text-xs font-medium">Brand</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="ownershipBrandId"><option value="">All brands</option>@foreach($ownershipBrandOptions as $id => $label)<option value="{{ $id }}">{{ $label }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                        <label class="text-sm"><span class="mb-1 block text-xs font-medium">Category</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="ownershipCategoryId"><option value="">All categories</option>@foreach($ownershipCategoryOptions as $id => $label)<option value="{{ $id }}">{{ $label }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                        <label class="text-sm"><span class="mb-1 block text-xs font-medium">Warehouse</span><x-filament::input.wrapper><x-filament::input.select wire:model.live="ownershipWarehouseId"><option value="">All warehouses</option>@foreach($ownershipWarehouseOptions as $id => $label)<option value="{{ $id }}">{{ $label }}</option>@endforeach</x-filament::input.select></x-filament::input.wrapper></label>
+                        <label class="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" wire:model.live="ownershipUnassignedOnly" class="rounded border-gray-300" />Unassigned only</label>
+                    </div>
+                    <div class="mt-3 flex justify-end"><x-filament::button size="sm" color="gray" wire:click="resetOwnershipFilters">Clear filters</x-filament::button></div>
+                    <div class="mt-4 overflow-x-auto">
+                        <table class="tpz-workspace-table min-w-[68rem]">
+                            <thead><tr><th>Holder</th><th>SKU</th><th>Product / Model</th><th>Brand</th><th>Category</th><th>Warehouse</th><th class="text-right">Available</th><th class="text-right">Reserved</th><th class="text-right">Total Held</th></tr></thead>
+                            <tbody>
+                                @forelse($ownershipRows as $balance)
+                                    @php($product = $balance->inventory?->product)
+                                    <tr wire:key="workspace-ownership-balance-{{ $balance->id }}">
+                                        <td>{{ app(\App\Filament\Pages\Inventory\StockByHolder::class)->holderLabel($balance->account) }}</td>
+                                        <td class="font-medium">{{ $product?->sku ?? '—' }}</td>
+                                        <td class="max-w-72 whitespace-normal">{{ $product?->name ?? 'Product unavailable' }}@if($product?->model)<span class="block text-xs text-gray-500">{{ $product->model }}</span>@endif</td>
+                                        <td>{{ $product?->brandRelation?->name ?? $product?->brand ?? '—' }}</td>
+                                        <td>{{ $product?->categoryRelation?->name ?? $product?->category ?? '—' }}</td>
+                                        <td>{{ $balance->inventory?->warehouse?->name ?? '—' }}</td>
+                                        <td class="text-right tabular-nums">{{ number_format($balance->availableQuantity()) }}</td>
+                                        <td class="text-right tabular-nums">{{ number_format($balance->reserved_quantity) }}</td>
+                                        <td class="text-right tabular-nums font-semibold">{{ number_format($balance->allocated_quantity) }}</td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="9" class="py-6 text-center text-gray-500">No allocation balances match these filters.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-4">{{ $ownershipRows->links() }}</div>
+                </x-filament::section>
+            </div>
         @elseif($activeTab === 'extra')
             @include('filament.pages.partials.workspace-extra-preview')
         @endif

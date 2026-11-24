@@ -858,7 +858,7 @@ class InventoryWorkspace extends Page
     {
         abort_unless(static::canAccess() && StockByHolder::canAccess()
             && $this->activeTab === 'extra'
-            && $this->extraModules()->get($this->activeExtraModule)['label'] === 'Stock Ownership', 403);
+            && data_get($this->extraModules()->get($this->activeExtraModule), 'label') === 'Stock Ownership', 403);
         $this->reset('ownershipSearch', 'ownershipHolderId', 'ownershipBrandId', 'ownershipWarehouseId');
         $this->resetPage('ownership-page');
     }

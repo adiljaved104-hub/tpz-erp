@@ -122,7 +122,7 @@ class TaxInvoicePriceCorrectionService
                     'difference_vat' => ltrim($deltaVat, '-'),
                 ];
             }
-            if (! $changed) {
+            if ($changed === false) {
                 throw ValidationException::withMessages(['items' => 'At least one price must change.']);
             }
 

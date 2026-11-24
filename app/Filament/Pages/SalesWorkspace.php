@@ -201,7 +201,10 @@ class SalesWorkspace extends Page
                         ->body("{$invoice->invoice_number} saved. Opening a new Invoice form.")->send();
                     // Re-mounting creates a fresh form and idempotency key; no second
                     // invoice is posted until the employee submits the next form.
-                    $this->replaceMountedAction('createWorkspaceTaxInvoice');
+                    // Filament may close the mounted action while Livewire handles the
+                    // streamed PDF response. The workspace listens for this event and
+                    // explicitly opens a fresh, blank creation modal afterwards.
+                    $this->dispatch('tpz-tax-invoice-reopen');
 
                     return response()->streamDownload(
                         static function () use ($pdfContent): void {

@@ -736,6 +736,18 @@ class NativeWorkspacesTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_sales_order_modal_save_preserves_the_current_workspace_tab(): void
+    {
+        $source = file_get_contents(app_path('Filament/Pages/SalesWorkspace.php'));
+        $this->assertIsString($source);
+
+        $orderAction = explode("Action::make('createSalesOrder')", $source, 2)[1] ?? '';
+        $this->assertNotSame('', $orderAction);
+        $this->assertStringContainsString("if (\$this->activeTab === 'orders')", $orderAction);
+        $this->assertStringNotContainsString("\$this->activeTab = 'orders';", $orderAction);
+        $this->assertStringContainsString("'shipped' => 'Sales Order created and shipped'", $orderAction);
+    }
+
     public function test_sales_workspace_create_order_uses_native_modal_without_navigation(): void
     {
         $owner = Employee::factory()->role(EmployeeRole::Owner)->create()->user;

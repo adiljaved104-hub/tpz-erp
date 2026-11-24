@@ -16,6 +16,12 @@ class InvoiceAuthorization
 
     public function roleDefault(User $user, InvoicePermission $permission): bool
     {
+        // Price corrections are sensitive: only the Owner receives this by default.
+        // All other roles, including Admin, require an explicit employee grant.
+        if ($permission === InvoicePermission::EditPrices) {
+            return $user->employee?->role === EmployeeRole::Owner;
+        }
+
         return match ($user->employee?->role) {
             EmployeeRole::Owner, EmployeeRole::Admin => true,
             EmployeeRole::Staff => in_array($permission, [InvoicePermission::View, InvoicePermission::Create, InvoicePermission::DownloadPdf], true),

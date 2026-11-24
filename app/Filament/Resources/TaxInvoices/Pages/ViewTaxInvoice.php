@@ -5,7 +5,6 @@ namespace App\Filament\Resources\TaxInvoices\Pages;
 use App\Enums\InvoicePermission;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Models\TaxInvoicePriceAdjustmentProposal;
-use App\Models\TaxInvoicePriceCorrection;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Invoices\TaxInvoicePriceCorrectionService;
@@ -100,24 +99,6 @@ class ViewTaxInvoice extends ViewRecord
                         ->with('requestedBy')
                         ->where('tax_invoice_id', $this->record->id)->latest()->get(),
                 ])),
-            Action::make('priceCorrectionHistory')
-                ->label('Price Correction History')
-                ->icon('heroicon-o-clock')
-                ->color('gray')
-                ->slideOver()
-                ->modalSubmitAction(false)
-                ->modalCancelActionLabel('Close')
-                ->visible(fn (): bool => TaxInvoicePriceCorrection::query()
-                    ->where('original_invoice_id', $this->record->id)
-                    ->orWhere('replacement_invoice_id', $this->record->id)->exists())
-                ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.price-correction-history', [
-                    'corrections' => TaxInvoicePriceCorrection::query()
-                        ->with(['originalInvoice.items', 'replacementInvoice.items', 'actor'])
-                        ->where('original_invoice_id', $this->record->id)
-                        ->orWhere('replacement_invoice_id', $this->record->id)
-                        ->get(),
-                ])),
-
             Action::make('viewAmendmentHistory')
                 ->label('View Amendment History')
                 ->icon('heroicon-o-clock')

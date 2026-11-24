@@ -19,6 +19,7 @@ use App\Services\Invoices\TaxInvoiceService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -32,7 +33,7 @@ class TaxInvoicePriceCorrectionTest extends TestCase
         $owner = $this->user(EmployeeRole::Owner);
         $this->profile($owner);
         $invoice = $this->invoice($owner);
-        $original = $invoice->getRawOriginal();
+        $original = (array) DB::table('tax_invoices')->where('id', $invoice->id)->first();
         $items = $invoice->items()->get()->map->getRawOriginal()->all();
 
         $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice, '630.00'), $owner);
@@ -45,7 +46,7 @@ class TaxInvoicePriceCorrectionTest extends TestCase
         $this->assertSame('210.00', $proposal->adjustment_documents_preview['additional_tax_invoice']['gross']);
         $this->assertSame('10.00', $proposal->adjustment_documents_preview['additional_tax_invoice']['vat']);
         $this->assertEmpty($proposal->adjustment_documents_preview['tax_credit_note']['lines']);
-        $this->assertSame($original, $invoice->fresh()->getRawOriginal());
+        $this->assertSame($original, (array) DB::table('tax_invoices')->where('id', $invoice->id)->first());
         $this->assertSame($items, $invoice->items()->get()->map->getRawOriginal()->all());
         $this->assertSame(1, TaxInvoice::query()->count());
     }

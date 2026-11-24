@@ -17,10 +17,12 @@ use App\Filament\Resources\StockMovements\StockMovementResource;
 use App\Filament\Resources\StockRequests\Schemas\StockRequestForm;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
+use App\Models\ProductBrand;
 use App\Models\StockRequest;
 use App\Models\StockRequestExecution;
 use App\Models\StockRequestSourceLine;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
@@ -361,8 +363,8 @@ class InventoryWorkspace extends Page
             'showOwnership' => $showOwnership,
             'ownershipBalances' => $ownershipBalances,
             'ownershipHolders' => $ownershipHolders,
-            'ownershipBrands' => $showOwnership ? \App\Models\ProductBrand::query()->orderBy('name')->pluck('name', 'id') : collect(),
-            'ownershipWarehouses' => $showOwnership ? \App\Models\Warehouse::query()->orderBy('name')->pluck('name', 'id') : collect(),
+            'ownershipBrands' => $showOwnership ? ProductBrand::query()->orderBy('name')->pluck('name', 'id') : collect(),
+            'ownershipWarehouses' => $showOwnership ? Warehouse::query()->orderBy('name')->pluck('name', 'id') : collect(),
             'allocatedRows' => $allocatedRows,
             'locationRows' => $locationRows,
             'inventoryCards' => $inventoryCards,

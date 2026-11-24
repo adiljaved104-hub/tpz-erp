@@ -334,8 +334,12 @@ class SalesWorkspace extends Page
                         default => app(SaveAndReserveOrder::class)->handle($dto, $user),
                     };
 
-                    $this->activeTab = 'orders';
-                    $this->resetPage('sales-page');
+                    // Stay in the current Sales Workspace section after saving.
+                    // Do not force employees into the complete Sales Orders list.
+                    // Refresh the orders pagination only when already viewing that tab.
+                    if ($this->activeTab === 'orders') {
+                        $this->resetPage('sales-page');
+                    }
                     Notification::make()->success()->title(match ($mode) {
                         'draft' => 'Sales Order draft saved',
                         'shipped' => 'Sales Order created and shipped',

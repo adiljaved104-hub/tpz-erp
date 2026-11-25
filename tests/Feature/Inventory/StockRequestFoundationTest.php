@@ -158,7 +158,6 @@ class StockRequestFoundationTest extends TestCase
         $requester = $f['employee']->user;
         $this->allocateToEmployee($f['inventory'], $f['employee']->id, 2, $f['owner']);
         $request = $this->createRequest($requester, StockRequestPurpose::PermanentTransfer, [new StockRequestItemData($f['inventory']->id, 1)]);
-        ResponsibilityAssignment::query()->where('employee_id', $f['employee']->id)->update(['status' => 'inactive', 'ended_at' => now()]);
         $admin = $this->responsibilityUser(EmployeeRole::Admin);
         $scoped = $this->responsibilityUser(EmployeeRole::Manager);
         $unrelated = $this->responsibilityUser(EmployeeRole::Staff);

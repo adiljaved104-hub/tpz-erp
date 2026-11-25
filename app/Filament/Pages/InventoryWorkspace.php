@@ -574,7 +574,7 @@ class InventoryWorkspace extends Page
             $reservationQuery->whereHas('allocationLines.account', fn ($account) => $account
                 ->where('type', 'employee')->where('employee_id', $user->employee?->id ?? 0));
         }
-        $activeReservations = $reservationQuery->orderByDesc('id')->limit(5)->get();
+        $activeReservations = $reservationQuery->with('orderItem.order')->orderByDesc('id')->limit(5)->get();
         $reservationRows = $activeReservations->map(function (InventoryReservation $reservation) use ($user): array {
             $ownLines = $reservation->allocationLines()->whereHas('account', fn ($account) => $account
                 ->where('type', 'employee')->where('employee_id', $user->employee?->id ?? 0));
@@ -584,6 +584,8 @@ class InventoryWorkspace extends Page
 
             return [
                 'reference' => 'Reservation #'.$reservation->id,
+                'context' => $reservation->orderItem?->order?->reference
+                    ?? ($reservation->order_item_id ? 'Sales Order Item #'.$reservation->order_item_id : 'Warehouse Reservation'),
                 'quantity' => $quantity,
                 'reserved_at' => $reservation->reserved_at?->format('d M Y, H:i') ?? '—',
             ];

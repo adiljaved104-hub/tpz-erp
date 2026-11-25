@@ -3,13 +3,19 @@
 namespace App\Filament\Resources\TaxInvoices\Pages;
 
 use App\Enums\InvoicePermission;
+use App\Models\AccountingAccount;
+use App\Models\AccountingBook;
+use App\Models\AccountingJournal;
+use App\Models\TaxInvoiceAdjustmentDocument;
 use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Invoices\TaxInvoicePriceCorrectionService;
+use App\Services\Invoices\TaxInvoiceAdjustmentIssuanceService;
 use App\Services\Invoices\TaxInvoiceService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
@@ -126,6 +132,72 @@ class ViewTaxInvoice extends ViewRecord
                     Notification::make()->success()->title('Finance decision recorded')
                         ->body('Request reviewed. No tax documents or accounting entries were posted.')->send();
                 }),
+            Action::make('issuePriceAdjustmentDocuments')
+                ->label('Issue Approved Tax Adjustments')
+                ->icon('heroicon-o-document-check')
+                ->color('danger')
+                ->visible(fn (): bool => config('tax_invoice_adjustments.issuance_enabled', false) === true
+                    && config('tax_invoice_adjustments.electronic_delivery_ready', false) === true
+                    && ($user = auth()->user()) instanceof User
+                    && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::IssuePriceAdjustments)
+                    && TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
+                        ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))
+                        ->whereDoesntHave('documents')->exists())
+                ->modalHeading('Issue Official Tax Adjustment Documents')
+                ->modalDescription('HIGH IMPACT: creates numbered Tax Credit Notes and/or Additional Tax Invoices and POSTED AED accounting journals. Only use after payment reconciliation, original journal verification, and VAT/e-invoice compliance sign-off. This action cannot be undone.')
+                ->modalWidth('3xl')
+                ->schema([
+                    Select::make('proposal_id')->label('Approved Request')
+                        ->options(fn (): array => TaxInvoicePriceAdjustmentProposal::query()
+                            ->where('tax_invoice_id', $this->record->id)
+                            ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))
+                            ->whereDoesntHave('documents')->get()
+                            ->mapWithKeys(fn ($p): array => [$p->id => 'Request #'.$p->id])->all())->required(),
+                    Select::make('accounting_book_id')->label('Accounting Book (AED)')
+                        ->options(fn (): array => AccountingBook::query()->where('active', true)
+                            ->where('posting_enabled', true)->where('currency', 'AED')
+                            ->pluck('name', 'id')->all())->required()->live(),
+                    Select::make('original_accounting_journal_id')->label('Original Posted Invoice Journal')
+                        ->options(fn (): array => AccountingJournal::query()
+                            ->where('status', 'posted')->where('source_type', 'tax_invoice')
+                            ->where('source_key', (string) $this->record->id)
+                            ->pluck('reference', 'id')->all())->required(),
+                    Select::make('receivable_account_id')->label('Accounts Receivable (Asset, posting account)')
+                        ->options(fn (Get $get): array => self::adjustmentAccountOptions($get('accounting_book_id'), 'asset'))->required(),
+                    Select::make('revenue_account_id')->label('Sales Revenue (Income, posting account)')
+                        ->options(fn (Get $get): array => self::adjustmentAccountOptions($get('accounting_book_id'), 'income'))->required(),
+                    Select::make('output_vat_account_id')->label('Output VAT (Liability, posting account)')
+                        ->options(fn (Get $get): array => self::adjustmentAccountOptions($get('accounting_book_id'), 'liability'))->required(),
+                    TextInput::make('financial_reconciliation_reference')->label('Payment / AR Reconciliation Evidence')
+                        ->helperText('Document the original posted invoice and confirm customer payment/settlement consequences have been assessed.')->required()->minLength(10)->maxLength(190),
+                    Checkbox::make('accountant_confirmation')
+                        ->label('I confirm the adjustment is valid under UAE VAT rules, AR is reconciled, this issue date and VAT period are appropriate, and electronic document delivery obligations are satisfied.')
+                        ->required()->accepted(),
+                ])
+                ->modalSubmitActionLabel('Issue Documents & Post Journals')
+                ->requiresConfirmation()
+                ->action(function (array $data): void {
+                    $user = auth()->user();
+                    abort_unless($user instanceof User, 403);
+                    $proposal = TaxInvoicePriceAdjustmentProposal::query()
+                        ->where('tax_invoice_id', $this->record->id)->findOrFail((int) $data['proposal_id']);
+                    $documents = app(TaxInvoiceAdjustmentIssuanceService::class)->issue($proposal, $data, $user);
+                    Notification::make()->success()->title('Official Tax Adjustments Issued')
+                        ->body('Posted documents: '.$documents->pluck('document_number')->join(', '))->send();
+                }),
+            Action::make('issuedPriceAdjustmentDocuments')
+                ->label('Issued Tax Adjustments')
+                ->icon('heroicon-o-document-currency-dollar')
+                ->color('gray')
+                ->slideOver()
+                ->modalHeading('Issued Tax Adjustment Documents')
+                ->modalSubmitAction(false)
+                ->modalCancelActionLabel('Close')
+                ->visible(fn (): bool => TaxInvoiceAdjustmentDocument::query()->where('original_invoice_id', $this->record->id)->exists())
+                ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.issued-tax-adjustment-documents', [
+                    'documents' => TaxInvoiceAdjustmentDocument::query()
+                        ->where('original_invoice_id', $this->record->id)->orderBy('id')->get(),
+                ])),
             Action::make('priceAdjustmentRequests')
                 ->label('Price Adjustment Requests')
                 ->icon('heroicon-o-document-text')
@@ -158,4 +230,19 @@ class ViewTaxInvoice extends ViewRecord
             Action::make('void')->color('danger')->requiresConfirmation()->schema([Textarea::make('reason')->required()])->visible(fn () => $this->record->status === 'issued' && auth()->user()->can(InvoicePermission::Void->value))->action(fn (array $data) => app(TaxInvoiceService::class)->void($this->record, $data['reason'], auth()->user())),
         ];
     }
+    private static function adjustmentAccountOptions(mixed $bookId, string $type): array
+    {
+        if (! is_numeric($bookId)) {
+            return [];
+        }
+
+        return AccountingAccount::query()
+            ->where('accounting_book_id', (int) $bookId)
+            ->where('account_type', $type)
+            ->where('active', true)->where('is_posting', true)->where('is_control', false)
+            ->orderBy('number')->get()
+            ->mapWithKeys(fn ($account): array => [$account->id => $account->number.' — '.$account->name])
+            ->all();
+    }
+
 }

@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\DTOs\StockRequests\CreateStockRequestData;
 use App\DTOs\StockRequests\StockRequestItemData;
 use App\Enums\InventoryPermission;
+use App\Enums\InventoryReservationStatus;
 use App\Enums\ProductPermission;
 use App\Enums\StockRequestPurpose;
 use App\Enums\StockRequestSourceStatus;
@@ -18,6 +19,7 @@ use App\Filament\Resources\StockRequests\Schemas\StockRequestForm;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\StockRequest;
+use App\Models\InventoryReservation;
 use App\Models\StockRequestExecution;
 use App\Models\StockRequestSourceLine;
 use App\Models\User;
@@ -71,6 +73,9 @@ class InventoryWorkspace extends Page
     public ?int $activeExtraModule = null;
 
     public string $search = '';
+
+    // This is a view filter only. Never mutate stock or allocation balances.
+    public string $inventoryStockFilter = 'in_stock';
 
     public string $productSearch = '';
 
@@ -217,6 +222,27 @@ class InventoryWorkspace extends Page
                         ->orWhere('name', 'like', '%'.$needle.'%');
                 });
             });
+        }
+
+        if ($inventoryQuery !== null) {
+            // Apply this filter before pagination, preserving the original
+            // responsibility scope. Staff see their own holder quantity,
+            // not a company's combined warehouse quantity, for this filter.
+            $ownedInventory = app(EmployeeOwnedInventoryReadService::class);
+            $personalView = $ownedInventory->isEmployeeView($user);
+            if ($this->inventoryStockFilter === 'in_stock') {
+                if ($personalView) {
+                    $inventoryQuery->whereIn('product_inventories.id', $ownedInventory->inventoryIds($user));
+                } else {
+                    $inventoryQuery->whereColumn('product_inventories.available_quantity', '>', 'product_inventories.reserved_quantity');
+                }
+            } elseif ($this->inventoryStockFilter === 'zero_stock') {
+                if ($personalView) {
+                    $inventoryQuery->whereNotIn('product_inventories.id', $ownedInventory->inventoryIds($user));
+                } else {
+                    $inventoryQuery->whereColumn('product_inventories.available_quantity', '<=', 'product_inventories.reserved_quantity');
+                }
+            }
         }
 
         $inventory = (in_array($this->activeTab, ['overview', 'inventory'], true) && $inventoryQuery !== null)
@@ -378,7 +404,21 @@ class InventoryWorkspace extends Page
             }
         }
 
+        $inventoryOwnBalances = collect();
+        $employeeInventoryView = app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user);
+        if ($employeeInventoryView && $inventory instanceof LengthAwarePaginator) {
+            $ids = $inventory->getCollection()->pluck('id')->all();
+            if ($ids !== []) {
+                $inventoryOwnBalances = app(EmployeeOwnedInventoryReadService::class)->balances($user)
+                    ->whereIn('product_inventory_id', $ids)
+                    ->get(['product_inventory_id', 'allocated_quantity', 'reserved_quantity'])
+                    ->keyBy('product_inventory_id');
+            }
+        }
+
         return [
+            'employeeInventoryView' => $employeeInventoryView,
+            'inventoryOwnBalances' => $inventoryOwnBalances,
             'quickViewInventory' => $this->loadInventoryQuickView($user, $authorization),
             'pendingExecutionRequest' => $this->pendingExecutionRequest($user),
             'pendingOwnerTransfer' => $this->pendingOwnerTransfer($user),
@@ -486,6 +526,32 @@ class InventoryWorkspace extends Page
             'available' => (int) $inventory->available_quantity,
             'reserved' => (int) $inventory->reserved_quantity,
             'damaged' => (int) $inventory->damaged_quantity,
+        $reservationQuery = InventoryReservation::query()
+            ->where('product_inventory_id', $inventory->id)
+            ->where('status', InventoryReservationStatus::Active);
+
+        // Staff only see reservation details backed by their own
+        // allocation account; do not disclose another employee's order.
+        if (app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user)) {
+            $reservationQuery->whereHas('allocationLines.account', fn ($account) => $account
+                ->where('type', 'employee')->where('employee_id', $user->employee?->id ?? 0));
+        }
+        $activeReservations = $reservationQuery->orderByDesc('id')->limit(5)->get();
+        $reservationRows = $activeReservations->map(function (InventoryReservation $reservation) use ($user): array {
+            $ownLines = $reservation->allocationLines()->whereHas('account', fn ($account) => $account
+                ->where('type', 'employee')->where('employee_id', $user->employee?->id ?? 0));
+            $quantity = app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user)
+                ? (int) $ownLines->sum('quantity')
+                : (int) $reservation->quantity;
+
+            return [
+                'reference' => 'Reservation #'.$reservation->id,
+                'quantity' => $quantity,
+                'reserved_at' => $reservation->reserved_at?->format('d M Y, H:i') ?? '—',
+            ];
+        })->all();
+
+            'reservationRows' => $reservationRows,
             'movements' => $movements->map(fn ($movement): array => [
                 'reference' => $movement->reference ?? ('#'.$movement->id),
                 'type' => $movement->movement_type?->label() ?? 'Movement',
@@ -921,6 +987,11 @@ class InventoryWorkspace extends Page
             'adjustments' => StockAdjustments::canAccess(),
             default => false,
         };
+    }
+
+    public function updatedInventoryStockFilter(): void
+    {
+        $this->resetPage('inventory-page');
     }
 
     public function updatedSearch(): void

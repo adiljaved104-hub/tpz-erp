@@ -12,6 +12,8 @@ use App\Models\InventoryAllocationBalance;
 use App\Models\Order;
 use App\Models\ProductInventory;
 use App\Models\StockRequest;
+use App\Models\StockRequestItem;
+use App\Models\StockRequestSourceLine;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\InventoryAuthorization;
@@ -201,12 +203,14 @@ class StockRequestService
         }
 
         $employeeId = $actor->employee?->id;
-        $visibleInventoryIds = $this->responsibilities->inventoryIds($actor);
 
-        return $query->where(function (Builder $scope) use ($employeeId, $visibleInventoryIds): void {
+        // Seeing a product through brand/warehouse responsibility does not
+        // authorize seeing every other employee's request for that product.
+        // Only the requester and the explicitly proposed stock-source
+        // employee may open a scoped request. Broad roles keep broad access.
+        return $query->where(function (Builder $scope) use ($employeeId): void {
             $scope->where('requested_by_employee_id', $employeeId)
-                ->orWhereHas('sourceLines.account', fn (Builder $accounts): Builder => $accounts->where('employee_id', $employeeId))
-                ->orWhereDoesntHave('items', fn (Builder $items): Builder => $items->whereNotIn('product_inventory_id', $visibleInventoryIds));
+                ->orWhereHas('sourceLines.account', fn (Builder $accounts): Builder => $accounts->where('employee_id', $employeeId));
         });
     }
 
@@ -223,8 +227,46 @@ class StockRequestService
             return true;
         }
 
-        return $request->items()->pluck('product_inventory_id')
-            ->every(fn (int $inventoryId): bool => $this->responsibilities->canAccessInventory($actor, $inventoryId));
+        return false;
+    }
+
+    /**
+     * Scope item/source details inside a request that involves several staff
+     * members. A source holder may see only their proposed source lines, not
+     * another employee's products or stock-routing quantities.
+     *
+     * @return Collection<int, StockRequestItem>
+     */
+    public function visibleItems(User $actor, StockRequest $request): Collection
+    {
+        if (! $this->canView($actor, $request)) {
+            return collect();
+        }
+
+        $request->loadMissing('items.sourceLines.account');
+        if (! $this->responsibilities->requiresScope($actor)
+            || $request->requested_by_employee_id === $actor->employee?->id) {
+            return $request->items;
+        }
+
+        $employeeId = $actor->employee?->id;
+
+        return $request->items->map(function ($item) use ($employeeId) {
+            $allowedLines = $item->sourceLines->filter(
+                fn (StockRequestSourceLine $line): bool => $line->account?->employee_id === $employeeId
+            )->values();
+            if ($allowedLines->isEmpty()) {
+                return null;
+            }
+
+            $scoped = clone $item;
+            // The displayed requested quantity is this employee's source
+            // quantity, not the combined amount sought from other holders.
+            $scoped->setAttribute('quantity', (int) $allowedLines->sum('proposed_quantity'));
+            $scoped->setRelation('sourceLines', $allowedLines);
+
+            return $scoped;
+        })->filter()->values();
     }
 
     /** @return Collection<int, ProductInventory> */

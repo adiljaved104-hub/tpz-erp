@@ -18,7 +18,8 @@ return new class extends Migration
             $table->foreign('accounting_book_id', 'ti_adj_doc_book_fk')->references('id')->on('accounting_books')->restrictOnDelete();
             $table->foreignId('original_accounting_journal_id');
             $table->foreign('original_accounting_journal_id', 'ti_adj_doc_orig_journal_fk')->references('id')->on('accounting_journals')->restrictOnDelete();
-            $table->foreignId('adjustment_accounting_journal_id')->unique();
+            $table->foreignId('adjustment_accounting_journal_id');
+            $table->unique('adjustment_accounting_journal_id', 'ti_adj_doc_journal_uniq');
             $table->foreign('adjustment_accounting_journal_id', 'ti_adj_doc_adj_journal_fk')->references('id')->on('accounting_journals')->restrictOnDelete();
             $table->foreignId('issued_by_user_id');
             $table->foreign('issued_by_user_id', 'ti_adj_doc_issuer_fk')->references('id')->on('users')->restrictOnDelete();

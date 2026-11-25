@@ -77,5 +77,7 @@ jobs:
         run: php artisan view:cache --no-ansi
       - name: Scope, approval and workspace tests
         run: |
-          php artisan test --no-ansi tests/Feature/Inventory/StockRequestFoundationTest.php tests/Feature/Inventory/StockRequestApprovalTest.php tests/Feature/Inventory/StockRequestWarehouseVisibilityTest.php
+          php artisan test --no-ansi tests/Feature/Inventory/StockRequestFoundationTest.php --filter=test_visibility_supports_requester_owner_admin_and_named_stock_source_not_unrelated_same_product_responsibility
+          php artisan test --no-ansi tests/Feature/Inventory/StockRequestApprovalTest.php --filter=test_employee_holder_can_decide_only_own_line_and_can_see_routed_request
+          php artisan test --no-ansi tests/Feature/Inventory/StockRequestWarehouseVisibilityTest.php
           php artisan test --no-ansi tests/Feature/Navigation/NativeWorkspacesTest.php

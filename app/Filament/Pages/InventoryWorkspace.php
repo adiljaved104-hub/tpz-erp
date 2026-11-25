@@ -259,13 +259,15 @@ class InventoryWorkspace extends Page
             $personalView = $ownedInventory->isEmployeeView($user);
             if ($this->inventoryStockFilter === 'in_stock') {
                 if ($personalView) {
-                    $inventoryQuery->whereIn('product_inventories.id', $ownedInventory->inventoryIds($user));
+                    $inventoryQuery->whereIn('product_inventories.id', $ownedInventory->balances($user)
+                        ->whereColumn('allocated_quantity', '>', 'reserved_quantity')->select('product_inventory_id'));
                 } else {
                     $inventoryQuery->whereColumn('product_inventories.available_quantity', '>', 'product_inventories.reserved_quantity');
                 }
             } elseif ($this->inventoryStockFilter === 'zero_stock') {
                 if ($personalView) {
-                    $inventoryQuery->whereNotIn('product_inventories.id', $ownedInventory->inventoryIds($user));
+                    $inventoryQuery->whereNotIn('product_inventories.id', $ownedInventory->balances($user)
+                        ->whereColumn('allocated_quantity', '>', 'reserved_quantity')->select('product_inventory_id'));
                 } else {
                     $inventoryQuery->whereColumn('product_inventories.available_quantity', '<=', 'product_inventories.reserved_quantity');
                 }

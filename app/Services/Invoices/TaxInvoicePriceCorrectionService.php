@@ -3,6 +3,7 @@
 namespace App\Services\Invoices;
 
 use App\Enums\InvoicePermission;
+use App\Models\TaxInvoiceAdjustmentReviewDecision;
 use App\Models\TaxInvoice;
 use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
@@ -56,7 +57,9 @@ class TaxInvoicePriceCorrectionService
             }
             $hasPendingProposal = TaxInvoicePriceAdjustmentProposal::query()
                 ->where('tax_invoice_id', $locked->id)
-                ->where('status', 'pending_review')->exists();
+                ->whereDoesntHave('decision')->exists()
+                || TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $locked->id)
+                    ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))->exists();
             if ($hasPendingProposal) {
                 throw ValidationException::withMessages(['reason' => 'This invoice already has a pending adjustment review.']);
             }
@@ -146,4 +149,56 @@ class TaxInvoicePriceCorrectionService
             return $proposal;
         }, 3);
     }
+    /**
+     * Finance sign-off records a review decision ONLY, never tax-document issuance,
+     * customer communication, VAT posting or accounting journal posting.
+     */
+    public function review(TaxInvoicePriceAdjustmentProposal $proposal, string $decision, string $reason, User $actor): TaxInvoiceAdjustmentReviewDecision
+    {
+        $this->authorization->authorize($actor, InvoicePermission::ReviewPriceAdjustments);
+        $decision = trim($decision);
+        $reason = trim($reason);
+
+        if (! in_array($decision, ['approved', 'rejected'], true) || mb_strlen($reason) < 5 || mb_strlen($reason) > 2000) {
+            throw ValidationException::withMessages(['review_reason' => 'Select Approve or Reject and enter a review reason of 5–2000 characters.']);
+        }
+
+        return DB::transaction(function () use ($proposal, $decision, $reason, $actor): TaxInvoiceAdjustmentReviewDecision {
+            $lockedInvoice = TaxInvoice::query()->lockForUpdate()->findOrFail($proposal->tax_invoice_id);
+            $locked = TaxInvoicePriceAdjustmentProposal::query()->lockForUpdate()->findOrFail($proposal->id);
+
+            if ($lockedInvoice->status !== 'issued') {
+                throw ValidationException::withMessages(['review_reason' => 'The original Tax Invoice is no longer issued.']);
+            }
+            if ($locked->decision()->exists()) {
+                throw ValidationException::withMessages(['review_reason' => 'This adjustment proposal has already been reviewed.']);
+            }
+            if ($decision === 'approved' && TaxInvoicePriceAdjustmentProposal::query()
+                ->where('tax_invoice_id', $lockedInvoice->id)
+                ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))
+                ->exists()) {
+                throw ValidationException::withMessages(['review_reason' => 'An approved adjustment for this Invoice already exists.']);
+            }
+
+            $record = TaxInvoiceAdjustmentReviewDecision::query()->create([
+                'proposal_id' => $locked->id,
+                'reviewed_by_user_id' => $actor->id,
+                'decision' => $decision,
+                'reason' => $reason,
+                'decided_at' => now('UTC'),
+            ]);
+
+            $this->activity->log('tax_invoice.price_adjustment_review_'.$decision, $actor, $lockedInvoice, [
+                'invoice_id' => $lockedInvoice->id,
+                'proposal_id' => $locked->id,
+                'review_decision_id' => $record->id,
+                'decision' => $decision,
+                'accounting_posted' => false,
+                'tax_document_issued' => false,
+            ]);
+
+            return $record;
+        }, 3);
+    }
+
 }

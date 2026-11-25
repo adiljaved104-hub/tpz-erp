@@ -3,7 +3,10 @@ name: Staging Inventory Scope and Stock Request Privacy QA (non-deploying)
 on:
   push:
     branches:
-      - fix/staging-inventory-scope-ux-20261125
+      - release/inventory-scope-privacy-main-20261125
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read

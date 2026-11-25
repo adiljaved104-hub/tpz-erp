@@ -10,6 +10,7 @@ use App\Models\AccountingPeriod;
 use App\Models\Employee;
 use App\Models\TaxInvoice;
 use App\Models\TaxInvoiceAdjustmentDocument;
+use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
 use App\Services\Accounting\AccountingLedgerService;
 use App\Services\CompanyProfileService;
@@ -137,7 +138,7 @@ class TaxInvoiceAdjustmentIssuanceTest extends TestCase
         ], $posted];
     }
 
-    private function approved(TaxInvoice $invoice, User $actor, string $price): \App\Models\TaxInvoicePriceAdjustmentProposal
+    private function approved(TaxInvoice $invoice, User $actor, string $price): TaxInvoicePriceAdjustmentProposal
     {
         $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, [
             'reason' => 'Original unit price correction verified by finance.',

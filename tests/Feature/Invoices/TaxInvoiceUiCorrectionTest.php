@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Services\CompanyProfileService;
 use App\Services\Invoices\TaxInvoiceService;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Filament\Actions\Testing\TestAction;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -171,6 +172,30 @@ class TaxInvoiceUiCorrectionTest extends TestCase
             ->assertSee('Save, Download &amp; New', false)
             ->assertSee('Creating Invoice...')
             ->assertSee('Cancel');
+    }
+
+    public function test_both_invoice_save_buttons_mount_price_confirmation_before_issuance(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        app(CompanyProfileService::class)->save($this->profileData(), $owner);
+
+        Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
+            ->fillForm($this->invoiceFormData())
+            ->assertActionExists(TestAction::make('confirmSaveInvoice')->schemaComponent('form-actions', schema: 'content'))
+            ->mountAction(TestAction::make('confirmSaveInvoice')->schemaComponent('form-actions', schema: 'content'))
+            ->assertMountedActionModalSee('Confirm Invoice Prices Before Saving')
+            ->assertMountedActionModalSee('Confirm Prices & Save Invoice');
+
+        $this->assertDatabaseCount('tax_invoices', 0);
+
+        Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
+            ->fillForm($this->invoiceFormData())
+            ->assertActionExists(TestAction::make('saveDownloadAndNew')->schemaComponent('form-actions', schema: 'content'))
+            ->mountAction(TestAction::make('saveDownloadAndNew')->schemaComponent('form-actions', schema: 'content'))
+            ->assertMountedActionModalSee('Confirm Invoice Prices Before Saving')
+            ->assertMountedActionModalSee('Confirm Prices, Save & Download');
+
+        $this->assertDatabaseCount('tax_invoices', 0);
     }
 
     public function test_save_invoice_creates_once_and_redirects_to_view(): void

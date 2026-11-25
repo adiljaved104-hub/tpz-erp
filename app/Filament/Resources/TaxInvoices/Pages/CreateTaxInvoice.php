@@ -79,9 +79,20 @@ class CreateTaxInvoice extends CreateRecord
 
     protected function getCreateFormAction(): Action
     {
-        return parent::getCreateFormAction()
+        return Action::make('confirmSaveInvoice')
             ->color('gray')
             ->icon('heroicon-o-check')
+            ->submit(null)
+            ->action(fn (): mixed => $this->create())
+            ->modalSubmitActionLabel('Confirm Prices & Save Invoice')
+            ->modalHeading('Confirm Invoice Prices Before Saving')
+            ->modalDescription('Review the product prices and quantities before issuing this Tax Invoice.')
+            ->modalWidth('2xl')
+            ->requiresConfirmation()
+            ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.confirm-create-prices', [
+                'items' => array_values((array) ($this->form->getRawState()['items'] ?? [])),
+                'totals' => app(TaxInvoiceService::class)->previewTotals(array_values((array) ($this->form->getRawState()['items'] ?? []))),
+            ]))
             ->label(new HtmlString(
                 '<span wire:loading.remove wire:target="create">Save Invoice</span>'
                 .'<span wire:loading wire:target="create">Saving...</span>',
@@ -98,7 +109,6 @@ class CreateTaxInvoice extends CreateRecord
                 ))
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('primary')
-                ->livewireTarget('saveDownloadAndNew')
                 ->modalHeading('Confirm Invoice Prices Before Saving')
                 ->modalDescription('Review each product, quantity, VAT-inclusive unit price and total. Saving issues the original Tax Invoice, which cannot be edited directly afterward.')
                 ->modalWidth('2xl')
@@ -108,7 +118,7 @@ class CreateTaxInvoice extends CreateRecord
                     'items' => array_values((array) ($this->form->getRawState()['items'] ?? [])),
                     'totals' => app(TaxInvoiceService::class)->previewTotals(array_values((array) ($this->form->getRawState()['items'] ?? []))),
                 ]))
-                ->action('saveDownloadAndNew'),
+                ->action(fn (): ?StreamedResponse => $this->saveDownloadAndNew()),
             $this->getCreateFormAction(),
             $this->getCancelFormAction(),
         ];

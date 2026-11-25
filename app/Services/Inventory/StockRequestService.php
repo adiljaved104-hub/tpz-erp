@@ -12,6 +12,7 @@ use App\Models\InventoryAllocationBalance;
 use App\Models\Order;
 use App\Models\ProductInventory;
 use App\Models\StockRequest;
+use App\Models\StockRequestItem;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\InventoryAuthorization;
@@ -233,7 +234,7 @@ class StockRequestService
      * members. A source holder may see only their proposed source lines, not
      * another employee's products or stock-routing quantities.
      *
-     * @return Collection<int, \App\Models\StockRequestItem>
+     * @return Collection<int, StockRequestItem>
      */
     public function visibleItems(User $actor, StockRequest $request): Collection
     {
@@ -248,6 +249,7 @@ class StockRequestService
         }
 
         $employeeId = $actor->employee?->id;
+
         return $request->items->map(function ($item) use ($employeeId) {
             $allowedLines = $item->sourceLines->filter(
                 fn (StockRequestSourceLine $line): bool => $line->account?->employee_id === $employeeId

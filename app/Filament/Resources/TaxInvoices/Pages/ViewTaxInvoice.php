@@ -3,16 +3,16 @@
 namespace App\Filament\Resources\TaxInvoices\Pages;
 
 use App\Enums\InvoicePermission;
+use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Models\AccountingAccount;
 use App\Models\AccountingBook;
 use App\Models\AccountingJournal;
 use App\Models\TaxInvoiceAdjustmentDocument;
-use App\Filament\Resources\TaxInvoices\TaxInvoiceResource;
 use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
-use App\Services\Invoices\TaxInvoicePriceCorrectionService;
 use App\Services\Invoices\TaxInvoiceAdjustmentIssuanceService;
+use App\Services\Invoices\TaxInvoicePriceCorrectionService;
 use App\Services\Invoices\TaxInvoiceService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
@@ -230,6 +230,7 @@ class ViewTaxInvoice extends ViewRecord
             Action::make('void')->color('danger')->requiresConfirmation()->schema([Textarea::make('reason')->required()])->visible(fn () => $this->record->status === 'issued' && auth()->user()->can(InvoicePermission::Void->value))->action(fn (array $data) => app(TaxInvoiceService::class)->void($this->record, $data['reason'], auth()->user())),
         ];
     }
+
     private static function adjustmentAccountOptions(mixed $bookId, string $type): array
     {
         if (! is_numeric($bookId)) {
@@ -244,5 +245,4 @@ class ViewTaxInvoice extends ViewRecord
             ->mapWithKeys(fn ($account): array => [$account->id => $account->number.' — '.$account->name])
             ->all();
     }
-
 }

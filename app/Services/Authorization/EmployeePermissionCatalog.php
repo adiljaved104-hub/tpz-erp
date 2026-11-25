@@ -151,6 +151,7 @@ class EmployeePermissionCatalog
                 $this->item(InvoicePermission::EditCustomerDetails, 'Edit Invoice Customer Details'),
                 $this->item(InvoicePermission::EditPrices, 'Request Tax Invoice Price Adjustments', true, true),
                 $this->item(InvoicePermission::ReviewPriceAdjustments, 'Approve / Reject Invoice Adjustment Reviews', true, true),
+                $this->item(InvoicePermission::IssuePriceAdjustments, 'Issue Posted Tax Adjustment Documents', true, true),
                 $this->item(InvoicePermission::Void, 'Void Tax Invoices', true),
                 $this->item(InvoicePermission::DownloadPdf, 'Download Invoice PDF'),
                 $this->item(InvoicePermission::Export, 'Export Invoices'),

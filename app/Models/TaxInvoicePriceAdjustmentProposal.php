@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use LogicException;
 
 class TaxInvoicePriceAdjustmentProposal extends Model
@@ -33,7 +34,7 @@ class TaxInvoicePriceAdjustmentProposal extends Model
         return $this->belongsTo(TaxInvoice::class, 'tax_invoice_id');
     }
 
-    public function decision(): \Illuminate\Database\Eloquent\Relations\HasOne
+    public function decision(): HasOne
     {
         return $this->hasOne(TaxInvoiceAdjustmentReviewDecision::class, 'proposal_id');
     }

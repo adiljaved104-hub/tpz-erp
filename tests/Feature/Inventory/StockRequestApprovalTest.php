@@ -90,6 +90,13 @@ class StockRequestApprovalTest extends TestCase
         $approvals = app(StockRequestApprovalService::class);
 
         $this->assertTrue(app(StockRequestService::class)->visibleQuery($firstHolder)->whereKey($request)->exists());
+        $this->assertTrue(app(StockRequestService::class)->visibleQuery($secondHolder)->whereKey($request)->exists());
+        $firstItems = app(StockRequestService::class)->visibleItems($firstHolder, $request);
+        $this->assertCount(1, $firstItems);
+        $this->assertSame([$firstLine->id], $firstItems->first()->sourceLines->pluck('id')->all());
+        $this->assertSame(2, $firstItems->first()->quantity);
+        $secondItems = app(StockRequestService::class)->visibleItems($secondHolder, $request);
+        $this->assertSame([$secondLine->id], $secondItems->first()->sourceLines->pluck('id')->all());
         $this->assertTrue($approvals->canDecide($firstHolder, $firstLine));
         $this->assertFalse($approvals->canDecide($firstHolder, $secondLine));
 

@@ -167,7 +167,7 @@ class StockRequestController extends MobileController
                 'order' => $stockRequest->order?->reference,
                 'reason' => $stockRequest->reason,
             ],
-            'items' => $stockRequest->items->map(fn ($item) => [
+            'items' => app(StockRequestService::class)->visibleItems($request->user(), $stockRequest)->map(fn ($item) => [
                 'id' => $item->id,
                 'sku' => $item->sku,
                 'product' => $item->product_name,

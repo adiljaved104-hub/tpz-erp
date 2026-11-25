@@ -181,17 +181,19 @@ class TaxInvoiceUiCorrectionTest extends TestCase
 
         Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
             ->fillForm($this->invoiceFormData())
+            ->assertActionExists(TestAction::make('confirmSaveInvoice')->schemaComponent('form-actions', schema: 'content'))
             ->mountAction(TestAction::make('confirmSaveInvoice')->schemaComponent('form-actions', schema: 'content'))
-            ->assertSee('Confirm Invoice Prices Before Saving')
-            ->assertSee('Confirm Prices & Save Invoice');
+            ->assertMountedActionModalSee('Confirm Invoice Prices Before Saving')
+            ->assertMountedActionModalSee('Confirm Prices & Save Invoice');
 
         $this->assertDatabaseCount('tax_invoices', 0);
 
         Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
             ->fillForm($this->invoiceFormData())
+            ->assertActionExists(TestAction::make('saveDownloadAndNew')->schemaComponent('form-actions', schema: 'content'))
             ->mountAction(TestAction::make('saveDownloadAndNew')->schemaComponent('form-actions', schema: 'content'))
-            ->assertSee('Confirm Invoice Prices Before Saving')
-            ->assertSee('Confirm Prices, Save & Download');
+            ->assertMountedActionModalSee('Confirm Invoice Prices Before Saving')
+            ->assertMountedActionModalSee('Confirm Prices, Save & Download');
 
         $this->assertDatabaseCount('tax_invoices', 0);
     }

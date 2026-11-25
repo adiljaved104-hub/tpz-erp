@@ -18,7 +18,7 @@ class InvoiceAuthorization
     {
         // Price corrections are sensitive: only the Owner receives this by default.
         // All other roles, including Admin, require an explicit employee grant.
-        if (in_array($permission, [InvoicePermission::EditPrices, InvoicePermission::ReviewPriceAdjustments], true)) {
+        if (in_array($permission, [InvoicePermission::EditPrices, InvoicePermission::ReviewPriceAdjustments, InvoicePermission::IssuePriceAdjustments], true)) {
             return $user->employee?->role === EmployeeRole::Owner;
         }
 
@@ -37,7 +37,7 @@ class InvoiceAuthorization
         }
         $default = $this->roleDefault($user, $permission);
         $allowed = $user->employee->role === EmployeeRole::Owner ? $default : ($this->overrides->decision($user, $permission->value) ?? $default);
-        if ($permission === InvoicePermission::ReviewPriceAdjustments) {
+        if (in_array($permission, [InvoicePermission::ReviewPriceAdjustments, InvoicePermission::IssuePriceAdjustments], true)) {
             return $allowed;
         }
         if (! $allowed || $invoice === null || $permission === InvoicePermission::Create || in_array($permission, [InvoicePermission::SettingsView, InvoicePermission::SettingsManage], true)) {

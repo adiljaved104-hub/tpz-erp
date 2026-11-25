@@ -66,17 +66,25 @@ jobs:
         run: |
           php -l app/Services/Invoices/TaxInvoicePriceCorrectionService.php
           php -l app/Models/TaxInvoicePriceAdjustmentProposal.php
+          php -l app/Services/Invoices/TaxInvoiceAdjustmentIssuanceService.php
+          php -l app/Models/TaxInvoiceAdjustmentDocument.php
+          php -l app/Models/TaxInvoiceAdjustmentReviewDecision.php
+          php -l app/Http/Controllers/TaxInvoiceAdjustmentDocumentPdfController.php
+          php -l routes/web.php
           php -l app/Filament/Resources/TaxInvoices/Pages/ViewTaxInvoice.php
-          php -l tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php tests/Feature/Navigation/NativeWorkspacesTest.php
+          php -l tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php
+          php -l tests/Feature/Invoices/TaxInvoiceAdjustmentIssuanceTest.php
           php -l database/migrations/2026_11_24_170000_create_tax_invoice_price_adjustment_proposals.php
+          php -l database/migrations/2026_11_25_090000_create_tax_invoice_adjustment_review_decisions.php
+          php -l database/migrations/2026_11_25_091000_create_tax_invoice_adjustment_documents.php
       - name: Formatting
         run: |
-          vendor/bin/pint app/Enums/InvoicePermission.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php app/Services/Invoices/TaxInvoicePriceCorrectionService.php app/Models/TaxInvoicePriceAdjustmentProposal.php app/Filament/Resources/TaxInvoices/Pages/ViewTaxInvoice.php tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php database/migrations/2026_11_24_170000_create_tax_invoice_price_adjustment_proposals.php
-          git diff -- app/Filament/Resources/TaxInvoices/Pages/ViewTaxInvoice.php app/Models/TaxInvoicePriceAdjustmentProposal.php app/Services/Invoices/TaxInvoicePriceCorrectionService.php
+          vendor/bin/pint app/Enums/InvoicePermission.php app/Services/Authorization/InvoiceAuthorization.php app/Services/Authorization/EmployeePermissionCatalog.php app/Services/Authorization/AccessControlModuleRegistry.php app/Services/Invoices/TaxInvoicePriceCorrectionService.php app/Services/Invoices/TaxInvoiceAdjustmentIssuanceService.php app/Models/TaxInvoicePriceAdjustmentProposal.php app/Models/TaxInvoiceAdjustmentReviewDecision.php app/Models/TaxInvoiceAdjustmentDocument.php app/Http/Controllers/TaxInvoiceAdjustmentDocumentPdfController.php app/Filament/Resources/TaxInvoices/Pages/ViewTaxInvoice.php tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php tests/Feature/Invoices/TaxInvoiceAdjustmentIssuanceTest.php database/migrations/2026_11_24_170000_create_tax_invoice_price_adjustment_proposals.php database/migrations/2026_11_25_090000_create_tax_invoice_adjustment_review_decisions.php database/migrations/2026_11_25_091000_create_tax_invoice_adjustment_documents.php config/tax_invoice_adjustments.php routes/web.php
+          git diff -- app/Services/Invoices/TaxInvoiceAdjustmentIssuanceService.php app/Filament/Resources/TaxInvoices/Pages/ViewTaxInvoice.php app/Services/Invoices/TaxInvoicePriceCorrectionService.php tests/Feature/Invoices/TaxInvoiceAdjustmentIssuanceTest.php
           git diff --exit-code
       - name: Migrate isolated MySQL
         run: php artisan migrate --force --no-ansi
       - name: Blade compile
         run: php artisan view:cache --no-ansi
       - name: Focused tests
-        run: php artisan test --no-ansi tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php
+        run: php artisan test --no-ansi tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php tests/Feature/Invoices/TaxInvoiceAdjustmentIssuanceTest.php

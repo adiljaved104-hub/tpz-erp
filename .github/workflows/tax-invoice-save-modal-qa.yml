@@ -89,4 +89,4 @@ jobs:
       - name: Focused tests
         run: |
           php artisan test --no-ansi tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php tests/Feature/Invoices/TaxInvoiceAdjustmentIssuanceTest.php
-          php artisan test --no-ansi tests/Feature/Invoices/TaxInvoiceUiCorrectionTest.php --filter='test_invoice_create_form|test_save_invoice_creates_once|test_save_download_and_new|test_save_then_download_action'
+          php artisan test --no-ansi tests/Feature/Invoices/TaxInvoiceUiCorrectionTest.php --filter='test_both_invoice_save_buttons|test_invoice_create_form|test_save_invoice_creates_once|test_save_download_and_new|test_save_then_download_action'

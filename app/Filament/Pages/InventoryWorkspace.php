@@ -20,6 +20,7 @@ use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\StockRequest;
 use App\Models\InventoryReservation;
+use App\Models\InventoryAllocationAccount;
 use App\Models\StockRequestExecution;
 use App\Models\StockRequestSourceLine;
 use App\Models\User;
@@ -76,6 +77,8 @@ class InventoryWorkspace extends Page
 
     // This is a view filter only. Never mutate stock or allocation balances.
     public string $inventoryStockFilter = 'in_stock';
+
+    public string $inventoryHolderFilter = '';
 
     public string $productSearch = '';
 
@@ -222,6 +225,30 @@ class InventoryWorkspace extends Page
                         ->orWhere('name', 'like', '%'.$needle.'%');
                 });
             });
+        }
+
+        $inventoryHolderOptions = [];
+        if ($canInventory && $canLocationBalances && ! app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user)) {
+            $inventoryHolderOptions = InventoryAllocationAccount::query()
+                ->with('employee')
+                ->where('type', 'employee')
+                ->where('is_system', false)
+                ->whereHas('employee')
+                ->orderBy('id')->get()
+                ->mapWithKeys(fn (InventoryAllocationAccount $account): array => [
+                    (string) $account->id => $account->employee?->name ?? 'Employee',
+                ])->all();
+            if ($inventoryQuery !== null && ctype_digit($this->inventoryHolderFilter) && $this->inventoryHolderFilter !== '') {
+                $holderId = (int) $this->inventoryHolderFilter;
+                if (array_key_exists((string) $holderId, $inventoryHolderOptions)) {
+                    $inventoryQuery->whereIn('product_inventories.id', app(\App\Services\Inventory\InventoryAllocationBreakdownReadService::class)
+                        ->inventoryIdsForHolder($user, $holderId));
+                } else {
+                    $inventoryQuery->whereRaw('1 = 0');
+                }
+            } elseif ($inventoryQuery !== null && $this->inventoryHolderFilter !== '') {
+                $inventoryQuery->whereRaw('1 = 0');
+            }
         }
 
         if ($inventoryQuery !== null) {
@@ -418,6 +445,7 @@ class InventoryWorkspace extends Page
 
         return [
             'employeeInventoryView' => $employeeInventoryView,
+            'inventoryHolderOptions' => $inventoryHolderOptions,
             'inventoryOwnBalances' => $inventoryOwnBalances,
             'quickViewInventory' => $this->loadInventoryQuickView($user, $authorization),
             'pendingExecutionRequest' => $this->pendingExecutionRequest($user),
@@ -994,6 +1022,11 @@ class InventoryWorkspace extends Page
             'adjustments' => StockAdjustments::canAccess(),
             default => false,
         };
+    }
+
+    public function updatedInventoryHolderFilter(): void
+    {
+        $this->resetPage('inventory-page');
     }
 
     public function updatedInventoryStockFilter(): void

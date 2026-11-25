@@ -260,6 +260,9 @@ class StockRequestService
             }
 
             $scoped = clone $item;
+            // The displayed requested quantity is this employee's source
+            // quantity, not the combined amount sought from other holders.
+            $scoped->setAttribute('quantity', (int) $allowedLines->sum('proposed_quantity'));
             $scoped->setRelation('sourceLines', $allowedLines);
 
             return $scoped;

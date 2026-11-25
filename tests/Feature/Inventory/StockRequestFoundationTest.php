@@ -151,14 +151,17 @@ class StockRequestFoundationTest extends TestCase
         $this->assertDatabaseCount('stock_request_items', 0);
     }
 
-    public function test_visibility_supports_requester_owner_admin_and_responsibility_scope(): void
+    public function test_visibility_supports_requester_owner_admin_and_named_stock_source_not_unrelated_same_product_responsibility(): void
     {
         $f = $this->responsibilityFoundation(5);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
         $requester = $f['employee']->user;
         $this->allocateToEmployee($f['inventory'], $f['employee']->id, 2, $f['owner']);
         $request = $this->createRequest($requester, StockRequestPurpose::PermanentTransfer, [new StockRequestItemData($f['inventory']->id, 1)]);
-        ResponsibilityAssignment::query()->where('employee_id', $f['employee']->id)->update(['status' => 'inactive', 'ended_at' => now()]);
+        // Clear the active scope fingerprint when ending this responsibility,
+        // as required by the database integrity constraint.
+        ResponsibilityAssignment::query()->where('employee_id', $f['employee']->id)
+            ->update(['status' => 'inactive', 'active_fingerprint' => null, 'ended_at' => now()]);
         $admin = $this->responsibilityUser(EmployeeRole::Admin);
         $scoped = $this->responsibilityUser(EmployeeRole::Manager);
         $unrelated = $this->responsibilityUser(EmployeeRole::Staff);
@@ -169,7 +172,8 @@ class StockRequestFoundationTest extends TestCase
         $this->assertTrue(app(StockRequestService::class)->visibleQuery($requester)->whereKey($request)->exists());
         $this->assertTrue(app(StockRequestService::class)->visibleQuery($f['owner'])->whereKey($request)->exists());
         $this->assertTrue(app(StockRequestService::class)->visibleQuery($admin)->whereKey($request)->exists());
-        $this->assertTrue(app(StockRequestService::class)->visibleQuery($scoped)->whereKey($request)->exists());
+        $this->assertFalse(app(StockRequestService::class)->visibleQuery($scoped)->whereKey($request)->exists());
+        $this->assertFalse(app(StockRequestService::class)->canView($scoped, $request));
         $this->assertFalse(app(StockRequestService::class)->visibleQuery($unrelated)->whereKey($request)->exists());
     }
 

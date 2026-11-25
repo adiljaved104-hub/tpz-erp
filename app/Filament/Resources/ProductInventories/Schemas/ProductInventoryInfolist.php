@@ -56,7 +56,7 @@ class ProductInventoryInfolist
                 ])->columns(4),
             Section::make('Allocation Breakdown')
                 ->description('Total Stock is physical available stock and includes Reserved. Allocated is the sum of recorded ledger balances. Reserved is included in Total Stock and Allocated. Sellable is Total Stock minus Reserved. Any ledger gap is shown; no allocation is inferred.')
-                ->visible(fn (ProductInventory $record): bool => app(InventoryAllocationBreakdownReadService::class)->canView(auth()->user(), $record))
+                ->visible(fn (ProductInventory $record): bool => ! $owned && app(InventoryAllocationBreakdownReadService::class)->canView(auth()->user(), $record))
                 ->schema([
                     TextEntry::make('allocation_reconciliation')->label('Physical / ledger reconciliation')
                         ->state(fn (ProductInventory $record): ?string => app(InventoryAllocationBreakdownReadService::class)->reconciliationText(auth()->user(), $record))

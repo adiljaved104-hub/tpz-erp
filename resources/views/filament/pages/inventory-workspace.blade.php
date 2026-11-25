@@ -236,6 +236,19 @@
                             </x-filament::input.select>
                         </x-filament::input.wrapper>
                     </div>
+                    @if($inventoryHolderOptions !== [])
+                        <div>
+                            <label for="tpz-holder-filter" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Employee Stock Holder</label>
+                            <x-filament::input.wrapper>
+                                <x-filament::input.select id="tpz-holder-filter" wire:model.live="inventoryHolderFilter">
+                                    <option value="">All employees</option>
+                                    @foreach($inventoryHolderOptions as $holderId => $holderName)
+                                        <option value="{{ $holderId }}">{{ $holderName }}</option>
+                                    @endforeach
+                                </x-filament::input.select>
+                            </x-filament::input.wrapper>
+                        </div>
+                    @endif
                     @if(isset($links['adjustments']))
                         <x-filament::button tag="a" size="sm" color="gray" :href="$links['adjustments']">Stock Adjustments ↗</x-filament::button>
                     @endif

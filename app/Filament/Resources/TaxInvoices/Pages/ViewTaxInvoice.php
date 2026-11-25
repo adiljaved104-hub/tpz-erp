@@ -50,7 +50,9 @@ class ViewTaxInvoice extends ViewRecord
                 ->visible(fn (): bool => $this->record->status === 'issued'
                     && ($user = auth()->user()) instanceof User
                     && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::EditPrices, $this->record)
-                    && ! TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)->where('status', 'pending_review')->exists())
+                    && ! TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)->whereDoesntHave('decision')->exists()
+                        || TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
+                            ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))->exists())
                 ->fillForm(fn (): array => [
                     'items' => $this->record->items()->get()->map(fn ($item): array => [
                         'id' => $item->id,
@@ -85,6 +87,44 @@ class ViewTaxInvoice extends ViewRecord
                     Notification::make()->success()->title('Finance review requested')
                         ->body('Request #'.$proposal->id.' saved. Issued Invoice remains unchanged; no VAT adjustment has been posted.')->send();
                 }),
+            Action::make('reviewAdjustment')
+                ->label('Review Price Adjustment')
+                ->icon('heroicon-o-check-badge')
+                ->color('primary')
+                ->visible(fn (): bool => ($user = auth()->user()) instanceof User
+                    && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::ReviewPriceAdjustments)
+                    && $this->record->status === 'issued'
+                    && TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
+                        ->whereDoesntHave('decision')->exists())
+                ->schema([
+                    \Filament\Forms\Components\Select::make('proposal_id')
+                        ->label('Pending Request')
+                        ->options(fn (): array => TaxInvoicePriceAdjustmentProposal::query()
+                            ->where('tax_invoice_id', $this->record->id)
+                            ->whereDoesntHave('decision')
+                            ->orderByDesc('id')
+                            ->get()->mapWithKeys(fn ($p): array => [$p->id => 'Request #'.$p->id.' — AED '.$p->gross_difference])->all())
+                        ->required(),
+                    \Filament\Forms\Components\Select::make('review_decision')
+                        ->label('Finance Decision')
+                        ->options(['approved' => 'Approve for finance processing (NOT issued)', 'rejected' => 'Reject request'])
+                        ->required(),
+                    Textarea::make('review_reason')->label('Review Reason')
+                        ->required()->minLength(5)->maxLength(2000),
+                ])
+                ->modalHeading('Finance Price Adjustment Review')
+                ->modalDescription('Approval records internal finance sign-off ONLY. No official Tax Credit Note, additional invoice, accounting journal, payment or VAT return adjustment will be issued or posted.')
+                ->requiresConfirmation()
+                ->action(function (array $data): void {
+                    $user = auth()->user();
+                    abort_unless($user instanceof User, 403);
+                    $proposal = TaxInvoicePriceAdjustmentProposal::query()
+                        ->where('tax_invoice_id', $this->record->id)
+                        ->findOrFail((int) $data['proposal_id']);
+                    app(TaxInvoicePriceCorrectionService::class)->review($proposal, $data['review_decision'], $data['review_reason'], $user);
+                    Notification::make()->success()->title('Finance decision recorded')
+                        ->body('Request reviewed. No tax documents or accounting entries were posted.')->send();
+                }),
             Action::make('priceAdjustmentRequests')
                 ->label('Price Adjustment Requests')
                 ->icon('heroicon-o-document-text')
@@ -96,7 +136,7 @@ class ViewTaxInvoice extends ViewRecord
                 ->visible(fn (): bool => TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)->exists())
                 ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.price-adjustment-proposals', [
                     'proposals' => TaxInvoicePriceAdjustmentProposal::query()
-                        ->with('requestedBy')
+                        ->with(['requestedBy', 'decision.reviewedBy'])
                         ->where('tax_invoice_id', $this->record->id)->latest()->get(),
                 ])),
             Action::make('viewAmendmentHistory')

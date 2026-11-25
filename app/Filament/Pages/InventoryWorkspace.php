@@ -547,14 +547,6 @@ class InventoryWorkspace extends Page
             && ProductResource::canViewAny()
             && ProductResource::canView($product);
 
-        return [
-            'sku' => $product?->sku ?? '—',
-            'name' => $product?->name ?? '—',
-            'warehouse' => $inventory->warehouse?->name ?? '—',
-            'available' => $personal ? (int) ($ownBalance?->allocated_quantity ?? 0) : (int) $inventory->available_quantity,
-            'reserved' => $personal ? (int) ($ownBalance?->reserved_quantity ?? 0) : (int) $inventory->reserved_quantity,
-            'damaged' => $personal ? 0 : (int) $inventory->damaged_quantity,
-            'personal' => $personal,
         $personal = app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user);
         $ownBalance = $personal
             ? app(EmployeeOwnedInventoryReadService::class)->balances($user)
@@ -586,6 +578,15 @@ class InventoryWorkspace extends Page
             ];
         })->all();
 
+
+        return [
+            'sku' => $product?->sku ?? '—',
+            'name' => $product?->name ?? '—',
+            'warehouse' => $inventory->warehouse?->name ?? '—',
+            'available' => $personal ? (int) ($ownBalance?->allocated_quantity ?? 0) : (int) $inventory->available_quantity,
+            'reserved' => $personal ? (int) ($ownBalance?->reserved_quantity ?? 0) : (int) $inventory->reserved_quantity,
+            'damaged' => $personal ? 0 : (int) $inventory->damaged_quantity,
+            'personal' => $personal,
             'reservationRows' => $reservationRows,
             'movements' => $movements->map(fn ($movement): array => [
                 'reference' => $movement->reference ?? ('#'.$movement->id),

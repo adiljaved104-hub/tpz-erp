@@ -198,9 +198,9 @@ class TaxInvoiceAdjustmentIssuanceService
                     'issued_on' => $date, 'status' => 'issued',
                     'net_amount' => $preview['net'], 'vat_amount' => $preview['vat'], 'gross_amount' => $preview['gross'],
                     'original_invoice_net' => $invoice->subtotal_excluding_vat,
-                    'corrected_invoice_net' => $request->proposed_line_snapshot
-                        ? array_reduce($request->proposed_line_snapshot, fn (string $sum, array $line): string => bcadd($sum, (string) $line['net'], 2), '0.00')
-                        : $invoice->subtotal_excluding_vat,
+                    'corrected_invoice_net' => $credit
+                        ? bcsub((string) $invoice->subtotal_excluding_vat, (string) $preview['net'], 2)
+                        : bcadd((string) $invoice->subtotal_excluding_vat, (string) $preview['net'], 2),
                     'seller_snapshot' => $invoice->seller_snapshot,
                     'customer_snapshot' => [
                         'name' => $invoice->customer_name, 'address' => $invoice->customer_address,

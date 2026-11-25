@@ -80,7 +80,7 @@ class InventoryWorkspace extends Page
     public string $search = '';
 
     // This is a view filter only. Never mutate stock or allocation balances.
-    public string $inventoryStockFilter = 'in_stock';
+    public string $inventoryStockFilter = 'all';
 
     public string $inventoryHolderFilter = '';
 

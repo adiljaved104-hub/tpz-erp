@@ -180,7 +180,7 @@ class TaxInvoiceUiCorrectionTest extends TestCase
 
         Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
             ->fillForm($this->invoiceFormData())
-            ->mountAction('create')
+            ->mountAction('confirmSaveInvoice')
             ->assertSee('Confirm Invoice Prices Before Saving')
             ->assertSee('Confirm Prices & Save Invoice');
 

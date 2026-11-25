@@ -3,11 +3,15 @@
     @foreach($proposals as $proposal)
         <div class="rounded-lg border border-gray-200 p-4 dark:border-white/10">
             <div class="flex flex-wrap justify-between gap-2">
-                <strong>Request #{{ $proposal->id }} — {{ str_replace('_', ' ', ucfirst($proposal->status)) }}</strong>
+                <strong>Request #{{ $proposal->id }} — {{ $proposal->decision?->decision ? ucfirst($proposal->decision->decision).' (internal finance review only)' : 'Pending finance review' }}</strong>
                 <span class="text-xs text-gray-500">{{ $proposal->created_at?->format('Y-m-d H:i') }}</span>
             </div>
             <p class="mt-2 text-sm">Requested by: {{ $proposal->requestedBy?->name ?? 'User #'.$proposal->requested_by_user_id }}</p>
             <p class="mt-1 text-sm">Reason: {{ $proposal->reason }}</p>
+            @if($proposal->decision)
+                <p class="mt-1 text-sm">Reviewed by: {{ $proposal->decision->reviewedBy?->name ?? 'User #'.$proposal->decision->reviewed_by_user_id }} · {{ $proposal->decision->decided_at?->format('Y-m-d H:i') }}</p>
+                <p class="mt-1 text-sm">Finance reason: {{ $proposal->decision->reason }}</p>
+            @endif
             <p class="mt-2 text-sm">Original gross: AED {{ number_format((float) $proposal->old_gross, 2) }} · Proposed gross: AED {{ number_format((float) $proposal->new_gross, 2) }} · Difference: AED {{ number_format((float) $proposal->gross_difference, 2) }}</p>
             @foreach($proposal->adjustment_documents_preview as $kind => $document)
                 @if(count($document['lines'] ?? []) > 0)

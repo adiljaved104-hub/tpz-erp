@@ -20,6 +20,7 @@ use App\Services\ActivityLogger;
 use App\Services\Authorization\AccountingAuthorization;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\ReferenceSequenceService;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -40,9 +41,9 @@ class TaxInvoiceAdjustmentIssuanceService
      * Never modifies the issued source Tax Invoice or historical journal.
      *
      * @param  array<string,mixed>  $input
-     * @return \Illuminate\Support\Collection<int,TaxInvoiceAdjustmentDocument>
+     * @return Collection<int,TaxInvoiceAdjustmentDocument>
      */
-    public function issue(TaxInvoicePriceAdjustmentProposal $proposal, array $input, User $actor): \Illuminate\Support\Collection
+    public function issue(TaxInvoicePriceAdjustmentProposal $proposal, array $input, User $actor): Collection
     {
         $this->invoices->authorize($actor, InvoicePermission::IssuePriceAdjustments);
         $this->accounting->authorize($actor, AccountingPermission::PostJournal);
@@ -80,7 +81,7 @@ class TaxInvoiceAdjustmentIssuanceService
             $references[$kind] = $prefix.'-'.$year.'-'.str_pad((string) $this->sequences->next("{$key}:{$year}"), 6, '0', STR_PAD_LEFT);
         }
 
-        return DB::transaction(function () use ($proposal, $data, $actor, $references): \Illuminate\Support\Collection {
+        return DB::transaction(function () use ($proposal, $data, $actor, $references): Collection {
             $invoice = TaxInvoice::query()->lockForUpdate()->findOrFail($proposal->tax_invoice_id);
             $request = TaxInvoicePriceAdjustmentProposal::query()->with('decision')->lockForUpdate()->findOrFail($proposal->id);
             if ($invoice->status !== 'issued' || $request->decision?->decision !== 'approved') {

@@ -9,6 +9,7 @@ use App\Filament\Resources\TaxInvoices\Pages\CreateTaxInvoice;
 use App\Filament\Resources\TaxInvoices\Pages\ListTaxInvoices;
 use App\Filament\Resources\TaxInvoices\Pages\ViewTaxInvoice;
 use App\Models\TaxInvoice;
+use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
 use App\Services\Invoices\TaxInvoiceOrderImportService;
@@ -274,6 +275,37 @@ class TaxInvoiceResource extends Resource
                 TextEntry::make('customer_name'), TextEntry::make('customer_phone')->label('Customer Phone')->visible(fn (TaxInvoice $record): bool => filled($record->customer_phone)), TextEntry::make('customer_trn')->label('Customer TRN')->placeholder('—'), TextEntry::make('customer_address')->columnSpan(2)->placeholder('—'),
                 TextEntry::make('subtotal_excluding_vat')->money('AED'), TextEntry::make('vat_amount')->label('VAT')->money('AED'), TextEntry::make('grand_total')->money('AED')->weight('bold'), TextEntry::make('createdBy.name')->label('Created By'),
             ]),
+            Section::make('Approved Price Adjustment (Review Only)')
+                ->description('The original issued Tax Invoice remains unchanged. The figures below reflect the approved price review; download the Amended Price Summary to see the complete corrected product list. This is not a new Tax Invoice or Credit Note.')
+                ->visible(fn (TaxInvoice $record): bool => TaxInvoicePriceAdjustmentProposal::query()
+                    ->where('tax_invoice_id', $record->id)
+                    ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))->exists())
+                ->columns(['default' => 1, 'md' => 3])
+                ->schema([
+                    TextEntry::make('approved_review_original')
+                        ->label('Original Invoice Total')
+                        ->state(fn (TaxInvoice $record): ?string => self::approvedReview($record)?->old_gross)
+                        ->money('AED'),
+                    TextEntry::make('approved_review_corrected')
+                        ->label('Approved Reviewed Total')
+                        ->state(fn (TaxInvoice $record): ?string => self::approvedReview($record)?->new_gross)
+                        ->money('AED')->weight('bold'),
+                    TextEntry::make('approved_review_difference')
+                        ->label('Price Difference')
+                        ->state(fn (TaxInvoice $record): ?string => self::approvedReview($record)?->gross_difference)
+                        ->money('AED'),
+                    RepeatableEntry::make('approved_review_product_prices')
+                        ->label('Approved Revised Product Prices')
+                        ->state(fn (TaxInvoice $record): array => self::approvedReview($record)?->proposed_line_snapshot ?? [])
+                        ->schema([
+                            TextEntry::make('description')->label('Product'),
+                            TextEntry::make('quantity')->label('Qty'),
+                            TextEntry::make('unit_price_including_vat')->label('Revised Unit Price Incl. VAT')->money('AED'),
+                            TextEntry::make('gross')->label('Revised Line Total Incl. VAT')->money('AED'),
+                        ])
+                        ->columns(['default' => 1, 'md' => 4])
+                        ->columnSpanFull(),
+                ]),
             Section::make('Record Information')
                 ->description('Internal ERP metadata. This information is not printed on the customer Invoice.')
                 ->compact()
@@ -494,6 +526,14 @@ class TaxInvoiceResource extends Resource
                     ->body("{$record->invoice_number} keeps the same items, totals and Invoice number.")
                     ->send();
             });
+    }
+
+    private static function approvedReview(TaxInvoice $invoice): ?TaxInvoicePriceAdjustmentProposal
+    {
+        return TaxInvoicePriceAdjustmentProposal::query()
+            ->where('tax_invoice_id', $invoice->id)
+            ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))
+            ->latest('id')->first();
     }
 
     private static function amendments(TaxInvoice $invoice): Collection

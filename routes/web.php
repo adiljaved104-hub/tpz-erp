@@ -11,6 +11,8 @@ use App\Http\Controllers\QcPassportController;
 use App\Http\Controllers\QuotationPdfController;
 use App\Http\Controllers\ReportsExportController;
 use App\Http\Controllers\TaxInvoicePdfController;
+use App\Http\Controllers\TaxInvoiceAdjustmentDocumentPdfController;
+use App\Http\Controllers\TaxInvoiceAmendedSummaryPdfController;
 use App\Http\Middleware\EnforceWebSecurityPolicy;
 use Illuminate\Support\Facades\Route;
 
@@ -92,6 +94,12 @@ Route::get('/invoice/verify/{token}', PublicTaxInvoiceVerificationController::cl
 
 Route::get('/admin/tax-invoices/{invoice}/pdf', TaxInvoicePdfController::class)
     ->middleware(['auth', EnforceWebSecurityPolicy::class])->name('tax-invoices.pdf');
+
+Route::get('/admin/tax-adjustment-documents/{document}/pdf', TaxInvoiceAdjustmentDocumentPdfController::class)
+    ->middleware(['auth', EnforceWebSecurityPolicy::class])->name('tax-invoices.adjustment-document.pdf');
+
+Route::get('/admin/tax-invoices/amended-summary/{proposal}/pdf', TaxInvoiceAmendedSummaryPdfController::class)
+    ->middleware(['auth', EnforceWebSecurityPolicy::class])->name('tax-invoices.amended-summary.pdf');
 
 Route::get('/admin/quotations/{quotation}/pdf', QuotationPdfController::class)
     ->middleware(['auth', EnforceWebSecurityPolicy::class])->name('quotations.pdf');

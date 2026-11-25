@@ -11,6 +11,7 @@ use Filament\Resources\Pages\CreateRecord;
 use Filament\Support\Enums\Width;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
@@ -78,9 +79,20 @@ class CreateTaxInvoice extends CreateRecord
 
     protected function getCreateFormAction(): Action
     {
-        return parent::getCreateFormAction()
+        return Action::make('confirmSaveInvoice')
             ->color('gray')
             ->icon('heroicon-o-check')
+            ->submit(null)
+            ->action(fn (): mixed => $this->create())
+            ->modalSubmitActionLabel('Confirm Prices & Save Invoice')
+            ->modalHeading('Confirm Invoice Prices Before Saving')
+            ->modalDescription('Review the product prices and quantities before issuing this Tax Invoice.')
+            ->modalWidth('2xl')
+            ->requiresConfirmation()
+            ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.confirm-create-prices', [
+                'items' => array_values((array) ($this->form->getRawState()['items'] ?? [])),
+                'totals' => app(TaxInvoiceService::class)->previewTotals(array_values((array) ($this->form->getRawState()['items'] ?? []))),
+            ]))
             ->label(new HtmlString(
                 '<span wire:loading.remove wire:target="create">Save Invoice</span>'
                 .'<span wire:loading wire:target="create">Saving...</span>',
@@ -97,8 +109,16 @@ class CreateTaxInvoice extends CreateRecord
                 ))
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('primary')
-                ->livewireTarget('saveDownloadAndNew')
-                ->action('saveDownloadAndNew'),
+                ->modalHeading('Confirm Invoice Prices Before Saving')
+                ->modalDescription('Review each product, quantity, VAT-inclusive unit price and total. Saving issues the original Tax Invoice, which cannot be edited directly afterward.')
+                ->modalWidth('2xl')
+                ->modalSubmitActionLabel('Confirm Prices, Save & Download')
+                ->requiresConfirmation()
+                ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.confirm-create-prices', [
+                    'items' => array_values((array) ($this->form->getRawState()['items'] ?? [])),
+                    'totals' => app(TaxInvoiceService::class)->previewTotals(array_values((array) ($this->form->getRawState()['items'] ?? []))),
+                ]))
+                ->action(fn (): ?StreamedResponse => $this->saveDownloadAndNew()),
             $this->getCreateFormAction(),
             $this->getCancelFormAction(),
         ];

@@ -57,9 +57,10 @@ class ViewTaxInvoice extends ViewRecord
                 ->visible(fn (): bool => $this->record->status === 'issued'
                     && ($user = auth()->user()) instanceof User
                     && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::EditPrices, $this->record)
-                    && ! TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)->whereDoesntHave('decision')->exists()
-                        || TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
-                            ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))->exists())
+                    && ! TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
+                        ->whereDoesntHave('decision')->exists()
+                    && ! TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
+                        ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))->exists())
                 ->fillForm(fn (): array => [
                     'items' => $this->record->items()->get()->map(fn ($item): array => [
                         'id' => $item->id,
@@ -212,6 +213,20 @@ class ViewTaxInvoice extends ViewRecord
                         ->with(['requestedBy', 'decision.reviewedBy'])
                         ->where('tax_invoice_id', $this->record->id)->latest()->get(),
                 ])),
+            Action::make('downloadAmendedSummary')
+                ->label('Download Amended Price Summary')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('primary')
+                ->visible(fn (): bool => ($user = auth()->user()) instanceof User
+                    && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::DownloadPdf, $this->record)
+                    && TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
+                        ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))->exists())
+                ->url(fn (): string => route('tax-invoices.amended-summary.pdf', [
+                    'proposal' => TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
+                        ->whereHas('decision', fn ($query) => $query->where('decision', 'approved'))
+                        ->latest('id')->firstOrFail(),
+                ]))
+                ->openUrlInNewTab(),
             Action::make('viewAmendmentHistory')
                 ->label('View Amendment History')
                 ->icon('heroicon-o-clock')

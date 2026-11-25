@@ -208,6 +208,36 @@ class TaxInvoicePriceCorrectionTest extends TestCase
         $decision->update(['reason' => 'Modified approval']);
     }
 
+    public function test_approved_amended_summary_download_includes_corrected_prices_but_not_an_official_tax_invoice(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+        $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice, '420.00'), $owner);
+        app(TaxInvoicePriceCorrectionService::class)->review($proposal, 'approved', 'Prices verified for the review summary.', $owner);
+
+        $response = $this->actingAs($owner)->get(route('tax-invoices.amended-summary.pdf', ['proposal' => $proposal]));
+        $response->assertSuccessful();
+        $this->assertStringContainsString('application/pdf', (string) $response->headers->get('content-type'));
+        $this->assertStringContainsString('Amended-Summary', (string) $response->headers->get('content-disposition'));
+        $this->assertSame('1050.00', $invoice->fresh()->grand_total);
+        $this->assertSame(1, TaxInvoice::query()->count());
+        Livewire::actingAs($owner)->test(ViewTaxInvoice::class, ['record' => $invoice->id])
+            ->assertSee('Approved Revised Product Prices')
+            ->assertSee('Approved Reviewed Total')
+            ->assertSee('Download Amended Price Summary');
+    }
+
+    public function test_pending_amended_price_summary_cannot_be_downloaded(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+        $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $owner);
+
+        $this->actingAs($owner)->get(route('tax-invoices.amended-summary.pdf', ['proposal' => $proposal]))->assertNotFound();
+    }
+
     private function change(TaxInvoice $invoice, string $price = '630.00'): array
     {
         return [

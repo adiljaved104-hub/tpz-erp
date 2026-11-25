@@ -523,9 +523,16 @@ class InventoryWorkspace extends Page
             'sku' => $product?->sku ?? '—',
             'name' => $product?->name ?? '—',
             'warehouse' => $inventory->warehouse?->name ?? '—',
-            'available' => (int) $inventory->available_quantity,
-            'reserved' => (int) $inventory->reserved_quantity,
-            'damaged' => (int) $inventory->damaged_quantity,
+            'available' => $personal ? (int) ($ownBalance?->allocated_quantity ?? 0) : (int) $inventory->available_quantity,
+            'reserved' => $personal ? (int) ($ownBalance?->reserved_quantity ?? 0) : (int) $inventory->reserved_quantity,
+            'damaged' => $personal ? 0 : (int) $inventory->damaged_quantity,
+            'personal' => $personal,
+        $personal = app(EmployeeOwnedInventoryReadService::class)->isEmployeeView($user);
+        $ownBalance = $personal
+            ? app(EmployeeOwnedInventoryReadService::class)->balances($user)
+                ->where('product_inventory_id', $inventory->id)->first()
+            : null;
+
         $reservationQuery = InventoryReservation::query()
             ->where('product_inventory_id', $inventory->id)
             ->where('status', InventoryReservationStatus::Active);

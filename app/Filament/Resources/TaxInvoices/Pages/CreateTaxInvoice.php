@@ -86,13 +86,13 @@ class CreateTaxInvoice extends CreateRecord
             ->action(fn (): mixed => $this->create())
             ->modalSubmitActionLabel('Confirm Prices & Save Invoice')
             ->modalHeading('Confirm Invoice Prices Before Saving')
-                ->modalDescription('Review the product prices and quantities before issuing this Tax Invoice.')
-                ->modalWidth('2xl')
-                ->requiresConfirmation()
-                ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.confirm-create-prices', [
-                    'items' => array_values((array) ($this->form->getRawState()['items'] ?? [])),
-                    'totals' => app(TaxInvoiceService::class)->previewTotals(array_values((array) ($this->form->getRawState()['items'] ?? []))),
-                ]))
+            ->modalDescription('Review the product prices and quantities before issuing this Tax Invoice.')
+            ->modalWidth('2xl')
+            ->requiresConfirmation()
+            ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.confirm-create-prices', [
+                'items' => array_values((array) ($this->form->getRawState()['items'] ?? [])),
+                'totals' => app(TaxInvoiceService::class)->previewTotals(array_values((array) ($this->form->getRawState()['items'] ?? []))),
+            ]))
             ->label(new HtmlString(
                 '<span wire:loading.remove wire:target="create">Save Invoice</span>'
                 .'<span wire:loading wire:target="create">Saving...</span>',

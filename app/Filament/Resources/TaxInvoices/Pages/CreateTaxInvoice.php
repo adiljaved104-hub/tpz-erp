@@ -79,7 +79,7 @@ class CreateTaxInvoice extends CreateRecord
 
     protected function getCreateFormAction(): Action
     {
-        return parent::getCreateFormAction()
+        return Action::make('confirmSaveInvoice')
             ->color('gray')
             ->icon('heroicon-o-check')
             ->submit(null)

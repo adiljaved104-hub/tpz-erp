@@ -101,7 +101,7 @@ class CreateTaxInvoice extends CreateRecord
                 ->livewireTarget('saveDownloadAndNew')
                 ->modalHeading('Confirm Invoice Prices Before Saving')
                 ->modalDescription('Review each product, quantity, VAT-inclusive unit price and total. Saving issues the original Tax Invoice, which cannot be edited directly afterward.')
-                ->modalWidth('3xl')
+                ->modalWidth('2xl')
                 ->modalSubmitActionLabel('Confirm Prices, Save & Download')
                 ->requiresConfirmation()
                 ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.confirm-create-prices', [

@@ -151,7 +151,7 @@ class StockRequestFoundationTest extends TestCase
         $this->assertDatabaseCount('stock_request_items', 0);
     }
 
-    public function test_visibility_supports_requester_owner_admin_and_responsibility_scope(): void
+    public function test_visibility_supports_requester_owner_admin_and_named_stock_source_not_unrelated_same_product_responsibility(): void
     {
         $f = $this->responsibilityFoundation(5);
         app(CreateResponsibilityAssignment::class)->handle($this->assignmentData($f), $f['owner']);
@@ -169,7 +169,8 @@ class StockRequestFoundationTest extends TestCase
         $this->assertTrue(app(StockRequestService::class)->visibleQuery($requester)->whereKey($request)->exists());
         $this->assertTrue(app(StockRequestService::class)->visibleQuery($f['owner'])->whereKey($request)->exists());
         $this->assertTrue(app(StockRequestService::class)->visibleQuery($admin)->whereKey($request)->exists());
-        $this->assertTrue(app(StockRequestService::class)->visibleQuery($scoped)->whereKey($request)->exists());
+        $this->assertFalse(app(StockRequestService::class)->visibleQuery($scoped)->whereKey($request)->exists());
+        $this->assertFalse(app(StockRequestService::class)->canView($scoped, $request));
         $this->assertFalse(app(StockRequestService::class)->visibleQuery($unrelated)->whereKey($request)->exists());
     }
 

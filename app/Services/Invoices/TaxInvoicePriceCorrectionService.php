@@ -3,8 +3,8 @@
 namespace App\Services\Invoices;
 
 use App\Enums\InvoicePermission;
-use App\Models\TaxInvoiceAdjustmentReviewDecision;
 use App\Models\TaxInvoice;
+use App\Models\TaxInvoiceAdjustmentReviewDecision;
 use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
 use App\Services\ActivityLogger;
@@ -149,6 +149,7 @@ class TaxInvoicePriceCorrectionService
             return $proposal;
         }, 3);
     }
+
     /**
      * Finance sign-off records a review decision ONLY, never tax-document issuance,
      * customer communication, VAT posting or accounting journal posting.
@@ -200,5 +201,4 @@ class TaxInvoicePriceCorrectionService
             return $record;
         }, 3);
     }
-
 }

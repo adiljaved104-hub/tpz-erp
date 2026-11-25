@@ -21,6 +21,7 @@
     <h1>{{ $document->kind === 'tax_credit_note' ? 'TAX CREDIT NOTE' : 'ADDITIONAL TAX INVOICE' }}</h1>
     <p><strong>Document:</strong> {{ $document->document_number }} &nbsp; <strong>Date:</strong> {{ $document->issued_on?->format('d M Y') }}</p>
     <p><strong>Original Tax Invoice:</strong> {{ $invoice->invoice_number }} &nbsp; <strong>Original Date:</strong> {{ $invoice->invoice_date?->format('d M Y') }}</p>
+    <p><strong>Order Reference:</strong> {{ $invoice->order_reference }} &nbsp; <strong>VAT Rate:</strong> {{ $invoice->vat_rate }}%</p>
 
     <div class="row">
         <div class="cell">

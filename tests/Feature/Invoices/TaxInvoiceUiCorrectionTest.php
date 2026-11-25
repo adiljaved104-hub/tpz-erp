@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Services\CompanyProfileService;
 use App\Services\Invoices\TaxInvoiceService;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Filament\Actions\Testing\TestAction;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -180,7 +181,7 @@ class TaxInvoiceUiCorrectionTest extends TestCase
 
         Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
             ->fillForm($this->invoiceFormData())
-            ->mountAction('confirmSaveInvoice')
+            ->mountAction(TestAction::make('confirmSaveInvoice')->schemaComponent('form-actions', schema: 'content'))
             ->assertSee('Confirm Invoice Prices Before Saving')
             ->assertSee('Confirm Prices & Save Invoice');
 
@@ -188,7 +189,7 @@ class TaxInvoiceUiCorrectionTest extends TestCase
 
         Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
             ->fillForm($this->invoiceFormData())
-            ->mountAction('saveDownloadAndNew')
+            ->mountAction(TestAction::make('saveDownloadAndNew')->schemaComponent('form-actions', schema: 'content'))
             ->assertSee('Confirm Invoice Prices Before Saving')
             ->assertSee('Confirm Prices, Save & Download');
 

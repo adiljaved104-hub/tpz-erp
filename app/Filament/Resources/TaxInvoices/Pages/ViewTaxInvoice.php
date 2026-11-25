@@ -13,6 +13,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -97,7 +98,7 @@ class ViewTaxInvoice extends ViewRecord
                     && TaxInvoicePriceAdjustmentProposal::query()->where('tax_invoice_id', $this->record->id)
                         ->whereDoesntHave('decision')->exists())
                 ->schema([
-                    \Filament\Forms\Components\Select::make('proposal_id')
+                    Select::make('proposal_id')
                         ->label('Pending Request')
                         ->options(fn (): array => TaxInvoicePriceAdjustmentProposal::query()
                             ->where('tax_invoice_id', $this->record->id)
@@ -105,7 +106,7 @@ class ViewTaxInvoice extends ViewRecord
                             ->orderByDesc('id')
                             ->get()->mapWithKeys(fn ($p): array => [$p->id => 'Request #'.$p->id.' — AED '.$p->gross_difference])->all())
                         ->required(),
-                    \Filament\Forms\Components\Select::make('review_decision')
+                    Select::make('review_decision')
                         ->label('Finance Decision')
                         ->options(['approved' => 'Approve for finance processing (NOT issued)', 'rejected' => 'Reject request'])
                         ->required(),

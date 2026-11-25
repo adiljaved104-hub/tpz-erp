@@ -201,12 +201,14 @@ class StockRequestService
         }
 
         $employeeId = $actor->employee?->id;
-        $visibleInventoryIds = $this->responsibilities->inventoryIds($actor);
 
-        return $query->where(function (Builder $scope) use ($employeeId, $visibleInventoryIds): void {
+        // Seeing a product through brand/warehouse responsibility does not
+        // authorize seeing every other employee's request for that product.
+        // Only the requester and the explicitly proposed stock-source
+        // employee may open a scoped request. Broad roles keep broad access.
+        return $query->where(function (Builder $scope) use ($employeeId): void {
             $scope->where('requested_by_employee_id', $employeeId)
-                ->orWhereHas('sourceLines.account', fn (Builder $accounts): Builder => $accounts->where('employee_id', $employeeId))
-                ->orWhereDoesntHave('items', fn (Builder $items): Builder => $items->whereNotIn('product_inventory_id', $visibleInventoryIds));
+                ->orWhereHas('sourceLines.account', fn (Builder $accounts): Builder => $accounts->where('employee_id', $employeeId));
         });
     }
 
@@ -223,8 +225,7 @@ class StockRequestService
             return true;
         }
 
-        return $request->items()->pluck('product_inventory_id')
-            ->every(fn (int $inventoryId): bool => $this->responsibilities->canAccessInventory($actor, $inventoryId));
+        return false;
     }
 
     /** @return Collection<int, ProductInventory> */

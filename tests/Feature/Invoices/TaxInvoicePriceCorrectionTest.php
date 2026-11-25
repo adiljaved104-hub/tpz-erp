@@ -10,6 +10,7 @@ use App\Filament\Resources\TaxInvoices\Pages\ViewTaxInvoice;
 use App\Models\Employee;
 use App\Models\EmployeePermissionOverride;
 use App\Models\TaxInvoice;
+use App\Models\TaxInvoiceAdjustmentReviewDecision;
 use App\Models\TaxInvoicePriceAdjustmentProposal;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
@@ -144,6 +145,67 @@ class TaxInvoicePriceCorrectionTest extends TestCase
         Livewire::actingAs($staff)->test(ViewTaxInvoice::class, ['record' => $invoice->id])
             ->assertActionHidden('correctPrices')
             ->assertActionVisible('priceAdjustmentRequests');
+    }
+
+    public function test_owner_approves_review_without_issuing_documents_or_posting_journals(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+        $before = (array) DB::table('tax_invoices')->where('id', $invoice->id)->first();
+        $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $owner);
+
+        $decision = app(TaxInvoicePriceCorrectionService::class)->review($proposal, 'approved', 'Verified for finance processing.', $owner);
+
+        $this->assertSame('approved', $decision->decision);
+        $this->assertSame($owner->id, $decision->reviewed_by_user_id);
+        $this->assertSame($before, (array) DB::table('tax_invoices')->where('id', $invoice->id)->first());
+        $this->assertSame(1, TaxInvoice::query()->count());
+        $this->assertSame(0, DB::table('accounting_journals')->count());
+        $this->assertSame(1, TaxInvoiceAdjustmentReviewDecision::query()->count());
+        $this->expectException(ValidationException::class);
+        app(TaxInvoicePriceCorrectionService::class)->review($proposal, 'approved', 'Duplicate review is not allowed.', $owner);
+    }
+
+    public function test_finance_rejection_allows_a_fresh_request_but_not_duplicate_decisions(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+        $first = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $owner);
+
+        app(TaxInvoicePriceCorrectionService::class)->review($first, 'rejected', 'Incorrect supporting evidence.', $owner);
+        $second = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice, '420.00'), $owner);
+
+        $this->assertNotSame($first->id, $second->id);
+        $this->assertSame(2, TaxInvoicePriceAdjustmentProposal::query()->count());
+        $this->assertSame(1, TaxInvoiceAdjustmentReviewDecision::query()->count());
+        $this->assertSame('issued', $invoice->fresh()->status);
+    }
+
+    public function test_employee_cannot_approve_price_reviews_without_separate_finance_permission(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $staff = $this->user(EmployeeRole::Staff);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+        $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $owner);
+
+        $this->assertFalse(app(InvoiceAuthorization::class)->allows($staff, InvoicePermission::ReviewPriceAdjustments));
+        $this->expectException(AuthorizationException::class);
+        app(TaxInvoicePriceCorrectionService::class)->review($proposal, 'approved', 'Not authorized to review.', $staff);
+    }
+
+    public function test_approval_decisions_are_append_only(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner);
+        $proposal = app(TaxInvoicePriceCorrectionService::class)->propose($invoice, $this->change($invoice), $owner);
+        $decision = app(TaxInvoicePriceCorrectionService::class)->review($proposal, 'approved', 'Finance review complete.', $owner);
+
+        $this->expectException(\LogicException::class);
+        $decision->update(['reason' => 'Modified approval']);
     }
 
     private function change(TaxInvoice $invoice, string $price = '630.00'): array

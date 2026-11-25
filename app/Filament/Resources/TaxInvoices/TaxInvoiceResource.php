@@ -294,6 +294,17 @@ class TaxInvoiceResource extends Resource
                         ->label('Price Difference')
                         ->state(fn (TaxInvoice $record): ?string => self::approvedReview($record)?->gross_difference)
                         ->money('AED'),
+                    RepeatableEntry::make('approved_review_product_prices')
+                        ->label('Approved Revised Product Prices')
+                        ->state(fn (TaxInvoice $record): array => self::approvedReview($record)?->proposed_line_snapshot ?? [])
+                        ->schema([
+                            TextEntry::make('description')->label('Product'),
+                            TextEntry::make('quantity')->label('Qty'),
+                            TextEntry::make('unit_price_including_vat')->label('Revised Unit Price Incl. VAT')->money('AED'),
+                            TextEntry::make('gross')->label('Revised Line Total Incl. VAT')->money('AED'),
+                        ])
+                        ->columns(['default' => 1, 'md' => 4])
+                        ->columnSpanFull(),
                 ]),
             Section::make('Record Information')
                 ->description('Internal ERP metadata. This information is not printed on the customer Invoice.')

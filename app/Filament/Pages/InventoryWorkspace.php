@@ -18,22 +18,26 @@ use App\Filament\Resources\StockMovements\StockMovementResource;
 use App\Filament\Resources\StockRequests\Schemas\StockRequestForm;
 use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
-use App\Models\StockRequest;
-use App\Models\InventoryReservation;
 use App\Models\InventoryAllocationAccount;
+use App\Models\InventoryReservation;
+use App\Models\ProductBrand;
+use App\Models\ProductCategory;
+use App\Models\StockRequest;
 use App\Models\StockRequestExecution;
 use App\Models\StockRequestSourceLine;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
 use App\Services\Inventory\EmployeeOwnedInventoryReadService;
+use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
+use App\Services\Inventory\StockByHolderReportService;
 use App\Services\Inventory\StockRequestApprovalService;
 use App\Services\Inventory\StockRequestExecutionService;
 use App\Services\Inventory\StockRequestService;
-use App\Services\Inventory\StockByHolderReportService;
 use App\Services\Mobile\StockStatus;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Navigation\WorkspaceRecordPreviewService;
@@ -85,10 +89,15 @@ class InventoryWorkspace extends Page
     public string $myInventorySearch = '';
 
     public string $ownershipHolderId = '';
+
     public string $ownershipSearch = '';
+
     public string $ownershipBrandId = '';
+
     public string $ownershipCategoryId = '';
+
     public string $ownershipWarehouseId = '';
+
     public bool $ownershipUnassignedOnly = false;
 
     // Store only the selected inventory ID; always load through the scoped
@@ -241,7 +250,7 @@ class InventoryWorkspace extends Page
             if ($inventoryQuery !== null && ctype_digit($this->inventoryHolderFilter) && $this->inventoryHolderFilter !== '') {
                 $holderId = (int) $this->inventoryHolderFilter;
                 if (array_key_exists((string) $holderId, $inventoryHolderOptions)) {
-                    $inventoryQuery->whereIn('product_inventories.id', app(\App\Services\Inventory\InventoryAllocationBreakdownReadService::class)
+                    $inventoryQuery->whereIn('product_inventories.id', app(InventoryAllocationBreakdownReadService::class)
                         ->inventoryIdsForHolder($user, $holderId));
                 } else {
                     $inventoryQuery->whereRaw('1 = 0');
@@ -405,9 +414,9 @@ class InventoryWorkspace extends Page
             $ownershipHolderOptions = $report->holders()->mapWithKeys(
                 fn ($account): array => [$account->id => app(StockByHolder::class)->holderLabel($account)]
             );
-            $ownershipBrandOptions = \App\Models\ProductBrand::query()->orderBy('name')->pluck('name', 'id');
-            $ownershipCategoryOptions = \App\Models\ProductCategory::query()->orderBy('name')->pluck('name', 'id');
-            $ownershipWarehouseOptions = \App\Models\Warehouse::query()->orderBy('name')->pluck('name', 'id');
+            $ownershipBrandOptions = ProductBrand::query()->orderBy('name')->pluck('name', 'id');
+            $ownershipCategoryOptions = ProductCategory::query()->orderBy('name')->pluck('name', 'id');
+            $ownershipWarehouseOptions = Warehouse::query()->orderBy('name')->pluck('name', 'id');
         }
         if (is_array($selectedExtra) && $canInventory && $canLocationBalances) {
             if ($selectedExtra['label'] === 'My Allocated Stock') {
@@ -579,7 +588,6 @@ class InventoryWorkspace extends Page
                 'reserved_at' => $reservation->reserved_at?->format('d M Y, H:i') ?? '—',
             ];
         })->all();
-
 
         return [
             'sku' => $product?->sku ?? '—',
@@ -958,12 +966,35 @@ class InventoryWorkspace extends Page
             ->values();
     }
 
-    public function updatedOwnershipHolderId(): void { $this->resetPage('ownership-page'); }
-    public function updatedOwnershipSearch(): void { $this->resetPage('ownership-page'); }
-    public function updatedOwnershipBrandId(): void { $this->resetPage('ownership-page'); }
-    public function updatedOwnershipCategoryId(): void { $this->resetPage('ownership-page'); }
-    public function updatedOwnershipWarehouseId(): void { $this->resetPage('ownership-page'); }
-    public function updatedOwnershipUnassignedOnly(): void { $this->resetPage('ownership-page'); }
+    public function updatedOwnershipHolderId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipSearch(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipBrandId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipCategoryId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipWarehouseId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipUnassignedOnly(): void
+    {
+        $this->resetPage('ownership-page');
+    }
 
     public function chooseOwnershipHolder(int $accountId): void
     {

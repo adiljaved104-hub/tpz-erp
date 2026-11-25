@@ -222,6 +222,10 @@ class TaxInvoicePriceCorrectionTest extends TestCase
         $this->assertStringContainsString('Amended-Summary', (string) $response->headers->get('content-disposition'));
         $this->assertSame('1050.00', $invoice->fresh()->grand_total);
         $this->assertSame(1, TaxInvoice::query()->count());
+        Livewire::actingAs($owner)->test(ViewTaxInvoice::class, ['record' => $invoice->id])
+            ->assertSee('Approved Revised Product Prices')
+            ->assertSee('Approved Reviewed Total')
+            ->assertSee('Download Amended Price Summary');
     }
 
     public function test_pending_amended_price_summary_cannot_be_downloaded(): void

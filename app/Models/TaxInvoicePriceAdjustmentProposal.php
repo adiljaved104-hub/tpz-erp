@@ -33,6 +33,11 @@ class TaxInvoicePriceAdjustmentProposal extends Model
         return $this->belongsTo(TaxInvoice::class, 'tax_invoice_id');
     }
 
+    public function decision(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(TaxInvoiceAdjustmentReviewDecision::class, 'proposal_id');
+    }
+
     public function requestedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requested_by_user_id');

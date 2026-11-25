@@ -228,6 +228,41 @@ class StockRequestService
         return false;
     }
 
+    /**
+     * Scope item/source details inside a request that involves several staff
+     * members. A source holder may see only their proposed source lines, not
+     * another employee's products or stock-routing quantities.
+     *
+     * @return Collection<int, \App\Models\StockRequestItem>
+     */
+    public function visibleItems(User $actor, StockRequest $request): Collection
+    {
+        if (! $this->canView($actor, $request)) {
+            return collect();
+        }
+
+        $request->loadMissing('items.sourceLines.account');
+        if (! $this->responsibilities->requiresScope($actor)
+            || $request->requested_by_employee_id === $actor->employee?->id) {
+            return $request->items;
+        }
+
+        $employeeId = $actor->employee?->id;
+        return $request->items->map(function ($item) use ($employeeId) {
+            $allowedLines = $item->sourceLines->filter(
+                fn (StockRequestSourceLine $line): bool => $line->account?->employee_id === $employeeId
+            )->values();
+            if ($allowedLines->isEmpty()) {
+                return null;
+            }
+
+            $scoped = clone $item;
+            $scoped->setRelation('sourceLines', $allowedLines);
+
+            return $scoped;
+        })->filter()->values();
+    }
+
     /** @return Collection<int, ProductInventory> */
     public function searchInventories(User $actor, string $search): Collection
     {

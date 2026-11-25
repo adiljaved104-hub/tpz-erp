@@ -550,9 +550,9 @@
                 </div>
                 <dl class="mt-5 grid grid-cols-2 gap-4 text-sm">
                     <div class="col-span-2"><dt class="text-gray-500">Warehouse</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewInventory['warehouse'] }}</dd></div>
-                    <div><dt class="text-gray-500">Available</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['available']) }}</dd></div>
-                    <div><dt class="text-gray-500">Reserved</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['reserved']) }}</dd></div>
-                    <div><dt class="text-gray-500">Damaged</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['damaged']) }}</dd></div>
+                    <div><dt class="text-gray-500">{{ $quickViewInventory['personal'] ? 'My Allocated' : 'Warehouse Stock' }}</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['available']) }}</dd></div>
+                    <div><dt class="text-gray-500">{{ $quickViewInventory['personal'] ? 'My Reserved' : 'Reserved' }}</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['reserved']) }}</dd></div>
+                    @unless($quickViewInventory['personal'])<div><dt class="text-gray-500">Damaged</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['damaged']) }}</dd></div>@endunless
                 </dl>
                 @if(count($quickViewInventory['reservationRows']) > 0)
                     <h3 class="mt-7 border-b border-gray-200 pb-2 font-semibold text-gray-950 dark:border-gray-700 dark:text-white">Active reservation details (authorized scope)</h3>

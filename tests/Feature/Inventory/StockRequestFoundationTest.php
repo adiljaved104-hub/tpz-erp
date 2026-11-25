@@ -16,6 +16,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductBrand;
 use App\Models\ProductInventory;
+use App\Models\ResponsibilityAssignment;
 use App\Models\StockRequest;
 use App\Models\Team;
 use App\Models\User;
@@ -157,6 +158,10 @@ class StockRequestFoundationTest extends TestCase
         $requester = $f['employee']->user;
         $this->allocateToEmployee($f['inventory'], $f['employee']->id, 2, $f['owner']);
         $request = $this->createRequest($requester, StockRequestPurpose::PermanentTransfer, [new StockRequestItemData($f['inventory']->id, 1)]);
+        // Clear the active scope fingerprint when ending this responsibility,
+        // as required by the database integrity constraint.
+        ResponsibilityAssignment::query()->where('employee_id', $f['employee']->id)
+            ->update(['status' => 'inactive', 'active_fingerprint' => null, 'ended_at' => now()]);
         $admin = $this->responsibilityUser(EmployeeRole::Admin);
         $scoped = $this->responsibilityUser(EmployeeRole::Manager);
         $unrelated = $this->responsibilityUser(EmployeeRole::Staff);

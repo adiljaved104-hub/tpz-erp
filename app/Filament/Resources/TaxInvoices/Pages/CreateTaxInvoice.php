@@ -11,6 +11,7 @@ use Filament\Resources\Pages\CreateRecord;
 use Filament\Support\Enums\Width;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
@@ -98,6 +99,15 @@ class CreateTaxInvoice extends CreateRecord
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('primary')
                 ->livewireTarget('saveDownloadAndNew')
+                ->modalHeading('Confirm Invoice Prices Before Saving')
+                ->modalDescription('Review each product, quantity, VAT-inclusive unit price and total. Saving issues the original Tax Invoice, which cannot be edited directly afterward.')
+                ->modalWidth('3xl')
+                ->modalSubmitActionLabel('Confirm Prices, Save & Download')
+                ->requiresConfirmation()
+                ->modalContent(fn (): View => view('filament.resources.tax-invoices.partials.confirm-create-prices', [
+                    'items' => array_values((array) ($this->form->getRawState()['items'] ?? [])),
+                    'totals' => app(TaxInvoiceService::class)->previewTotals(array_values((array) ($this->form->getRawState()['items'] ?? []))),
+                ]))
                 ->action('saveDownloadAndNew'),
             $this->getCreateFormAction(),
             $this->getCancelFormAction(),

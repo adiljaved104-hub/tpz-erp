@@ -24,19 +24,26 @@ class ProductInventoryInfolist
         return $schema->components([
             Section::make('Inventory Quantities')
                 ->description($owned
-                    ? 'Authorized warehouse or operational rows show physical stock and combined ledger totals without private holder details. Other rows show only your own allocation. My Allocated always shows your personal recorded quantity.'
+                    ? 'Your recorded allocation only. Warehouse totals and other employees\' holdings are excluded from this personal view. Reserved is a subset of your allocation.'
                     : 'Total Stock includes Reserved. Allocated is the sum of recorded ledger balances. Reserved is a subset and is not added again. Sellable is Total Stock minus Reserved.')
                 ->schema([
                     TextEntry::make('product.name')->label('Product'),
                     TextEntry::make('product.sku')->label('SKU'),
                     TextEntry::make('warehouse.name')->label('Warehouse'),
-                    TextEntry::make('available_quantity')->label($owned ? 'Visible Stock' : 'Total Stock'),
-                    TextEntry::make('allocated_quantity')->label($owned ? 'Recorded Allocated' : 'Allocated'),
-                    ...($owned ? [TextEntry::make('my_allocated_quantity')->label('My Allocated')] : []),
-                    TextEntry::make('reserved_quantity')->label('Reserved'),
-                    TextEntry::make('sellable_quantity')->label('Sellable')->state(fn (ProductInventory $record): int => $record->sellableQuantity()),
-                    ...($owned ? [] : [TextEntry::make('damaged_quantity')->label('Damaged')]),
-                    ...($owned ? [] : [TextEntry::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand())]),
+                    ...($owned ? [
+                        TextEntry::make('my_allocated_quantity')->label('My Allocated')->weight('bold'),
+                        TextEntry::make('my_reserved_quantity')->label('My Reserved'),
+                        TextEntry::make('my_sellable_quantity')->label('My Sellable')->state(
+                            fn (ProductInventory $record): int => max(0, (int) $record->my_allocated_quantity - (int) $record->my_reserved_quantity)
+                        ),
+                    ] : [
+                        TextEntry::make('available_quantity')->label('Total Stock'),
+                        TextEntry::make('allocated_quantity')->label('Allocated'),
+                        TextEntry::make('reserved_quantity')->label('Reserved'),
+                        TextEntry::make('sellable_quantity')->label('Sellable')->state(fn (ProductInventory $record): int => $record->sellableQuantity()),
+                        TextEntry::make('damaged_quantity')->label('Damaged'),
+                        TextEntry::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand()),
+                    ]),
                     ...(self::canViewFinancials() ? [
                         TextEntry::make('average_cost')->label('Average Cost')->money('AED', decimalPlaces: 2)->placeholder('No cost history'),
                         TextEntry::make('inventory_value')

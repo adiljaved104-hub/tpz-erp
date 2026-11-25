@@ -102,6 +102,9 @@ class TaxInvoiceService
             if ($locked->status === 'void') {
                 throw ValidationException::withMessages(['reason' => 'This Invoice has already been voided.']);
             }
+            if (\App\Models\TaxInvoiceAdjustmentDocument::query()->where('original_invoice_id', $locked->id)->exists()) {
+                throw ValidationException::withMessages(['reason' => 'This Invoice has posted tax adjustment documents. Void is blocked until a compliant reversal workflow is available.']);
+            }
             $previousStatus = $locked->status;
             $locked->forceFill(['status' => 'void', 'void_reason' => trim($reason), 'voided_at' => now(), 'voided_by_user_id' => $actor->id])->save();
             $this->activity->log('tax_invoice.voided', $actor, $locked, [

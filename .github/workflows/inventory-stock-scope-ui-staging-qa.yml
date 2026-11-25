@@ -70,9 +70,7 @@ jobs:
           php -l app/Filament/Resources/ProductInventories/Schemas/ProductInventoryInfolist.php
           php -l tests/Feature/Inventory/StockRequestApprovalTest.php
           php -l tests/Feature/Inventory/StockRequestFoundationTest.php
-          vendor/bin/pint app/Filament/Pages/InventoryWorkspace.php app/Services/Inventory/StockRequestService.php app/Filament/Resources/StockRequests/Schemas/StockRequestInfolist.php app/Filament/Resources/ProductInventories/Schemas/ProductInventoryInfolist.php app/Http/Controllers/Api/Mobile/V1/StockRequestController.php tests/Feature/Inventory/StockRequestApprovalTest.php tests/Feature/Inventory/StockRequestFoundationTest.php
-          git diff -- app/Filament/Pages/InventoryWorkspace.php app/Services/Inventory/StockRequestService.php app/Filament/Resources/StockRequests/Schemas/StockRequestInfolist.php app/Filament/Resources/ProductInventories/Schemas/ProductInventoryInfolist.php app/Http/Controllers/Api/Mobile/V1/StockRequestController.php tests/Feature/Inventory/StockRequestApprovalTest.php tests/Feature/Inventory/StockRequestFoundationTest.php
-          git diff --exit-code -- app/Filament/Pages/InventoryWorkspace.php app/Services/Inventory/StockRequestService.php app/Filament/Resources/StockRequests/Schemas/StockRequestInfolist.php app/Filament/Resources/ProductInventories/Schemas/ProductInventoryInfolist.php app/Http/Controllers/Api/Mobile/V1/StockRequestController.php tests/Feature/Inventory/StockRequestApprovalTest.php tests/Feature/Inventory/StockRequestFoundationTest.php
+          vendor/bin/pint --test app/Filament/Pages/InventoryWorkspace.php app/Services/Inventory/StockRequestService.php app/Filament/Resources/StockRequests/Schemas/StockRequestInfolist.php app/Filament/Resources/ProductInventories/Schemas/ProductInventoryInfolist.php app/Http/Controllers/Api/Mobile/V1/StockRequestController.php tests/Feature/Inventory/StockRequestApprovalTest.php tests/Feature/Inventory/StockRequestFoundationTest.php
       - name: Rehearse schema on disposable MySQL
         run: php artisan migrate --force --no-ansi
       - name: Compile Blade and Filament components

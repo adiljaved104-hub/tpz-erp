@@ -173,6 +173,28 @@ class TaxInvoiceUiCorrectionTest extends TestCase
             ->assertSee('Cancel');
     }
 
+    public function test_both_invoice_save_buttons_mount_price_confirmation_before_issuance(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        app(CompanyProfileService::class)->save($this->profileData(), $owner);
+
+        Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
+            ->fillForm($this->invoiceFormData())
+            ->mountAction('create')
+            ->assertSee('Confirm Invoice Prices Before Saving')
+            ->assertSee('Confirm Prices & Save Invoice');
+
+        $this->assertDatabaseCount('tax_invoices', 0);
+
+        Livewire::actingAs($owner)->test(CreateTaxInvoice::class)
+            ->fillForm($this->invoiceFormData())
+            ->mountAction('saveDownloadAndNew')
+            ->assertSee('Confirm Invoice Prices Before Saving')
+            ->assertSee('Confirm Prices, Save & Download');
+
+        $this->assertDatabaseCount('tax_invoices', 0);
+    }
+
     public function test_save_invoice_creates_once_and_redirects_to_view(): void
     {
         $owner = $this->user(EmployeeRole::Owner);

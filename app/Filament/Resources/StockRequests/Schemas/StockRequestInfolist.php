@@ -3,6 +3,9 @@
 namespace App\Filament\Resources\StockRequests\Schemas;
 
 use App\Models\StockRequestSourceLine;
+use App\Models\StockRequest;
+use App\Models\User;
+use App\Services\Inventory\StockRequestService;
 use App\Services\UserTimezoneResolver;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
@@ -25,7 +28,10 @@ class StockRequestInfolist
                 TextEntry::make('reason')->columnSpanFull(),
             ]),
             Section::make('Requested Products')->schema([
-                RepeatableEntry::make('items')->hiddenLabel()->columns(['default' => 1, 'md' => 12])->schema([
+                RepeatableEntry::make('items')->hiddenLabel()
+                    ->state(fn (StockRequest $record) => ($actor = auth()->user()) instanceof User
+                        ? app(StockRequestService::class)->visibleItems($actor, $record)
+                        : collect())->columns(['default' => 1, 'md' => 12])->schema([
                     TextEntry::make('sku')->label('SKU')->columnSpanFull(),
                     TextEntry::make('product_name')->label('Product')->columnSpan(['default' => 1, 'md' => 8]),
                     TextEntry::make('warehouse_name')->label('Warehouse')->columnSpan(['default' => 1, 'md' => 2]),
@@ -81,7 +87,10 @@ class StockRequestInfolist
                     TableColumn::make('Transferred From'),
                     TableColumn::make('Transferred To'),
                 ])->columnSpanFull(),
-            ])->visible(fn ($record): bool => $record->execution()->exists()),
+            ])->visible(fn (StockRequest $record): bool => $record->execution()->exists()
+                && ($actor = auth()->user()) instanceof User
+                && ($record->requested_by_employee_id === $actor->employee?->id
+                    || app(\App\Services\Responsibilities\ResponsibilityProductScopeService::class)->requiresScope($actor) === false)),
         ]);
     }
 }

@@ -87,4 +87,4 @@ jobs:
       - name: Blade compile
         run: php artisan view:cache --no-ansi
       - name: Focused tests
-        run: php artisan test --no-ansi tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php tests/Feature/Invoices/TaxInvoiceAdjustmentIssuanceTest.php
+        run: php artisan test --no-ansi tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php tests/Feature/Invoices/TaxInvoiceAdjustmentIssuanceTest.php tests/Feature/Invoices/TaxInvoiceUiCorrectionTest.php

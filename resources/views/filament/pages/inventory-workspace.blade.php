@@ -574,7 +574,7 @@
                             <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
                                 <div>
                                     <p class="font-semibold">{{ $reservation['reference'] }}</p>
-                                    <p class="text-xs text-gray-500">{{ $reservation['reserved_at'] }}</p>
+                                    <p class="text-xs text-gray-500">{{ $reservation['context'] }} · {{ $reservation['reserved_at'] }}</p>
                                 </div>
                                 <span class="tabular-nums">Qty {{ number_format($reservation['quantity']) }}</span>
                             </div>

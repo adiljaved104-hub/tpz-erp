@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use LogicException;
 
@@ -32,6 +33,11 @@ class TaxInvoicePriceAdjustmentProposal extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(TaxInvoice::class, 'tax_invoice_id');
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(TaxInvoiceAdjustmentDocument::class, 'proposal_id');
     }
 
     public function decision(): HasOne

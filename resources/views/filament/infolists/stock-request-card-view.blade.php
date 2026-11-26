@@ -20,53 +20,59 @@
 @endphp
 <div class="tpz-sr-view">
     <style>
-        .tpz-sr-view { color: var(--fi-color-gray-950, #142b3d); font-size: .875rem; }
-        .tpz-sr-view .tpz-sr-title { display:flex; align-items:center; gap:.6rem; margin:0 0 .8rem; padding:.68rem 1rem; border-radius:.85rem; font-size:1.06rem; font-weight:750; color:#0b5663; background:linear-gradient(90deg,#c8f4ef,#e1f7f5); }
-        .tpz-sr-view .tpz-sr-box { background:#fff; border:1px solid #e1e9ed; border-radius:1rem; padding:1rem 1.2rem; box-shadow:0 2px 9px rgba(16,47,66,.045); }
-        .tpz-sr-view .tpz-sr-meta { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.85rem 1.25rem; }
-        .tpz-sr-view .tpz-sr-meta-item { min-width:0; padding-right:.8rem; border-right:1px solid #e0e8ec; }
+        /* Match TPZ's compact navy/blue dashboard cards; styles are view scoped. */
+        .tpz-sr-view { color:#172b45; font-size:.85rem; --tpz-line:#dce6f2; --tpz-accent:#116bb3; }
+        .tpz-sr-view .tpz-sr-title { display:flex; align-items:center; gap:.55rem; margin:0 0 .7rem; padding:.6rem .9rem; border-radius:.7rem; font-size:1rem; font-weight:750; color:#123957; background:linear-gradient(110deg,#e9f3ff,#f5f9ff); border:1px solid #dae8f8; }
+        .tpz-sr-view .tpz-sr-box { background:#fff; border:1px solid var(--tpz-line); border-radius:.8rem; padding:.85rem 1rem; box-shadow:0 2px 9px rgba(18,52,91,.045); }
+        .tpz-sr-view .tpz-sr-meta { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem 1rem; }
+        .tpz-sr-view .tpz-sr-meta-item { min-width:0; padding-right:.8rem; border-right:1px solid #e8edf5; }
         .tpz-sr-view .tpz-sr-meta-item:nth-child(3n) { border-right:0; }
-        .tpz-sr-view .tpz-sr-label { font-size:.74rem; font-weight:650; color:#53677a; margin-bottom:.25rem; }
-        .tpz-sr-view .tpz-sr-value { font-weight:650; color:#193449; overflow-wrap:anywhere; }
-        .tpz-sr-view .tpz-sr-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.85rem; margin:1rem 0 1.25rem; }
-        .tpz-sr-view .tpz-sr-kpi { border:1px solid #dbeaf0; border-radius:1rem; padding:.85rem 1rem; }
-        .tpz-sr-view .tpz-sr-kpi strong { display:block; font-size:1.7rem; line-height:1.15; margin-top:.3rem; font-variant-numeric:tabular-nums; }
-        .tpz-sr-view .tpz-sr-kpi--requested { background:#eaf9fd; color:#13647b; }
-        .tpz-sr-view .tpz-sr-kpi--approved { background:#effbf1; color:#1f7a45; }
-        .tpz-sr-view .tpz-sr-kpi--transferred { background:#f4f0fe; color:#6241a4; }
-        .tpz-sr-view .tpz-sr-kpi--remaining { background:#fff7e7; color:#a56b0f; }
-        .tpz-sr-view .tpz-sr-items { display:grid; gap:.8rem; }
-        .tpz-sr-view .tpz-sr-item { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr) minmax(0,1.3fr); gap:1rem; align-items:start; }
-        .tpz-sr-view .tpz-sr-sku { display:inline-block; background:#dff5f7; border-radius:.4rem; padding:.16rem .45rem; color:#126777; font-weight:750; font-size:.76rem; }
-        .tpz-sr-view .tpz-sr-product { margin-top:.4rem; line-height:1.45; overflow-wrap:anywhere; font-weight:580; }
-        .tpz-sr-view .tpz-sr-warehouse { font-weight:650; overflow-wrap:anywhere; }
-        .tpz-sr-view .tpz-sr-quantities { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.35rem; margin-top:.7rem; }
-        .tpz-sr-view .tpz-sr-qty { text-align:center; padding:.38rem .2rem; border-radius:.4rem; background:#edf7fe; font-variant-numeric:tabular-nums; }
-        .tpz-sr-view .tpz-sr-qty:nth-child(2) { background:#e9f9ec; }
-        .tpz-sr-view .tpz-sr-qty:nth-child(3) { background:#f1ebfd; }
-        .tpz-sr-view .tpz-sr-qty:nth-child(4) { background:#fff6e8; }
-        .tpz-sr-view .tpz-sr-qty small { display:block; font-size:.64rem; color:#53677a; }
-        .tpz-sr-view .tpz-sr-qty strong { font-size:1.05rem; }
-        .tpz-sr-view .tpz-sr-source-title { background:#eaf9f9; color:#215d68; font-weight:750; padding:.4rem .55rem; border-radius:.4rem; margin-bottom:.45rem; }
-        .tpz-sr-view .tpz-sr-source { padding:.65rem 0; border-top:1px solid #ebeff3; }
+        .tpz-sr-view .tpz-sr-label { font-size:.71rem; font-weight:650; color:#63748b; margin-bottom:.2rem; }
+        .tpz-sr-view .tpz-sr-value { font-weight:650; color:#183b60; overflow-wrap:anywhere; }
+        .tpz-sr-view .tpz-sr-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.7rem; margin:.8rem 0 1rem; }
+        .tpz-sr-view .tpz-sr-kpi { border:1px solid #dae7f5; border-radius:.75rem; padding:.7rem .9rem; background:#f5f9ff; color:#18456d; }
+        .tpz-sr-view .tpz-sr-kpi strong { display:block; font-size:1.55rem; line-height:1.16; margin-top:.24rem; font-variant-numeric:tabular-nums; }
+        .tpz-sr-view .tpz-sr-kpi--approved { background:#eef8f4; color:#176d50; }
+        .tpz-sr-view .tpz-sr-kpi--transferred { background:#f1f4ff; color:#435aa0; }
+        .tpz-sr-view .tpz-sr-kpi--remaining { background:#fff8ed; color:#99621c; }
+        .tpz-sr-view .tpz-sr-items { display:grid; gap:.65rem; }
+        /* Product | warehouse/quantities | stock-source + status/actions, all horizontal on desktop. */
+        .tpz-sr-view .tpz-sr-item { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(0,1.02fr) minmax(0,1.56fr); gap:.8rem; align-items:start; }
+        .tpz-sr-view .tpz-sr-item > div { min-width:0; }
+        .tpz-sr-view .tpz-sr-item > div + div { border-left:1px solid #e5ecf5; padding-left:.8rem; }
+        .tpz-sr-view .tpz-sr-sku { display:inline-block; background:#e6f3ff; border-radius:.35rem; padding:.12rem .4rem; color:#1267a6; font-weight:750; font-size:.72rem; }
+        .tpz-sr-view .tpz-sr-product { margin-top:.38rem; line-height:1.34; overflow-wrap:anywhere; font-weight:560; color:#193d61; }
+        .tpz-sr-view .tpz-sr-warehouse { font-weight:650; color:#193d61; overflow-wrap:anywhere; }
+        .tpz-sr-view .tpz-sr-quantities { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.25rem; margin-top:.5rem; }
+        .tpz-sr-view .tpz-sr-qty { text-align:center; padding:.32rem .12rem; border:1px solid #e2ebf7; border-radius:.35rem; background:#eff6fe; font-variant-numeric:tabular-nums; min-width:0; }
+        .tpz-sr-view .tpz-sr-qty:nth-child(2) { background:#effaf3; border-color:#d9efe2; }
+        .tpz-sr-view .tpz-sr-qty:nth-child(3) { background:#f2f3ff; border-color:#e2e5f9; }
+        .tpz-sr-view .tpz-sr-qty:nth-child(4) { background:#fff7ec; border-color:#f3ead9; }
+        .tpz-sr-view .tpz-sr-qty small { display:block; font-size:.59rem; color:#536f8b; white-space:normal; }
+        .tpz-sr-view .tpz-sr-qty strong { font-size:.98rem; }
+        .tpz-sr-view .tpz-sr-source-title { background:#ecf5ff; color:#184773; font-weight:750; padding:.35rem .55rem; border-radius:.38rem; margin-bottom:.3rem; font-size:.78rem; }
+        .tpz-sr-view .tpz-sr-source { display:grid; grid-template-columns:minmax(0,1fr) minmax(135px,.52fr); gap:.6rem; padding:.46rem 0; border-top:1px solid #e6edf6; align-items:center; }
         .tpz-sr-view .tpz-sr-source:first-of-type { border-top:0; }
-        .tpz-sr-view .tpz-sr-source-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.25rem .8rem; }
-        .tpz-sr-view .tpz-sr-source-label { color:#53677a; font-size:.7rem; }
-        .tpz-sr-view .tpz-sr-source-value { font-weight:650; overflow-wrap:anywhere; }
-        .tpz-sr-view .tpz-sr-badge { display:inline-flex; padding:.23rem .55rem; border-radius:.45rem; font-weight:700; font-size:.73rem; background:#fff4d7; color:#94621e; }
-        .tpz-sr-view .tpz-sr-badge--approved { background:#ddf8e5; color:#1b7d44; }
-        .tpz-sr-view .tpz-sr-badge--rejected { background:#fee5e6; color:#ba2c37; }
-        .tpz-sr-view .tpz-sr-badge--completed { background:#e4f0fc; color:#255f9c; }
-        .tpz-sr-view .tpz-sr-actions { display:flex; gap:.45rem; flex-wrap:wrap; margin-top:.6rem; }
-        .tpz-sr-view .tpz-sr-action { border:0; border-radius:.48rem; padding:.46rem .75rem; color:white; font-size:.77rem; font-weight:750; cursor:pointer; }
-        .tpz-sr-view .tpz-sr-action--approve { background:#12a444; }
-        .tpz-sr-view .tpz-sr-action--reject { background:#d82631; }
-        .tpz-sr-view .tpz-sr-note { margin-top:.45rem; color:#53677a; font-size:.75rem; overflow-wrap:anywhere; }
-        .dark .tpz-sr-view .tpz-sr-box { background:#192638; border-color:#314258; }
-        .dark .tpz-sr-view .tpz-sr-value, .dark .tpz-sr-view .tpz-sr-product, .dark .tpz-sr-view .tpz-sr-warehouse { color:#e5eef7; }
-        .dark .tpz-sr-view .tpz-sr-label { color:#a7b8c9; }
-        @media(max-width:1100px) { .tpz-sr-view .tpz-sr-item { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-source-section { grid-column:1/-1; } }
-        @media(max-width:700px) { .tpz-sr-view .tpz-sr-meta { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-meta-item { border:0; } .tpz-sr-view .tpz-sr-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-item { grid-template-columns:1fr; } .tpz-sr-view .tpz-sr-source-section { grid-column:auto; } }
+        .tpz-sr-view .tpz-sr-source-grid { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,.4fr) minmax(0,1fr); gap:.35rem; align-items:start; }
+        .tpz-sr-view .tpz-sr-source-grid > div { min-width:0; }
+        .tpz-sr-view .tpz-sr-source-label { color:#60748b; font-size:.64rem; }
+        .tpz-sr-view .tpz-sr-source-value { font-weight:650; overflow-wrap:anywhere; color:#193d61; font-size:.75rem; }
+        .tpz-sr-view .tpz-sr-badge { display:inline-flex; padding:.18rem .42rem; border-radius:.36rem; font-weight:700; font-size:.69rem; background:#fff3df; color:#97621c; }
+        .tpz-sr-view .tpz-sr-badge--approved { background:#e1f7eb; color:#197248; }
+        .tpz-sr-view .tpz-sr-badge--rejected { background:#fde9ec; color:#bd3545; }
+        .tpz-sr-view .tpz-sr-badge--completed { background:#e3f0ff; color:#245f97; }
+        .tpz-sr-view .tpz-sr-source-decision { display:flex; flex-direction:column; align-items:flex-start; gap:.28rem; min-width:0; }
+        .tpz-sr-view .tpz-sr-actions { display:flex; flex-wrap:wrap; gap:.3rem; margin:0; }
+        .tpz-sr-view .tpz-sr-action { border:0; border-radius:.4rem; padding:.4rem .52rem; color:#fff; font-size:.72rem; font-weight:750; cursor:pointer; white-space:nowrap; }
+        .tpz-sr-view .tpz-sr-action--approve { background:#16875c; }
+        .tpz-sr-view .tpz-sr-action--reject { background:#c73c49; }
+        .tpz-sr-view .tpz-sr-note { color:#687b91; font-size:.69rem; line-height:1.3; overflow-wrap:anywhere; }
+        .tpz-sr-view .tpz-sr-source-foot { grid-column:1/-1; }
+        .dark .tpz-sr-view .tpz-sr-box { background:#172438; border-color:#334761; }
+        .dark .tpz-sr-view .tpz-sr-value, .dark .tpz-sr-view .tpz-sr-product, .dark .tpz-sr-view .tpz-sr-warehouse, .dark .tpz-sr-view .tpz-sr-source-value { color:#e1edf9; }
+        .dark .tpz-sr-view .tpz-sr-title, .dark .tpz-sr-view .tpz-sr-source-title { background:#203a5a; color:#e0eeff; border-color:#385778; }
+        @media(max-width:1080px) { .tpz-sr-view .tpz-sr-item { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .tpz-sr-view .tpz-sr-source-section { grid-column:1/-1; border-left:0 !important; padding-left:0 !important; border-top:1px solid #e5ecf5; padding-top:.55rem; } }
+        @media(max-width:650px) { .tpz-sr-view .tpz-sr-meta { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-meta-item { border:0; } .tpz-sr-view .tpz-sr-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-item { grid-template-columns:1fr; } .tpz-sr-view .tpz-sr-item > div + div { border:0; padding:0; } .tpz-sr-view .tpz-sr-source-section { grid-column:auto; } .tpz-sr-view .tpz-sr-source { grid-template-columns:1fr; } .tpz-sr-view .tpz-sr-source-grid { grid-template-columns:minmax(0,1.4fr) minmax(0,.6fr) minmax(0,1fr); } }
     </style>
 
     <div class="tpz-sr-title">▣ &nbsp;Stock Request</div>
@@ -111,20 +117,27 @@
                         <div class="tpz-sr-source" wire:key="stock-request-source-card-{{ $source->id }}">
                             <div class="tpz-sr-source-grid">
                                 <div><div class="tpz-sr-source-label">Source</div><div class="tpz-sr-source-value">{{ $source->source_label }}</div></div>
-                                <div><div class="tpz-sr-source-label">Proposed Qty</div><div class="tpz-sr-source-value">{{ (int) $source->proposed_quantity }}</div></div>
+                                <div><div class="tpz-sr-source-label">Proposed</div><div class="tpz-sr-source-value">{{ (int) $source->proposed_quantity }}</div></div>
                                 <div><div class="tpz-sr-source-label">Approval Route</div><div class="tpz-sr-source-value">{{ $source->requiresOwnerAdminApproval() ? 'Owner/Admin' : 'Allocation Holder' }}</div></div>
-                                <div><div class="tpz-sr-source-label">Status</div><span class="tpz-sr-badge tpz-sr-badge--{{ $source->status?->value }}">{{ $source->status?->getLabel() ?? 'Unknown' }}</span></div>
                             </div>
-                            @if((int)$source->approved_quantity || (int)$source->transferred_quantity)
-                                <div class="tpz-sr-note">Approved: {{ (int) $source->approved_quantity }} · Transferred: {{ (int) $source->transferred_quantity }}</div>
-                            @endif
-                            @if($source->decision_note)
-                                <div class="tpz-sr-note">Note: {{ $source->decision_note }}</div>
-                            @endif
-                            @if(in_array($source->id, $eligibleIds, true))
-                                <div class="tpz-sr-actions">
-                                    <button type="button" class="tpz-sr-action tpz-sr-action--approve" wire:click="mountAction('approveSource', { source_line_id: {{ (int)$source->id }} })">✓ Approve</button>
-                                    <button type="button" class="tpz-sr-action tpz-sr-action--reject" wire:click="mountAction('rejectSource', { source_line_id: {{ (int)$source->id }} })">✕ Reject</button>
+                            <div class="tpz-sr-source-decision">
+                                <div class="tpz-sr-source-label">Status</div>
+                                <span class="tpz-sr-badge tpz-sr-badge--{{ $source->status?->value }}">{{ $source->status?->getLabel() ?? 'Unknown' }}</span>
+                                @if(in_array($source->id, $eligibleIds, true))
+                                    <div class="tpz-sr-actions">
+                                        <button type="button" class="tpz-sr-action tpz-sr-action--approve" wire:click="mountAction('approveSource', { source_line_id: {{ (int)$source->id }} })">✓ Approve</button>
+                                        <button type="button" class="tpz-sr-action tpz-sr-action--reject" wire:click="mountAction('rejectSource', { source_line_id: {{ (int)$source->id }} })">✕ Reject</button>
+                                    </div>
+                                @endif
+                            </div>
+                            @if((int)$source->approved_quantity || (int)$source->transferred_quantity || $source->decision_note)
+                                <div class="tpz-sr-source-foot tpz-sr-note">
+                                    @if((int)$source->approved_quantity || (int)$source->transferred_quantity)
+                                        Approved: {{ (int) $source->approved_quantity }} · Transferred: {{ (int) $source->transferred_quantity }}
+                                    @endif
+                                    @if($source->decision_note)
+                                        <span>Note: {{ $source->decision_note }}</span>
+                                    @endif
                                 </div>
                             @endif
                         </div>

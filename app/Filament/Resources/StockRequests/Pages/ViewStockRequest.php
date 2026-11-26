@@ -61,6 +61,9 @@ class ViewStockRequest extends ViewRecord
                     Textarea::make('note')->label('Approval Note')->maxLength(2000),
                 ])
                 ->visible(fn (): bool => $this->eligibleSourceOptions() !== [])
+                ->fillForm(fn (array $arguments): array => [
+                    'source_line_id' => (int) ($arguments['source_line_id'] ?? 0) ?: null,
+                ])
                 ->action(fn (array $data) => $this->recordDecision($data, StockRequestSourceStatus::Approved)),
             Action::make('rejectSource')
                 ->label('Reject Stock Source')
@@ -71,6 +74,9 @@ class ViewStockRequest extends ViewRecord
                     Textarea::make('note')->label('Rejection Reason')->required()->maxLength(2000),
                 ])
                 ->visible(fn (): bool => $this->eligibleSourceOptions() !== [])
+                ->fillForm(fn (array $arguments): array => [
+                    'source_line_id' => (int) ($arguments['source_line_id'] ?? 0) ?: null,
+                ])
                 ->action(fn (array $data) => $this->recordDecision($data, StockRequestSourceStatus::Rejected)),
         ];
     }

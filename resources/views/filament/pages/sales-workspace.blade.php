@@ -252,11 +252,12 @@
                     </div>
                     <div class="tpz-native-record-table-wrap">
                         <table class="tpz-native-record-table">
-                            <thead><tr><th>Reference</th><th>Source / Channel</th><th>Customer</th><th>Units</th><th>Status</th><th>Order Date</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Reference</th><th>External Order ID</th><th>Source / Channel</th><th>Customer</th><th>Units</th><th>Status</th><th>Order Date</th><th>Action</th></tr></thead>
                             <tbody>
                                 @foreach($salesRecentUpdates as $update)
                                     <tr wire:key="sales-overview-update-{{ $loop->index }}">
                                         <td><strong>{{ $update['reference'] }}</strong></td>
+                                        <td title="{{ $update['external_order_id'] }}" class="max-w-48 break-all">{{ $update['external_order_id'] }}</td>
                                         <td>{{ $update['source'] }}</td>
                                         <td>{{ $update['customer'] }}</td>
                                         <td>{{ number_format($update['units']) }}</td>
@@ -266,7 +267,7 @@
                                     </tr>
                                 @endforeach
                                 @if($salesRecentUpdates->isEmpty())
-                                    <tr><td colspan="7" class="tpz-native-no-preview">No recent authorized sales records.</td></tr>
+                                    <tr><td colspan="8" class="tpz-native-no-preview">No recent authorized sales records.</td></tr>
                                 @endif
                             </tbody>
                         </table>
@@ -308,7 +309,7 @@
                 <x-filament::button size="sm" color="gray" wire:click="clearFilters">Clear filters</x-filament::button>
             </div>
             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-                <x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.300ms="search" placeholder="Order reference, SKU or product" aria-label="Search order reference, SKU or product" /></x-filament::input.wrapper>
+                <x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.300ms="search" placeholder="Reference, External Order ID, SKU or product" aria-label="Search reference, external order ID, SKU or product" /></x-filament::input.wrapper>
                 <x-filament::input.wrapper><x-filament::input type="search" wire:model.live.debounce.300ms="customer" placeholder="Web Sales customer" aria-label="Search Web Sales customer" /></x-filament::input.wrapper>
                 <x-filament::input.wrapper>
                     <x-filament::input.select wire:model.live="status" aria-label="Order status">
@@ -341,11 +342,12 @@
                 </div>
                 <div class="overflow-x-auto">
                     <table class="tpz-workspace-table">
-                        <thead><tr><th>Reference</th><th>Product Name</th><th>Order date</th><th>Source</th><th class="text-right">Items / Units</th>@if($canSeeOrderValues)<th class="text-right">Order total (AED)</th>@endif<th>Status</th><th>Action</th></tr></thead>
+                        <thead><tr><th>Reference</th><th>External Order ID</th><th>Product Name</th><th>Order date</th><th>Source</th><th class="text-right">Items / Units</th>@if($canSeeOrderValues)<th class="text-right">Order total (AED)</th>@endif<th>Status</th><th>Action</th></tr></thead>
                         <tbody>
                             @forelse($orders as $order)
                                 <tr wire:key="sales-order-{{ $order->id }}">
                                     <td class="font-semibold text-gray-950 dark:text-white">{{ $order->reference }}</td>
+                                    <td class="max-w-40 break-all text-xs text-gray-700 dark:text-gray-300" title="{{ $order->external_order_number }}">{{ $order->external_order_number ?: "—" }}</td>
                                     <td class="max-w-xs"><span class="block truncate" title="{{ $order->items->pluck('product_name')->filter()->unique()->implode(' / ') }}">{{ $order->items->pluck('product_name')->filter()->unique()->take(2)->implode(' / ') ?: '—' }}@if($order->items->pluck('product_name')->filter()->unique()->count() > 2) +{{ $order->items->pluck('product_name')->filter()->unique()->count() - 2 }} more @endif</span></td>
                                     <td>{{ $order->order_date?->format('d M Y') ?? '—' }}</td>
                                     <td>{{ $order->source ? str($order->source->value)->headline() : '—' }}</td>
@@ -355,7 +357,7 @@
                                     <td><x-filament::button type="button" size="xs" color="gray" wire:click="openOrderQuickView('orders', {{ $order->id }})">Quick View</x-filament::button></td>
                                 </tr>
                             @empty
-                                <tr><td colspan="{{ $canSeeOrderValues ? 8 : 7 }}" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
+                                <tr><td colspan="{{ $canSeeOrderValues ? 9 : 8 }}" class="py-8 text-center text-sm text-gray-500">No Sales Orders match these filters.</td></tr>
                             @endforelse
                         </tbody>
                     </table>

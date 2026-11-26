@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/staging-stock-request-view-cards-20261126
+      - fix/staging-stock-request-horizontal-dashboard-theme-20261126
   pull_request:
     branches:
       - staging

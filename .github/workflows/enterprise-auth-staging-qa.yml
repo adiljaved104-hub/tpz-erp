@@ -4,6 +4,7 @@ on:
     branches:
       - feature/staging-enterprise-login-otp-redesign-20261126
       - fix/staging-enterprise-auth-pixel-match-20261126
+      - fix/staging-auth-final-visual-polish-20261126
   pull_request:
     branches:
       - staging

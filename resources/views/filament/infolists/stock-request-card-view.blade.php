@@ -37,7 +37,7 @@
         .tpz-sr-view .tpz-sr-kpi--remaining { background:#fff8ed; color:#99621c; }
         .tpz-sr-view .tpz-sr-items { display:grid; gap:.65rem; }
         /* Product | warehouse/quantities | stock-source + status/actions, all horizontal on desktop. */
-        .tpz-sr-view .tpz-sr-item { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(0,1.02fr) minmax(0,1.56fr); gap:.8rem; align-items:start; }
+        .tpz-sr-view .tpz-sr-item { display:grid; grid-template-columns:minmax(0,1.03fr) minmax(0,.92fr) minmax(0,1.95fr); gap:.8rem; align-items:start; }
         .tpz-sr-view .tpz-sr-item > div { min-width:0; }
         .tpz-sr-view .tpz-sr-item > div + div { border-left:1px solid #e5ecf5; padding-left:.8rem; }
         .tpz-sr-view .tpz-sr-sku { display:inline-block; background:#e6f3ff; border-radius:.35rem; padding:.12rem .4rem; color:#1267a6; font-weight:750; font-size:.72rem; }
@@ -51,12 +51,12 @@
         .tpz-sr-view .tpz-sr-qty small { display:block; font-size:.59rem; color:#536f8b; white-space:normal; }
         .tpz-sr-view .tpz-sr-qty strong { font-size:.98rem; }
         .tpz-sr-view .tpz-sr-source-title { background:#ecf5ff; color:#184773; font-weight:750; padding:.35rem .55rem; border-radius:.38rem; margin-bottom:.3rem; font-size:.78rem; }
-        .tpz-sr-view .tpz-sr-source { display:grid; grid-template-columns:minmax(0,1fr) minmax(135px,.52fr); gap:.6rem; padding:.46rem 0; border-top:1px solid #e6edf6; align-items:center; }
+        .tpz-sr-view .tpz-sr-source { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(58px,.38fr) minmax(91px,.92fr) minmax(135px,1.12fr); column-gap:.65rem; row-gap:.35rem; padding:.5rem 0; border-top:1px solid #e6edf6; align-items:start; }
         .tpz-sr-view .tpz-sr-source:first-of-type { border-top:0; }
-        .tpz-sr-view .tpz-sr-source-grid { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,.4fr) minmax(0,1fr); gap:.35rem; align-items:start; }
+        .tpz-sr-view .tpz-sr-source-grid { display:contents; }
         .tpz-sr-view .tpz-sr-source-grid > div { min-width:0; }
-        .tpz-sr-view .tpz-sr-source-label { color:#60748b; font-size:.64rem; }
-        .tpz-sr-view .tpz-sr-source-value { font-weight:650; overflow-wrap:anywhere; color:#193d61; font-size:.75rem; }
+        .tpz-sr-view .tpz-sr-source-label { color:#60748b; font-size:.64rem; display:block; margin-bottom:.2rem; line-height:1.2; white-space:nowrap; }
+        .tpz-sr-view .tpz-sr-source-value { font-weight:650; overflow-wrap:anywhere; color:#193d61; font-size:.75rem; line-height:1.4; }
         .tpz-sr-view .tpz-sr-badge { display:inline-flex; padding:.18rem .42rem; border-radius:.36rem; font-weight:700; font-size:.69rem; background:#fff3df; color:#97621c; }
         .tpz-sr-view .tpz-sr-badge--approved { background:#e1f7eb; color:#197248; }
         .tpz-sr-view .tpz-sr-badge--rejected { background:#fde9ec; color:#bd3545; }
@@ -72,7 +72,7 @@
         .dark .tpz-sr-view .tpz-sr-value, .dark .tpz-sr-view .tpz-sr-product, .dark .tpz-sr-view .tpz-sr-warehouse, .dark .tpz-sr-view .tpz-sr-source-value { color:#e1edf9; }
         .dark .tpz-sr-view .tpz-sr-title, .dark .tpz-sr-view .tpz-sr-source-title { background:#203a5a; color:#e0eeff; border-color:#385778; }
         @media(max-width:1080px) { .tpz-sr-view .tpz-sr-item { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .tpz-sr-view .tpz-sr-source-section { grid-column:1/-1; border-left:0 !important; padding-left:0 !important; border-top:1px solid #e5ecf5; padding-top:.55rem; } }
-        @media(max-width:650px) { .tpz-sr-view .tpz-sr-meta { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-meta-item { border:0; } .tpz-sr-view .tpz-sr-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-item { grid-template-columns:1fr; } .tpz-sr-view .tpz-sr-item > div + div { border:0; padding:0; } .tpz-sr-view .tpz-sr-source-section { grid-column:auto; } .tpz-sr-view .tpz-sr-source { grid-template-columns:1fr; } .tpz-sr-view .tpz-sr-source-grid { grid-template-columns:minmax(0,1.4fr) minmax(0,.6fr) minmax(0,1fr); } }
+        @media(max-width:650px) { .tpz-sr-view .tpz-sr-meta { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-meta-item { border:0; } .tpz-sr-view .tpz-sr-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .tpz-sr-view .tpz-sr-item { grid-template-columns:1fr; } .tpz-sr-view .tpz-sr-item > div + div { border:0; padding:0; } .tpz-sr-view .tpz-sr-source-section { grid-column:auto; } .tpz-sr-view .tpz-sr-source { grid-template-columns:minmax(0,1.1fr) minmax(0,.55fr); row-gap:.7rem; } .tpz-sr-view .tpz-sr-source-decision { grid-column:1/-1; } .tpz-sr-view .tpz-sr-source-grid > div:nth-child(3) { grid-column:1/-1; } }
     </style>
 
     <div class="tpz-sr-title">▣ &nbsp;Stock Request</div>
@@ -117,7 +117,7 @@
                         <div class="tpz-sr-source" wire:key="stock-request-source-card-{{ $source->id }}">
                             <div class="tpz-sr-source-grid">
                                 <div><div class="tpz-sr-source-label">Source</div><div class="tpz-sr-source-value">{{ $source->source_label }}</div></div>
-                                <div><div class="tpz-sr-source-label">Proposed</div><div class="tpz-sr-source-value">{{ (int) $source->proposed_quantity }}</div></div>
+                                <div><div class="tpz-sr-source-label">Proposed Qty</div><div class="tpz-sr-source-value">{{ (int) $source->proposed_quantity }}</div></div>
                                 <div><div class="tpz-sr-source-label">Approval Route</div><div class="tpz-sr-source-value">{{ $source->requiresOwnerAdminApproval() ? 'Owner/Admin' : 'Allocation Holder' }}</div></div>
                             </div>
                             <div class="tpz-sr-source-decision">

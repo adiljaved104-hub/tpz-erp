@@ -39,6 +39,7 @@ class EmailOtpAuthenticationController extends Controller
         $this->throttlePublicRequest($email, $request->ip());
         $challengeId = $this->issueForEmail($email, AuthenticationOtpPurpose::Login, $request, $challenges);
         $request->session()->put('auth_otp.login_challenge', $challengeId ?? (string) Str::uuid());
+        $request->session()->put('auth_otp.login_display_email', $this->maskSubmittedEmail($email));
 
         return redirect()->route('auth.otp.verify')->with('status', self::GENERIC_RESPONSE);
     }
@@ -116,6 +117,7 @@ class EmailOtpAuthenticationController extends Controller
         $this->throttlePublicRequest($email, $request->ip());
         $challengeId = $this->issueForEmail($email, AuthenticationOtpPurpose::PasswordReset, $request, $challenges);
         $request->session()->put('auth_otp.password_reset_challenge', $challengeId ?? (string) Str::uuid());
+        $request->session()->put('auth_otp.password_reset_display_email', $this->maskSubmittedEmail($email));
 
         return redirect()->route('auth.password.verify')->with('status', self::GENERIC_RESPONSE);
     }
@@ -238,7 +240,22 @@ class EmailOtpAuthenticationController extends Controller
             'expiryMinutes' => AuthenticationOtpService::EXPIRY_MINUTES,
             'resendSeconds' => $resendSeconds,
             'resendKey' => $challenge?->id ?? $purpose->value,
+            // Mask only the email submitted by this visitor, not a database
+            // lookup. Keep the same response for existing and unknown accounts.
+            'maskedEmail' => $request->session()->get($mode === 'login' ? 'auth_otp.login_display_email' : 'auth_otp.password_reset_display_email'),
         ];
+    }
+
+    private function maskSubmittedEmail(string $email): string
+    {
+        $parts = explode('@', trim($email), 2);
+        if (count($parts) !== 2) {
+            return '';
+        }
+
+        $local = $parts[0];
+
+        return mb_substr($local, 0, min(2, mb_strlen($local))).'***@'.$parts[1];
     }
 
     private function resend(

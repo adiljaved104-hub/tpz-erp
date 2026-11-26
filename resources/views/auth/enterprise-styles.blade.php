@@ -79,5 +79,59 @@ body:has(.tpz-auth-hero) .fi-form-actions .fi-btn {width:100%;justify-content:ce
     body:has(.tpz-auth-hero) .fi-simple-page-content {border-radius:1.2rem;padding:1.6rem 1.4rem;}
 }
 @media(prefers-reduced-motion:reduce) { .tpz-auth-hero * {scroll-behavior:auto!important;transition:none!important;} }
+
+/* Visual alignment with approved login + OTP references (desktop and mobile). */
+body:has(.tpz-auth-hero) {font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif!important;}
+body:has(.tpz-auth-hero) .fi-simple-layout {padding:2rem 3.5vw 2rem 53%; align-items:center;}
+body:has(.tpz-auth-hero) .fi-simple-main {position:relative;width:100%;max-width:40rem;background:#fff;border-radius:2rem;padding:clamp(2rem,4vw,3.8rem);border:1px solid #e4edf7;box-shadow:0 16px 55px rgba(11,47,91,.13);overflow:visible;}
+body:has(.tpz-auth-hero) .fi-simple-page,body:has(.tpz-auth-hero) .fi-simple-page-content {width:100%;max-width:none;background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding:0!important;margin:0!important;}
+body:has(.tpz-auth-hero) .fi-simple-main > .fi-simple-header:not([data-auth-branding]),
+body:has(.tpz-auth-hero) .fi-simple-page > .fi-simple-header:not([data-auth-branding]),
+body:has(.tpz-auth-hero) .fi-simple-page-content > .fi-simple-header:not([data-auth-branding]) {display:none!important;}
+.tpz-auth-identity {display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;gap:.25rem;margin-bottom:1.6rem;}
+.tpz-auth-identity-logo {display:block;max-width:12rem;max-height:4.8rem;object-fit:contain;margin:0 auto .3rem;}
+.tpz-auth-identity-monogram {color:#082b60;font-size:clamp(3.1rem,5vw,4.4rem);line-height:1;font-weight:950;letter-spacing:-.12em;font-style:italic;position:relative;padding-right:.2rem;}
+.tpz-auth-identity-monogram span {display:block;position:absolute;top:-.12em;right:-.09em;width:1.15em;height:.48em;border-top:.1em solid #159cf3;border-right:.08em solid #159cf3;border-radius:80% 90% 0 0;transform:rotate(-15deg);}
+.tpz-auth-identity-name {color:#0c2c5c!important;font-size:clamp(1.02rem,1.4vw,1.25rem)!important;line-height:1.25!important;font-weight:850!important;letter-spacing:-.025em;}
+.tpz-auth-form-brand {margin:0!important;}
+.tpz-auth-form-heading {margin:1.4rem 0 2rem;}
+.tpz-auth-form-heading h2 {font-size:clamp(1.8rem,2.6vw,2.5rem);font-weight:850;color:#09285b;letter-spacing:-.045em;}
+.tpz-auth-form-heading p {font-size:1rem;color:#71829b;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-fo-field-wrp-label {font-size:.94rem;font-weight:750;color:#0c2b58;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-input-wrp {min-height:3.6rem;border:1px solid #cfdceb!important;border-radius:.85rem!important;background:#f9fbfe;box-shadow:none!important;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-input-wrp input {color:#0c2b58!important;font-size:1rem;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-form-actions .fi-btn,
+body:has(.tpz-auth-hero) .fi-simple-main .fi-btn.tpz-auth-submit {background:linear-gradient(100deg,#08295c,#0a3572)!important;background-color:#092d63!important;color:#fff!important;border-color:#092d63!important;min-height:3.5rem!important;font-size:1rem!important;font-weight:750!important;border-radius:.82rem!important;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-form-actions .fi-btn:hover,
+body:has(.tpz-auth-hero) .fi-simple-main .fi-btn.tpz-auth-submit:hover {background:#0d448e!important;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-btn.tpz-auth-submit * {color:#fff!important;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-btn:not(.tpz-auth-submit):not(.fi-form-actions .fi-btn) {font-weight:650;}
+.tpz-auth-hero {background:linear-gradient(180deg,rgba(5,32,70,.18),rgba(5,27,61,.15)),linear-gradient(135deg,#0c3569 0%,#061e43 76%,#062a58 100%);padding:clamp(2.5rem,5vw,5.1rem) clamp(2.6rem,5vw,5.5rem);}
+.tpz-auth-hero:before {border-color:rgba(24,153,247,.26);}
+.tpz-auth-hero:after {width:100%;height:35%;left:0;bottom:0;top:auto;transform:none;border:0;border-radius:0;background:linear-gradient(to bottom,#0c2f60 1%,rgba(6,33,71,.55) 28%,rgba(4,24,52,.5) 92%),url('/branding/tpz-erp-building-background.svg') center bottom / cover no-repeat;opacity:.58;}
+.tpz-auth-hero-message {margin-top:clamp(2rem,7vh,5rem);max-width:43rem;}
+.tpz-auth-hero-message h2 {font-size:clamp(2.25rem,3.25vw,3.45rem);letter-spacing:-.05em;line-height:1.12;}
+.tpz-auth-hero-message p {max-width:37rem;font-size:1.03rem;}
+.tpz-auth-modules {margin-top:clamp(2rem,5vh,3rem);gap:1rem 0;max-width:38rem;}
+.tpz-auth-module {font-size:.88rem;font-weight:500;padding:.45rem .4rem;}
+.tpz-auth-module svg {width:2rem;height:2rem;}
+.tpz-auth-hero-bottom {z-index:3;opacity:.85;}
+.tpz-auth-verify-art {width:min(21rem,75%);margin-top:clamp(2rem,5vh,4rem);}
+.tpz-auth-verify-art:after {content:"OTP  * * * * * *";position:absolute;right:-.6rem;bottom:20%;padding:.55rem 1rem;border:2px solid #8dd5ff;border-radius:.5rem;background:rgba(13,86,155,.86);box-shadow:0 5px 30px rgba(10,110,210,.28);font-size:1.1rem;font-weight:800;letter-spacing:.04em;}
+.tpz-auth-otp-form .fi-otp-input-ctn, .tpz-auth-otp-form .fi-one-time-code-input {justify-content:space-between;}
+.tpz-auth-otp-form .fi-otp-input-ctn input, .tpz-auth-otp-form .fi-one-time-code-input input {min-width:2.7rem;width:3.5rem;min-height:3.8rem;border-radius:.8rem;font-weight:800;}
+@media(min-width:901px) and (max-height:850px) {.tpz-auth-hero {padding-top:2rem;padding-bottom:1.3rem}.tpz-auth-hero-message {margin-top:2rem}.tpz-auth-modules {margin-top:1.5rem;gap:.5rem 0}.tpz-auth-module {font-size:.75rem}.tpz-auth-hero-bottom {padding-top:.8rem}}
+@media(max-width:900px) {
+ body:has(.tpz-auth-hero) .fi-simple-layout {padding:1.25rem 1rem 2rem;display:flex;flex-direction:column;gap:1rem;}
+ body:has(.tpz-auth-hero) .fi-simple-main {max-width:36rem;padding:1.7rem 1.5rem;border-radius:1.25rem;}
+ .tpz-auth-hero {padding:1.5rem;width:100%;max-width:36rem;min-height:unset;}
+ .tpz-auth-hero:after {display:none;}
+ .tpz-auth-identity {margin-bottom:1rem;}
+}
+@media(max-width:420px) {
+ .tpz-auth-otp-form .fi-otp-input-ctn input,.tpz-auth-otp-form .fi-one-time-code-input input {min-width:2.05rem;width:2.55rem;min-height:3.1rem;}
+ body:has(.tpz-auth-hero) .fi-simple-main {padding:1.4rem 1.1rem;}
+}
+
 </style>
 @endonce

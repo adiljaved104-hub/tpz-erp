@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - fix/staging-multisource-stock-request-rejection-20261126
+  pull_request:
+    branches:
+      - staging
 permissions:
   contents: read
 jobs:

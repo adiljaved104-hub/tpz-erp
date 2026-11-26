@@ -1,0 +1,38 @@
+name: Sales External ID and Stock Cues Staging QA (non-deploying)
+on:
+  push:
+    branches:
+      - feature/staging-sales-external-id-stock-cues-20261126
+permissions:
+  contents: read
+jobs:
+  sales-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, xml, fileinfo, gd, intl, bcmath, zip, pdo_mysql, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: PHP syntax and targeted Pint
+        run: |
+          php -l app/Filament/Pages/SalesWorkspace.php
+          php -l app/Filament/Resources/Orders/Schemas/OrderForm.php
+          vendor/bin/pint --test app/Filament/Pages/SalesWorkspace.php app/Filament/Resources/Orders/Schemas/OrderForm.php
+      - name: Blade and Filament compilation
+        env:
+          APP_ENV: testing
+          CACHE_STORE: array
+          SESSION_DRIVER: array
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan package:discover --ansi
+          php artisan view:cache --no-ansi

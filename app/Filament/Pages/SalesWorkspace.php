@@ -444,6 +444,7 @@ class SalesWorkspace extends Page
                 $needle = addcslashes(trim($this->search), '%_\\\\');
                 $query->where(function ($searchQuery) use ($needle): void {
                     $searchQuery->where('orders.reference', 'like', '%'.$needle.'%')
+                        ->orWhere('orders.external_order_number', 'like', '%'.$needle.'%')
                         ->orWhereHas('items', fn ($items) => $items
                             ->where('sku', 'like', '%'.$needle.'%')
                             ->orWhere('product_name', 'like', '%'.$needle.'%'));
@@ -544,6 +545,7 @@ class SalesWorkspace extends Page
                 $salesRecentUpdates = $salesRecentUpdates->concat(
                     $orders->getCollection()->take(5)->map(fn ($order): array => [
                         'reference' => $order->reference,
+                        'external_order_id' => $order->external_order_number ?: '—',
                         'date' => $order->order_date?->format('d M Y') ?? '—',
                         'timestamp' => $order->updated_at?->timestamp ?? 0,
                         'source' => 'Sales Order',
@@ -558,6 +560,7 @@ class SalesWorkspace extends Page
                 $salesRecentUpdates = $salesRecentUpdates->concat(
                     $webSales->getCollection()->take(5)->map(fn ($order): array => [
                         'reference' => $order->reference,
+                        'external_order_id' => $order->external_order_number ?: '—',
                         'date' => $order->order_date?->format('d M Y') ?? '—',
                         'timestamp' => $order->updated_at?->timestamp ?? 0,
                         'source' => $order->web_sales_channel?->getLabel() ?? 'Web Sales',

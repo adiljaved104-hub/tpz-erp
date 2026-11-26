@@ -186,5 +186,28 @@ body:has(.tpz-auth-hero) .fi-one-time-code-input input:focus {border-color:#218d
  body:has(.tpz-auth-hero) .fi-one-time-code-input input {min-width:2.25rem;max-width:2.8rem;min-height:3.1rem;}
 }
 
+
+/* Keep the STAGING badge in the top-right, not stretched across the logo.
+   The generic .tpz-auth-hero > * positioning rule must not override it. */
+.tpz-auth-hero > .tpz-auth-test-label {
+    position:absolute!important;
+    top:1rem;
+    right:1rem;
+    bottom:auto;
+    left:auto;
+    display:inline-flex;
+    width:max-content;
+    max-width:calc(100% - 2rem);
+    flex:0 0 auto;
+    align-items:center;
+    justify-content:center;
+    white-space:nowrap;
+    z-index:5;
+    line-height:1.25;
+}
+@media(max-width:900px) {
+ .tpz-auth-hero > .tpz-auth-test-label {top:.5rem;right:.7rem;max-width:5.5rem;}
+}
+
 </style>
 @endonce

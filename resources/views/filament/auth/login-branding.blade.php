@@ -5,7 +5,7 @@
 @include('auth.enterprise-styles')
 <x-auth.enterprise-hero :verification="$isChallenge" />
 <div class="tpz-auth-form-brand">
-    <x-auth.branding :branding="$branding" />
+    <x-auth.enterprise-mark :branding="$branding" />
 </div>
 <div class="tpz-auth-form-heading">
     <h2>{{ $isChallenge ? 'Enter Verification Code' : 'Welcome Back' }}</h2>

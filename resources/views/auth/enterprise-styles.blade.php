@@ -133,5 +133,58 @@ body:has(.tpz-auth-hero) .fi-simple-main .fi-btn:not(.tpz-auth-submit):not(.fi-f
  body:has(.tpz-auth-hero) .fi-simple-main {padding:1.4rem 1.1rem;}
 }
 
+
+/* Final owner UAT polish: target the actual enterprise-mark component and Filament buttons.
+   Both the panel login and standalone OTP layout include this shared stylesheet. */
+body:has(.tpz-auth-hero) .tpz-auth-form-brand { margin:0 auto 1.5rem!important;display:flex;justify-content:center;align-items:center;text-align:center; }
+body:has(.tpz-auth-hero) .tpz-enterprise-mark {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25rem;min-width:0;}
+body:has(.tpz-auth-hero) .tpz-enterprise-mark-logo {display:block;width:auto;max-width:14rem;max-height:5.4rem;object-fit:contain;margin:0 auto .25rem;}
+body:has(.tpz-auth-hero) .tpz-enterprise-mark-monogram {display:block;color:#082a60!important;font-size:clamp(3.7rem,5.5vw,5.1rem)!important;font-weight:950;font-style:italic;letter-spacing:-.13em;line-height:1;position:relative;padding:0 .22em .04em 0;text-shadow:0 1px 1px rgba(5,33,76,.08);}
+body:has(.tpz-auth-hero) .tpz-enterprise-mark-monogram::after {content:"";position:absolute;left:.35em;top:-.06em;width:1.12em;height:.43em;border-top:.085em solid #159bea;border-right:.065em solid #159bea;border-radius:80% 90% 0 0;transform:rotate(-17deg);pointer-events:none;}
+body:has(.tpz-auth-hero) .tpz-enterprise-mark-name {display:block;color:#082957!important;font-size:clamp(1rem,1.65vw,1.26rem)!important;font-weight:850!important;line-height:1.3;letter-spacing:-.022em;white-space:normal;}
+body:has(.tpz-auth-hero) .tpz-enterprise-mark-name span {color:#1499e4;}
+/* Filament v4 button background may be applied by a variant class or its inner element.
+   Selector is scoped to guest auth and excludes the secondary email-OTP action. */
+body:has(.tpz-auth-hero) .fi-simple-main button.fi-btn[type="submit"],
+body:has(.tpz-auth-hero) .fi-simple-main .fi-form-actions button.fi-btn,
+body:has(.tpz-auth-hero) .fi-simple-main button.tpz-auth-submit,
+body:has(.tpz-auth-hero) .fi-simple-page-content button.tpz-auth-submit {
+    --primary-500:#082e65;--primary-600:#082e65;--primary-700:#0c4488;
+    background:#082e65!important;background-color:#082e65!important;
+    background-image:linear-gradient(105deg,#071f49,#0c387a)!important;
+    color:#fff!important;border:1px solid #082e65!important;
+    box-shadow:0 6px 12px rgba(6,39,88,.14)!important;
+    min-height:3.5rem!important;border-radius:.78rem!important;
+}
+body:has(.tpz-auth-hero) .fi-simple-main button.fi-btn[type="submit"]:hover,
+body:has(.tpz-auth-hero) .fi-simple-main .fi-form-actions button.fi-btn:hover,
+body:has(.tpz-auth-hero) .fi-simple-main button.tpz-auth-submit:hover,
+body:has(.tpz-auth-hero) .fi-simple-page-content button.tpz-auth-submit:hover {
+    background:#0c4488!important;background-image:none!important;
+}
+body:has(.tpz-auth-hero) button.fi-btn[type="submit"] > *,
+body:has(.tpz-auth-hero) button.tpz-auth-submit > *,
+body:has(.tpz-auth-hero) button.fi-btn[type="submit"] span,
+body:has(.tpz-auth-hero) button.tpz-auth-submit span {color:#fff!important;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-input-wrp,
+body:has(.tpz-auth-hero) .fi-simple-page-content .fi-input-wrp {border:1.5px solid #c7d4e5!important;background:#fbfcff!important;}
+body:has(.tpz-auth-hero) .fi-simple-main .fi-input-wrp:focus-within,
+body:has(.tpz-auth-hero) .fi-simple-page-content .fi-input-wrp:focus-within {border-color:#338cd5!important;box-shadow:0 0 0 3px rgba(31,135,219,.11)!important;}
+body:has(.tpz-auth-hero) .fi-one-time-code-input {gap:clamp(.4rem,1vw,.75rem)!important;justify-content:flex-start!important;}
+body:has(.tpz-auth-hero) .fi-one-time-code-input input {border:1.5px solid #c7d4e5!important;border-radius:.65rem!important;min-width:2.9rem;max-width:3.8rem;min-height:3.6rem;background:#fbfcff;font-size:1.35rem!important;}
+body:has(.tpz-auth-hero) .fi-one-time-code-input input:focus {border-color:#218ddd!important;outline:2px solid rgba(31,135,219,.17)!important;outline-offset:1px;}
+/* Blend a subdued architectural backdrop into the bottom of the hero, behind the module icons. */
+.tpz-auth-hero::after {height:35%;opacity:.35;background:linear-gradient(to bottom,#0a2c59 0%,rgba(7,30,66,.73) 30%,rgba(4,23,53,.73) 100%),url('/branding/tpz-erp-building-background.svg') center 60%/cover no-repeat;pointer-events:none;z-index:0;}
+.tpz-auth-hero > * {position:relative;z-index:1;}
+@media(max-width:900px) {
+ body:has(.tpz-auth-hero) .tpz-enterprise-mark-monogram {font-size:3.7rem!important;}
+ body:has(.tpz-auth-hero) .tpz-auth-form-brand {margin-bottom:1rem!important;}
+ .tpz-auth-hero::after {display:none;}
+}
+@media(max-width:420px) {
+ body:has(.tpz-auth-hero) .fi-one-time-code-input {gap:.3rem!important;}
+ body:has(.tpz-auth-hero) .fi-one-time-code-input input {min-width:2.25rem;max-width:2.8rem;min-height:3.1rem;}
+}
+
 </style>
 @endonce

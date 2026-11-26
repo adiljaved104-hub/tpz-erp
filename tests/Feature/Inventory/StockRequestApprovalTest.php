@@ -107,6 +107,38 @@ class StockRequestApprovalTest extends TestCase
         $approvals->decide($secondLine, StockRequestSourceStatus::Approved, null, (string) Str::uuid(), $firstHolder);
     }
 
+    public function test_rejecting_one_stock_holder_keeps_other_source_decisions_available(): void
+    {
+        $f = $this->responsibilityFoundation(6);
+        $firstHolder = $this->responsibilityUser(EmployeeRole::Staff);
+        $secondHolder = $this->responsibilityUser(EmployeeRole::Staff);
+        $allocations = app(InventoryAllocationService::class);
+        $allocations->ensureShadowCoverage($f['inventory'], $f['owner']);
+        $allocations->reconcile($f['inventory'], $allocations->employeeAccount($firstHolder->employee->id), 2, $f['owner'], 'First holder');
+        $allocations->reconcile($f['inventory'], $allocations->employeeAccount($secondHolder->employee->id), 2, $f['owner'], 'Second holder');
+        $request = $this->createRequest($f['owner'], [[$f['inventory']->id, 4]]);
+        $firstLine = $request->sourceLines()->whereHas('account', fn ($query) => $query->where('employee_id', $firstHolder->employee->id))->firstOrFail();
+        $secondLine = $request->sourceLines()->whereHas('account', fn ($query) => $query->where('employee_id', $secondHolder->employee->id))->firstOrFail();
+        $approvals = app(StockRequestApprovalService::class);
+
+        $inventoryBefore = $f['inventory']->only(['available_quantity', 'reserved_quantity']);
+        $approvals->decide($firstLine, StockRequestSourceStatus::Rejected, 'Unavailable', (string) Str::uuid(), $firstHolder);
+        $this->assertSame(StockRequestStatus::Pending, $request->refresh()->status);
+        $this->assertSame(StockRequestSourceStatus::Rejected, $firstLine->refresh()->status);
+        $this->assertSame(StockRequestSourceStatus::Pending, $secondLine->refresh()->status);
+        $this->assertCount(0, $approvals->eligiblePendingLines($request, $firstHolder));
+        $this->assertSame([$secondLine->id], $approvals->eligiblePendingLines($request, $secondHolder)->pluck('id')->all());
+
+        // Recover old records where a single rejection incorrectly marked the
+        // parent request rejected while another holder's source stayed pending.
+        $request->forceFill(['status' => StockRequestStatus::Rejected])->save();
+        $this->assertSame([$secondLine->id], $approvals->eligiblePendingLines($request->refresh(), $secondHolder)->pluck('id')->all());
+
+        $approvals->decide($secondLine, StockRequestSourceStatus::Approved, null, (string) Str::uuid(), $secondHolder);
+        $this->assertSame(StockRequestStatus::PartiallyApproved, $request->refresh()->status);
+        $this->assertSame($inventoryBefore, $f['inventory']->refresh()->only(['available_quantity', 'reserved_quantity']));
+    }
+
     public function test_team_and_system_sources_require_owner_or_admin_and_full_approval_aggregates(): void
     {
         $f = $this->responsibilityFoundation(8);

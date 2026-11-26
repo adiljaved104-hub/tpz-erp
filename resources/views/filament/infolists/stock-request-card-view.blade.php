@@ -106,7 +106,7 @@
                     </div>
                 </div>
                 <div class="tpz-sr-source-section">
-                    <div class="tpz-sr-source-title">Available Sources / Approval</div>
+                    <div class="tpz-sr-source-title">Available Sources / Approval Status</div>
                     @forelse($item->sourceLines as $source)
                         <div class="tpz-sr-source" wire:key="stock-request-source-card-{{ $source->id }}">
                             <div class="tpz-sr-source-grid">

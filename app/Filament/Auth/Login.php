@@ -150,16 +150,13 @@ class Login extends \Filament\Auth\Pages\Login
 
     public function getHeading(): string|Htmlable|null
     {
-        return filled($this->userUndertakingMultiFactorAuthentication)
-            ? 'Verify your sign-in'
-            : null;
+        // The enterprise login hook renders both the password and MFA headings.
+        return null;
     }
 
     public function getSubheading(): string|Htmlable|null
     {
-        return filled($this->userUndertakingMultiFactorAuthentication)
-            ? 'Enter the 6-digit code sent to your company email.'
-            : null;
+        return null;
     }
 
     protected function getEmailFormComponent(): Component

@@ -56,10 +56,8 @@ class StockRequestApprovalService
     /** @return Collection<int, StockRequestSourceLine> */
     public function eligiblePendingLines(StockRequest $request, User $actor): Collection
     {
-        if ($request->status === StockRequestStatus::Rejected) {
-            return collect();
-        }
-
+        // A previously rejected source must not block independent pending
+        // sources. Older records can have a stale aggregate Rejected status.
         return $request->sourceLines()
             ->with(['account.employee', 'account.team', 'item'])
             ->where('status', StockRequestSourceStatus::Pending->value)
@@ -116,12 +114,9 @@ class StockRequestApprovalService
                 ]);
             }
 
-            if ($request->status === StockRequestStatus::Rejected) {
-                throw ValidationException::withMessages([
-                    'source_line_id' => 'This Stock Request has already been rejected.',
-                ]);
-            }
-
+            // Source-line status is authoritative for an individual decision.
+            // Historical multi-holder requests may carry an incorrect parent
+            // Rejected status even while this source is still Pending.
             if (! $this->canDecide($actor, $locked)) {
                 throw new AuthorizationException('You are not authorized to approve this stock source.');
             }
@@ -158,7 +153,8 @@ class StockRequestApprovalService
                 'decided_by_user_id' => $actor->id,
                 'decided_at' => now(),
                 'decision_note' => $validated['note'],
-                'decision_idempotency_key' => $decision === StockRequestSourceStatus::Approved && (int) $locked->approved_quantity + $quantity >= $locked->proposed_quantity
+                'decision_idempotency_key' => ($decision === StockRequestSourceStatus::Rejected
+                    || (int) $locked->approved_quantity + $quantity >= $locked->proposed_quantity)
                     ? $validated['idempotency_key'] : null,
             ])->save();
 
@@ -209,10 +205,15 @@ class StockRequestApprovalService
             ->toBase()
             ->pluck('status');
 
+        $hasApprovedQuantity = StockRequestSourceLine::query()
+            ->where('stock_request_id', $request->id)
+            ->where('approved_quantity', '>', 0)
+            ->exists();
+
         $status = match (true) {
-            $statuses->contains(StockRequestSourceStatus::Rejected->value) => StockRequestStatus::Rejected,
+            $statuses->isNotEmpty() && $statuses->every(fn (string $value): bool => $value === StockRequestSourceStatus::Rejected->value) && ! $hasApprovedQuantity => StockRequestStatus::Rejected,
             $statuses->isNotEmpty() && $statuses->every(fn (string $value): bool => $value === StockRequestSourceStatus::Approved->value) => StockRequestStatus::Approved,
-            StockRequestSourceLine::query()->where('stock_request_id', $request->id)->where('approved_quantity', '>', 0)->exists() => StockRequestStatus::PartiallyApproved,
+            $hasApprovedQuantity => StockRequestStatus::PartiallyApproved,
             default => StockRequestStatus::Pending,
         };
 

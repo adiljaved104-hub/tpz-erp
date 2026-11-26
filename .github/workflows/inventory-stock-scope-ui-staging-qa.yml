@@ -1,4 +1,4 @@
-name: Staging Inventory Scope and Stock Request Privacy QA (non-deploying)
+name: Main Candidate Inventory Scope and Stock Request Privacy QA (non-deploying)
 
 on:
   push:
@@ -67,8 +67,6 @@ jobs:
           php artisan package:discover --ansi
       - name: Syntax and formatting
         run: |
-          vendor/bin/pint app/Filament/Pages/InventoryWorkspace.php
-          git diff -- app/Filament/Pages/InventoryWorkspace.php
           php -l app/Filament/Pages/InventoryWorkspace.php
           php -l app/Services/Inventory/StockRequestService.php
           php -l app/Filament/Resources/StockRequests/Schemas/StockRequestInfolist.php

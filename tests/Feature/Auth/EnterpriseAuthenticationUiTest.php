@@ -10,6 +10,15 @@ class EnterpriseAuthenticationUiTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Asset manifests are generated on the deployed server; the PHP-only
+        // disposable MySQL CI job intentionally does not build Vite assets.
+        $this->withoutVite();
+    }
+
     public function test_guest_login_keeps_filament_password_auth_and_enterprise_branding(): void
     {
         $response = $this->get(route('filament.admin.auth.login'));

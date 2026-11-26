@@ -67,6 +67,8 @@ jobs:
           php artisan package:discover --ansi
       - name: Syntax and formatting
         run: |
+          vendor/bin/pint app/Filament/Pages/InventoryWorkspace.php
+          git diff -- app/Filament/Pages/InventoryWorkspace.php
           php -l app/Filament/Pages/InventoryWorkspace.php
           php -l app/Services/Inventory/StockRequestService.php
           php -l app/Filament/Resources/StockRequests/Schemas/StockRequestInfolist.php

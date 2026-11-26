@@ -78,6 +78,7 @@ class OrderForm
                             ->label('Product')
                             ->placeholder('Search by SKU or product name')
                             ->searchable()
+                            ->allowHtml()
                             ->wrapOptionLabels()
                             ->searchPrompt('Type at least 2 characters to search active Products in your authorized scope.')
                             ->noSearchResultsMessage('No active Products found within your authorized Responsibility and fulfilment scope.')
@@ -233,7 +234,15 @@ class OrderForm
             }
             $parts[] = self::stockContextFromInventory($inventories->get($productId));
 
-            return implode(' · ', $parts);
+            $display = implode(' · ', $parts);
+            // Match the subdued zero-stock presentation of Web Sales while
+            // preserving the established ability to save an unreserved draft.
+            // Escape product titles and marketplace details before HTML output.
+            if (str_contains($display, ' — Out of stock') || str_contains($display, ' — Awaiting QC')) {
+                return '<span style="opacity:0.48;filter:grayscale(1)">'.e($display).'</span>';
+            }
+
+            return e($display);
         })->all();
     }
 

@@ -219,16 +219,45 @@
                     <h2 class="text-base font-semibold text-gray-950 dark:text-white">Authorized Inventory</h2>
                     <p class="text-xs text-gray-500 dark:text-gray-400">Responsibility-scoped stock quantities. Search covers all matching records.</p>
                 </div>
-                <div class="w-full sm:w-72">
-                    <x-filament::input.wrapper>
-                        <x-filament::input type="search" wire:model.live.debounce.300ms="search" placeholder="Search by SKU or product" aria-label="Search inventory" />
-                    </x-filament::input.wrapper>
+                <div class="flex w-full flex-wrap items-end gap-2 sm:w-auto">
+                    <div class="w-full sm:w-64">
+                        <label for="tpz-inventory-search" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Search SKU / Product</label>
+                        <x-filament::input.wrapper>
+                            <x-filament::input id="tpz-inventory-search" type="search" wire:model.live.debounce.300ms="search" placeholder="Search by SKU or product" aria-label="Search inventory" />
+                        </x-filament::input.wrapper>
+                    </div>
+                    <div>
+                        <label for="tpz-stock-filter" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Stock</label>
+                        <x-filament::input.wrapper>
+                            <x-filament::input.select id="tpz-stock-filter" wire:model.live="inventoryStockFilter" aria-label="Filter stock quantity">
+                                <option value="in_stock">In stock only</option>
+                                <option value="zero_stock">Zero stock only</option>
+                                <option value="all">All stock</option>
+                            </x-filament::input.select>
+                        </x-filament::input.wrapper>
+                    </div>
+                    @if($inventoryHolderOptions !== [])
+                        <div>
+                            <label for="tpz-holder-filter" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Employee Stock Holder</label>
+                            <x-filament::input.wrapper>
+                                <x-filament::input.select id="tpz-holder-filter" wire:model.live="inventoryHolderFilter">
+                                    <option value="">All employees</option>
+                                    @foreach($inventoryHolderOptions as $holderId => $holderName)
+                                        <option value="{{ $holderId }}">{{ $holderName }}</option>
+                                    @endforeach
+                                </x-filament::input.select>
+                            </x-filament::input.wrapper>
+                        </div>
+                    @endif
+                    @if(isset($links['adjustments']))
+                        <x-filament::button tag="a" size="sm" color="gray" :href="$links['adjustments']">Stock Adjustments ↗</x-filament::button>
+                    @endif
                 </div>
             </div>
             <div class="overflow-x-auto">
                 <table class="tpz-workspace-table">
                     <thead>
-                        <tr><th>SKU &amp; product</th><th>Warehouse</th><th class="text-right">Available</th><th class="text-right">Reserved</th><th>Action</th></tr>
+                        <tr><th>SKU &amp; product</th><th>Warehouse</th><th class="text-right">{{ $employeeInventoryView ? 'My Allocated' : 'Warehouse Stock' }}</th><th class="text-right">{{ $employeeInventoryView ? 'My Reserved' : 'Reserved' }}</th><th>Action</th></tr>
                     </thead>
                     <tbody>
                         @forelse($inventory as $row)
@@ -238,8 +267,11 @@
                                     <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ $row->product?->sku ?? '—' }}</div>
                                 </td>
                                 <td>{{ $row->warehouse?->name ?? '—' }}</td>
-                                <td class="text-right font-semibold tabular-nums">{{ number_format($row->available_quantity) }}</td>
-                                <td class="text-right tabular-nums">{{ number_format($row->reserved_quantity) }}</td>
+                                @php
+                                    $personal = $employeeInventoryView ? $inventoryOwnBalances->get($row->id) : null;
+                                @endphp
+                                <td class="text-right font-semibold tabular-nums">{{ number_format($employeeInventoryView ? (int) ($personal?->allocated_quantity ?? 0) : $row->available_quantity) }}</td>
+                                <td class="text-right tabular-nums">{{ number_format($employeeInventoryView ? (int) ($personal?->reserved_quantity ?? 0) : $row->reserved_quantity) }}</td>
                                 <td>
                                     <x-filament::button type="button" size="xs" color="gray" wire:click="openInventoryQuickView({{ $row->id }})">Quick View</x-filament::button>
                                 </td>
@@ -451,10 +483,26 @@
                 </div>
                 <dl class="mt-5 grid grid-cols-2 gap-4 text-sm">
                     <div class="col-span-2"><dt class="text-gray-500">Warehouse</dt><dd class="font-semibold text-gray-950 dark:text-white">{{ $quickViewInventory['warehouse'] }}</dd></div>
-                    <div><dt class="text-gray-500">Available</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['available']) }}</dd></div>
-                    <div><dt class="text-gray-500">Reserved</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['reserved']) }}</dd></div>
-                    <div><dt class="text-gray-500">Damaged</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['damaged']) }}</dd></div>
+                    <div><dt class="text-gray-500">{{ $quickViewInventory['personal'] ? 'My Allocated' : 'Warehouse Stock' }}</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['available']) }}</dd></div>
+                    <div><dt class="text-gray-500">{{ $quickViewInventory['personal'] ? 'My Reserved' : 'Reserved' }}</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['reserved']) }}</dd></div>
+                    @unless($quickViewInventory['personal'])<div><dt class="text-gray-500">Damaged</dt><dd class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ number_format($quickViewInventory['damaged']) }}</dd></div>@endunless
                 </dl>
+                @if(count($quickViewInventory['reservationRows']) > 0)
+                    <h3 class="mt-7 border-b border-gray-200 pb-2 font-semibold text-gray-950 dark:border-gray-700 dark:text-white">Active reservation details (authorized scope)</h3>
+                    <div class="mt-3 space-y-2">
+                        @foreach($quickViewInventory['reservationRows'] as $reservation)
+                            <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
+                                <div>
+                                    <p class="font-semibold">{{ $reservation['reference'] }}</p>
+                                    <p class="text-xs text-gray-500">{{ $reservation['context'] }} · {{ $reservation['reserved_at'] }}</p>
+                                </div>
+                                <span class="tabular-nums">Qty {{ number_format($reservation['quantity']) }}</span>
+                            </div>
+                        @endforeach
+                    </div>
+                @elseif($quickViewInventory['reserved'] > 0)
+                    <p class="mt-5 text-xs text-gray-500">The total reserved quantity is displayed above; no detailed reservation rows are visible under your access scope.</p>
+                @endif
                 @if($quickViewInventory['movementsAllowed'])
                     <h3 class="mt-7 border-b border-gray-200 pb-2 font-semibold text-gray-950 dark:border-gray-700 dark:text-white">Recent permitted movements</h3>
                     <div class="mt-3 space-y-2">

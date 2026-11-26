@@ -61,13 +61,28 @@ class ProductInventoriesTable
                 (bool) $record->responsibility_zero_stock => 'Responsibility scope · Out of Stock',
                 default => 'My allocation',
             })->toggleable()] : []),
-            TextColumn::make('available_quantity')->label($owned ? 'Visible Stock' : 'Total Stock')->tooltip($owned ? 'Authorized warehouse or operational rows show physical stock. Other rows show only your own allocation. Reserved is included.' : 'Physical available stock, including Reserved.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($available.' '.$direction))->toggleable(),
-            TextColumn::make('allocated_quantity')->label($owned ? 'Recorded Allocated' : 'Allocated')->tooltip($owned ? 'Authorized physical rows show the combined ledger quantity without private holder details. Other rows show only your allocation. Reserved is included.' : 'Sum of recorded Inventory Allocation Ledger balances; Reserved is included.')->sortable()->toggleable(),
-            ...($owned ? [TextColumn::make('my_allocated_quantity')->label('My Allocated')->tooltip('Your own recorded allocation within this inventory row.')->sortable()->toggleable()] : []),
-            TextColumn::make('reserved_quantity')->label('Reserved')->tooltip($owned ? 'Authorized physical rows show physical Reserved. Other rows show only your own Reserved.' : 'Reserved is a subset of Total Stock and Allocated; do not add it again.')->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($reserved.' '.$direction))->toggleable(),
-            TextColumn::make('sellable_quantity')->label('Sellable')->tooltip($owned ? 'Visible Stock minus its corresponding Reserved quantity. This does not grant permission to consume other allocations.' : 'Total Stock minus Reserved.')->state(fn (ProductInventory $record): int => $record->sellableQuantity())->weight('bold')->toggleable(),
-            ...($owned ? [] : [TextColumn::make('damaged_quantity')->label('Damaged')->sortable()->toggleable()]),
-            ...($owned ? [] : [TextColumn::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand())->toggleable()]),
+            ...($owned ? [
+                TextColumn::make('my_allocated_quantity')->label('My Allocated')
+                    ->tooltip('Your own recorded inventory allocation, not combined warehouse stock.')->sortable()->toggleable(),
+                TextColumn::make('my_reserved_quantity')->label('My Reserved')
+                    ->tooltip('Only your reserved allocation.')->sortable()->toggleable(),
+                TextColumn::make('my_sellable_quantity')->label('My Sellable')
+                    ->state(fn (ProductInventory $record): int => max(0, (int) $record->my_allocated_quantity - (int) $record->my_reserved_quantity))
+                    ->weight('bold')->toggleable(),
+            ] : [
+                TextColumn::make('available_quantity')->label('Total Stock')->tooltip('Physical available stock, including Reserved.')
+                    ->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($available.' '.$direction))->toggleable(),
+                TextColumn::make('allocated_quantity')->label('Allocated')
+                    ->tooltip('Sum of recorded Inventory Allocation Ledger balances; Reserved is included.')
+                    ->sortable()->toggleable(),
+                TextColumn::make('reserved_quantity')->label('Reserved')
+                    ->tooltip('Reserved is a subset of Total Stock and Allocated.')
+                    ->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderByRaw($reserved.' '.$direction))->toggleable(),
+                TextColumn::make('sellable_quantity')->label('Sellable')
+                    ->state(fn (ProductInventory $record): int => $record->sellableQuantity())->weight('bold')->toggleable(),
+                TextColumn::make('damaged_quantity')->label('Damaged')->sortable()->toggleable(),
+                TextColumn::make('total_on_hand')->label('Total on Hand')->state(fn (ProductInventory $record): int => $record->totalOnHand())->toggleable(),
+            ]),
             ...(self::allowed(InventoryPermission::ViewFinancials) ? [
                 TextColumn::make('average_cost')->label('Average Cost')->money('AED', decimalPlaces: 2)->placeholder('No cost history'),
                 TextColumn::make('inventory_value')

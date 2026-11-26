@@ -4,7 +4,7 @@
     <div class="fi-simple-page">
         <div class="fi-simple-page-content">
             <div class="tpz-auth-form-brand">
-                <x-auth.branding :branding="$branding" />
+                <x-auth.enterprise-mark :branding="$branding" />
             </div>
             @if(session('status'))
                 <div role="status" class="mb-4 rounded-lg bg-success-50 p-3 text-sm text-success-700 dark:bg-success-500/10 dark:text-success-300">{{ session('status') }}</div>

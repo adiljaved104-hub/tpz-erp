@@ -4,6 +4,7 @@ on:
     branches:
       - feature/staging-stock-request-view-cards-20261126
       - fix/staging-stock-request-horizontal-dashboard-theme-20261126
+      - fix/staging-stock-request-source-columns-alignment-20261126
   pull_request:
     branches:
       - staging

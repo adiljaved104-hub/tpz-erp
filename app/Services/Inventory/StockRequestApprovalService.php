@@ -153,7 +153,8 @@ class StockRequestApprovalService
                 'decided_by_user_id' => $actor->id,
                 'decided_at' => now(),
                 'decision_note' => $validated['note'],
-                'decision_idempotency_key' => $decision === StockRequestSourceStatus::Approved && (int) $locked->approved_quantity + $quantity >= $locked->proposed_quantity
+                'decision_idempotency_key' => ($decision === StockRequestSourceStatus::Rejected
+                    || (int) $locked->approved_quantity + $quantity >= $locked->proposed_quantity)
                     ? $validated['idempotency_key'] : null,
             ])->save();
 

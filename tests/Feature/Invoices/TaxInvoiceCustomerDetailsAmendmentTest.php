@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\CompanyProfileService;
 use App\Services\Invoices\TaxInvoiceDocumentService;
 use App\Services\Invoices\TaxInvoiceService;
+use App\Services\UserTimezoneResolver;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -59,7 +60,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
         $this->profile($owner);
         $this->allow($staff, InvoicePermission::EditCustomerDetails, $owner);
         $invoice = $this->invoice($staff);
-        $invoice->load('items');
+        $invoice->refresh()->load('items');
         $immutable = [
             'invoice_number' => $invoice->invoice_number,
             'invoice_date' => $invoice->invoice_date->toDateString(),
@@ -200,7 +201,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
             ])
             ->setTableActionData([
                 'customer_name' => 'Modal Customer',
-                'customer_trn' => 'TRN-UPDATED',
+                'customer_trn' => '100000000000012',
                 'customer_address' => 'Modal Address',
                 'amendment_reason' => 'Corrected through the controlled modal.',
             ])
@@ -248,7 +249,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
 
         app(TaxInvoiceService::class)->updateCustomerDetails($invoice, [
             'customer_name' => 'History Customer LLC',
-            'customer_trn' => 'TRN-HISTORY',
+            'customer_trn' => '100000000000013',
             'customer_address' => 'History Address',
             'amendment_reason' => 'Customer requested legal-name correction.',
         ], $staff);
@@ -258,7 +259,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
             ->test(ViewTaxInvoice::class, ['record' => $invoice->getRouteKey()])
             ->assertSee('Record Information')
             ->assertSee('Amendment Employee')
-            ->assertSee($invoice->customerDetailAmendments->first()->created_at->timezone(config('app.timezone'))->format('d M Y, h:i A'))
+            ->assertSee(app(UserTimezoneResolver::class)->format($invoice->customerDetailAmendments->first()->created_at, 'd M Y, h:i A T'))
             ->assertActionVisible('viewAmendmentHistory');
 
         $historyTemplate = file_get_contents(dirname(__DIR__, 3).'/resources/views/filament/resources/tax-invoices/partials/customer-amendment-history.blade.php');
@@ -266,7 +267,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
             ->assertSee('Customer requested legal-name correction.')
             ->assertSee('Original Customer')
             ->assertSee('History Customer LLC')
-            ->assertSee('TRN-HISTORY')
+            ->assertSee('100000000000013')
             ->assertSee('Original Address')
             ->assertSee('History Address')
             ->assertSee('Amendment Employee');

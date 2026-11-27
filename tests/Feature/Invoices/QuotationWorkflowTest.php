@@ -3,6 +3,7 @@
 namespace Tests\Feature\Invoices;
 
 use App\Enums\EmployeeRole;
+use App\Enums\QuotationDocumentType;
 use App\Enums\QuotationStatus;
 use App\Filament\Resources\Quotations\Pages\CreateQuotation;
 use App\Filament\Resources\Quotations\Pages\ListQuotations;
@@ -12,6 +13,7 @@ use App\Jobs\SendQuotationEmailJob;
 use App\Models\CompanyProfile;
 use App\Models\EmailSetting;
 use App\Models\Employee;
+use App\Models\InvoiceSetting;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Quotation;
@@ -19,14 +21,17 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\QuotationAuthorization;
+use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\Quotations\QuotationConversionService;
 use App\Services\Quotations\QuotationEmailService;
+use App\Services\Quotations\QuotationPdfService;
 use App\Services\Quotations\QuotationService;
 use App\Services\Reports\ReportCatalog;
 use App\Services\Reports\ReportExportService;
 use App\Services\Reports\ReportQueryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -36,6 +41,70 @@ use Tests\TestCase;
 class QuotationWorkflowTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_quotation_and_proforma_use_matching_gold_bilingual_a4_non_tax_layout(): void
+    {
+        $owner = $this->owner();
+        $this->profile($owner);
+        $product = Product::factory()->create(['selling_price' => '105.00']);
+        $pdfService = app(QuotationPdfService::class);
+        foreach ([QuotationDocumentType::Quotation, QuotationDocumentType::ProformaInvoice] as $type) {
+            $data = $this->data($this->items($product));
+            $data['document_type'] = $type->value;
+            $data['customer_address'] = "Street 9, Bur Dubai\nDubai, United Arab Emirates";
+            $quote = app(QuotationService::class)->create($data, $owner);
+            $before = $quote->fresh()->toArray();
+
+            $html = view('quotations.document', $pdfService->viewData($quote, 'pdf'))->render();
+            $this->assertStringContainsString($type === QuotationDocumentType::Quotation ? 'QUOTATION' : 'PROFORMA INVOICE', $html);
+            $this->assertStringContainsString('NOT A TAX INVOICE', $html);
+            $this->assertStringContainsString('#ad915d', $html);
+            $this->assertStringContainsString('Unit incl. VAT', $html);
+            $this->assertStringContainsString('Valid Until', $html);
+            $this->assertStringContainsString('Total incl. VAT', $html);
+            $this->assertStringNotContainsString('<div class="title">TAX INVOICE</div>', $html);
+            $this->assertStringNotContainsString('Payment received', $html);
+            $this->assertStringNotContainsString('Balance due', $html);
+            $this->assertStringContainsString('105.00', $html);
+            $this->assertSame('105.00', $quote->grand_total);
+            $this->assertSame('5.00', $quote->vat_amount);
+            $this->assertSame('100.00', $quote->subtotal_excluding_vat);
+            $pdf = $pdfService->render($quote);
+            $pdf->render();
+            $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count(),
+                'One-line quotation and proforma should each fit on one A4 page.');
+            if (getenv('CI') === 'true') {
+                $directory = storage_path('app/quotation-gold-previews');
+                File::ensureDirectoryExists($directory);
+                file_put_contents($directory.'/'.($type === QuotationDocumentType::Quotation ? 'QUOTATION_gold_a4.pdf' : 'PROFORMA_gold_a4.pdf'), $pdf->output());
+            }
+            $this->assertSame($before, $quote->fresh()->toArray());
+        }
+    }
+
+    public function test_quotation_snapshots_footer_at_creation_and_does_not_inherit_future_branding(): void
+    {
+        $owner = $this->owner();
+        $this->profile($owner);
+        $product = Product::factory()->create(['selling_price' => '105.00']);
+        $before = $this->createQuote($owner, $this->items($product));
+        $this->assertSame([], $before->seller_snapshot['footer_branding']);
+
+        app(InvoiceSettingsService::class)->settings()->save();
+        InvoiceSetting::query()->firstOrFail()->forceFill([
+            'footer_branding' => [
+                'version' => 1,
+                'entries' => ['iso' => ['enabled' => true, 'caption' => 'Never approved']],
+            ],
+        ])->save();
+        $this->assertSame([], $before->fresh()->seller_snapshot['footer_branding']);
+        $this->assertSame([], app(QuotationPdfService::class)->viewData($before)['footerBranding']['entries']);
+
+        $after = $this->createQuote($owner, $this->items($product));
+        $this->assertArrayHasKey('version', $after->seller_snapshot['footer_branding']);
+        $this->assertSame([], app(QuotationPdfService::class)->viewData($after)['footerBranding']['entries'],
+            'Unapproved ISO, brand logos and certifications may never be printed.');
+    }
 
     public function test_draft_multiple_lines_pricing_and_inventory_isolation(): void
     {

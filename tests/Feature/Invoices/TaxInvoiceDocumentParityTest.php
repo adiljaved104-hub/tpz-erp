@@ -12,14 +12,150 @@ use App\Services\Invoices\InvoiceVerificationService;
 use App\Services\Invoices\TaxInvoiceService;
 use App\Support\ArabicPdfText;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Tests\TestCase;
 
 class TaxInvoiceDocumentParityTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_authorized_confirmed_customer_payment_automatically_uses_invoice_total_and_zero_balance(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $invoice = app(TaxInvoiceService::class)->create([
+            'customer_name' => 'Paid customer', 'customer_address' => 'Dubai, UAE',
+            'order_reference' => 'PAID-ORDER', 'invoice_date' => '2026-11-27',
+            'payment_received_in_full' => true, 'idempotency_key' => (string) Str::uuid(),
+            'items' => [['description' => 'Laptop', 'quantity' => 2, 'unit_price_including_vat' => '2500.00']],
+        ], $owner);
+
+        $this->assertSame('5000.00', $invoice->grand_total);
+        $payment = $invoice->fresh()->seller_snapshot['payment_receipt_snapshot'];
+        $this->assertSame('confirmed_paid_in_full', $payment['status']);
+        $this->assertSame('5000.00', $payment['amount_received_aed']);
+        $this->assertSame('0.00', $payment['balance_due_aed']);
+        $this->assertSame($owner->id, $payment['confirmed_by_user_id']);
+
+        $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertSee('Payment received')
+            ->assertSee('5,000.00')
+            ->assertSee('Balance due')
+            ->assertSee('0.00')
+            ->assertSee('Supply date')
+            ->assertSee('27 Nov 2026')
+            ->assertDontSee('Full customer payment was confirmed when this invoice was issued.')
+            ->assertDontSee('Unit prices include 5.00% VAT');
+
+        $download = $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice]));
+        $download->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF-', $download->getContent());
+    }
+
+    public function test_legacy_and_unconfirmed_invoices_do_not_claim_receipt_or_zero_balance(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $invoice = $this->invoice($owner);
+        // Simulate a pre-payment-status/supply-date legacy invoice in this disposable DB.
+        DB::table('tax_invoice_payment_events')->where('tax_invoice_id', $invoice->id)->delete();
+        $legacySnapshot = $invoice->seller_snapshot;
+        unset($legacySnapshot['supply_date_snapshot']);
+        DB::table('tax_invoices')->where('id', $invoice->id)->update([
+            'seller_snapshot' => json_encode($legacySnapshot, JSON_THROW_ON_ERROR),
+        ]);
+        $invoice->refresh();
+
+        $this->assertArrayNotHasKey('supply_date_snapshot', $invoice->seller_snapshot);
+        $this->assertArrayNotHasKey('payment_receipt_snapshot', $invoice->seller_snapshot);
+        $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertSee('Payment received')
+            ->assertSee('Not recorded')
+            ->assertSee('Balance due')
+            ->assertSee('Not verified')
+            ->assertDontSee('Customer payment is not recorded on this invoice.');
+    }
+
+    public function test_new_unpaid_invoice_shows_full_balance_and_default_same_day_supply_date(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $invoice = app(TaxInvoiceService::class)->create([
+            'customer_name' => 'Unpaid Customer', 'customer_address' => 'Dubai, UAE',
+            'order_reference' => 'UNPAID-ORDER', 'invoice_date' => '2026-11-27',
+            'idempotency_key' => (string) Str::uuid(),
+            'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '5000.00']],
+        ], $owner);
+
+        $this->assertSame('unpaid', $invoice->fresh()->payment_status);
+        $event = $invoice->fresh()->latestPaymentEvent;
+        $this->assertSame('invoice_issuance', $event->source);
+        $this->assertSame('0.00', $event->payment_received_aed);
+        $this->assertSame('5000.00', $event->balance_due_aed);
+        $this->assertSame('2026-11-27', $invoice->seller_snapshot['supply_date_snapshot']);
+
+        $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertSee('Supply date')
+            ->assertSee('27 Nov 2026')
+            ->assertSee('Payment received')
+            ->assertSee('Balance due')
+            ->assertSee('5,000.00')
+            ->assertDontSee('Not verified')
+            ->assertDontSee('Not recorded')
+            ->assertDontSee('Customer payment is not recorded on this invoice.')
+            ->assertDontSee('Unit prices include');
+    }
+
+    public function test_real_supply_date_can_differ_without_changing_invoice_date(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $invoice = app(TaxInvoiceService::class)->create([
+            'customer_name' => 'Customer', 'customer_address' => 'Dubai, UAE',
+            'order_reference' => 'DELIVERED-LATER', 'invoice_date' => '2026-11-27',
+            'supply_date' => '2026-11-28',
+            'idempotency_key' => (string) Str::uuid(),
+            'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '105.00']],
+        ], $owner);
+
+        $this->assertSame('2026-11-28', $invoice->seller_snapshot['supply_date_snapshot']);
+        $this->assertSame('2026-11-27', $invoice->invoice_date->toDateString());
+
+        $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertSee('27 Nov 2026')
+            ->assertSee('28 Nov 2026');
+    }
+
+    public function test_staff_cannot_mark_an_invoice_paid_even_when_able_to_issue_it(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $staff = User::factory()->create();
+        Employee::factory()->for($staff)->role(EmployeeRole::Staff)->create([
+            'email' => $staff->email, 'status' => true,
+        ]);
+
+        try {
+            app(TaxInvoiceService::class)->create([
+                'customer_name' => 'Customer', 'customer_address' => 'Dubai',
+                'order_reference' => 'NOT-PAID', 'invoice_date' => '2026-11-27',
+                'payment_received_in_full' => true, 'idempotency_key' => (string) Str::uuid(),
+                'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '105.00']],
+            ], $staff);
+            $this->fail('Staff member was allowed to confirm customer payment.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('payment_received_in_full', $exception->errors());
+        }
+        $this->assertDatabaseCount('tax_invoices', 0);
+    }
 
     public function test_print_document_matches_reference_structure_bilingual_content_logo_and_prices(): void
     {
@@ -38,23 +174,21 @@ class TaxInvoiceDocumentParityTest extends TestCase
 
         $response->assertOk()
             ->assertSeeInOrder([
-                'TAX INVOICE',
-                'فاتورة ضريبية',
-                'FROM /',
                 'Tech Point Zone Electronics Trading L.L.C',
                 'تك بوينت زون لتجارة الالكترونيات ذ.م.م',
-                'BILL TO /',
-                'INVOICE DETAILS /',
-                'DESCRIPTION /',
-                '504.76',
+                'TAX INVOICE',
+                'فاتورة ضريبية',
+                'Trade License No:',
+                'BILL TO',
+                'ORDER ID',
+                'Description / Serial Number',
                 '530.00',
+                'Subtotal (excl. VAT)',
+                '504.76',
+                'Invoice total (AED)',
                 'Terms &amp; Conditions',
                 '1 Year Manufacturer Warranty.',
                 'ضمان الشركة المصنعة لمدة سنة واحدة.',
-                'Subtotal /',
-                'GRAND TOTAL (AED)',
-                'Trade License No:',
-                'Registered Address:',
                 'Legal company statement.',
                 'بيان الشركة القانوني.',
             ], false)
@@ -80,7 +214,8 @@ class TaxInvoiceDocumentParityTest extends TestCase
         $this->actingAs($owner)
             ->get(route('tax-invoices.pdf', ['invoice' => $withTrn, 'print' => 1]))
             ->assertOk()
-            ->assertSee('Customer TRN: 100200300400500');
+            ->assertSee('Customer TRN:')
+            ->assertSee('class="value invoice-trn" dir="ltr">100200300400500</td>', false);
     }
 
     public function test_dompdf_receives_connected_visual_order_arabic_and_generates_one_item_pdf(): void
@@ -156,7 +291,7 @@ class TaxInvoiceDocumentParityTest extends TestCase
 
         $print = $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]));
         $print->assertOk()
-            ->assertSeeInOrder(['GRAND TOTAL (AED)', 'class="stamp"', 'class="footer"'], false)
+            ->assertSeeInOrder(['class="stamp"', 'Invoice total (AED)', 'class="footer"'], false)
             ->assertSee('class="document-page bottom-footer"', false)
             ->assertDontSee('class="footer-spacer"', false)
             ->assertSee(base64_encode($firstStamp), false)
@@ -224,7 +359,7 @@ class TaxInvoiceDocumentParityTest extends TestCase
         $print->assertOk()
             ->assertSee('display: table-header-group', false)
             ->assertSee('page-break-inside: avoid', false)
-            ->assertSeeInOrder(['class="items"', 'class="closing-section long-layout"', 'GRAND TOTAL (AED)', 'Verify this invoice:', 'class="company-footer"'], false)
+            ->assertSeeInOrder(['class="items"', 'class="closing-section long-layout"', 'Invoice total (AED)', 'class="company-footer"', 'Verify this invoice:'], false)
             ->assertDontSee('class="footer-spacer"', false);
 
         $pdf = $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice]));

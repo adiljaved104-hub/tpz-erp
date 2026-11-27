@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Authorization;
 
+use App\Enums\AccountingPermission;
+use App\Enums\AiAssistantPermission;
 use App\Enums\AuthSecurityPermission;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;
@@ -55,6 +57,7 @@ class PermissionCatalogCompletenessTest extends TestCase
     public function test_every_completed_permission_is_exposed_once_in_access_control(): void
     {
         $enumClasses = [
+            AccountingPermission::class, AiAssistantPermission::class,
             PeoplePermission::class, CatalogPermission::class, OrderPermission::class, PurchasePermission::class,
             WebSalesPermission::class, ExpensePermission::class,
             OfficeFinancePermission::class, BackupSettingsPermission::class,

@@ -1,9 +1,10 @@
-name: Main Candidate Inventory Scope and Stock Request Privacy QA (non-deploying)
+name: Inventory Scope and Stock Request Privacy QA (non-deploying)
 
 on:
   push:
     branches:
       - release/inventory-scope-privacy-main-20261125
+      - fix/staging-inventory-scope-ux-20261125
   pull_request:
     branches:
       - main

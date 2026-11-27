@@ -11,6 +11,7 @@ use App\Enums\StockRequestPurpose;
 use App\Enums\StockRequestSourceStatus;
 use App\Filament\Pages\Inventory\InventoryOverview;
 use App\Filament\Pages\Inventory\StockAdjustments;
+use App\Filament\Pages\Inventory\StockByHolder;
 use App\Filament\Resources\ProductInventories\ProductInventoryResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\StockMovements\StockMovementResource;
@@ -19,10 +20,13 @@ use App\Filament\Resources\StockRequests\StockRequestResource;
 use App\Filament\Resources\StockTransfers\StockTransferResource;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryReservation;
+use App\Models\ProductBrand;
+use App\Models\ProductCategory;
 use App\Models\StockRequest;
 use App\Models\StockRequestExecution;
 use App\Models\StockRequestSourceLine;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\ProductAuthorization;
 use App\Services\Dashboard\ErpDashboardService;
@@ -30,6 +34,7 @@ use App\Services\Inventory\EmployeeOwnedInventoryReadService;
 use App\Services\Inventory\InventoryAllocationBreakdownReadService;
 use App\Services\Inventory\InventoryLocationOverviewService;
 use App\Services\Inventory\InventoryReadService;
+use App\Services\Inventory\StockByHolderReportService;
 use App\Services\Inventory\StockRequestApprovalService;
 use App\Services\Inventory\StockRequestExecutionService;
 use App\Services\Inventory\StockRequestService;
@@ -82,6 +87,18 @@ class InventoryWorkspace extends Page
     public string $productSearch = '';
 
     public string $myInventorySearch = '';
+
+    public string $ownershipHolderId = '';
+
+    public string $ownershipSearch = '';
+
+    public string $ownershipBrandId = '';
+
+    public string $ownershipCategoryId = '';
+
+    public string $ownershipWarehouseId = '';
+
+    public bool $ownershipUnassignedOnly = false;
 
     // Store only the selected inventory ID; always load through the scoped
     // InventoryReadService instead of persisting record data in Livewire state.
@@ -360,6 +377,47 @@ class InventoryWorkspace extends Page
         // modules. No allocation balances from other employees are exposed.
         $allocatedRows = collect();
         $locationRows = collect();
+        $ownershipRows = collect();
+        $ownershipSummaries = collect();
+        $ownershipMetrics = [];
+        $ownershipHolderOptions = collect();
+        $ownershipBrandOptions = collect();
+        $ownershipCategoryOptions = collect();
+        $ownershipWarehouseOptions = collect();
+
+        if (is_array($selectedExtra) && $selectedExtra['label'] === 'Stock Ownership'
+            && StockByHolder::canAccess()) {
+            // The existing report enforces Owner/Admin access. Reuse its
+            // ledger-backed query and filters, never generic inventory balances.
+            $report = app(StockByHolderReportService::class);
+            $filters = [
+                'holder_id' => $this->ownershipHolderId,
+                'search' => $this->ownershipSearch,
+                'brand_id' => $this->ownershipBrandId,
+                'category_id' => $this->ownershipCategoryId,
+                'warehouse_id' => $this->ownershipWarehouseId,
+                'unassigned' => $this->ownershipUnassignedOnly,
+            ];
+            $ownershipSummaries = $report->holderSummaries($filters);
+            $held = (int) $ownershipSummaries->sum('total_held');
+            $reserved = (int) $ownershipSummaries->sum('reserved_quantity');
+            $ownershipMetrics = [
+                'total_held' => $held,
+                'available' => $held - $reserved,
+                'reserved' => $reserved,
+                'models' => $report->distinctModelCount($filters),
+                'unassigned' => (int) $ownershipSummaries->where('is_system', true)->sum('total_held'),
+            ];
+            $ownershipRows = $report->balances($filters)
+                ->orderBy('account_id')->orderBy('product_inventory_id')
+                ->paginate(15, pageName: 'ownership-page');
+            $ownershipHolderOptions = $report->holders()->mapWithKeys(
+                fn ($account): array => [$account->id => app(StockByHolder::class)->holderLabel($account)]
+            );
+            $ownershipBrandOptions = ProductBrand::query()->orderBy('name')->pluck('name', 'id');
+            $ownershipCategoryOptions = ProductCategory::query()->orderBy('name')->pluck('name', 'id');
+            $ownershipWarehouseOptions = Warehouse::query()->orderBy('name')->pluck('name', 'id');
+        }
         if (is_array($selectedExtra) && $canInventory && $canLocationBalances) {
             if ($selectedExtra['label'] === 'My Allocated Stock') {
                 $allocatedRows = app(EmployeeOwnedInventoryReadService::class)
@@ -406,6 +464,13 @@ class InventoryWorkspace extends Page
             'pendingSourceDecision' => $this->pendingSourceDecision($user),
             'extraPreview' => $extraPreview,
             'allocatedRows' => $allocatedRows,
+            'ownershipRows' => $ownershipRows,
+            'ownershipSummaries' => $ownershipSummaries,
+            'ownershipMetrics' => $ownershipMetrics,
+            'ownershipHolderOptions' => $ownershipHolderOptions,
+            'ownershipBrandOptions' => $ownershipBrandOptions,
+            'ownershipCategoryOptions' => $ownershipCategoryOptions,
+            'ownershipWarehouseOptions' => $ownershipWarehouseOptions,
             'locationRows' => $locationRows,
             'inventoryCards' => $inventoryCards,
             'inventoryAttention' => $inventoryAttention,
@@ -901,6 +966,54 @@ class InventoryWorkspace extends Page
                 'Inventory Workspace',
             ], true))
             ->values();
+    }
+
+    public function updatedOwnershipHolderId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipSearch(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipBrandId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipCategoryId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipWarehouseId(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function updatedOwnershipUnassignedOnly(): void
+    {
+        $this->resetPage('ownership-page');
+    }
+
+    public function chooseOwnershipHolder(int $accountId): void
+    {
+        abort_unless(static::canAccess() && StockByHolder::canAccess(), 403);
+        $this->ownershipHolderId = (string) $accountId;
+        $this->ownershipUnassignedOnly = false;
+        $this->resetPage('ownership-page');
+    }
+
+    public function resetOwnershipFilters(): void
+    {
+        abort_unless(static::canAccess() && StockByHolder::canAccess(), 403);
+        $this->reset(
+            'ownershipHolderId', 'ownershipSearch', 'ownershipBrandId',
+            'ownershipCategoryId', 'ownershipWarehouseId', 'ownershipUnassignedOnly'
+        );
+        $this->resetPage('ownership-page');
     }
 
     public function selectExtraModule(int $index): void

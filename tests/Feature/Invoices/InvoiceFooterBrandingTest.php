@@ -377,13 +377,45 @@ class InvoiceFooterBrandingTest extends TestCase
         $html = view('invoices.tax-invoice', $data)->render();
 
         $this->assertSame(1, substr_count($html, 'class="branding-strip"'));
-        $this->assertSame(3, substr_count($html, 'class="term-en"'));
-        $this->assertSame(3, substr_count($html, 'class="term-ar arabic"'));
+        $this->assertSame(1, substr_count($html, 'class="terms-independent-row"'));
+        $this->assertSame(3, substr_count($html, 'class="term-en term-paragraph"'));
+        $this->assertSame(3, substr_count($html, 'class="term-ar term-paragraph arabic"'));
         $this->assertStringContainsString('footer.has-branding { page-break-inside: auto; }', $html);
         $pdf = app(TaxInvoiceDocumentService::class)->pdf($invoice);
         $pdf->render();
         $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count(),
             'One-item branded invoice with moderate bilingual terms should not waste a second A4 page.');
+    }
+
+    public function test_uneven_translation_line_counts_do_not_create_blank_pdf_rows_or_orphan_branding(): void
+    {
+        $owner = $this->user();
+        $this->enable($owner);
+        $settings = InvoiceSetting::query()->sole();
+        $settings->forceFill([
+            'terms_en' => implode("\n", [
+                'Brand-new devices carry a one-year manufacturer warranty from delivery.',
+                'Any longer manufacturer warranty applies.',
+                'For claims, contact Tech Point Zone or the brand service center with your invoice.',
+                'Damage caused by misuse, liquid exposure, power surges or external fire is excluded. UAE consumer law applies.',
+            ]),
+            'terms_ar' => 'تتمتع الأجهزة الجديدة بضمان لمدة عام واحد من تاريخ التسليم، ويرجى التواصل مع مركز خدمة العلامة التجارية للمطالبة بالضمان. لا يشمل الضمان التلف الناتج عن سوء الاستخدام أو السوائل.',
+        ])->save();
+        $invoice = $this->invoice($owner, 1);
+        $documents = app(TaxInvoiceDocumentService::class);
+        $html = view('invoices.tax-invoice', $documents->printViewData($invoice))->render();
+
+        // One two-column row holds all four English and one Arabic paragraphs;
+        // a row per sentence caused 3 large gaps when the languages wrapped differently.
+        $this->assertSame(1, substr_count($html, 'class="terms-independent-row"'));
+        $this->assertSame(4, substr_count($html, 'class="term-en term-paragraph"'));
+        $this->assertSame(1, substr_count($html, 'class="term-ar term-paragraph arabic"'));
+        $this->assertSame(1, substr_count($html, '<div class="branding-strip">'));
+
+        $pdf = $documents->pdf($invoice);
+        $pdf->render();
+        $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count(),
+            'Normal one-item bilingual invoice with approved branding must not orphan logos onto page 2.');
     }
 
     public function test_short_and_long_a4_pdfs_keep_logos_and_captions_together_on_the_last_page(): void

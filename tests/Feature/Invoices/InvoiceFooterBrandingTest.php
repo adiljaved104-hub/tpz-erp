@@ -39,6 +39,44 @@ class InvoiceFooterBrandingTest extends TestCase
         Storage::fake('local');
     }
 
+    public function test_owner_sees_compact_branding_cards_and_bordered_bilingual_fields(): void
+    {
+        $owner = $this->user();
+        $html = Livewire::actingAs($owner)->test(SettingsPage::class)->html();
+
+        $this->assertSame(7, substr_count($html, '<details '));
+        $this->assertSame(7, substr_count($html, '</details>'));
+        $this->assertStringContainsString('Expand / collapse', $html);
+        $this->assertStringContainsString('Not configured', $html);
+        $this->assertStringContainsString('Owner approval must be saved before enabling this entry.', $html);
+        $this->assertStringContainsString('id="footer-statement-en"', $html);
+        $this->assertStringContainsString('id="footer-statement-ar"', $html);
+        $this->assertStringContainsString('min-height: 110px', $html);
+        $this->assertStringContainsString('dir="rtl"', $html);
+    }
+
+    public function test_read_only_review_status_distinguishes_draft_approval_and_unsaved_changes(): void
+    {
+        $service = app(InvoiceFooterBrandingService::class);
+        $draft = $service->defaults()['entries']['dell'];
+        $this->assertSame('Not configured', $service->reviewStatus($draft));
+        $draft['caption'] = 'Brand';
+        $this->assertSame('Draft - incomplete', $service->reviewStatus($draft));
+        $draft['evidence'] = 'Genuine artwork rights evidence';
+        $draft['asset'] = ['path' => 'invoice-footer/example.png', 'sha256' => 'fake', 'mime' => 'image/png'];
+        $this->assertSame('Pending Owner approval', $service->reviewStatus($draft));
+
+        $owner = $this->user();
+        $this->enable($owner);
+        $saved = $service->defaults(InvoiceSetting::query()->sole()->footer_branding)['entries']['dell'];
+        $this->assertSame('Approved & enabled', $service->reviewStatus($saved));
+        $saved['enabled'] = false;
+        $this->assertSame('Approved - disabled', $service->reviewStatus($saved));
+        $saved['caption'] = 'Changed claim';
+        $this->assertSame('Pending Owner approval', $service->reviewStatus($saved));
+        $this->assertSame('Pending Owner approval', $service->reviewStatus($saved, true));
+    }
+
     public function test_nullable_settings_default_to_no_claims_and_old_invoices_do_not_inherit_them(): void
     {
         $owner = $this->user();

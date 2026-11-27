@@ -21,6 +21,7 @@ use App\Support\ArabicPdfText;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -353,6 +354,38 @@ class InvoiceFooterBrandingTest extends TestCase
         Livewire::actingAs($this->user(EmployeeRole::Staff))->test(SettingsPage::class)->assertForbidden();
     }
 
+    public function test_short_branded_invoice_has_compact_terms_without_blank_translation_rows(): void
+    {
+        $owner = $this->user();
+        $this->enable($owner);
+        $settings = InvoiceSetting::query()->sole();
+        $settings->forceFill([
+            'terms_en' => "Brand-new devices carry a one-year manufacturer's warranty from delivery.\n\nFor warranty claims contact Tech Point Zone or the manufacturer's service centre.\n\nThe warranty excludes misuse and liquid damage.",
+            'terms_ar' => "تتمتع الأجهزة الجديدة بضمان لمدة عام واحد.\n\nللمطالبة بالضمان يرجى التواصل مع الشركة أو مركز خدمة العلامة التجارية.\nلا تشمل سياسة الضمان الأضرار الناتجة عن سوء الاستخدام.",
+        ])->save();
+        CompanyProfile::query()->firstOrCreate(['id' => 1], ['company_name_en' => 'Tech Point Zone Electronics Trading LLC']);
+        CompanyProfile::query()->whereKey(1)->update([
+            'company_name_en' => 'Tech Point Zone Electronics Trading LLC',
+            'address_en' => "Shop 08, Building Name\nAl Nahdha Street, Dubai UAE",
+            'address_ar' => 'محل ٨، شارع النهضة، دبي، الإمارات العربية المتحدة',
+            'email' => 'sales@example.test', 'phone' => '0551234567',
+            'country' => 'UAE', 'emirate' => 'Dubai',
+        ]);
+
+        $invoice = $this->invoice($owner, 1);
+        $data = app(TaxInvoiceDocumentService::class)->printViewData($invoice);
+        $html = view('invoices.tax-invoice', $data)->render();
+
+        $this->assertSame(1, substr_count($html, 'class="branding-strip"'));
+        $this->assertSame(3, substr_count($html, 'class="term-en"'));
+        $this->assertSame(3, substr_count($html, 'class="term-ar arabic"'));
+        $this->assertStringContainsString('footer.has-branding { page-break-inside: auto; }', $html);
+        $pdf = app(TaxInvoiceDocumentService::class)->pdf($invoice);
+        $pdf->render();
+        $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count(),
+            'One-item branded invoice with moderate bilingual terms should not waste a second A4 page.');
+    }
+
     public function test_short_and_long_a4_pdfs_keep_logos_and_captions_together_on_the_last_page(): void
     {
         $owner = $this->user();
@@ -374,6 +407,33 @@ class InvoiceFooterBrandingTest extends TestCase
                 $this->assertGreaterThan(1, $pages);
             }
             $this->assertStringStartsWith('%PDF-', $pdf->output());
+            if (getenv('CI') === 'true') {
+                $previewDirectory = storage_path('app/ci-invoice-pdf-previews');
+                File::ensureDirectoryExists($previewDirectory);
+                $label = $count === 1 ? 'SAMPLE_01_standard_one_item_seven_brands.pdf' : 'SAMPLE_03_long_terms_multi_item.pdf';
+                file_put_contents($previewDirectory.'/'.$label, $pdf->output());
+            }
+        }
+
+        if (getenv('CI') === 'true') {
+            // Disposable, isolated synthetic paid example; never customer records.
+            $invoice = app(TaxInvoiceService::class)->create([
+                'customer_name' => 'Sample Customer — Not a Real Invoice',
+                'customer_address' => 'Dubai, United Arab Emirates',
+                'order_reference' => 'SAMPLE-9000-VAT',
+                'invoice_date' => today()->toDateString(),
+                'idempotency_key' => (string) Str::uuid(),
+                'payment_received_in_full' => true,
+                'items' => [
+                    ['description' => 'Sample Laptop A', 'quantity' => 1, 'unit_price_including_vat' => '4000.00'],
+                    ['description' => 'Sample Laptop B', 'quantity' => 1, 'unit_price_including_vat' => '5000.00'],
+                ],
+            ], $owner);
+            $this->assertSame('428.58', $invoice->vat_amount);
+            $this->assertSame('9000.00', $invoice->grand_total);
+            $paidPdf = $documents->pdf($invoice);
+            $paidPdf->render();
+            file_put_contents(storage_path('app/ci-invoice-pdf-previews/SAMPLE_02_paid_9000_vat_428_58.pdf'), $paidPdf->output());
         }
     }
 

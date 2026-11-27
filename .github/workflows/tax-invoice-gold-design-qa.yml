@@ -2,7 +2,7 @@ name: Tax invoice gold design focused QA
 
 on:
   push:
-    branches: [codex/tax-invoice-gold-reference-197-20261127, codex/invoice-footer-settings-ui-polish-20261127, codex/invoice-footer-clear-stale-validation-20261127]
+    branches: [codex/tax-invoice-gold-reference-197-20261127, codex/invoice-footer-settings-ui-polish-20261127, codex/invoice-footer-clear-stale-validation-20261127, codex/tax-invoice-confirmed-paid-full-20261127]
   workflow_dispatch:
 
 permissions:
@@ -79,11 +79,20 @@ jobs:
             tests/Feature/Invoices/TaxInvoiceGoldDesignTest.php \
             tests/Feature/Invoices/InvoiceFooterBrandingTest.php \
             tests/Feature/Invoices/TaxInvoiceDocumentParityTest.php \
+            tests/Feature/Invoices/TaxInvoiceEmployeeWorkflowTest.php \
+            tests/Feature/Authorization/PermissionCatalogCompletenessTest.php \
             tests/Feature/Invoices/TaxInvoicePhoneRenewedTermsTest.php \
             tests/Feature/Invoices/TaxInvoiceCustomerDetailsAmendmentTest.php \
             tests/Feature/Invoices/TaxInvoiceVerificationTest.php \
             tests/Feature/Invoices/TaxInvoiceFoundationTest.php \
             tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: tax-invoice-pr201-visual-pdf-samples
+          path: storage/app/ci-invoice-pdf-previews/*.pdf
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:

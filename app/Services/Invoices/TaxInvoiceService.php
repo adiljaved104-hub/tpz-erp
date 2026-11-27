@@ -28,18 +28,25 @@ class TaxInvoiceService
         $data['terms_profile'] ??= TaxInvoiceTermsProfile::Auto->value;
         $validated = validator($data, [
             'customer_name' => ['required', 'string', 'max:255'], 'customer_address' => ['required', 'string', 'max:2000'],
-            'customer_trn' => ['nullable', 'string', 'max:50'],
+            'customer_trn' => ['nullable', 'string', 'regex:/^[0-9]{15}$/'],
             'customer_phone' => ['nullable', 'string', 'max:40'], 'order_reference' => ['required', 'string', 'max:100'],
             'source_order_id' => ['nullable', 'integer'],
             'title_mode' => ['required', Rule::enum(ProductTitleMode::class)],
             'terms_profile' => ['required', Rule::enum(TaxInvoiceTermsProfile::class)],
             'invoice_date' => ['required', 'date'], 'idempotency_key' => ['required', 'uuid'], 'items' => ['required', 'array', 'min:1', 'max:100'],
+            'payment_received_in_full' => ['sometimes', 'boolean'],
             'items.*.description' => ['required', 'string', 'max:2000'], 'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.unit_price_including_vat' => ['required', 'decimal:0,2', 'gt:0'],
             'items.*.source_order_item_id' => ['nullable', 'integer'],
         ])->validate();
         if ($existing = TaxInvoice::query()->where('idempotency_key', $validated['idempotency_key'])->first()) {
             return $existing;
+        }
+        $paymentConfirmed = (bool) ($validated['payment_received_in_full'] ?? false);
+        if ($paymentConfirmed && ! $this->authorization->allows($actor, InvoicePermission::ManagePaymentStatus)) {
+            throw ValidationException::withMessages([
+                'payment_received_in_full' => 'You do not have permission to confirm full customer payment on a Tax Invoice.',
+            ]);
         }
         $source = null;
         if (filled($validated['source_order_id'] ?? null)) {
@@ -68,7 +75,19 @@ class TaxInvoiceService
         $totals = $this->calculateTotals($validated['items'], (string) $settings->vat_rate);
         ['vat_rate' => $vatRate, 'divisor' => $divisor, 'grand_total' => $gross, 'subtotal' => $net, 'vat' => $vat] = $totals;
 
-        return DB::transaction(function () use ($validated, $actor, $source, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms): TaxInvoice {
+        return DB::transaction(function () use ($validated, $actor, $source, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms, $paymentConfirmed): TaxInvoice {
+            // Financial disclosure, not an accounting posting. Only the authorized
+            // actor's affirmative confirmation can produce a paid-in-full invoice.
+            // Old issued invoice snapshots remain unchanged.
+            if ($paymentConfirmed) {
+                $profile['payment_receipt_snapshot'] = [
+                    'status' => 'confirmed_paid_in_full',
+                    'amount_received_aed' => $gross,
+                    'balance_due_aed' => '0.00',
+                    'confirmed_by_user_id' => $actor->id,
+                    'confirmed_at' => now()->utc()->toIso8601String(),
+                ];
+            }
             // Freeze the customer-facing marketplace reference at issuance, while the
             // source order is locked. Its later amendments must not rewrite a PDF.
             if ($source !== null) {
@@ -104,9 +123,69 @@ class TaxInvoiceService
                 $lineNet = bcadd(bcdiv($lineGross, $divisor, 4), '0.005', 2);
                 $invoice->items()->create(['description' => trim($item['description']), 'quantity' => $item['quantity'], 'unit_price_including_vat' => $item['unit_price_including_vat'], 'source_order_item_id' => $item['source_order_item_id'] ?? null, 'subtotal_excluding_vat' => $lineNet, 'vat_amount' => bcsub($lineGross, $lineNet, 2), 'total_including_vat' => $lineGross, 'line_number' => $index + 1]);
             }
-            $this->activity->log('tax_invoice.issued', $actor, $invoice, ['invoice_id' => $invoice->id, 'item_count' => count($validated['items']), 'actor_id' => $actor->id]);
+            if ($paymentConfirmed) {
+                $invoice->paymentEvents()->create([
+                    'changed_by_user_id' => $actor->id, 'status' => 'paid',
+                    'payment_received_aed' => $gross, 'balance_due_aed' => '0.00',
+                    'source' => 'invoice_issuance', 'evidence_reference' => 'Confirmed paid at issuance',
+                ]);
+            }
+            $this->activity->log('tax_invoice.issued', $actor, $invoice, [
+                'invoice_id' => $invoice->id, 'item_count' => count($validated['items']),
+                'actor_id' => $actor->id, 'full_payment_confirmed' => $paymentConfirmed,
+            ]);
 
             return $invoice->load(['items', 'createdBy']);
+        });
+    }
+
+    /**
+     * Appends an operational payment-state event. No receipt, refund, journal,
+     * original invoice field or VAT amount is written by this action.
+     */
+    public function markPaymentStatus(TaxInvoice $invoice, string $status, ?string $reference, ?string $reason, User $actor): void
+    {
+        $this->authorization->authorize($actor, InvoicePermission::ManagePaymentStatus, $invoice);
+        $validated = validator([
+            'status' => $status, 'evidence_reference' => $reference, 'reason' => $reason,
+        ], [
+            'status' => ['required', Rule::in(['paid', 'unpaid'])],
+            'evidence_reference' => [$status === 'paid' ? 'required' : 'nullable', 'string', 'max:190'],
+            'reason' => [$status === 'unpaid' ? 'required' : 'nullable', 'string', 'max:2000'],
+        ])->validate();
+        $reference = trim((string) ($validated['evidence_reference'] ?? ''));
+        $reason = trim((string) ($validated['reason'] ?? ''));
+        if ($status === 'paid' && mb_strlen($reference) < 4) {
+            throw ValidationException::withMessages(['evidence_reference' => 'Enter actual cash collection or payment evidence (at least 4 characters).']);
+        }
+        if ($status === 'unpaid' && mb_strlen($reason) < 5) {
+            throw ValidationException::withMessages(['reason' => 'Explain why this invoice is being marked unpaid.']);
+        }
+
+        DB::transaction(function () use ($invoice, $actor, $status, $reference, $reason): void {
+            $locked = TaxInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
+            $this->authorization->authorize($actor, InvoicePermission::ManagePaymentStatus, $locked);
+            if ($locked->status !== 'issued') {
+                throw ValidationException::withMessages(['status' => 'A void Tax Invoice cannot have its payment state changed.']);
+            }
+            $last = $locked->paymentEvents()->orderByDesc('id')->first();
+            if ($last?->status === $status) {
+                return;
+            }
+            $event = $locked->paymentEvents()->create([
+                'changed_by_user_id' => $actor->id, 'status' => $status,
+                'payment_received_aed' => $status === 'paid' ? $locked->grand_total : '0.00',
+                'balance_due_aed' => $status === 'paid' ? '0.00' : $locked->grand_total,
+                'evidence_reference' => $reference !== '' ? $reference : null,
+                'reason' => $reason !== '' ? $reason : null,
+                'source' => 'manual_status',
+            ]);
+            $this->activity->log('tax_invoice.payment_status_changed', $actor, $locked, [
+                'invoice_id' => $locked->id, 'event_id' => $event->id,
+                'previous_status' => $last?->status ?? 'unverified',
+                'new_status' => $status,
+                'actor_id' => $actor->id,
+            ]);
         });
     }
 
@@ -144,7 +223,7 @@ class TaxInvoiceService
     {
         $validated = validator($data, [
             'customer_name' => ['required', 'string', 'max:255'],
-            'customer_trn' => ['nullable', 'string', 'max:50'],
+            'customer_trn' => ['nullable', 'string', 'regex:/^[0-9]{15}$/'],
             'customer_phone' => ['nullable', 'string', 'max:40'],
             'customer_address' => ['required', 'string', 'max:2000'],
             'amendment_reason' => ['required', 'string', 'max:2000'],
@@ -213,14 +292,21 @@ class TaxInvoiceService
     {
         $divisor = bcadd('1', bcdiv($vatRate, '100', 8), 8);
         $gross = '0.00';
+        $net = '0.00';
+        $vat = '0.00';
         foreach ($items as $item) {
             if (! is_numeric($item['quantity'] ?? null) || ! is_numeric($item['unit_price_including_vat'] ?? null)) {
                 continue;
             }
-            $gross = bcadd($gross, bcmul((string) $item['quantity'], (string) $item['unit_price_including_vat'], 2), 2);
+            $lineGross = bcmul((string) $item['quantity'], (string) $item['unit_price_including_vat'], 2);
+            // UAE full tax invoices round VAT on each invoice line to the nearest fils.
+            // Never round the sum of unrounded lines: it can disagree with printed rows.
+            $lineNet = bcadd(bcdiv($lineGross, $divisor, 4), '0.005', 2);
+            $gross = bcadd($gross, $lineGross, 2);
+            $net = bcadd($net, $lineNet, 2);
+            $vat = bcadd($vat, bcsub($lineGross, $lineNet, 2), 2);
         }
-        $net = bcadd(bcdiv($gross, $divisor, 4), '0.005', 2);
 
-        return ['subtotal' => $net, 'vat' => bcsub($gross, $net, 2), 'grand_total' => $gross, 'vat_rate' => $vatRate, 'divisor' => $divisor];
+        return ['subtotal' => $net, 'vat' => $vat, 'grand_total' => $gross, 'vat_rate' => $vatRate, 'divisor' => $divisor];
     }
 }

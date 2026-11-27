@@ -8,6 +8,7 @@ enum InvoicePermission: string
     case ViewAll = 'invoice.view_all';
     case Create = 'invoice.create';
     case EditCustomerDetails = 'invoice.edit_customer_details';
+    case ManagePaymentStatus = 'invoice.manage_payment_status';
     case EditPrices = 'invoice.edit_prices';
     case ReviewPriceAdjustments = 'invoice.review_price_adjustments';
     case IssuePriceAdjustments = 'invoice.issue_price_adjustments';

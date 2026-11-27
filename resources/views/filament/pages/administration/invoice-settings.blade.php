@@ -22,12 +22,20 @@
                 <div class="grid gap-4 md:grid-cols-2">
                     <div>
                         <label class="mb-1 block text-sm font-medium" for="{{ $english }}">English</label>
-                        <textarea id="{{ $english }}" wire:model="{{ $english }}" rows="6" class="w-full max-w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"></textarea>
+                        <textarea id="{{ $english }}" wire:model="{{ $english }}" rows="10" dir="ltr"
+                            x-data x-init="$nextTick(() => { $el.style.height = 'auto'; $el.style.height = Math.max(240, $el.scrollHeight) + 'px'; })"
+                            x-on:input="$el.style.height = 'auto'; $el.style.height = Math.max(240, $el.scrollHeight) + 'px'"
+                            style="box-sizing: border-box; min-height: 240px; resize: vertical; overflow-y: hidden; border: 1px solid #9ca3af;"
+                            class="block w-full max-w-full min-w-0 rounded-lg border border-gray-400 bg-white px-3 py-3 text-left text-sm leading-6 text-gray-900 shadow-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-500 dark:bg-gray-900 dark:text-white"></textarea>
                         @error($english) <p class="text-sm text-danger-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="mb-1 block text-sm font-medium" for="{{ $arabic }}">Arabic</label>
-                        <textarea id="{{ $arabic }}" wire:model="{{ $arabic }}" dir="rtl" rows="6" class="w-full max-w-full rounded-lg border-gray-300 text-right dark:border-white/10 dark:bg-white/5"></textarea>
+                        <textarea id="{{ $arabic }}" wire:model="{{ $arabic }}" rows="10" dir="rtl"
+                            x-data x-init="$nextTick(() => { $el.style.height = 'auto'; $el.style.height = Math.max(240, $el.scrollHeight) + 'px'; })"
+                            x-on:input="$el.style.height = 'auto'; $el.style.height = Math.max(240, $el.scrollHeight) + 'px'"
+                            style="box-sizing: border-box; min-height: 240px; resize: vertical; overflow-y: hidden; border: 1px solid #9ca3af;"
+                            class="block w-full max-w-full min-w-0 rounded-lg border border-gray-400 bg-white px-3 py-3 text-right text-sm leading-6 text-gray-900 shadow-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-200 dark:border-gray-500 dark:bg-gray-900 dark:text-white"></textarea>
                         @error($arabic) <p class="text-sm text-danger-600">{{ $message }}</p> @enderror
                     </div>
                 </div>

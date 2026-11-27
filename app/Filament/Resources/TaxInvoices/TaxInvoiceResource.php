@@ -21,6 +21,7 @@ use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
@@ -32,6 +33,7 @@ use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -66,7 +68,7 @@ class TaxInvoiceResource extends Resource
     {
         $user = auth()->user();
 
-        return $user instanceof User ? app(InvoiceAuthorization::class)->scope(parent::getEloquentQuery(), $user)->with(['items', 'createdBy']) : parent::getEloquentQuery()->whereRaw('1=0');
+        return $user instanceof User ? app(InvoiceAuthorization::class)->scope(parent::getEloquentQuery(), $user)->with(['items', 'createdBy', 'latestPaymentEvent']) : parent::getEloquentQuery()->whereRaw('1=0');
     }
 
     public static function form(Schema $schema): Schema
@@ -84,7 +86,7 @@ class TaxInvoiceResource extends Resource
         $components = self::formComponents(workspace: true);
 
         return $schema->components([
-            \Filament\Schemas\Components\Grid::make(['default' => 1, 'xl' => 12])
+            Grid::make(['default' => 1, 'xl' => 12])
                 ->extraAttributes(['class' => 'tpz-invoice-layout'])
                 ->schema([
                     // Keep each row's panels equal height (6/6 and 8/4),
@@ -192,7 +194,10 @@ class TaxInvoiceResource extends Resource
                         ->maxLength(40),
                     TextInput::make('customer_trn')
                         ->label('Customer TRN (Optional)')
-                        ->maxLength(50),
+                        ->helperText('Enter only an actual 15-digit UAE VAT TRN. Leave blank if the buyer is not registered.')
+                        ->regex('/^[0-9]{15}$/')
+                        ->minLength(15)
+                        ->maxLength(15),
                     Textarea::make('customer_address')
                         ->label('Customer Address')
                         ->required()
@@ -261,6 +266,12 @@ class TaxInvoiceResource extends Resource
                 ]),
             Section::make('Totals Summary')->schema([
                 Placeholder::make('totals_preview')->hiddenLabel()->content(fn (Get $get): HtmlString => self::totalsPreview($get))->columnSpanFull(),
+                Checkbox::make('payment_received_in_full')
+                    ->label('I confirm full customer payment has already been received')
+                    ->helperText('Only select after checking the actual payment. The received amount will automatically equal the final invoice total and the printed balance will be AED 0.00. This does not post an accounting receipt.')
+                    ->default(false)
+                    ->visible(fn (): bool => ($user = auth()->user()) instanceof User
+                        && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::ManagePaymentStatus)),
             ]),
             Hidden::make('idempotency_key')->default(fn () => (string) str()->uuid()),
         ];
@@ -271,6 +282,9 @@ class TaxInvoiceResource extends Resource
         return $schema->components([
             Section::make('Tax Invoice')->columns(4)->schema([
                 TextEntry::make('invoice_number')->label('Invoice #'), TextEntry::make('order_reference')->label('Order ID')->placeholder('—'), TextEntry::make('invoice_date')->date('d M Y'), TextEntry::make('status')->badge(),
+                TextEntry::make('payment_status')->label('Payment')->badge()->color(fn (string $state): string => match ($state) {
+                    'paid' => 'success', 'unpaid' => 'danger', default => 'gray',
+                }),
                 TextEntry::make('title_mode')->label('Title Mode')->formatStateUsing(fn (ProductTitleMode $state): string => $state->label()),
                 TextEntry::make('customer_name'), TextEntry::make('customer_phone')->label('Customer Phone')->visible(fn (TaxInvoice $record): bool => filled($record->customer_phone)), TextEntry::make('customer_trn')->label('Customer TRN')->placeholder('—'), TextEntry::make('customer_address')->columnSpan(2)->placeholder('—'),
                 TextEntry::make('subtotal_excluding_vat')->money('AED'), TextEntry::make('vat_amount')->label('VAT')->money('AED'), TextEntry::make('grand_total')->money('AED')->weight('bold'), TextEntry::make('createdBy.name')->label('Created By'),
@@ -343,9 +357,23 @@ class TaxInvoiceResource extends Resource
             TextColumn::make('customer_phone')->label('Customer Phone')->searchable()->toggleable(isToggledHiddenByDefault: true),
             TextColumn::make('createdBy.name')->label('Created By')->searchable(),
             TextColumn::make('grand_total')->label('Total AED')->money('AED'),
+            TextColumn::make('payment_status')->label('Payment')->badge()->color(fn (string $state): string => match ($state) {
+                'paid' => 'success', 'unpaid' => 'danger', default => 'gray',
+            }),
             TextColumn::make('status')->badge(),
         ])->filters([
             SelectFilter::make('status')->options(['issued' => 'Issued', 'void' => 'Void']),
+            SelectFilter::make('payment_status')
+                ->label('Payment')
+                ->options(['paid' => 'Paid', 'unpaid' => 'Unpaid', 'unverified' => 'Unverified'])
+                ->query(function (Builder $query, array $data): Builder {
+                    return match ($data['value'] ?? null) {
+                        'paid' => $query->whereHas('latestPaymentEvent', fn (Builder $q): Builder => $q->where('status', 'paid')),
+                        'unpaid' => $query->whereHas('latestPaymentEvent', fn (Builder $q): Builder => $q->where('status', 'unpaid')),
+                        'unverified' => $query->whereDoesntHave('latestPaymentEvent'),
+                        default => $query,
+                    };
+                }),
             SelectFilter::make('created_by_user_id')->label('Created By')->relationship('createdBy', 'name')->searchable(),
             Filter::make('invoice_date')
                 ->schema([
@@ -370,6 +398,7 @@ class TaxInvoiceResource extends Resource
                 }),
         ])->recordActions([
             ViewAction::make(),
+            ...self::paymentStatusActions(),
             self::editCustomerDetailsAction(),
             Action::make('pdf')
                 ->label('PDF')
@@ -465,6 +494,65 @@ class TaxInvoiceResource extends Resource
         return ['index' => ListTaxInvoices::route('/'), 'create' => CreateTaxInvoice::route('/create'), 'view' => ViewTaxInvoice::route('/{record}')];
     }
 
+    /** @return array<int, Action> */
+    public static function paymentStatusActions(): array
+    {
+        return [
+            Action::make('markPaid')
+                ->label('Mark Paid')
+                ->color('success')
+                ->icon('heroicon-o-check-circle')
+                ->requiresConfirmation()
+                ->modalHeading(fn (TaxInvoice $record): string => "Confirm payment received · {$record->invoice_number}")
+                ->modalDescription('Only confirm after full customer payment has actually been received. The invoice total becomes payment received and balance due becomes AED 0.00. The original invoice, VAT, and accounting ledgers are not changed.')
+                ->schema([
+                    TextInput::make('evidence_reference')
+                        ->label('Payment proof / cash collection reference')
+                        ->placeholder('Bank transfer reference, marketplace settlement, or cash collection proof')
+                        ->required()
+                        ->minLength(4)
+                        ->maxLength(190),
+                ])
+                ->visible(fn (TaxInvoice $record): bool => $record->status === 'issued'
+                    && $record->payment_status !== 'paid'
+                    && self::allows($record, InvoicePermission::ManagePaymentStatus))
+                ->action(function (TaxInvoice $record, array $data): void {
+                    app(TaxInvoiceService::class)->markPaymentStatus(
+                        $record, 'paid', $data['evidence_reference'], null, auth()->user(),
+                    );
+                    Notification::make()->success()->title('Invoice marked Paid')
+                        ->body("{$record->invoice_number}: payment received is the full invoice total; balance due is AED 0.00.")
+                        ->send();
+                }),
+            Action::make('markUnpaid')
+                ->label('Mark Unpaid')
+                ->color('warning')
+                ->icon('heroicon-o-clock')
+                ->requiresConfirmation()
+                ->modalHeading(fn (TaxInvoice $record): string => "Confirm payment not received · {$record->invoice_number}")
+                ->modalDescription('This records the current payment status as Unpaid. Explain the reason, especially if correcting an earlier Paid confirmation. It does not reverse any bank transaction or accounting journal.')
+                ->schema([
+                    Textarea::make('reason')
+                        ->label('Reason / correction evidence')
+                        ->required()
+                        ->minLength(5)
+                        ->maxLength(2000)
+                        ->rows(3),
+                ])
+                ->visible(fn (TaxInvoice $record): bool => $record->status === 'issued'
+                    && $record->payment_status !== 'unpaid'
+                    && self::allows($record, InvoicePermission::ManagePaymentStatus))
+                ->action(function (TaxInvoice $record, array $data): void {
+                    app(TaxInvoiceService::class)->markPaymentStatus(
+                        $record, 'unpaid', null, $data['reason'], auth()->user(),
+                    );
+                    Notification::make()->success()->title('Invoice marked Unpaid')
+                        ->body("{$record->invoice_number}: the customer balance is now tracked as Unpaid.")
+                        ->send();
+                }),
+        ];
+    }
+
     private static function allows(TaxInvoice $invoice, InvoicePermission $permission): bool
     {
         $user = auth()->user();
@@ -498,8 +586,11 @@ class TaxInvoiceResource extends Resource
                     ->tel()
                     ->maxLength(40),
                 TextInput::make('customer_trn')
-                    ->label('Customer TRN')
-                    ->maxLength(50),
+                    ->label('Customer TRN (optional, 15 digits)')
+                    ->helperText('Use the customer’s actual UAE VAT TRN; otherwise leave this field blank.')
+                    ->regex('/^[0-9]{15}$/')
+                    ->minLength(15)
+                    ->maxLength(15),
                 Textarea::make('customer_address')
                     ->label('Customer Address')
                     ->required()

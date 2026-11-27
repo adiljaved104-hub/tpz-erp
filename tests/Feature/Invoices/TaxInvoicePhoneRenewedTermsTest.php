@@ -177,9 +177,9 @@ class TaxInvoicePhoneRenewedTermsTest extends TestCase
     {
         $owner = $this->user();
         $creator = $this->user(EmployeeRole::Staff, 'Invoice Creator Needle');
-        $invoice = $this->issue($creator, ['customer_name' => 'Customer Name Needle', 'customer_phone' => '+971501234567', 'customer_trn' => 'TRN-NEEDLE', 'order_reference' => 'ORDER-NEEDLE']);
+        $invoice = $this->issue($creator, ['customer_name' => 'Customer Name Needle', 'customer_phone' => '+971501234567', 'customer_trn' => '100000000000011', 'order_reference' => 'ORDER-NEEDLE']);
         $other = $this->issue($owner);
-        foreach ([$invoice->invoice_number, 'ORDER-NEEDLE', 'Customer Name Needle', 'TRN-NEEDLE', '+971501234567', 'Invoice Creator Needle'] as $search) {
+        foreach ([$invoice->invoice_number, 'ORDER-NEEDLE', 'Customer Name Needle', '100000000000011', '+971501234567', 'Invoice Creator Needle'] as $search) {
             Livewire::actingAs($owner)->test(ListTaxInvoices::class)
                 ->searchTable($search)->assertCanSeeTableRecords([$invoice])->assertCanNotSeeTableRecords([$other]);
         }

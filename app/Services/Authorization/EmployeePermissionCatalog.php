@@ -149,6 +149,7 @@ class EmployeePermissionCatalog
                 $this->item(InvoicePermission::ViewAll, 'View All Invoices', true),
                 $this->item(InvoicePermission::Create, 'Create Tax Invoices'),
                 $this->item(InvoicePermission::EditCustomerDetails, 'Edit Invoice Customer Details'),
+                $this->item(InvoicePermission::ManagePaymentStatus, 'Confirm / Correct Invoice Paid Status', true, true),
                 $this->item(InvoicePermission::EditPrices, 'Request Tax Invoice Price Adjustments', true, true),
                 $this->item(InvoicePermission::ReviewPriceAdjustments, 'Approve / Reject Invoice Adjustment Reviews', true, true),
                 $this->item(InvoicePermission::IssuePriceAdjustments, 'Issue Posted Tax Adjustment Documents', true, true),
@@ -363,6 +364,7 @@ class EmployeePermissionCatalog
             ],
             'AI Assistant' => [
                 $this->item(AiAssistantPermission::Use, 'Use TPZ AI Assistant'),
+                $this->item(AiAssistantPermission::ManageSettings, 'Manage TPZ AI Assistant Settings', true),
             ],
         ];
     }

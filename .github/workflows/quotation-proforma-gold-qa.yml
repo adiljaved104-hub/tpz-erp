@@ -11,6 +11,10 @@ on:
       - '.github/workflows/quotation-proforma-gold-qa.yml'
   workflow_dispatch:
 
+concurrency:
+  group: quotation-proforma-gold-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

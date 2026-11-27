@@ -79,6 +79,7 @@ jobs:
             tests/Feature/Invoices/TaxInvoiceGoldDesignTest.php \
             tests/Feature/Invoices/InvoiceFooterBrandingTest.php \
             tests/Feature/Invoices/TaxInvoiceDocumentParityTest.php \
+            tests/Feature/Invoices/TaxInvoiceEmployeeWorkflowTest.php \
             tests/Feature/Invoices/TaxInvoicePhoneRenewedTermsTest.php \
             tests/Feature/Invoices/TaxInvoiceCustomerDetailsAmendmentTest.php \
             tests/Feature/Invoices/TaxInvoiceVerificationTest.php \

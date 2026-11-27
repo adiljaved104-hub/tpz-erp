@@ -89,6 +89,11 @@ jobs:
             tests/Feature/Inventory/StockByHolderReportTest.php \
             tests/Feature/Mobile/MobileWorkspaceTest.php \
             tests/Feature/Mobile/MobileBatch6CommercialOperationsTest.php
+      - name: AI Assistant settings page and save permission regressions
+        run: |
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit integration-ai-settings-results.xml \
+            tests/Feature/AiAssistant/AiAssistantSettingsPermissionTest.php \
+            tests/Unit/AiAssistant/AiAssistantAuthorizationTest.php
       - name: Workspace, Mobile deny/stock/privacy and disabled posting regressions
         run: |
           vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit integration-scope-results.xml \

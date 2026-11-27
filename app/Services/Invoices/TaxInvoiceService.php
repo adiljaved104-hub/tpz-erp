@@ -28,7 +28,7 @@ class TaxInvoiceService
         $data['terms_profile'] ??= TaxInvoiceTermsProfile::Auto->value;
         $validated = validator($data, [
             'customer_name' => ['required', 'string', 'max:255'], 'customer_address' => ['required', 'string', 'max:2000'],
-            'customer_trn' => ['nullable', 'string', 'max:50'],
+            'customer_trn' => ['nullable', 'string', 'regex:/^[0-9]{15}$/'],
             'customer_phone' => ['nullable', 'string', 'max:40'], 'order_reference' => ['required', 'string', 'max:100'],
             'source_order_id' => ['nullable', 'integer'],
             'title_mode' => ['required', Rule::enum(ProductTitleMode::class)],
@@ -223,7 +223,7 @@ class TaxInvoiceService
     {
         $validated = validator($data, [
             'customer_name' => ['required', 'string', 'max:255'],
-            'customer_trn' => ['nullable', 'string', 'max:50'],
+            'customer_trn' => ['nullable', 'string', 'regex:/^[0-9]{15}$/'],
             'customer_phone' => ['nullable', 'string', 'max:40'],
             'customer_address' => ['required', 'string', 'max:2000'],
             'amendment_reason' => ['required', 'string', 'max:2000'],

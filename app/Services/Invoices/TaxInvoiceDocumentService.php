@@ -44,7 +44,7 @@ class TaxInvoiceDocumentService
     /** @return array<string, mixed> */
     private function viewData(TaxInvoice $invoice): array
     {
-        $invoice->loadMissing(['items', 'createdBy']);
+        $invoice->loadMissing(['items', 'createdBy', 'latestPaymentEvent']);
 
         return [
             'invoice' => $invoice,
@@ -55,6 +55,7 @@ class TaxInvoiceDocumentService
             'qrCodeDataUri' => $this->verification->qrCodeDataUri($invoice),
             'orderContext' => $this->orderContext($invoice),
             'footerBranding' => app(InvoiceFooterBrandingService::class)->document($invoice->seller_snapshot['footer_branding'] ?? null),
+            'paymentEvent' => $invoice->latestPaymentEvent,
         ];
     }
 

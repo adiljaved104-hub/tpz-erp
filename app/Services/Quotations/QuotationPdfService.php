@@ -3,7 +3,8 @@
 namespace App\Services\Quotations;
 
 use App\Models\Quotation;
-use App\Support\ArabicPdfText;;
+use App\Services\Invoices\InvoiceFooterBrandingService;
+use App\Support\ArabicPdfText;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Barryvdh\DomPDF\PDF as DomPdf;
 use Illuminate\Support\Facades\Storage;
@@ -47,6 +48,8 @@ class QuotationPdfService
             'stampDataUri' => $stamp,
             'arabic' => $this->arabic,
             'documentMode' => $documentMode,
+            // Only each document's own issuance-time snapshot is eligible.
+            'footerBranding' => app(InvoiceFooterBrandingService::class)->document($seller['footer_branding'] ?? null),
         ];
     }
 

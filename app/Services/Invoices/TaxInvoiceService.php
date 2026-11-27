@@ -68,7 +68,25 @@ class TaxInvoiceService
         $totals = $this->calculateTotals($validated['items'], (string) $settings->vat_rate);
         ['vat_rate' => $vatRate, 'divisor' => $divisor, 'grand_total' => $gross, 'subtotal' => $net, 'vat' => $vat] = $totals;
 
-        return DB::transaction(function () use ($validated, $actor, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms): TaxInvoice {
+        return DB::transaction(function () use ($validated, $actor, $source, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms): TaxInvoice {
+            // Freeze the customer-facing marketplace reference at issuance, while the
+            // source order is locked. Its later amendments must not rewrite a PDF.
+            if ($source !== null) {
+                $orderAtIssue = DB::table('orders')->where('id', $source->id)
+                    ->lockForUpdate()->first(['reference', 'external_order_number', 'marketplace_platform_id']);
+                if ($orderAtIssue === null) {
+                    throw ValidationException::withMessages(['source_order_id' => 'The selected Order is no longer available.']);
+                }
+                $platformName = $orderAtIssue->marketplace_platform_id === null
+                    ? null
+                    : DB::table('marketplace_platforms')->where('id', $orderAtIssue->marketplace_platform_id)->value('name');
+                $profile['order_context_snapshot'] = [
+                    'source_reference' => (string) $orderAtIssue->reference,
+                    'external_reference' => filled($orderAtIssue->external_order_number)
+                        ? trim((string) $orderAtIssue->external_order_number) : null,
+                    'platform_name' => $platformName,
+                ];
+            }
             $invoice = TaxInvoice::query()->create([
                 'invoice_number' => $number, 'order_reference' => $validated['order_reference'] ?? null, 'source_order_id' => $validated['source_order_id'] ?? null, 'invoice_date' => $validated['invoice_date'],
                 'title_mode' => $validated['title_mode'], 'terms_profile' => $validated['terms_profile'],

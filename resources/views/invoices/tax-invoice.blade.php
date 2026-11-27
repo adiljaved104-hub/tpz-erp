@@ -136,6 +136,11 @@
         && ($paymentSnapshot['status'] ?? null) === 'confirmed_paid_in_full'
         && (string) ($paymentSnapshot['amount_received_aed'] ?? '') === (string) $invoice->grand_total
         && (string) ($paymentSnapshot['balance_due_aed'] ?? '') === '0.00';
+    $currentPaymentStatus = $paymentEvent?->status ?? ($paymentConfirmed ? 'paid' : 'unverified');
+    $paidInFull = $currentPaymentStatus === 'paid'
+        && ($paymentEvent === null || (string) $paymentEvent->payment_received_aed === (string) $invoice->grand_total);
+    $confirmedUnpaid = $currentPaymentStatus === 'unpaid'
+        && $paymentEvent !== null && (string) $paymentEvent->balance_due_aed === (string) $invoice->grand_total;
 @endphp
 <div class="document-page{{ $usesBottomFooter ? ' bottom-footer' : '' }}">
 @if($invoice->status === 'void')<div class="void">VOID</div>@endif
@@ -230,11 +235,15 @@
                 <tr><td>Subtotal (excl. VAT)</td><td class="summary-ar {{ $arClass }}">{{ $ar('المجموع الفرعي') }}</td><td>{{ number_format((float) $invoice->subtotal_excluding_vat, 2) }}</td></tr>
                 <tr><td>Total VAT</td><td class="summary-ar {{ $arClass }}">{{ $ar('إجمالي الضريبة') }}</td><td>{{ number_format((float) $invoice->vat_amount, 2) }}</td></tr>
                 <tr class="grand"><td>Invoice total (AED)</td><td class="summary-ar {{ $arClass }}">{{ $ar('إجمالي الفاتورة') }}</td><td>{{ number_format((float) $invoice->grand_total, 2) }}</td></tr>
-                <tr><td>Payment received</td><td class="summary-ar {{ $arClass }}">{{ $ar('المبلغ المدفوع') }}</td><td>{{ $paymentConfirmed ? number_format((float) $invoice->grand_total, 2) : 'Not recorded' }}</td></tr>
-                <tr class="balance"><td>Balance due</td><td class="summary-ar {{ $arClass }}">{{ $ar('الرصيد المستحق') }}</td><td>{{ $paymentConfirmed ? '0.00' : 'Not verified' }}</td></tr>
+                <tr><td>Payment received</td><td class="summary-ar {{ $arClass }}">{{ $ar('المبلغ المدفوع') }}</td><td>{{ $paidInFull ? number_format((float) $invoice->grand_total, 2) : ($confirmedUnpaid ? '0.00' : 'Not recorded') }}</td></tr>
+                <tr class="balance"><td>Balance due</td><td class="summary-ar {{ $arClass }}">{{ $ar('الرصيد المستحق') }}</td><td>{{ $paidInFull ? '0.00' : ($confirmedUnpaid ? number_format((float) $invoice->grand_total, 2) : 'Not verified') }}</td></tr>
             </table>
-            @if($paymentConfirmed)
+            @if($paymentEvent !== null && $paymentEvent->source === 'manual_status')
+                <div class="payment-note">Payment status confirmed as {{ strtoupper($currentPaymentStatus) }} on {{ $paymentEvent->created_at?->format('d M Y') }}. Invoice amounts, VAT and original issuance records are unchanged. This is not an accounting receipt.</div>
+            @elseif($paidInFull)
                 <div class="payment-note">Full customer payment was confirmed when this invoice was issued. No separate payment or accounting journal is created by this document.</div>
+            @elseif($confirmedUnpaid)
+                <div class="payment-note">Customer payment was confirmed not received. This is a payment-status record, not an accounting posting.</div>
             @else
                 <div class="payment-note">Customer payment is not recorded on this invoice. These labels do not assert an unpaid balance.</div>
             @endif

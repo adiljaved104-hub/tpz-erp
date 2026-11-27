@@ -87,6 +87,13 @@ jobs:
             tests/Feature/Invoices/TaxInvoiceFoundationTest.php \
             tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php
       - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: tax-invoice-pr201-visual-pdf-samples
+          path: storage/app/ci-invoice-pdf-previews/*.pdf
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: invoice-design-focused-test-results

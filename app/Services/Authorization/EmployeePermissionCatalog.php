@@ -364,6 +364,7 @@ class EmployeePermissionCatalog
             ],
             'AI Assistant' => [
                 $this->item(AiAssistantPermission::Use, 'Use TPZ AI Assistant'),
+                $this->item(AiAssistantPermission::ManageSettings, 'Manage TPZ AI Assistant Settings', true),
             ],
         ];
     }

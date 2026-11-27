@@ -19,6 +19,7 @@ use App\Models\Warehouse;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\QuotationAuthorization;
 use App\Services\CompanyProfileService;
+use App\Services\Invoices\InvoiceFooterBrandingService;
 use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\ReferenceSequenceService;
@@ -53,6 +54,9 @@ class QuotationService
         $reference = $this->references->nextQuotationReference((int) substr($validated['quotation_date'], 0, 4));
         $profile = $this->company->snapshot();
         $settings = $this->settings->settings();
+        // Capture the same Owner-approved private footer configuration at document creation.
+        // Never apply later branding changes to already-created quotations or proformas.
+        $profile['footer_branding'] = app(InvoiceFooterBrandingService::class)->snapshot($settings->footer_branding);
 
         return DB::transaction(function () use ($validated, $actor, $products, $catalog, $priced, $reference, $profile, $settings, $instructions): Quotation {
             $quote = Quotation::query()->create([

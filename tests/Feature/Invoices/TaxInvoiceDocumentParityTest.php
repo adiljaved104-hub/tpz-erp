@@ -21,6 +21,77 @@ class TaxInvoiceDocumentParityTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_authorized_confirmed_customer_payment_automatically_uses_invoice_total_and_zero_balance(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $invoice = app(TaxInvoiceService::class)->create([
+            'customer_name' => 'Paid customer', 'customer_address' => 'Dubai, UAE',
+            'order_reference' => 'PAID-ORDER', 'invoice_date' => '2026-11-27',
+            'payment_received_in_full' => true, 'idempotency_key' => (string) Str::uuid(),
+            'items' => [['description' => 'Laptop', 'quantity' => 2, 'unit_price_including_vat' => '2500.00']],
+        ], $owner);
+
+        $this->assertSame('5000.00', $invoice->grand_total);
+        $payment = $invoice->fresh()->seller_snapshot['payment_receipt_snapshot'];
+        $this->assertSame('confirmed_paid_in_full', $payment['status']);
+        $this->assertSame('5000.00', $payment['amount_received_aed']);
+        $this->assertSame('0.00', $payment['balance_due_aed']);
+        $this->assertSame($owner->id, $payment['confirmed_by_user_id']);
+
+        $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertSee('Payment received')
+            ->assertSee('5,000.00')
+            ->assertSee('Balance due')
+            ->assertSee('0.00')
+            ->assertSee('Full customer payment was confirmed when this invoice was issued.')
+            ->assertDontSee('Customer payment is not recorded on this invoice.');
+
+        $download = $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice]));
+        $download->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF-', $download->getContent());
+    }
+
+    public function test_legacy_and_unconfirmed_invoices_do_not_claim_receipt_or_zero_balance(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $invoice = $this->invoice($owner);
+
+        $this->assertArrayNotHasKey('payment_receipt_snapshot', $invoice->seller_snapshot);
+        $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertSee('Payment received')
+            ->assertSee('Not recorded')
+            ->assertSee('Balance due')
+            ->assertSee('Not verified')
+            ->assertDontSee('Full customer payment was confirmed when this invoice was issued.');
+    }
+
+    public function test_staff_cannot_mark_an_invoice_paid_even_when_able_to_issue_it(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $staff = User::factory()->create();
+        Employee::factory()->for($staff)->role(EmployeeRole::Staff)->create([
+            'email' => $staff->email, 'status' => true,
+        ]);
+
+        try {
+            app(TaxInvoiceService::class)->create([
+                'customer_name' => 'Customer', 'customer_address' => 'Dubai',
+                'order_reference' => 'NOT-PAID', 'invoice_date' => '2026-11-27',
+                'payment_received_in_full' => true, 'idempotency_key' => (string) Str::uuid(),
+                'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '105.00']],
+            ], $staff);
+            $this->fail('Staff member was allowed to confirm customer payment.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertArrayHasKey('payment_received_in_full', $exception->errors());
+        }
+        $this->assertDatabaseCount('tax_invoices', 0);
+    }
+
     public function test_print_document_matches_reference_structure_bilingual_content_logo_and_prices(): void
     {
         Storage::fake('public');

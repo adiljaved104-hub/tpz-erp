@@ -7,6 +7,7 @@ use App\Enums\TaxInvoiceTermsProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use LogicException;
 
@@ -46,7 +47,7 @@ class TaxInvoice extends Model
         return $this->hasMany(TaxInvoicePaymentEvent::class, 'tax_invoice_id');
     }
 
-    public function latestPaymentEvent(): \Illuminate\Database\Eloquent\Relations\HasOne
+    public function latestPaymentEvent(): HasOne
     {
         return $this->hasOne(TaxInvoicePaymentEvent::class, 'tax_invoice_id')->latestOfMany();
     }

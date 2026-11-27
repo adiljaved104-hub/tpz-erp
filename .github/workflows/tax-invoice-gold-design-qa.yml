@@ -65,7 +65,11 @@ jobs:
           mapfile -t paths < "$RUNNER_TEMP/invoice-php.txt"
           test "${#paths[@]}" -gt 0
           for path in "${paths[@]}"; do php -l "$path"; done
-          vendor/bin/pint --test "${paths[@]}"
+          if ! vendor/bin/pint --test "${paths[@]}"; then
+            vendor/bin/pint "${paths[@]}"
+            git diff -- app/Filament/Resources/TaxInvoices/TaxInvoiceResource.php tests/Feature/Invoices/TaxInvoiceDocumentParityTest.php
+            exit 1
+          fi
       - name: Disposable migrations and Blade compilation
         run: |
           mysql -h 127.0.0.1 -uroot -pdisposable_root_only -e "CREATE DATABASE tpz_invoice_footer_rehearsal_test; GRANT ALL ON tpz_invoice_footer_rehearsal_test.* TO 'tpz_test'@'%';"

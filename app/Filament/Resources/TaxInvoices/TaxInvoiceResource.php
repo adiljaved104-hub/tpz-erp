@@ -196,7 +196,8 @@ class TaxInvoiceResource extends Resource
                         ->label('Customer TRN (Optional)')
                         ->helperText('Enter only an actual 15-digit UAE VAT TRN. Leave blank if the buyer is not registered.')
                         ->regex('/^[0-9]{15}$/')
-                        ->length(15),
+                        ->minLength(15)
+                        ->maxLength(15),
                     Textarea::make('customer_address')
                         ->label('Customer Address')
                         ->required()
@@ -588,7 +589,8 @@ class TaxInvoiceResource extends Resource
                     ->label('Customer TRN (optional, 15 digits)')
                     ->helperText('Use the customer’s actual UAE VAT TRN; otherwise leave this field blank.')
                     ->regex('/^[0-9]{15}$/')
-                    ->length(15),
+                    ->minLength(15)
+                    ->maxLength(15),
                 Textarea::make('customer_address')
                     ->label('Customer Address')
                     ->required()

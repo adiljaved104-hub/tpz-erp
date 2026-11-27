@@ -68,7 +68,7 @@ class TaxInvoiceResource extends Resource
     {
         $user = auth()->user();
 
-        return $user instanceof User ? app(InvoiceAuthorization::class)->scope(parent::getEloquentQuery(), $user)->with(['items', 'createdBy']) : parent::getEloquentQuery()->whereRaw('1=0');
+        return $user instanceof User ? app(InvoiceAuthorization::class)->scope(parent::getEloquentQuery(), $user)->with(['items', 'createdBy', 'latestPaymentEvent']) : parent::getEloquentQuery()->whereRaw('1=0');
     }
 
     public static function form(Schema $schema): Schema

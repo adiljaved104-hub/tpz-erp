@@ -62,7 +62,7 @@ class QuotationWorkflowTest extends TestCase
             $this->assertStringContainsString('Unit incl. VAT', $html);
             $this->assertStringContainsString('Valid Until', $html);
             $this->assertStringContainsString('Total incl. VAT', $html);
-            $this->assertStringNotContainsString('TAX INVOICE</div>', $html);
+            $this->assertStringNotContainsString('<div class="title">TAX INVOICE</div>', $html);
             $this->assertStringNotContainsString('Payment received', $html);
             $this->assertStringNotContainsString('Balance due', $html);
             $this->assertStringContainsString('105.00', $html);

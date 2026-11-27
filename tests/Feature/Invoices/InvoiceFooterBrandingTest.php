@@ -379,7 +379,7 @@ class InvoiceFooterBrandingTest extends TestCase
         $this->assertSame(1, substr_count($html, 'class="branding-strip"'));
         $this->assertSame(1, substr_count($html, 'class="terms-independent-row"'));
         $this->assertSame(3, substr_count($html, 'class="term-en term-paragraph"'));
-        $this->assertSame(3, substr_count($html, 'class="term-ar term-paragraph arabic"'));
+        $this->assertSame(2, substr_count($html, 'class="term-ar term-paragraph arabic"'));
         $this->assertStringContainsString('footer.has-branding { page-break-inside: auto; }', $html);
         $pdf = app(TaxInvoiceDocumentService::class)->pdf($invoice);
         $pdf->render();
@@ -405,10 +405,10 @@ class InvoiceFooterBrandingTest extends TestCase
         $documents = app(TaxInvoiceDocumentService::class);
         $html = view('invoices.tax-invoice', $documents->printViewData($invoice))->render();
 
-        // One two-column row holds all four English and one Arabic paragraphs;
-        // a row per sentence caused 3 large gaps when the languages wrapped differently.
+        // Four single-newline English fragments are soft wraps of one paragraph,
+        // not four row-aligned statements which stretch apart under Arabic text.
         $this->assertSame(1, substr_count($html, 'class="terms-independent-row"'));
-        $this->assertSame(4, substr_count($html, 'class="term-en term-paragraph"'));
+        $this->assertSame(1, substr_count($html, 'class="term-en term-paragraph"'));
         $this->assertSame(1, substr_count($html, 'class="term-ar term-paragraph arabic"'));
         $this->assertSame(1, substr_count($html, '<div class="branding-strip">'));
 
@@ -416,6 +416,74 @@ class InvoiceFooterBrandingTest extends TestCase
         $pdf->render();
         $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count(),
             'Normal one-item bilingual invoice with approved branding must not orphan logos onto page 2.');
+    }
+
+    public function test_realistic_paid_one_item_invoice_collapses_soft_line_breaks_and_keeps_footer_on_first_a4_page(): void
+    {
+        $owner = $this->user();
+        $this->enable($owner);
+        InvoiceSetting::query()->sole()->forceFill([
+            'terms_en' => "Brand-new devices carry a one-year manufacturer's warranty\nfrom delivery. Any longer manufacturer warranty applies.\nFor claims under the brand's warranty policy, contact TPZ or\nthe brand's service centre with your invoice and serial number.\nThe policy may exclude damage from spills, drops, external\nfire, power surges or external short circuits. Your rights under\nUAE consumer law apply.",
+            'terms_ar' => "تتمتع الأجهزة الجديدة بضمان من الشركة المصنعة لمدة عام واحد من تاريخ التسليم. مع سريان أي فترة ضمان أطول.\nلتقديم مطالبة بموجب سياسة ضمان العلامة التجارية، يرجى التواصل مع الشركة أو مركز الخدمة وإرفاق الفاتورة والرقم التسلسلي.\nقد تستثني سياسة الضمان التلف الناجم عن سوء الاستخدام والسوائل والحرائق الخارجية والتقلبات الكهربائية.",
+        ])->save();
+
+        CompanyProfile::query()->firstOrCreate(['id' => 1], [
+            'company_name_en' => 'Tech Point Zone Electronics Trading LLC',
+            'trn' => '100000000000001',
+        ]);
+        $invoice = app(TaxInvoiceService::class)->create([
+            'customer_name' => 'Salman Khan', 'customer_address' => 'EBRAHIM & ISMAIL AL ABBAS 3, El-3 Shop No. 9, 26 Al Nahdha St, Al Fahidi St, Bur Dubai, Al Souq Al Kabeer, Dubai, United Arab Emirates',
+            'customer_trn' => '100000000000011',
+            'customer_phone' => '0551234567',
+            'order_reference' => 'SAMPLE-9334',
+            'invoice_date' => today()->toDateString(),
+            'idempotency_key' => (string) Str::uuid(),
+            'payment_received_in_full' => true,
+            'items' => [['description' => 'Lenovo Yoga 7 2-in-1 14AGP11, OLED, Windows 11, 16GB/512GB', 'quantity' => 1, 'unit_price_including_vat' => '5000.00']],
+        ], $owner);
+        $documents = app(TaxInvoiceDocumentService::class);
+        $html = view('invoices.tax-invoice', $documents->printViewData($invoice))->render();
+        $this->assertSame(1, substr_count($html, 'class="term-en term-paragraph"'));
+        $this->assertSame(1, substr_count($html, 'class="term-ar term-paragraph arabic"'));
+        $this->assertStringNotContainsString("warranty\nfrom delivery", $html);
+        $this->assertStringContainsString('warranty from delivery.', $html);
+        $this->assertStringContainsString('class="value invoice-trn" dir="ltr">100000000000011</td>', $html);
+        $this->assertSame(1, substr_count($html, '<div class="branding-strip">'));
+        $this->assertSame('5000.00', $invoice->grand_total);
+        $this->assertSame('0.00', $invoice->fresh()->latestPaymentEvent->balance_due_aed);
+
+        $pdf = $documents->pdf($invoice);
+        $pdf->render();
+        $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count(),
+            'A one-item invoice with the actual soft-wrapped warranty wording should not leave all branding on page two.');
+        if (getenv('CI') === 'true') {
+            $previewDirectory = storage_path('app/ci-invoice-pdf-previews');
+            File::ensureDirectoryExists($previewDirectory);
+            file_put_contents($previewDirectory.'/SAMPLE_04_paid_trn_softwrapped_terms.pdf', $pdf->output());
+        }
+    }
+
+    public function test_long_soft_wrapped_legal_terms_still_have_page_break_points(): void
+    {
+        $owner = $this->user();
+        $this->enable($owner);
+        $english = str_repeat('Manufacturer warranty applies according to official terms. ', 43).'Final warranty clause.';
+        $arabic = str_repeat('يخضع الضمان لشروط الشركة المصنعة وفق الأنظمة المعمول بها. ', 43).'الشرط النهائي.';
+        InvoiceSetting::query()->sole()->forceFill([
+            'terms_en' => $english,
+            'terms_ar' => $arabic,
+        ])->save();
+        $invoice = $this->invoice($owner, 1);
+        $documents = app(TaxInvoiceDocumentService::class);
+        $html = view('invoices.tax-invoice', $documents->printViewData($invoice))->render();
+        $this->assertGreaterThan(3, substr_count($html, 'class="terms-independent-row"'));
+        $this->assertStringContainsString('Final warranty clause.', $html);
+        $this->assertStringContainsString('الشرط النهائي.', $html);
+
+        $pdf = $documents->pdf($invoice);
+        $pdf->render();
+        $this->assertGreaterThanOrEqual(2, $pdf->getDomPDF()->getCanvas()->get_page_count());
+        $this->assertLessThan(10, $pdf->getDomPDF()->getCanvas()->get_page_count());
     }
 
     public function test_short_and_long_a4_pdfs_keep_logos_and_captions_together_on_the_last_page(): void

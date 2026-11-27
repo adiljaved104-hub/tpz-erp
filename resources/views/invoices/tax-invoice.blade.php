@@ -75,6 +75,7 @@
         .term-en { white-space: normal; line-height: 1.18; }
         .terms-independent-row > td { vertical-align: top; }
         .term-paragraph { margin: 0 0 2pt; line-height: 1.18; }
+        .invoice-trn { direction: ltr; unicode-bidi: embed; white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 7pt; letter-spacing: 0; }
         .term-paragraph:last-child { margin-bottom: 0; }
         .term-ar { font-size: 6.8pt; line-height: 1.18; }
         .extended-terms .terms-table td { padding-top: 1px; padding-bottom: 1px; }
@@ -124,17 +125,68 @@
         return $arabic->forDompdf(implode("\n", $lines));
     };
     $arClass = $isPdf ? 'arabic-pdf' : 'arabic';
-    // Terms are immutable at issuance. Collapse blank/whitespace-only lines only
-    // for display: independent English and Arabic paragraphs must not create
-    // empty table rows when the translations have different line breaks.
-    $termLines = fn (?string $text): array => array_values(array_filter(
-        array_map('trim', preg_split('/\R/u', trim((string) $text)) ?: []),
-        fn (string $line): bool => $line !== ''
-    ));
-    $termsEn = $termLines($invoice->terms_en_snapshot);
-    $termsAr = $termLines($invoice->terms_ar_snapshot);
-    $renewedTermsEn = $termLines($invoice->renewed_terms_en_snapshot);
-    $renewedTermsAr = $termLines($invoice->renewed_terms_ar_snapshot);
+    // Render only: a single newline is a soft line break (often copied from
+    // email/PDF text), not a new paragraph. Preserve true blank lines and
+    // numbered terms as paragraphs. Issued invoice snapshots are untouched.
+    $termParagraphs = static function (?string $source): array {
+        $text = trim(str_replace(["\r\n", "\r"], "\n", (string) $source));
+        if ($text === '') {
+            return [];
+        }
+        $text = preg_replace('/\n(?=\s*\p{N}{1,2}[.)]\s)/u', "\n\n", $text) ?? $text;
+        $blocks = preg_split('/\n(?:[ \t]*\n)+/u', $text) ?: [];
+        return array_values(array_filter(array_map(
+            static fn (string $block): string => trim(preg_replace('/[ \t]*\n[ \t]*/u', ' ', $block) ?? $block),
+            $blocks
+        ), static fn (string $paragraph): bool => $paragraph !== ''));
+    };
+    // Dompdf cannot reliably split one oversized table cell across pages.
+    // Long legal text, including a single extremely long paragraph, must be
+    // divided into bounded text groups before being placed in printable rows.
+    $termsChunks = static function (array $paragraphs, int $limit = 480): array {
+        $groups = [];
+        $current = [];
+        $currentLength = 0;
+        foreach ($paragraphs as $paragraph) {
+            $remaining = trim($paragraph);
+            while (mb_strlen($remaining) > $limit) {
+                $prefix = mb_substr($remaining, 0, $limit);
+                $breakAt = mb_strrpos($prefix, ' ');
+                if ($breakAt === false || $breakAt < (int) ($limit / 3)) {
+                    $breakAt = $limit;
+                }
+                if ($current !== []) {
+                    $groups[] = $current;
+                    $current = [];
+                    $currentLength = 0;
+                }
+                $piece = trim(mb_substr($remaining, 0, $breakAt));
+                if ($piece !== '') {
+                    $groups[] = [$piece];
+                }
+                $remaining = trim(mb_substr($remaining, $breakAt));
+            }
+            if ($remaining === '') {
+                continue;
+            }
+            if ($current !== [] && $currentLength + mb_strlen($remaining) > $limit) {
+                $groups[] = $current;
+                $current = [];
+                $currentLength = 0;
+            }
+            $current[] = $remaining;
+            $currentLength += mb_strlen($remaining);
+        }
+        if ($current !== []) {
+            $groups[] = $current;
+        }
+
+        return $groups;
+    };
+    $termsEn = $termParagraphs($invoice->terms_en_snapshot);
+    $termsAr = $termParagraphs($invoice->terms_ar_snapshot);
+    $renewedTermsEn = $termParagraphs($invoice->renewed_terms_en_snapshot);
+    $renewedTermsAr = $termParagraphs($invoice->renewed_terms_ar_snapshot);
     $termsLayoutUnits = collect([...$termsEn, ...$termsAr, ...$renewedTermsEn, ...$renewedTermsAr])
         ->sum(fn ($line): int => filled($line) ? max(1, (int) ceil(mb_strlen($line) / 50)) : 0);
     $usesExtendedTerms = $termsLayoutUnits > 24;
@@ -202,7 +254,7 @@
                 <tr><td class="label">Customer</td><td class="value">{{ $invoice->customer_name }}</td></tr>
                 <tr><td class="label">Billing address</td><td class="value address">{{ $invoice->customer_address }}</td></tr>
                 @if(filled($invoice->customer_phone))<tr><td class="label">Phone:</td><td class="value">{{ $invoice->customer_phone }}</td></tr>@endif
-                @if(filled($invoice->customer_trn))<tr><td colspan="2" class="value">Customer TRN: {{ $invoice->customer_trn }}</td></tr>@endif
+                @if(filled($invoice->customer_trn))<tr><td class="label">Customer TRN:</td><td class="value invoice-trn" dir="ltr">{{ $invoice->customer_trn }}</td></tr>@endif
             </table>
         </td>
         <td>

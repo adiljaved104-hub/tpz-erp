@@ -89,8 +89,8 @@ class TaxInvoiceVerificationTest extends TestCase
             ->assertSee('Verify Invoice Authenticity')
             ->assertSeeInOrder([
                 'Invoice verification QR code',
-                'Verify this invoice:',
                 'class="company-footer"',
+                'Verify this invoice:',
             ], false)
             ->assertSee($verificationUrl)
             ->assertSee('href="'.$verificationUrl.'"', false)

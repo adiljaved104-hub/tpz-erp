@@ -4,78 +4,115 @@
     <meta charset="utf-8">
     <title>{{ $invoice->invoice_number }}</title>
     <style>
-        @page { size: A4 portrait; margin: 9mm 11mm; }
+        @page { size: A4 portrait; margin: 9mm 10.3mm; }
         * { box-sizing: border-box; }
-        body { margin: 0; background: #fff; color: #172033; font-family: "DejaVu Sans", sans-serif; font-size: 9px; line-height: 1.35; }
+        body { margin: 0; background: #fff; color: #282723; font-family: "DejaVu Sans", sans-serif; font-size: 8pt; line-height: 1.35; }
         table { border-collapse: collapse; width: 100%; }
         td, th { vertical-align: top; }
-        .rule { border-top: 2px solid #d7e0ea; margin: 7px 0 9px; }
-        .document-header td { vertical-align: middle; }
-        .logo { max-height: 55px; max-width: 155px; }
-        .title { color: #0b4478; font-size: 21px; font-weight: 700; letter-spacing: .5px; margin: 0; text-align: right; }
-        .title-ar { color: #64748b; font-size: 13px; font-weight: 700; margin-top: 4px; text-align: right; }
-        .details-shell { background: #f5f7fa; border-radius: 7px; margin-bottom: 10px; }
-        .details-shell > tbody > tr > td { padding: 10px 12px; width: 50%; }
-        .details-shell > tbody > tr > td + td { border-left: 1px solid #dbe3ec; }
-        .section-label { border-bottom: 2px solid #dbe3ec; color: #0b4478; font-size: 8px; font-weight: 700; margin-bottom: 7px; padding-bottom: 4px; text-transform: uppercase; }
-        .company-name { font-size: 11px; font-weight: 700; margin-bottom: 5px; }
-        .arabic, .arabic-pdf { font-family: "DejaVu Sans", sans-serif; text-align: right; }
+        .arabic, .arabic-pdf { font-family: "DejaVu Sans", sans-serif; text-align: right; white-space: pre-line; }
         .arabic { direction: rtl; unicode-bidi: embed; }
         .arabic-pdf { direction: ltr; unicode-bidi: bidi-override; }
-        .arabic-line { color: #64748b; margin: 3px 0 5px; }
-        .trn { color: #0b4478; font-weight: 700; margin-top: 7px; }
-        .bill-to { text-align: right; }
-        .invoice-details { margin-top: 17px; text-align: right; }
-        .invoice-details div { margin: 2px 0; }
-        .items { margin-bottom: 10px; table-layout: fixed; }
+        .document-header td { vertical-align: middle; padding-bottom: 5px; }
+        .logo { max-height: 65pt; max-width: 100pt; }
+        .company-name { font-size: 15pt; font-weight: bold; line-height: 1.2; }
+        .company-name-ar { font-size: 9pt; margin-top: 5px; }
+        .title { color: #ad915d; font-size: 22pt; font-weight: bold; text-align: right; line-height: 1.1; white-space: nowrap; }
+        .title-ar { color: #ad915d; font-size: 17pt; font-weight: bold; margin-top: 7px; }
+        .seller-details { margin-top: 7px; }
+        .seller-details td { width: 50%; padding: 2px 0; }
+        .seller-details .right { text-align: right; padding-left: 12px; }
+        .address { white-space: pre-line; }
+        .registration td { padding-top: 3px; }
+        .registration .value { font-weight: bold; text-align: right; }
+        .contact-label { color: #58554f; display: inline-block; width: 46px; }
+        .rule { border-top: 1.2px solid #ad915d; margin: 7px 0 12px; }
+        .details-shell { table-layout: fixed; margin-bottom: 10px; }
+        .details-shell > tbody > tr > td { width: 50%; }
+        .details-shell > tbody > tr > td:first-child { padding-right: 8px; }
+        .details-shell > tbody > tr > td:last-child { padding-left: 8px; }
+        .section-label { color: #ad915d; font-size: 9pt; font-weight: bold; margin-bottom: 7px; }
+        .fields { table-layout: fixed; }
+        .fields td { padding: 4px 1px; }
+        .fields .label { color: #58554f; width: 30%; }
+        .fields .value { border-bottom: .5px solid #ded5c3; width: 70%; overflow-wrap: break-word; }
+        .items-heading { margin: 7px 0 4px; }
+        .items-heading td:last-child { text-align: right; color: #58554f; }
+        .items { margin-bottom: 4px; table-layout: fixed; }
         .items thead { display: table-header-group; }
         .items tr { page-break-inside: avoid; }
-        .items th { background: #0b4478; color: #fff; font-size: 8px; padding: 7px 6px; text-align: left; }
-        .items th.num, .items td.num { text-align: right; }
-        .items td { border-bottom: 1px solid #dbe3ec; padding: 7px 6px; }
-        .items .description { font-weight: 600; }
-        .summary-layout > tbody > tr > td { width: 56%; }
-        .summary-layout > tbody > tr > td + td { padding-left: 12px; width: 44%; }
+        .items th { background: #f8f5ee; border-top: .6px solid #ad915d; border-bottom: .6px solid #cbb992; padding: 5px 3px; font-size: 7pt; text-align: right; }
+        .items th:first-child { text-align: left; color: #ad915d; }
+        .items th .sub { color: #58554f; font-weight: normal; font-size: 6.5pt; margin-top: 2px; }
+        .items td { padding: 6px 3px; border-bottom: .5px solid #ded5c3; overflow-wrap: break-word; }
+        .items .num { text-align: right; }
+        .items .description { white-space: pre-line; }
+        .items .empty td { height: 12px; padding: 0; font-size: 1pt; line-height: 1; }
+        .line-note { font-size: 6.5pt; color: #58554f; margin: 4px 0 7px; }
         .summary-layout { page-break-inside: avoid; }
-        .closing-section.long-layout { page-break-inside: avoid; }
-        .document-page.bottom-footer .footer { bottom: 0; left: 0; margin-top: 0; position: fixed; right: 0; }
-        .terms { border-left: 3px solid #0b4478; background: #f7f9fb; padding: 9px 10px; }
-        .extended-terms { margin-bottom: 10px; }
-        .terms-title { font-size: 9px; font-weight: 700; margin-bottom: 5px; }
-        .term { margin-bottom: 5px; }
-        .term-en { font-weight: 600; }
-        .term-ar { color: #64748b; font-size: 8px; margin-top: 1px; }
-        .totals { background: #f7f9fb; }
-        .totals td { padding: 7px 9px; }
-        .totals td:last-child { font-weight: 700; text-align: right; white-space: nowrap; }
-        .grand td { border-top: 2px solid #c9d5e2; color: #0b4478; font-size: 13px; font-weight: 700; }
-        .document-page { position: relative; }
-        .footer-spacer { display: block; }
-        .footer { color: #64748b; font-size: 7px; margin-top: 10px; text-align: center; }
-        .footer { page-break-inside: avoid; }
-        .stamp-area { margin-top: 9px; min-height: 72px; text-align: right; }
-        .stamp { height: auto; max-height: 82px; max-width: 110px; width: auto; }
-        .verification { margin-top: 9px; text-align: left; }
+        .summary-layout > tbody > tr > td:first-child { width: 47%; padding-right: 12px; }
+        .summary-layout > tbody > tr > td:last-child { width: 53%; }
+        .totals td { padding: 3px 2px; }
+        .totals td:last-child { text-align: right; white-space: nowrap; font-weight: bold; }
+        .totals .grand td { border-top: 1px solid #ad915d; border-bottom: 1px solid #ad915d; font-weight: bold; color: #ad915d; }
+        .totals .balance td { font-weight: bold; }
+        .summary-ar { text-align: right; color: #58554f; font-size: 7pt; }
+        .payment-note { font-size: 6.5pt; color: #58554f; margin-top: 4px; }
+        .verification { display: inline-block; vertical-align: top; text-align: left; margin-right: 16px; }
         .verification img { height: 76px; width: 76px; }
-        .verification-caption { color: #334155; font-size: 7px; font-weight: 700; margin-bottom: 3px; }
-        .verification-footer { color: #475569; font-size: 6.5px; line-height: 1.25; margin: 0 auto 5px; max-width: 100%; overflow-wrap: anywhere; padding: 0 4px; text-align: center; word-break: break-all; }
-        .verification-footer a { color: #0b4478; text-decoration: none; }
-        .company-footer { border-top: 1px solid #dbe3ec; padding-top: 6px; }
-        .company-footer div { margin: 2px 0; }
-        .footer strong { color: #334155; }
-        .legal { font-size: 6.5px; margin-top: 5px !important; }
-        .void { color: #b91c1c; font-size: 70px; font-weight: 700; left: 20%; opacity: .14; position: fixed; top: 42%; transform: rotate(-25deg); z-index: 10; }
-        @media print {
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .no-print { display: none !important; }
-        }
+        .verification-caption { font-size: 6.5pt; margin-bottom: 3px; }
+        .stamp-area { display: inline-block; vertical-align: middle; text-align: right; padding-top: 10px; }
+        .stamp { height: auto; max-height: 82px; max-width: 110px; width: auto; }
+        .document-page { position: relative; }
+        .document-page.bottom-footer .footer { page-break-inside: avoid; }
+        .closing-section.long-layout { page-break-inside: avoid; }
+        .footer { margin-top: 12px; font-size: 7pt; color: #58554f; }
+        .terms { border-top: 1px solid #ad915d; padding-top: 5px; }
+        .terms-title { font-size: 9pt; color: #ad915d; font-weight: bold; }
+        .terms-table { table-layout: fixed; }
+        .terms-table td { width: 50%; padding: 2px 8px 3px 0; }
+        .terms-table td:last-child { padding: 2px 0 3px 8px; }
+        .term-en { white-space: pre-line; }
+        .term-ar { font-size: 7pt; }
+        .extended-terms .terms-table td { padding-top: 1px; padding-bottom: 1px; }
+        .extended-terms .term-en, .extended-terms .term-ar { font-size: 6.5pt; line-height: 1.2; }
+        .company-footer { border-top: .6px solid #cbb992; margin-top: 6px; padding-top: 5px; font-size: 6.5pt; }
+        .company-footer td { width: 50%; }
+        .verification-footer { margin-top: 4px; font-size: 6pt; overflow-wrap: anywhere; word-break: break-all; text-align: center; }
+        .verification-footer a { color: #58554f; text-decoration: none; }
+        .customer-copy { text-align: right; font-size: 7pt; margin-top: 4px; font-weight: bold; }
+        .branding-strip { border-top: .6px solid #ad915d; margin-top: 6px; page-break-inside: avoid; }
+        .branding-logos { table-layout: fixed; }
+        .branding-logos td { text-align: center; padding: 5px 3px 4px; vertical-align: top; }
+        .brand-art { height: 25pt; line-height: 25pt; }
+        .brand-art img { max-width: 55pt; max-height: 24pt; vertical-align: middle; }
+        .brand-caption { font-size: 6pt; line-height: 1.2; overflow-wrap: break-word; margin-top: 3px; }
+        .branding-statement { border-top: .6px solid #cbb992; margin-top: 4px; font-size: 6pt; table-layout: fixed; }
+        .branding-statement td { width: 50%; padding: 4px 4px 0 0; overflow-wrap: break-word; }
+        .branding-statement td:last-child { padding-left: 4px; padding-right: 0; }
+        .footer.has-branding { page-break-inside: avoid; }
+        .has-branding .terms-table td { padding-top: 1px; padding-bottom: 1px; }
+        .has-branding .term-en, .has-branding .term-ar { font-size: 6.5pt; line-height: 1.2; }
+        .void { color: #b91c1c; font-size: 70pt; font-weight: bold; left: 20%; opacity: .14; position: fixed; top: 42%; transform: rotate(-25deg); z-index: 10; }
+        @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style>
 </head>
 <body>
 @php
     $seller = $invoice->seller_snapshot;
     $isPdf = ($documentMode ?? 'pdf') === 'pdf';
-    $ar = fn (?string $text): string => $isPdf ? $arabic->forDompdf($text) : (string) $text;
+    $ar = function (?string $text, int $width = 62) use ($isPdf, $arabic): string {
+        if (! $isPdf) { return (string) $text; }
+        $lines = [];
+        foreach (preg_split('/\R/u', (string) $text) ?: [] as $paragraph) {
+            $line = '';
+            foreach (preg_split('/\s+/u', $paragraph) ?: [] as $word) {
+                if ($line !== '' && mb_strlen($line.' '.$word) > $width) { $lines[] = $line; $line = ''; }
+                $line .= ($line === '' ? '' : ' ').$word;
+            }
+            $lines[] = $line;
+        }
+        return $arabic->forDompdf(implode("\n", $lines));
+    };
     $arClass = $isPdf ? 'arabic-pdf' : 'arabic';
     $termsEn = preg_split('/\R/u', trim((string) $invoice->terms_en_snapshot)) ?: [];
     $termsAr = preg_split('/\R/u', trim((string) $invoice->terms_ar_snapshot)) ?: [];
@@ -84,163 +121,130 @@
     $termsLayoutUnits = collect([...$termsEn, ...$termsAr, ...$renewedTermsEn, ...$renewedTermsAr])
         ->sum(fn ($line): int => filled($line) ? max(1, (int) ceil(mb_strlen($line) / 50)) : 0);
     $usesExtendedTerms = $termsLayoutUnits > 24;
-    $vatDivisor = bcadd('1', bcdiv((string) $invoice->vat_rate, '100', 8), 8);
-    $itemLayoutUnits = $invoice->items->sum(
-        fn ($item): int => max(1, (int) ceil(mb_strlen((string) $item->description) / 72)),
-    );
-    $usesBottomFooter = $invoice->items->count() <= 3 && $itemLayoutUnits <= 3 && ! $usesExtendedTerms;
-    $verificationHeightMm = ($qrCodeDataUri ?? null) ? 36 : 0;
-    $footerSpacerMm = ($usesBottomFooter || $usesExtendedTerms) ? 0 : max(0, 72 - (max(0, $itemLayoutUnits - 1) * 8) - $verificationHeightMm);
-    $usesLongLayout = ! $usesBottomFooter && ! $usesExtendedTerms && $footerSpacerMm === 0;
+    $englishTermsLength = mb_strlen(implode('', [...$termsEn, ...$renewedTermsEn]));
+    $arabicTermsLength = mb_strlen(implode('', [...$termsAr, ...$renewedTermsAr]));
+    $termsEnglishWidth = $usesExtendedTerms && $englishTermsLength > max(1, $arabicTermsLength) * 3 ? 75
+        : ($usesExtendedTerms && $arabicTermsLength > max(1, $englishTermsLength) * 3 ? 25 : 50);
+    $itemLayoutUnits = $invoice->items->sum(fn ($item): int => max(1, (int) ceil(mb_strlen((string) $item->description) / 60)));
+    $usesBottomFooter = $invoice->items->count() <= 3 && $itemLayoutUnits <= 5 && ! $usesExtendedTerms;
+    $usesLongLayout = ! $usesBottomFooter && ! $usesExtendedTerms;
+    $context = $orderContext ?? ['heading' => 'ORDER ID', 'reference' => $invoice->order_reference];
+    $blankRowTarget = count($footerBranding['entries'] ?? []) > 0 ? 0 : 8;
 @endphp
-
 <div class="document-page{{ $usesBottomFooter ? ' bottom-footer' : '' }}">
-
-@if($invoice->status === 'void')
-    <div class="void">VOID</div>
-@endif
-
+@if($invoice->status === 'void')<div class="void">VOID</div>@endif
 <table class="document-header">
     <tr>
-        <td style="width: 50%">
-            @if($logoDataUri)
-                <img class="logo" src="{{ $logoDataUri }}" alt="Company logo">
-            @endif
+        <td style="width: 22%">@if($logoDataUri)<img class="logo" src="{{ $logoDataUri }}" alt="Company logo">@endif</td>
+        <td style="width: 46%">
+            <div class="company-name">{{ $seller['company_name_en'] ?? '' }}</div>
+            @if(filled($seller['company_name_ar'] ?? null))<div class="company-name-ar {{ $arClass }}">{{ $ar($seller['company_name_ar'], 54) }}</div>@endif
         </td>
-        <td style="width: 50%">
-            <div class="title">TAX INVOICE</div>
-            <div class="title-ar {{ $arClass }}">{{ $ar('فاتورة ضريبية') }}</div>
+        <td style="width: 32%"><div class="title">TAX INVOICE</div><div class="title-ar {{ $arClass }}">{{ $ar('فاتورة ضريبية') }}</div></td>
+    </tr>
+</table>
+<table class="seller-details">
+    <tr>
+        <td>
+            @if(filled($seller['address_en'] ?? null))<div class="address">{{ $seller['address_en'] }}</div>@endif
+            @if(filled($seller['emirate'] ?? null) || filled($seller['country'] ?? null))<div>{{ implode(', ', array_filter([$seller['emirate'] ?? null, $seller['country'] ?? null])) }}</div>@endif
+            @foreach(['email' => 'Email', 'mobile' => 'Mobile', 'phone' => 'Phone', 'website' => 'Website'] as $field => $label)
+                @if(filled($seller[$field] ?? null))<div><span class="contact-label">{{ $label }}</span> <strong>{{ $seller[$field] }}</strong></div>@endif
+            @endforeach
+        </td>
+        <td class="right">
+            @if(filled($seller['address_ar'] ?? null))<div class="address {{ $arClass }}">{{ $ar($seller['address_ar']) }}</div>@endif
+            <table class="registration">
+                @foreach(['trn' => ['VAT TRN:', 'رقم التسجيل الضريبي'], 'trade_license_number' => ['Trade License No:', 'الرخصة التجارية'], 'ded_registration_number' => ['DED Reg No:', 'السجل التجاري']] as $field => [$label, $arabicLabel])
+                    @if(filled($seller[$field] ?? null))<tr><td>{{ $label }} <span class="{{ $arClass }}">{{ $ar($arabicLabel) }}</span></td><td class="value">{{ $seller[$field] }}</td></tr>@endif
+                @endforeach
+            </table>
         </td>
     </tr>
 </table>
 <div class="rule"></div>
-
 <table class="details-shell">
     <tr>
         <td>
-            <div class="section-label">FROM / <span class="{{ $arClass }}">{{ $ar('من') }}</span></div>
-            <div class="company-name">{{ $seller['company_name_en'] }}</div>
-            @if(filled($seller['company_name_ar'] ?? null))
-                <div class="company-name {{ $arClass }}">{{ $ar($seller['company_name_ar']) }}</div>
-            @endif
-            @if(filled($seller['address_en'] ?? null))
-                <div>{{ $seller['address_en'] }}</div>
-            @endif
-            @if(filled($seller['address_ar'] ?? null))
-                <div class="arabic-line {{ $arClass }}">{{ $ar($seller['address_ar']) }}</div>
-            @endif
-            <div class="trn">TRN / <span class="{{ $arClass }}">{{ $ar('الرقم الضريبي') }}</span>: {{ $seller['trn'] ?? '—' }}</div>
+            <div class="section-label">BILL TO <span class="{{ $arClass }}">{{ $ar('المستلم') }}</span></div>
+            <table class="fields">
+                <tr><td class="label">Customer</td><td class="value">{{ $invoice->customer_name }}</td></tr>
+                <tr><td class="label">Billing address</td><td class="value address">{{ $invoice->customer_address }}</td></tr>
+                @if(filled($invoice->customer_phone))<tr><td class="label">Phone:</td><td class="value">{{ $invoice->customer_phone }}</td></tr>@endif
+                @if(filled($invoice->customer_trn))<tr><td colspan="2" class="value">Customer TRN: {{ $invoice->customer_trn }}</td></tr>@endif
+            </table>
         </td>
-        <td class="bill-to">
-            <div class="section-label">BILL TO / <span class="{{ $arClass }}">{{ $ar('إلى') }}</span></div>
-            <div class="company-name">{{ $invoice->customer_name }}</div>
-            @if(filled($invoice->customer_phone))
-                <div class="customer-phone">Phone: {{ $invoice->customer_phone }}</div>
-            @endif
-            <div>{{ $invoice->customer_address }}</div>
-            @if(filled($invoice->customer_trn))
-                <div class="trn">Customer TRN: {{ $invoice->customer_trn }}</div>
-            @endif
-            <div class="invoice-details">
-                <div class="section-label">INVOICE DETAILS / <span class="{{ $arClass }}">{{ $ar('تفاصيل الفاتورة') }}</span></div>
-                <div>Invoice #: <strong>{{ $invoice->invoice_number }}</strong></div>
-                <div>Order ID: <strong>{{ $invoice->order_reference }}</strong></div>
-                <div>Date: <strong>{{ $invoice->invoice_date->format('d M Y') }}</strong></div>
-            </div>
+        <td>
+            <div class="section-label">{{ $context['heading'] }} <span class="{{ $arClass }}">{{ $ar($context['headingAr'] ?? 'رقم الطلب') }}</span></div>
+            <table class="fields">
+                <tr><td class="label">Invoice #:</td><td class="value"><strong>{{ $invoice->invoice_number }}</strong></td></tr>
+                <tr><td class="label">{{ $context['referenceLabel'] ?? 'Order ID' }}</td><td class="value">{{ $context['reference'] }}</td></tr>
+                <tr><td class="label">Invoice date</td><td class="value">{{ $invoice->invoice_date->format('d M Y') }}</td></tr>
+                <tr><td class="label">Supply date</td><td class="value">Not recorded</td></tr>
+            </table>
         </td>
     </tr>
 </table>
-
+<table class="items-heading"><tr><td class="section-label">ITEMS <span class="{{ $arClass }}">{{ $ar('الأصناف') }}</span></td><td>Unit prices include {{ number_format((float) $invoice->vat_rate, 2) }}% VAT &nbsp; • &nbsp; AED</td></tr></table>
 <table class="items">
-    <thead>
-    <tr>
-        <th style="width: 5%">#</th>
-        <th style="width: 52%">DESCRIPTION / <span class="{{ $arClass }}">{{ $ar('الوصف') }}</span></th>
-        <th class="num" style="width: 8%">QTY</th>
-        <th class="num" style="width: 16%">UNIT PRICE</th>
-        <th class="num" style="width: 19%">TOTAL (INCL VAT)</th>
-    </tr>
-    </thead>
+    <thead><tr>
+        <th style="width: 42%">Description / Serial Number<div class="sub {{ $arClass }}">{{ $ar('الوصف / الرقم التسلسلي') }}</div></th>
+        <th style="width: 6%">Qty<div class="sub {{ $arClass }}">{{ $ar('الكمية') }}</div></th>
+        <th style="width: 14%">Unit incl. VAT<div class="sub {{ $arClass }}">{{ $ar('سعر الوحدة') }}</div></th>
+        <th style="width: 10%">VAT rate (%)<div class="sub {{ $arClass }}">{{ $ar('نسبة الضريبة') }}</div></th>
+        <th style="width: 12%">VAT (AED)<div class="sub {{ $arClass }}">{{ $ar('مبلغ الضريبة') }}</div></th>
+        <th style="width: 16%">Total incl. VAT<div class="sub {{ $arClass }}">{{ $ar('شامل الضريبة') }}</div></th>
+    </tr></thead>
     <tbody>
     @foreach($invoice->items as $item)
-        @php($unitExcludingVat = bcadd(bcdiv((string) $item->unit_price_including_vat, $vatDivisor, 4), '0.005', 2))
         <tr>
-            <td>{{ $item->line_number }}</td>
-            <td class="description">{{ $item->description }}</td>
+            <td class="description{{ preg_match('/\p{Arabic}/u', $item->description) ? ' '.$arClass : '' }}">{{ preg_match('/\p{Arabic}/u', $item->description) ? $ar($item->description, 55) : $item->description }}</td>
             <td class="num">{{ $item->quantity }}</td>
-            <td class="num">{{ number_format((float) $unitExcludingVat, 2) }}</td>
+            <td class="num">{{ number_format((float) $item->unit_price_including_vat, 2) }}</td>
+            <td class="num">{{ number_format((float) $invoice->vat_rate, 2) }}</td>
+            <td class="num">{{ number_format((float) $item->vat_amount, 2) }}</td>
             <td class="num">{{ number_format((float) $item->total_including_vat, 2) }}</td>
         </tr>
     @endforeach
+    @if($usesBottomFooter)
+        @for($empty = $invoice->items->count(); $empty < $blankRowTarget; $empty++)<tr class="empty"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>@endfor
+    @endif
     </tbody>
 </table>
-
+<div class="line-note">Line totals include any discount. Unit prices are rounded to the nearest fils.</div>
 <div class="closing-section{{ $usesLongLayout ? ' long-layout' : '' }}">
-@if($usesExtendedTerms)
-    <div class="extended-terms">
-        @include('invoices.partials.tax-invoice-terms')
-    </div>
-@endif
 <table class="summary-layout">
     <tr>
         <td>
-            @unless($usesExtendedTerms)
-                @include('invoices.partials.tax-invoice-terms')
-            @endunless
-            @if($qrCodeDataUri ?? null)
-                <div class="verification">
-                    <div class="verification-caption">Verify Invoice Authenticity</div>
-                    <img src="{{ $qrCodeDataUri }}" alt="Invoice verification QR code">
-                </div>
-            @endif
+            @if($qrCodeDataUri ?? null)<div class="verification"><div class="verification-caption">Verify Invoice Authenticity</div><img src="{{ $qrCodeDataUri }}" alt="Invoice verification QR code"></div>@endif
+            @if($stampDataUri ?? null)<div class="stamp-area"><img class="stamp" src="{{ $stampDataUri }}" alt="Company stamp"></div>@endif
         </td>
         <td>
             <table class="totals">
-                <tr>
-                    <td>Subtotal / <span class="{{ $arClass }}">{{ $ar('المجموع الفرعي') }}</span></td>
-                    <td>{{ number_format((float) $invoice->subtotal_excluding_vat, 2) }}</td>
-                </tr>
-                <tr>
-                    <td>VAT ({{ number_format((float) $invoice->vat_rate, 0) }}%) / <span class="{{ $arClass }}">{{ $ar('ضريبة القيمة المضافة') }}</span></td>
-                    <td>{{ number_format((float) $invoice->vat_amount, 2) }}</td>
-                </tr>
-                <tr class="grand">
-                    <td>GRAND TOTAL (AED)</td>
-                    <td>{{ number_format((float) $invoice->grand_total, 2) }}</td>
-                </tr>
+                <tr><td>Subtotal (excl. VAT)</td><td class="summary-ar {{ $arClass }}">{{ $ar('المجموع الفرعي') }}</td><td>{{ number_format((float) $invoice->subtotal_excluding_vat, 2) }}</td></tr>
+                <tr><td>Total VAT</td><td class="summary-ar {{ $arClass }}">{{ $ar('إجمالي الضريبة') }}</td><td>{{ number_format((float) $invoice->vat_amount, 2) }}</td></tr>
+                <tr class="grand"><td>Invoice total (AED)</td><td class="summary-ar {{ $arClass }}">{{ $ar('إجمالي الفاتورة') }}</td><td>{{ number_format((float) $invoice->grand_total, 2) }}</td></tr>
+                <tr><td>Payment received</td><td class="summary-ar {{ $arClass }}">{{ $ar('المبلغ المدفوع') }}</td><td>Not recorded</td></tr>
+                <tr class="balance"><td>Balance due</td><td class="summary-ar {{ $arClass }}">{{ $ar('الرصيد المستحق') }}</td><td>Not verified</td></tr>
             </table>
-            @if($stampDataUri ?? null)
-                <div class="stamp-area"><img class="stamp" src="{{ $stampDataUri }}" alt="Company stamp"></div>
-            @endif
+            <div class="payment-note">Customer payment is not recorded on this invoice. These labels do not assert an unpaid balance.</div>
         </td>
     </tr>
 </table>
-
-@if($footerSpacerMm > 0)
-    <div class="footer-spacer" style="height: {{ $footerSpacerMm }}mm"></div>
-@endif
-
-<div class="footer">
+</div>
+<div class="footer{{ count($footerBranding['entries'] ?? []) > 0 ? ' has-branding' : '' }}">
+    @if($usesExtendedTerms)<div class="extended-terms">@include('invoices.partials.tax-invoice-terms')</div>@else
+        @include('invoices.partials.tax-invoice-terms')
+    @endif
+    @include('invoices.partials.tax-invoice-branding')
+    <div class="company-footer"><table><tr>
+        <td>@if(filled($seller['legal_statement_en'] ?? null))<div class="legal">{{ $seller['legal_statement_en'] }}</div>@endif</td>
+        <td>@if(filled($seller['legal_statement_ar'] ?? null))<div class="legal {{ $arClass }}">{{ $ar($seller['legal_statement_ar']) }}</div>@endif</td>
+    </tr></table></div>
     <div class="verification-footer">Verify this invoice: <a href="{{ $verificationUrl }}">{{ $verificationUrl }}</a></div>
-    <div class="company-footer">
-        <div><strong>Trade License No:</strong> {{ $seller['trade_license_number'] ?? '—' }} &nbsp; | &nbsp; <strong>DED Reg No:</strong> {{ $seller['ded_registration_number'] ?? '—' }} &nbsp; | &nbsp; <strong>TRN:</strong> {{ $seller['trn'] ?? '—' }}</div>
-        <div><strong>Registered Address:</strong> {{ $seller['address_en'] ?? '—' }}</div>
-        <div><strong>Phone:</strong> {{ $seller['phone'] ?? '—' }} &nbsp; | &nbsp; <strong>Mobile:</strong> {{ $seller['mobile'] ?? '—' }} &nbsp; | &nbsp; <strong>Email:</strong> {{ $seller['email'] ?? '—' }}</div>
-        @if(filled($seller['legal_statement_en'] ?? null))
-            <div class="legal">{{ $seller['legal_statement_en'] }}</div>
-        @endif
-        @if(filled($seller['legal_statement_ar'] ?? null))
-            <div class="legal {{ $arClass }}">{{ $ar($seller['legal_statement_ar']) }}</div>
-        @endif
-    </div>
+    <div class="customer-copy">Customer copy &nbsp; <span class="{{ $arClass }}">{{ $ar('نسخة العميل') }}</span></div>
 </div>
-
 </div>
-
-</div>
-
-@if(($documentMode ?? null) === 'print')
-    <script>window.addEventListener('load', () => window.print())</script>
-@endif
+@if(($documentMode ?? null) === 'print')<script>window.addEventListener('load', () => window.print())</script>@endif
 </body>
 </html>

@@ -38,23 +38,21 @@ class TaxInvoiceDocumentParityTest extends TestCase
 
         $response->assertOk()
             ->assertSeeInOrder([
-                'TAX INVOICE',
-                'فاتورة ضريبية',
-                'FROM /',
                 'Tech Point Zone Electronics Trading L.L.C',
                 'تك بوينت زون لتجارة الالكترونيات ذ.م.م',
-                'BILL TO /',
-                'INVOICE DETAILS /',
-                'DESCRIPTION /',
-                '504.76',
+                'TAX INVOICE',
+                'فاتورة ضريبية',
+                'Trade License No:',
+                'BILL TO',
+                'ORDER ID',
+                'Description / Serial Number',
                 '530.00',
+                'Subtotal (excl. VAT)',
+                '504.76',
+                'Invoice total (AED)',
                 'Terms &amp; Conditions',
                 '1 Year Manufacturer Warranty.',
                 'ضمان الشركة المصنعة لمدة سنة واحدة.',
-                'Subtotal /',
-                'GRAND TOTAL (AED)',
-                'Trade License No:',
-                'Registered Address:',
                 'Legal company statement.',
                 'بيان الشركة القانوني.',
             ], false)
@@ -156,7 +154,7 @@ class TaxInvoiceDocumentParityTest extends TestCase
 
         $print = $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]));
         $print->assertOk()
-            ->assertSeeInOrder(['GRAND TOTAL (AED)', 'class="stamp"', 'class="footer"'], false)
+            ->assertSeeInOrder(['class="stamp"', 'Invoice total (AED)', 'class="footer"'], false)
             ->assertSee('class="document-page bottom-footer"', false)
             ->assertDontSee('class="footer-spacer"', false)
             ->assertSee(base64_encode($firstStamp), false)
@@ -224,7 +222,7 @@ class TaxInvoiceDocumentParityTest extends TestCase
         $print->assertOk()
             ->assertSee('display: table-header-group', false)
             ->assertSee('page-break-inside: avoid', false)
-            ->assertSeeInOrder(['class="items"', 'class="closing-section long-layout"', 'GRAND TOTAL (AED)', 'Verify this invoice:', 'class="company-footer"'], false)
+            ->assertSeeInOrder(['class="items"', 'class="closing-section long-layout"', 'Invoice total (AED)', 'class="company-footer"', 'Verify this invoice:'], false)
             ->assertDontSee('class="footer-spacer"', false);
 
         $pdf = $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice]));

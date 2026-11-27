@@ -7,6 +7,7 @@ use App\Enums\ProductCondition;
 use App\Enums\ProductTitleMode;
 use App\Enums\TaxInvoiceTermsProfile;
 use App\Models\TaxInvoice;
+use App\Models\TaxInvoiceAdjustmentDocument;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\InvoiceAuthorization;
@@ -62,11 +63,30 @@ class TaxInvoiceService
         $includesStandardTerms = ! $includesRenewedTerms;
         $settings = $this->settings->settings();
         $profile = $this->company->snapshot();
+        $profile['footer_branding'] = app(InvoiceFooterBrandingService::class)->snapshot($settings->footer_branding);
         $number = $reservedInvoiceNumber ?? $this->references->nextTaxInvoiceNumber($settings->invoice_prefix, (int) $settings->starting_number);
         $totals = $this->calculateTotals($validated['items'], (string) $settings->vat_rate);
         ['vat_rate' => $vatRate, 'divisor' => $divisor, 'grand_total' => $gross, 'subtotal' => $net, 'vat' => $vat] = $totals;
 
-        return DB::transaction(function () use ($validated, $actor, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms): TaxInvoice {
+        return DB::transaction(function () use ($validated, $actor, $source, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms): TaxInvoice {
+            // Freeze the customer-facing marketplace reference at issuance, while the
+            // source order is locked. Its later amendments must not rewrite a PDF.
+            if ($source !== null) {
+                $orderAtIssue = DB::table('orders')->where('id', $source->id)
+                    ->lockForUpdate()->first(['reference', 'external_order_number', 'marketplace_platform_id']);
+                if ($orderAtIssue === null) {
+                    throw ValidationException::withMessages(['source_order_id' => 'The selected Order is no longer available.']);
+                }
+                $platformName = $orderAtIssue->marketplace_platform_id === null
+                    ? null
+                    : DB::table('marketplace_platforms')->where('id', $orderAtIssue->marketplace_platform_id)->value('name');
+                $profile['order_context_snapshot'] = [
+                    'source_reference' => (string) $orderAtIssue->reference,
+                    'external_reference' => filled($orderAtIssue->external_order_number)
+                        ? trim((string) $orderAtIssue->external_order_number) : null,
+                    'platform_name' => $platformName,
+                ];
+            }
             $invoice = TaxInvoice::query()->create([
                 'invoice_number' => $number, 'order_reference' => $validated['order_reference'] ?? null, 'source_order_id' => $validated['source_order_id'] ?? null, 'invoice_date' => $validated['invoice_date'],
                 'title_mode' => $validated['title_mode'], 'terms_profile' => $validated['terms_profile'],
@@ -102,7 +122,7 @@ class TaxInvoiceService
             if ($locked->status === 'void') {
                 throw ValidationException::withMessages(['reason' => 'This Invoice has already been voided.']);
             }
-            if (\App\Models\TaxInvoiceAdjustmentDocument::query()->where('original_invoice_id', $locked->id)->exists()) {
+            if (TaxInvoiceAdjustmentDocument::query()->where('original_invoice_id', $locked->id)->exists()) {
                 throw ValidationException::withMessages(['reason' => 'This Invoice has posted tax adjustment documents. Void is blocked until a compliant reversal workflow is available.']);
             }
             $previousStatus = $locked->status;

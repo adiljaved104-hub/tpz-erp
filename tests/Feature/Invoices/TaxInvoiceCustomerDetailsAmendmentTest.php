@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\CompanyProfileService;
 use App\Services\Invoices\TaxInvoiceDocumentService;
 use App\Services\Invoices\TaxInvoiceService;
+use App\Services\UserTimezoneResolver;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -59,7 +60,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
         $this->profile($owner);
         $this->allow($staff, InvoicePermission::EditCustomerDetails, $owner);
         $invoice = $this->invoice($staff);
-        $invoice->load('items');
+        $invoice->refresh()->load('items');
         $immutable = [
             'invoice_number' => $invoice->invoice_number,
             'invoice_date' => $invoice->invoice_date->toDateString(),
@@ -258,7 +259,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
             ->test(ViewTaxInvoice::class, ['record' => $invoice->getRouteKey()])
             ->assertSee('Record Information')
             ->assertSee('Amendment Employee')
-            ->assertSee($invoice->customerDetailAmendments->first()->created_at->timezone(config('app.timezone'))->format('d M Y, h:i A'))
+            ->assertSee(app(UserTimezoneResolver::class)->format($invoice->customerDetailAmendments->first()->created_at, 'd M Y, h:i A T'))
             ->assertActionVisible('viewAmendmentHistory');
 
         $historyTemplate = file_get_contents(dirname(__DIR__, 3).'/resources/views/filament/resources/tax-invoices/partials/customer-amendment-history.blade.php');

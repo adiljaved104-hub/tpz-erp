@@ -130,6 +130,12 @@
     $usesLongLayout = ! $usesBottomFooter && ! $usesExtendedTerms;
     $context = $orderContext ?? ['heading' => 'ORDER ID', 'reference' => $invoice->order_reference];
     $blankRowTarget = count($footerBranding['entries'] ?? []) > 0 ? 0 : 8;
+    // Only a previously confirmed, immutable issuance snapshot may show paid.
+    $paymentSnapshot = $seller['payment_receipt_snapshot'] ?? [];
+    $paymentConfirmed = is_array($paymentSnapshot)
+        && ($paymentSnapshot['status'] ?? null) === 'confirmed_paid_in_full'
+        && (string) ($paymentSnapshot['amount_received_aed'] ?? '') === (string) $invoice->grand_total
+        && (string) ($paymentSnapshot['balance_due_aed'] ?? '') === '0.00';
 @endphp
 <div class="document-page{{ $usesBottomFooter ? ' bottom-footer' : '' }}">
 @if($invoice->status === 'void')<div class="void">VOID</div>@endif
@@ -224,10 +230,14 @@
                 <tr><td>Subtotal (excl. VAT)</td><td class="summary-ar {{ $arClass }}">{{ $ar('المجموع الفرعي') }}</td><td>{{ number_format((float) $invoice->subtotal_excluding_vat, 2) }}</td></tr>
                 <tr><td>Total VAT</td><td class="summary-ar {{ $arClass }}">{{ $ar('إجمالي الضريبة') }}</td><td>{{ number_format((float) $invoice->vat_amount, 2) }}</td></tr>
                 <tr class="grand"><td>Invoice total (AED)</td><td class="summary-ar {{ $arClass }}">{{ $ar('إجمالي الفاتورة') }}</td><td>{{ number_format((float) $invoice->grand_total, 2) }}</td></tr>
-                <tr><td>Payment received</td><td class="summary-ar {{ $arClass }}">{{ $ar('المبلغ المدفوع') }}</td><td>Not recorded</td></tr>
-                <tr class="balance"><td>Balance due</td><td class="summary-ar {{ $arClass }}">{{ $ar('الرصيد المستحق') }}</td><td>Not verified</td></tr>
+                <tr><td>Payment received</td><td class="summary-ar {{ $arClass }}">{{ $ar('المبلغ المدفوع') }}</td><td>{{ $paymentConfirmed ? number_format((float) $invoice->grand_total, 2) : 'Not recorded' }}</td></tr>
+                <tr class="balance"><td>Balance due</td><td class="summary-ar {{ $arClass }}">{{ $ar('الرصيد المستحق') }}</td><td>{{ $paymentConfirmed ? '0.00' : 'Not verified' }}</td></tr>
             </table>
-            <div class="payment-note">Customer payment is not recorded on this invoice. These labels do not assert an unpaid balance.</div>
+            @if($paymentConfirmed)
+                <div class="payment-note">Full customer payment was confirmed when this invoice was issued. No separate payment or accounting journal is created by this document.</div>
+            @else
+                <div class="payment-note">Customer payment is not recorded on this invoice. These labels do not assert an unpaid balance.</div>
+            @endif
         </td>
     </tr>
 </table>

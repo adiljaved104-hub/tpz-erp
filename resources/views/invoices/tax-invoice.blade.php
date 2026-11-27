@@ -140,6 +140,49 @@
             $blocks
         ), static fn (string $paragraph): bool => $paragraph !== ''));
     };
+    // Dompdf cannot reliably split one oversized table cell across pages.
+    // Long legal text, including a single extremely long paragraph, must be
+    // divided into bounded text groups before being placed in printable rows.
+    $termsChunks = static function (array $paragraphs, int $limit = 480): array {
+        $groups = [];
+        $current = [];
+        $currentLength = 0;
+        foreach ($paragraphs as $paragraph) {
+            $remaining = trim($paragraph);
+            while (mb_strlen($remaining) > $limit) {
+                $prefix = mb_substr($remaining, 0, $limit);
+                $breakAt = mb_strrpos($prefix, ' ');
+                if ($breakAt === false || $breakAt < (int) ($limit / 3)) {
+                    $breakAt = $limit;
+                }
+                if ($current !== []) {
+                    $groups[] = $current;
+                    $current = [];
+                    $currentLength = 0;
+                }
+                $piece = trim(mb_substr($remaining, 0, $breakAt));
+                if ($piece !== '') {
+                    $groups[] = [$piece];
+                }
+                $remaining = trim(mb_substr($remaining, $breakAt));
+            }
+            if ($remaining === '') {
+                continue;
+            }
+            if ($current !== [] && $currentLength + mb_strlen($remaining) > $limit) {
+                $groups[] = $current;
+                $current = [];
+                $currentLength = 0;
+            }
+            $current[] = $remaining;
+            $currentLength += mb_strlen($remaining);
+        }
+        if ($current !== []) {
+            $groups[] = $current;
+        }
+
+        return $groups;
+    };
     $termsEn = $termParagraphs($invoice->terms_en_snapshot);
     $termsAr = $termParagraphs($invoice->terms_ar_snapshot);
     $renewedTermsEn = $termParagraphs($invoice->renewed_terms_en_snapshot);

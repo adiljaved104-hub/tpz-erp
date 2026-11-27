@@ -12,6 +12,7 @@ use App\Services\Invoices\InvoiceVerificationService;
 use App\Services\Invoices\TaxInvoiceService;
 use App\Support\ArabicPdfText;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -46,8 +47,10 @@ class TaxInvoiceDocumentParityTest extends TestCase
             ->assertSee('5,000.00')
             ->assertSee('Balance due')
             ->assertSee('0.00')
-            ->assertSee('Full customer payment was confirmed when this invoice was issued.')
-            ->assertDontSee('Customer payment is not recorded on this invoice.');
+            ->assertSee('Supply date')
+            ->assertSee('27 Nov 2026')
+            ->assertDontSee('Full customer payment was confirmed when this invoice was issued.')
+            ->assertDontSee('Unit prices include 5.00% VAT');
 
         $download = $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice]));
         $download->assertOk()->assertHeader('content-type', 'application/pdf');
@@ -59,7 +62,16 @@ class TaxInvoiceDocumentParityTest extends TestCase
         $owner = $this->owner();
         app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
         $invoice = $this->invoice($owner);
+        // Simulate a pre-payment-status/supply-date legacy invoice in this disposable DB.
+        DB::table('tax_invoice_payment_events')->where('tax_invoice_id', $invoice->id)->delete();
+        $legacySnapshot = $invoice->seller_snapshot;
+        unset($legacySnapshot['supply_date_snapshot']);
+        DB::table('tax_invoices')->where('id', $invoice->id)->update([
+            'seller_snapshot' => json_encode($legacySnapshot, JSON_THROW_ON_ERROR),
+        ]);
+        $invoice->refresh();
 
+        $this->assertArrayNotHasKey('supply_date_snapshot', $invoice->seller_snapshot);
         $this->assertArrayNotHasKey('payment_receipt_snapshot', $invoice->seller_snapshot);
         $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
             ->assertOk()
@@ -67,7 +79,59 @@ class TaxInvoiceDocumentParityTest extends TestCase
             ->assertSee('Not recorded')
             ->assertSee('Balance due')
             ->assertSee('Not verified')
-            ->assertDontSee('Full customer payment was confirmed when this invoice was issued.');
+            ->assertDontSee('Customer payment is not recorded on this invoice.');
+    }
+
+    public function test_new_unpaid_invoice_shows_full_balance_and_default_same_day_supply_date(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $invoice = app(TaxInvoiceService::class)->create([
+            'customer_name' => 'Unpaid Customer', 'customer_address' => 'Dubai, UAE',
+            'order_reference' => 'UNPAID-ORDER', 'invoice_date' => '2026-11-27',
+            'idempotency_key' => (string) Str::uuid(),
+            'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '5000.00']],
+        ], $owner);
+
+        $this->assertSame('unpaid', $invoice->fresh()->payment_status);
+        $event = $invoice->fresh()->latestPaymentEvent;
+        $this->assertSame('invoice_issuance', $event->source);
+        $this->assertSame('0.00', $event->payment_received_aed);
+        $this->assertSame('5000.00', $event->balance_due_aed);
+        $this->assertSame('2026-11-27', $invoice->seller_snapshot['supply_date_snapshot']);
+
+        $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertSee('Supply date')
+            ->assertSee('27 Nov 2026')
+            ->assertSee('Payment received')
+            ->assertSee('Balance due')
+            ->assertSee('5,000.00')
+            ->assertDontSee('Not verified')
+            ->assertDontSee('Not recorded')
+            ->assertDontSee('Customer payment is not recorded on this invoice.')
+            ->assertDontSee('Unit prices include');
+    }
+
+    public function test_real_supply_date_can_differ_without_changing_invoice_date(): void
+    {
+        $owner = $this->owner();
+        app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
+        $invoice = app(TaxInvoiceService::class)->create([
+            'customer_name' => 'Customer', 'customer_address' => 'Dubai, UAE',
+            'order_reference' => 'DELIVERED-LATER', 'invoice_date' => '2026-11-27',
+            'supply_date' => '2026-11-28',
+            'idempotency_key' => (string) Str::uuid(),
+            'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '105.00']],
+        ], $owner);
+
+        $this->assertSame('2026-11-28', $invoice->seller_snapshot['supply_date_snapshot']);
+        $this->assertSame('2026-11-27', $invoice->invoice_date->toDateString());
+
+        $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
+            ->assertOk()
+            ->assertSee('27 Nov 2026')
+            ->assertSee('28 Nov 2026');
     }
 
     public function test_staff_cannot_mark_an_invoice_paid_even_when_able_to_issue_it(): void

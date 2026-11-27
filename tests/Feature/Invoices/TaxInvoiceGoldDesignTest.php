@@ -146,7 +146,7 @@ class TaxInvoiceGoldDesignTest extends TestCase
             ->printViewData($invoice->fresh())['orderContext']['reference']);
     }
 
-    public function test_render_uses_snapshot_assets_and_stored_financials_without_inventing_payment_or_supply_date(): void
+    public function test_render_uses_snapshot_assets_and_stored_financials_with_default_unpaid_and_supply_date(): void
     {
         Storage::fake('public');
         $old = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=');
@@ -164,8 +164,12 @@ class TaxInvoiceGoldDesignTest extends TestCase
         $this->assertStringContainsString('525.00', $html);
         $this->assertStringContainsString('50.00', $html);
         $this->assertStringContainsString('1,050.00', $html);
-        $this->assertStringContainsString('Not recorded', $html);
-        $this->assertStringContainsString('Not verified', $html);
+        $this->assertSame('unpaid', $invoice->fresh()->payment_status);
+        $this->assertSame($invoice->invoice_date->toDateString(), $invoice->fresh()->seller_snapshot['supply_date_snapshot']);
+        $this->assertStringContainsString('Payment received', $html);
+        $this->assertStringContainsString('Balance due', $html);
+        $this->assertStringNotContainsString('Not recorded', $html);
+        $this->assertStringNotContainsString('Not verified', $html);
         $this->assertStringNotContainsString('ISO 9001', $html);
         $this->assertSame('1050.00', $invoice->fresh()->grand_total);
         $this->assertSame('old.png', $invoice->fresh()->seller_snapshot['logo_path']);

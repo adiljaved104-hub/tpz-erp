@@ -70,6 +70,23 @@ class TaxInvoiceFoundationTest extends TestCase
         $this->assertCount(2, $second->items);
     }
 
+    public function test_multi_item_vat_sums_each_line_to_the_fils_and_reconciles_with_total(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        app(CompanyProfileService::class)->save($this->profileData('Tech Point Zone'), $owner);
+        $invoice = $this->invoice($owner, [
+            ['description' => 'Lenovo V15', 'quantity' => 1, 'unit_price_including_vat' => '4000.00'],
+            ['description' => 'Lenovo LOQ', 'quantity' => 1, 'unit_price_including_vat' => '5000.00'],
+        ]);
+        $this->assertSame('9000.00', $invoice->grand_total);
+        $this->assertSame('8571.42', $invoice->subtotal_excluding_vat);
+        $this->assertSame('428.58', $invoice->vat_amount);
+        $this->assertSame(['190.48', '238.10'], $invoice->items->pluck('vat_amount')->all());
+        $this->assertSame('428.58', $invoice->items->reduce(
+            fn (string $total, $line): string => bcadd($total, $line->vat_amount, 2), '0.00'
+        ));
+    }
+
     public function test_invoice_snapshots_survive_profile_and_terms_changes_and_void_preserves_number(): void
     {
         $owner = $this->user(EmployeeRole::Owner);

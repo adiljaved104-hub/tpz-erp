@@ -20,6 +20,7 @@ use App\Services\Search\GlobalSearchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -100,7 +101,7 @@ class TaxInvoiceFoundationTest extends TestCase
                 'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '105.00']],
             ], $owner);
             $this->fail('An invalid customer TRN was printed.');
-        } catch (\Illuminate\Validation\ValidationException $exception) {
+        } catch (ValidationException $exception) {
             $this->assertArrayHasKey('customer_trn', $exception->errors());
         }
         $this->assertDatabaseCount('tax_invoices', 0);

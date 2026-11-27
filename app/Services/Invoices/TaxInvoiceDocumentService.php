@@ -104,11 +104,11 @@ class TaxInvoiceDocumentService
         }
 
         [$heading, $headingAr] = match (true) {
-            preg_match('/\\bamazon\\b/i', $platform) === 1 => ['AMAZON.AE ORDER', 'طلب أمازون'],
-            preg_match('/\\bnoon\\b/i', $platform) === 1 => ['NOON ORDER', 'طلب نون'],
-            preg_match('/\\bcarrefour\\b/i', $platform) === 1 => ['CARREFOUR ORDER', 'طلب كارفور'],
-            preg_match('/\\bsharaf[\\s_-]*dg\\b/i', $platform) === 1 => ['SHARAF DG ORDER', 'طلب شرف دي جي'],
-            preg_match('/\\bmicroless\\b/i', $platform) === 1 => ['MICROLESS ORDER', 'طلب مايكروليس'],
+            preg_match('/\bamazon\b/i', $platform) === 1 => ['AMAZON.AE ORDER', 'طلب أمازون'],
+            preg_match('/\bnoon\b/i', $platform) === 1 => ['NOON ORDER', 'طلب نون'],
+            preg_match('/\bcarrefour\b/i', $platform) === 1 => ['CARREFOUR ORDER', 'طلب كارفور'],
+            preg_match('/\bsharaf[\s_-]*dg\b/i', $platform) === 1 => ['SHARAF DG ORDER', 'طلب شرف دي جي'],
+            preg_match('/\bmicroless\b/i', $platform) === 1 => ['MICROLESS ORDER', 'طلب مايكروليس'],
             default => ['ORDER ID', 'رقم الطلب'],
         };
         if ($reference === '' || $reference === $sourceReference) {

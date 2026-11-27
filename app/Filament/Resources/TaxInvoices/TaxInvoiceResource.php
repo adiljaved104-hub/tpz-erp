@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\TaxInvoices;
 
+use App\Enums\EmployeeRole;
 use App\Enums\InvoicePermission;
 use App\Enums\ProductTitleMode;
 use App\Enums\TaxInvoiceTermsProfile;
@@ -21,6 +22,7 @@ use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
@@ -261,6 +263,11 @@ class TaxInvoiceResource extends Resource
                 ]),
             Section::make('Totals Summary')->schema([
                 Placeholder::make('totals_preview')->hiddenLabel()->content(fn (Get $get): HtmlString => self::totalsPreview($get))->columnSpanFull(),
+                Checkbox::make('payment_received_in_full')
+                    ->label('I confirm full customer payment has already been received')
+                    ->helperText('Only select after checking the actual payment. The received amount will automatically equal the final invoice total and the printed balance will be AED 0.00. This does not post an accounting receipt.')
+                    ->default(false)
+                    ->visible(fn (): bool => in_array(auth()->user()?->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)),
             ]),
             Hidden::make('idempotency_key')->default(fn () => (string) str()->uuid()),
         ];

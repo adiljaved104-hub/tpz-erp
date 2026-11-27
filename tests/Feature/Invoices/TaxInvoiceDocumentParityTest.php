@@ -12,6 +12,7 @@ use App\Services\Invoices\InvoiceVerificationService;
 use App\Services\Invoices\TaxInvoiceService;
 use App\Support\ArabicPdfText;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -61,6 +62,8 @@ class TaxInvoiceDocumentParityTest extends TestCase
         $owner = $this->owner();
         app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
         $invoice = $this->invoice($owner);
+        // Simulate a pre-payment-status legacy invoice in this disposable database.
+        DB::table('tax_invoice_payment_events')->where('tax_invoice_id', $invoice->id)->delete();
 
         $this->assertArrayNotHasKey('payment_receipt_snapshot', $invoice->seller_snapshot);
         $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))

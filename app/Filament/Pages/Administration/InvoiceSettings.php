@@ -91,6 +91,8 @@ class InvoiceSettings extends Page
     public function saveFooterBranding(InvoiceSettingsService $service): void
     {
         abort_unless($this->canManageFooterBranding(), 403);
+        // Errors from an earlier failed attempt must not survive a later valid save.
+        $this->resetValidation();
         try {
             $settings = $service->saveFooterBranding($this->footerBranding, $this->footerUploads, auth()->user());
         } catch (ValidationException $exception) {

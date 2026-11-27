@@ -73,6 +73,9 @@
         .terms-table td { width: 50%; padding: 1px 8px 1px 0; }
         .terms-table td:last-child { padding: 1px 0 1px 8px; }
         .term-en { white-space: normal; line-height: 1.18; }
+        .terms-independent-row > td { vertical-align: top; }
+        .term-paragraph { margin: 0 0 2pt; line-height: 1.18; }
+        .term-paragraph:last-child { margin-bottom: 0; }
         .term-ar { font-size: 6.8pt; line-height: 1.18; }
         .extended-terms .terms-table td { padding-top: 1px; padding-bottom: 1px; }
         .extended-terms .term-en, .extended-terms .term-ar { font-size: 6.5pt; line-height: 1.17; }

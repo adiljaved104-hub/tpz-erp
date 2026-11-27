@@ -33,7 +33,7 @@ class TaxInvoiceService
             'source_order_id' => ['nullable', 'integer'],
             'title_mode' => ['required', Rule::enum(ProductTitleMode::class)],
             'terms_profile' => ['required', Rule::enum(TaxInvoiceTermsProfile::class)],
-            'invoice_date' => ['required', 'date'], 'idempotency_key' => ['required', 'uuid'], 'items' => ['required', 'array', 'min:1', 'max:100'],
+            'invoice_date' => ['required', 'date'], 'supply_date' => ['nullable', 'date'], 'idempotency_key' => ['required', 'uuid'], 'items' => ['required', 'array', 'min:1', 'max:100'],
             'payment_received_in_full' => ['sometimes', 'boolean'],
             'items.*.description' => ['required', 'string', 'max:2000'], 'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.unit_price_including_vat' => ['required', 'decimal:0,2', 'gt:0'],
@@ -71,6 +71,9 @@ class TaxInvoiceService
         $settings = $this->settings->settings();
         $profile = $this->company->snapshot();
         $profile['footer_branding'] = app(InvoiceFooterBrandingService::class)->snapshot($settings->footer_branding);
+        // Supply date defaults to the invoice date unless the operator records an
+        // actual different date. It is captured in the immutable issued snapshot.
+        $profile['supply_date_snapshot'] = $validated['supply_date'] ?? $validated['invoice_date'];
         $number = $reservedInvoiceNumber ?? $this->references->nextTaxInvoiceNumber($settings->invoice_prefix, (int) $settings->starting_number);
         $totals = $this->calculateTotals($validated['items'], (string) $settings->vat_rate);
         ['vat_rate' => $vatRate, 'divisor' => $divisor, 'grand_total' => $gross, 'subtotal' => $net, 'vat' => $vat] = $totals;
@@ -123,13 +126,17 @@ class TaxInvoiceService
                 $lineNet = bcadd(bcdiv($lineGross, $divisor, 4), '0.005', 2);
                 $invoice->items()->create(['description' => trim($item['description']), 'quantity' => $item['quantity'], 'unit_price_including_vat' => $item['unit_price_including_vat'], 'source_order_item_id' => $item['source_order_item_id'] ?? null, 'subtotal_excluding_vat' => $lineNet, 'vat_amount' => bcsub($lineGross, $lineNet, 2), 'total_including_vat' => $lineGross, 'line_number' => $index + 1]);
             }
-            if ($paymentConfirmed) {
-                $invoice->paymentEvents()->create([
-                    'changed_by_user_id' => $actor->id, 'status' => 'paid',
-                    'payment_received_aed' => $gross, 'balance_due_aed' => '0.00',
-                    'source' => 'invoice_issuance', 'evidence_reference' => 'Confirmed paid at issuance',
-                ]);
-            }
+            // New invoices are unpaid by default until full receipt is expressly
+            // confirmed. An append-only status event makes the displayed balance
+            // auditable without changing the immutable invoice financial rows.
+            $invoice->paymentEvents()->create([
+                'changed_by_user_id' => $actor->id,
+                'status' => $paymentConfirmed ? 'paid' : 'unpaid',
+                'payment_received_aed' => $paymentConfirmed ? $gross : '0.00',
+                'balance_due_aed' => $paymentConfirmed ? '0.00' : $gross,
+                'source' => 'invoice_issuance',
+                'evidence_reference' => $paymentConfirmed ? 'Confirmed paid at issuance' : null,
+            ]);
             $this->activity->log('tax_invoice.issued', $actor, $invoice, [
                 'invoice_id' => $invoice->id, 'item_count' => count($validated['items']),
                 'actor_id' => $actor->id, 'full_payment_confirmed' => $paymentConfirmed,

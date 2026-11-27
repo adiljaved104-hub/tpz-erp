@@ -1,5 +1,18 @@
 <x-filament-panels::page>
     <form wire:submit="save" class="mx-auto w-full max-w-7xl space-y-6">
+        @php
+            $sellerNameNeedsReview = str_contains(strtolower((string) ($data['company_name_en'] ?? '')), 'tradinv');
+            $countryNeedsReview = strtoupper(trim((string) ($data['country'] ?? ''))) === 'AUE'
+                || preg_match('/\\bAUE\\b/i', (string) ($data['address_en'] ?? '')) === 1;
+        @endphp
+        @if($sellerNameNeedsReview || $countryNeedsReview)
+            <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+                <strong>Review company identity before issuing new Tax Invoices.</strong>
+                @if($sellerNameNeedsReview) The current English legal name contains “Tradinv”; verify the actual licensed name and correct it if needed. @endif
+                @if($countryNeedsReview) The current address/country contains “AUE”; verify and use the correct country designation (typically UAE). @endif
+                Changes here apply to future invoice snapshots only. Already-issued invoices remain unchanged.
+            </div>
+        @endif
         <x-filament::section heading="Company Identity" description="Legal identity used across official ERP documents." icon="heroicon-o-building-office-2">
             <div class="grid min-w-0 gap-6 lg:grid-cols-2 lg:gap-8">
                 <div class="min-w-0 space-y-5">

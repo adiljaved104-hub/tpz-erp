@@ -7,8 +7,8 @@
             @php
                 // Large legal sections are split into small breakable groups. Each
                 // language flows inside its column; lines are never paired by index.
-                $enGroups = $usesExtendedTerms ? array_chunk($blockEn, 4) : [$blockEn];
-                $arGroups = $usesExtendedTerms ? array_chunk($blockAr, 4) : [$blockAr];
+                $enGroups = $usesExtendedTerms ? $termsChunks($blockEn) : [$blockEn];
+                $arGroups = $usesExtendedTerms ? $termsChunks($blockAr) : [$blockAr];
             @endphp
             @for($index = 0; $index < max(count($enGroups), count($arGroups)); $index++)
                 <tr class="terms-independent-row">

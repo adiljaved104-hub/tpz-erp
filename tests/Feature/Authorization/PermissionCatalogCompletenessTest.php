@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Authorization;
 
+use App\Enums\AccountingPermission;
+use App\Enums\AiAssistantPermission;
 use App\Enums\AuthSecurityPermission;
 use App\Enums\BackupSettingsPermission;
 use App\Enums\CatalogPermission;

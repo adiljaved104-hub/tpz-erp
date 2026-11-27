@@ -60,7 +60,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
         $this->profile($owner);
         $this->allow($staff, InvoicePermission::EditCustomerDetails, $owner);
         $invoice = $this->invoice($staff);
-        $invoice->load('items');
+        $invoice->refresh()->load('items');
         $immutable = [
             'invoice_number' => $invoice->invoice_number,
             'invoice_date' => $invoice->invoice_date->toDateString(),

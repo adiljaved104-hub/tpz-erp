@@ -32,6 +32,72 @@ class TaxInvoiceEmployeeWorkflowTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_quick_paid_and_unpaid_toggle_is_audited_without_editing_original_invoice(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $invoice = $this->invoice($owner, 'PAYMENT-STATUS');
+        $original = $invoice->fresh()->getRawOriginal();
+        $service = app(TaxInvoiceService::class);
+
+        $this->assertSame('unpaid', $invoice->fresh()->payment_status);
+        $service->markPaymentStatus($invoice, 'paid', 'CASH-RECEIPT-991', null, $owner);
+        $this->assertSame('paid', $invoice->fresh()->payment_status);
+        $this->assertSame($invoice->grand_total, $invoice->fresh()->latestPaymentEvent->payment_received_aed);
+        $this->assertSame('0.00', $invoice->fresh()->latestPaymentEvent->balance_due_aed);
+        $paidHtml = view('invoices.tax-invoice', app(TaxInvoiceDocumentService::class)->printViewData($invoice->fresh()))->render();
+        $this->assertStringContainsString('Payment received', $paidHtml);
+        $this->assertStringNotContainsString('Payment status confirmed as PAID', $paidHtml);
+        $this->assertStringContainsString('Balance due', $paidHtml);
+        $this->assertStringContainsString('0.00', $paidHtml);
+
+        // Repeated "Mark Paid" is idempotent, including same-second retries.
+        $service->markPaymentStatus($invoice, 'paid', 'CASH-RECEIPT-991', null, $owner);
+        $this->assertDatabaseCount('tax_invoice_payment_events', 2);
+
+        $service->markPaymentStatus($invoice, 'unpaid', null, 'Receipt was entered against wrong customer.', $owner);
+        $this->assertSame('unpaid', $invoice->fresh()->payment_status);
+        $this->assertSame('0.00', $invoice->fresh()->latestPaymentEvent->payment_received_aed);
+        $this->assertSame($invoice->grand_total, $invoice->fresh()->latestPaymentEvent->balance_due_aed);
+        $this->assertDatabaseCount('tax_invoice_payment_events', 3);
+        $this->assertSame($original, $invoice->fresh()->getRawOriginal());
+        $this->assertSame(2, ActivityLog::query()->where('event', 'tax_invoice.payment_status_changed')
+            ->where('subject_id', $invoice->id)->count());
+
+        $this->expectException(\LogicException::class);
+        $invoice->fresh()->latestPaymentEvent->delete();
+    }
+
+    public function test_only_authorized_employees_can_toggle_and_void_invoices_are_blocked(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $staff = $this->user(EmployeeRole::Staff);
+        $this->profile($owner);
+        $invoice = $this->invoice($staff, 'STAFF-PAYMENT-STATUS');
+
+        $this->expectException(AuthorizationException::class);
+        app(TaxInvoiceService::class)->markPaymentStatus($invoice, 'paid', 'TRANSFER-8008', null, $staff);
+    }
+
+    public function test_payment_status_list_actions_and_filter_are_scoped_to_existing_view_access(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        $this->profile($owner);
+        $paid = $this->invoice($owner, 'PAID-QUERY');
+        $unpaid = $this->invoice($owner, 'UNPAID-QUERY');
+        $unknown = $this->invoice($owner, 'UNKNOWN-QUERY');
+        app(TaxInvoiceService::class)->markPaymentStatus($paid, 'paid', 'PAYMENT-REF-2289', null, $owner);
+        app(TaxInvoiceService::class)->markPaymentStatus($unpaid, 'unpaid', null, 'Customer has not paid yet.', $owner);
+
+        Livewire::actingAs($owner)->test(ListTaxInvoices::class)
+            ->assertTableActionVisible('markUnpaid', $paid)
+            ->assertTableActionVisible('markPaid', $unpaid)
+            ->assertTableActionVisible('markPaid', $unknown)
+            ->filterTable('payment_status', 'paid')
+            ->assertCanSeeTableRecords([$paid])
+            ->assertCanNotSeeTableRecords([$unpaid, $unknown]);
+    }
+
     public function test_status_tabs_default_to_active_with_scoped_counts_and_keep_search_scoped_to_the_tab(): void
     {
         $owner = $this->user(EmployeeRole::Owner);
@@ -68,7 +134,7 @@ class TaxInvoiceEmployeeWorkflowTest extends TestCase
 
     public function test_created_at_column_and_inclusive_created_date_filters_work_with_status_tabs(): void
     {
-        config()->set('app.timezone', 'Asia/Karachi');
+        config()->set('business.timezone', 'Asia/Karachi');
         $owner = $this->user(EmployeeRole::Owner);
         $this->profile($owner);
         $fromOnly = $this->invoice($owner, 'CREATED-FROM');

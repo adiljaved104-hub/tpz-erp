@@ -3,7 +3,8 @@
 namespace App\Services\Quotations;
 
 use App\Models\Quotation;
-use App\Support\ArabicPdfText;;
+use App\Services\Invoices\InvoiceFooterBrandingService;
+use App\Support\ArabicPdfText;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Barryvdh\DomPDF\PDF as DomPdf;
 use Illuminate\Support\Facades\Storage;
@@ -12,8 +13,7 @@ class QuotationPdfService
 {
     public function __construct(
         private readonly ArabicPdfText $arabic,
-    ) {
-    }
+    ) {}
 
     public function render(Quotation $quotation): DomPdf
     {
@@ -47,6 +47,8 @@ class QuotationPdfService
             'stampDataUri' => $stamp,
             'arabic' => $this->arabic,
             'documentMode' => $documentMode,
+            // Only each document's own issuance-time snapshot is eligible.
+            'footerBranding' => app(InvoiceFooterBrandingService::class)->document($seller['footer_branding'] ?? null),
         ];
     }
 
@@ -54,14 +56,14 @@ class QuotationPdfService
     {
         if (
             blank($path)
-            || ! Storage::disk('public')->exists($path)
+            || Storage::disk('public')->missing($path)
         ) {
             return null;
         }
 
         $mime = Storage::disk('public')->mimeType($path);
 
-        if (! in_array(
+        if (in_array(
             $mime,
             [
                 'image/jpeg',
@@ -69,7 +71,7 @@ class QuotationPdfService
                 'image/webp',
             ],
             true
-        )) {
+        ) === false) {
             return null;
         }
 

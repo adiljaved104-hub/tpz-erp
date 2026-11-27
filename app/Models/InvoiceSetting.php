@@ -14,6 +14,6 @@ class InvoiceSetting extends Model
 
     protected function casts(): array
     {
-        return ['vat_rate' => 'decimal:2'];
+        return ['vat_rate' => 'decimal:2', 'footer_branding' => 'array'];
     }
 }

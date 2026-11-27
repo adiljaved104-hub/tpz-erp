@@ -126,8 +126,8 @@ class TaxInvoicePhoneRenewedTermsTest extends TestCase
                 if ($phone === null) {
                     $this->assertStringNotContainsString('class="customer-phone"', $html);
                 } else {
-                    $this->assertStringContainsString('Phone: '.$phone, $html);
-                    $this->assertLessThan(strpos($html, 'INVOICE DETAILS /'), strpos($html, 'Phone: '.$phone));
+                    $this->assertStringContainsString('Phone:</td><td class="value">'.$phone, $html);
+                    $this->assertLessThan(strpos($html, '<div class="section-label">ORDER ID'), strpos($html, 'Phone:</td>'));
                 }
             }
             Livewire::actingAs($owner)->test(ViewTaxInvoice::class, ['record' => $invoice->id])
@@ -162,7 +162,7 @@ class TaxInvoicePhoneRenewedTermsTest extends TestCase
         $this->assertStringContainsString('+971501234567', $html);
         $this->assertStringContainsString('+971509876543', $html);
         $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
-            ->assertOk()->assertSee('Phone: +971509876543');
+            ->assertOk()->assertSee('Phone:</td><td class="value">+971509876543', false);
 
         $data = ['customer_name' => $invoice->customer_name, 'customer_address' => $invoice->customer_address, 'amendment_reason' => 'Update details without replacing the phone.'];
         app(TaxInvoiceService::class)->updateCustomerDetails($invoice, $data, $owner);
@@ -177,9 +177,9 @@ class TaxInvoicePhoneRenewedTermsTest extends TestCase
     {
         $owner = $this->user();
         $creator = $this->user(EmployeeRole::Staff, 'Invoice Creator Needle');
-        $invoice = $this->issue($creator, ['customer_name' => 'Customer Name Needle', 'customer_phone' => '+971501234567', 'customer_trn' => 'TRN-NEEDLE', 'order_reference' => 'ORDER-NEEDLE']);
+        $invoice = $this->issue($creator, ['customer_name' => 'Customer Name Needle', 'customer_phone' => '+971501234567', 'customer_trn' => '100000000000011', 'order_reference' => 'ORDER-NEEDLE']);
         $other = $this->issue($owner);
-        foreach ([$invoice->invoice_number, 'ORDER-NEEDLE', 'Customer Name Needle', 'TRN-NEEDLE', '+971501234567', 'Invoice Creator Needle'] as $search) {
+        foreach ([$invoice->invoice_number, 'ORDER-NEEDLE', 'Customer Name Needle', '100000000000011', '+971501234567', 'Invoice Creator Needle'] as $search) {
             Livewire::actingAs($owner)->test(ListTaxInvoices::class)
                 ->searchTable($search)->assertCanSeeTableRecords([$invoice])->assertCanNotSeeTableRecords([$other]);
         }

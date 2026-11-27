@@ -4,6 +4,7 @@ namespace Tests\Feature\Inventory;
 
 use App\Enums\EmployeeRole;
 use App\Filament\Pages\Inventory\StockByHolder;
+use App\Filament\Pages\InventoryWorkspace;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationBalance;
 use App\Models\Product;
@@ -13,6 +14,8 @@ use App\Models\ProductInventory;
 use App\Models\Team;
 use App\Models\Warehouse;
 use App\Services\Inventory\StockByHolderReportService;
+use App\Services\Navigation\NavigationPreferenceService;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\Support\ResponsibilityTestFoundation;
@@ -123,6 +126,38 @@ class StockByHolderReportTest extends TestCase
 
         $this->assertTrue(StockByHolder::canAccess());
         Livewire::test(StockByHolder::class)->assertOk();
+    }
+
+    public function test_owner_sees_live_stock_ownership_inline_in_inventory_workspace_with_filters(): void
+    {
+        $owner = $this->responsibilityUser(EmployeeRole::Owner);
+        $brand = ProductBrand::factory()->create(['name' => 'Workspace Holder Brand']);
+        $product = Product::factory()->create(['name' => 'Workspace Holder Laptop', 'brand_id' => $brand->id]);
+        $inventory = ProductInventory::factory()->create(['product_id' => $product->id, 'available_quantity' => 5]);
+        $account = $this->account('system', 'system', 'System / Unallocated', true);
+        $balance = $this->balance($account, $inventory, 5, 2);
+
+        $this->actingAs($owner);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($owner, true);
+        $workspace = Livewire::test(InventoryWorkspace::class);
+        $index = collect($workspace->viewData('extraModules'))
+            ->search(fn (array $item): bool => $item['label'] === 'Stock Ownership');
+        $this->assertNotFalse($index);
+
+        $workspace->call('selectExtraModule', $index)
+            ->assertSee('Stock by Holder')
+            ->assertSee('Workspace Holder Laptop')
+            ->assertSee($product->sku)
+            ->assertSee('Unassigned / System')
+            ->assertSeeHtml('wire:key="workspace-ownership-balance-'.$balance->id.'"')
+            ->assertDontSee('average_cost')
+            ->set('ownershipSearch', 'not-a-real-product')
+            ->assertSee('No allocation balances match these filters.')
+            ->call('resetOwnershipFilters')
+            ->assertSee('Workspace Holder Laptop')
+            ->call('chooseOwnershipHolder', $account->id)
+            ->assertSet('ownershipHolderId', (string) $account->id);
     }
 
     private function account(string $key, string $type, string $name, bool $system, ?int $employeeId = null, ?int $teamId = null): InventoryAllocationAccount

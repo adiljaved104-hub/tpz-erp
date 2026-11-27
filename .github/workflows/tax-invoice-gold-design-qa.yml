@@ -1,0 +1,101 @@
+name: Tax invoice gold design focused QA
+
+on:
+  push:
+    branches: [codex/tax-invoice-gold-reference-197-20261127, codex/invoice-footer-settings-ui-polish-20261127, codex/invoice-footer-clear-stale-validation-20261127, codex/tax-invoice-confirmed-paid-full-20261127, codex/tax-invoice-independent-terms-columns-20261127, codex/invoice-terms-soft-breaks-trn-layout-20261127, codex/tax-invoice-final-summary-ux-20261127]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  invoice-mysql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_invoice_design_ci_test
+          MYSQL_USER: tpz_test
+          MYSQL_PASSWORD: disposable_ci_only
+          MYSQL_ROOT_PASSWORD: disposable_root_only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pdisposable_root_only"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_invoice_design_ci_test
+      DB_USERNAME: tpz_test
+      DB_PASSWORD: disposable_ci_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, bcmath, intl, zip, pdo_mysql, gd
+          coverage: none
+      - name: Install locked PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Temporary test key
+        run: echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Locked frontend assets for Livewire regression pages
+        run: |
+          npm ci
+          npm run build
+          test -s public/build/manifest.json
+      - name: Changed invoice syntax and formatting
+        run: |
+          git diff 061d23f160f2db83ddbdf607086d3246f53b048e...HEAD --name-only -- '*.php' > "$RUNNER_TEMP/invoice-php.txt"
+          mapfile -t paths < "$RUNNER_TEMP/invoice-php.txt"
+          test "${#paths[@]}" -gt 0
+          for path in "${paths[@]}"; do php -l "$path"; done
+          vendor/bin/pint --test "${paths[@]}"
+      - name: Disposable migrations and Blade compilation
+        run: |
+          mysql -h 127.0.0.1 -uroot -pdisposable_root_only -e "CREATE DATABASE tpz_invoice_footer_rehearsal_test; GRANT ALL ON tpz_invoice_footer_rehearsal_test.* TO 'tpz_test'@'%';"
+          DB_DATABASE=tpz_invoice_footer_rehearsal_test php tests/Support/RehearseInvoiceFooterMigration.php
+          php artisan migrate --force --no-interaction
+          php artisan view:cache
+      - name: Focused invoice rendering, authorization, VAT and history
+        run: |
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit invoice-design-results.xml \
+            --filter '^(?!.*test_additive_nullable_migration)' \
+            tests/Feature/Invoices/TaxInvoiceGoldDesignTest.php \
+            tests/Feature/Invoices/InvoiceFooterBrandingTest.php \
+            tests/Feature/Invoices/TaxInvoiceDocumentParityTest.php \
+            tests/Feature/Invoices/TaxInvoiceEmployeeWorkflowTest.php \
+            tests/Feature/Authorization/PermissionCatalogCompletenessTest.php \
+            tests/Feature/Invoices/TaxInvoicePhoneRenewedTermsTest.php \
+            tests/Feature/Invoices/TaxInvoiceCustomerDetailsAmendmentTest.php \
+            tests/Feature/Invoices/TaxInvoiceVerificationTest.php \
+            tests/Feature/Invoices/TaxInvoiceFoundationTest.php \
+            tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: tax-invoice-pr201-visual-pdf-samples
+          path: storage/app/ci-invoice-pdf-previews/*.pdf
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: invoice-design-focused-test-results
+          path: invoice-design-results.xml
+          if-no-files-found: ignore

@@ -1,0 +1,111 @@
+name: Main Staging integration focused QA (non-deploying)
+
+on:
+  push:
+    branches: [integration/main-staging-20261127-f92aa37bd1b8-bed7de3ef855]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration-mysql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_invoice_design_ci_test
+          MYSQL_USER: tpz_test
+          MYSQL_PASSWORD: disposable_ci_only
+          MYSQL_ROOT_PASSWORD: disposable_root_only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pdisposable_root_only"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_invoice_design_ci_test
+      DB_USERNAME: tpz_test
+      DB_PASSWORD: disposable_ci_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, bcmath, intl, zip, pdo_mysql, gd
+          coverage: none
+      - name: Locked dependencies and disposable key
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress --no-scripts
+          echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Locked frontend assets
+        run: npm ci && npm run build
+      - name: Pinned ancestry, unchanged Main services and migration list
+        run: |
+          git merge-base --is-ancestor f92aa37bd1b8525750e5cc28c182316d246111d1 HEAD
+          git merge-base --is-ancestor bed7de3ef855288013c80f4e291c9efda8d2b2ed HEAD
+          git diff --exit-code f92aa37bd1b8525750e5cc28c182316d246111d1..HEAD -- routes app/Services/Mobile app/Http/Controllers/Api/Mobile app/Services/Accounting config/accounting.php
+          git diff f92aa37bd1b8525750e5cc28c182316d246111d1..HEAD --name-status -- database/migrations
+          test "$(git diff f92aa37bd1b8525750e5cc28c182316d246111d1..HEAD --name-only -- database/migrations | wc -l)" -eq 2
+          test -z "$(git diff f92aa37bd1b8525750e5cc28c182316d246111d1..HEAD --diff-filter=MDR --name-only -- database/migrations)"
+      - name: Syntax and formatting of integrated PHP
+        run: |
+          git diff f92aa37bd1b8525750e5cc28c182316d246111d1..HEAD --name-only -- '*.php' > "$RUNNER_TEMP/php-files.txt"
+          mapfile -t paths < "$RUNNER_TEMP/php-files.txt"
+          for path in "${paths[@]}"; do php -l "$path"; done
+          vendor/bin/pint --test "${paths[@]}"
+          git diff --check f92aa37bd1b8525750e5cc28c182316d246111d1..HEAD
+      - name: Disposable historical schema rehearsal and Blade
+        run: |
+          mysql -h 127.0.0.1 -uroot -pdisposable_root_only -e "CREATE DATABASE tpz_main_staging_rehearsal_test; GRANT ALL ON tpz_main_staging_rehearsal_test.* TO 'tpz_test'@'%';"
+          DB_DATABASE=tpz_main_staging_rehearsal_test php tests/Support/RehearseMainStagingInvoiceMigrations.php
+          php artisan migrate --force --no-interaction
+          php artisan view:cache
+      - name: Invoices, quotation/proforma, Access Control, ownership and Mobile commercial compatibility
+        run: |
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit integration-documents-results.xml \
+            tests/Feature/Invoices/TaxInvoiceEmployeeWorkflowTest.php \
+            tests/Feature/Invoices/TaxInvoiceGoldDesignTest.php \
+            tests/Feature/Invoices/InvoiceFooterBrandingTest.php \
+            tests/Feature/Invoices/TaxInvoicePriceCorrectionTest.php \
+            tests/Feature/Invoices/QuotationWorkflowTest.php \
+            tests/Feature/Authorization/PermissionCatalogCompletenessTest.php \
+            tests/Feature/Inventory/StockByHolderReportTest.php \
+            tests/Feature/Mobile/MobileWorkspaceTest.php \
+            tests/Feature/Mobile/MobileBatch6CommercialOperationsTest.php
+      - name: AI Assistant settings page and save permission regressions
+        run: |
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit integration-ai-settings-results.xml \
+            tests/Feature/AiAssistant/AiAssistantSettingsPermissionTest.php \
+            tests/Unit/AiAssistant/AiAssistantAuthorizationTest.php
+      - name: Workspace, Mobile deny/stock/privacy and disabled posting regressions
+        run: |
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit integration-scope-results.xml \
+            --filter 'test_.*inventory_workspace|test_owner_inventory_workspace|test_workspace_tax_invoice|test_tax_invoice_workspace|test_phase5_invoice_modal|test_owner_and_assigned_employee_inventory|test_order_reservation_is_atomic|test_unassigned_employee_cannot|test_restricted_order_and_product_prices|test_order_and_return_actions_obey_explicit_permission_denials|test_cross_user_order_and_return_idempotency|test_issuance_is_fail_closed_by_default' \
+            tests/Feature/Navigation/NativeWorkspacesTest.php \
+            tests/Feature/Mobile/MobileOperationsAuthorizationTest.php \
+            tests/Feature/Invoices/TaxInvoiceAdjustmentIssuanceTest.php
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: main-staging-integration-focused-results
+          path: |
+            integration-*-results.xml
+            storage/app/quotation-gold-previews/*.pdf
+          if-no-files-found: warn

@@ -227,7 +227,7 @@ class CreateTaxInvoice extends CreateRecord
     /** @param array<int, int|string> $itemKeys */
     private function visibleFormErrorPath(string $key, array $itemKeys): ?string
     {
-        if (in_array($key, ['customer_name', 'customer_phone', 'customer_address', 'customer_trn', 'terms_profile', 'order_reference', 'invoice_date', 'source_order_id', 'title_mode'], true)) {
+        if (in_array($key, ['customer_name', 'customer_phone', 'customer_address', 'customer_trn', 'terms_profile', 'order_reference', 'invoice_date', 'supply_date', 'source_order_id', 'title_mode', 'payment_received_in_full'], true)) {
             return "data.{$key}";
         }
 

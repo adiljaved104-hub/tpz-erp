@@ -2,10 +2,11 @@
 
 namespace App\Filament\Pages;
 
-use App\Enums\EmployeeRole;
+use App\Enums\AiAssistantPermission;
 use App\Models\AiAssistantSetting;
 use App\Models\AiAssistantUsage;
 use App\Models\User;
+use App\Services\Authorization\AiAssistantAuthorization;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 
@@ -41,7 +42,7 @@ class AiAssistantSettings extends Page
     {
         $user = auth()->user();
 
-        return $user instanceof User && $user->employee?->status === true && $user->employee?->role === EmployeeRole::Owner;
+        return $user instanceof User && app(AiAssistantAuthorization::class)->allows($user, AiAssistantPermission::ManageSettings);
     }
 
     public function mount(): void

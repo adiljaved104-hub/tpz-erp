@@ -7,6 +7,7 @@ use App\Enums\TaxInvoiceTermsProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use LogicException;
 
@@ -39,6 +40,21 @@ class TaxInvoice extends Model
     public function items(): HasMany
     {
         return $this->hasMany(TaxInvoiceItem::class)->orderBy('line_number');
+    }
+
+    public function paymentEvents(): HasMany
+    {
+        return $this->hasMany(TaxInvoicePaymentEvent::class, 'tax_invoice_id');
+    }
+
+    public function latestPaymentEvent(): HasOne
+    {
+        return $this->hasOne(TaxInvoicePaymentEvent::class, 'tax_invoice_id')->latestOfMany();
+    }
+
+    public function getPaymentStatusAttribute(): string
+    {
+        return $this->latestPaymentEvent?->status ?? 'unverified';
     }
 
     public function sourceOrder(): BelongsTo

@@ -30,6 +30,7 @@ use App\Services\Reports\ReportExportService;
 use App\Services\Reports\ReportQueryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -71,6 +72,11 @@ class QuotationWorkflowTest extends TestCase
             $pdf->render();
             $this->assertSame(1, $pdf->getDomPDF()->getCanvas()->get_page_count(),
                 'One-line quotation and proforma should each fit on one A4 page.');
+            if (getenv('CI') === 'true') {
+                $directory = storage_path('app/quotation-gold-previews');
+                File::ensureDirectoryExists($directory);
+                file_put_contents($directory.'/'.($type === QuotationDocumentType::Quotation ? 'QUOTATION_gold_a4.pdf' : 'PROFORMA_gold_a4.pdf'), $pdf->output());
+            }
             $this->assertSame($before, $quote->fresh()->toArray());
         }
     }

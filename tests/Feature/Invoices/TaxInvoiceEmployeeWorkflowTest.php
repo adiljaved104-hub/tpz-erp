@@ -133,7 +133,7 @@ class TaxInvoiceEmployeeWorkflowTest extends TestCase
 
     public function test_created_at_column_and_inclusive_created_date_filters_work_with_status_tabs(): void
     {
-        config()->set('app.timezone', 'Asia/Karachi');
+        config()->set('business.timezone', 'Asia/Karachi');
         $owner = $this->user(EmployeeRole::Owner);
         $this->profile($owner);
         $fromOnly = $this->invoice($owner, 'CREATED-FROM');

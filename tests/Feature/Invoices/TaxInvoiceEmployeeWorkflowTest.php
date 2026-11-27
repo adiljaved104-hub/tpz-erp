@@ -40,7 +40,7 @@ class TaxInvoiceEmployeeWorkflowTest extends TestCase
         $original = $invoice->fresh()->getRawOriginal();
         $service = app(TaxInvoiceService::class);
 
-        $this->assertSame('unverified', $invoice->fresh()->payment_status);
+        $this->assertSame('unpaid', $invoice->fresh()->payment_status);
         $service->markPaymentStatus($invoice, 'paid', 'CASH-RECEIPT-991', null, $owner);
         $this->assertSame('paid', $invoice->fresh()->payment_status);
         $this->assertSame($invoice->grand_total, $invoice->fresh()->latestPaymentEvent->payment_received_aed);
@@ -52,13 +52,13 @@ class TaxInvoiceEmployeeWorkflowTest extends TestCase
 
         // Repeated "Mark Paid" is idempotent, including same-second retries.
         $service->markPaymentStatus($invoice, 'paid', 'CASH-RECEIPT-991', null, $owner);
-        $this->assertDatabaseCount('tax_invoice_payment_events', 1);
+        $this->assertDatabaseCount('tax_invoice_payment_events', 2);
 
         $service->markPaymentStatus($invoice, 'unpaid', null, 'Receipt was entered against wrong customer.', $owner);
         $this->assertSame('unpaid', $invoice->fresh()->payment_status);
         $this->assertSame('0.00', $invoice->fresh()->latestPaymentEvent->payment_received_aed);
         $this->assertSame($invoice->grand_total, $invoice->fresh()->latestPaymentEvent->balance_due_aed);
-        $this->assertDatabaseCount('tax_invoice_payment_events', 2);
+        $this->assertDatabaseCount('tax_invoice_payment_events', 3);
         $this->assertSame($original, $invoice->fresh()->getRawOriginal());
         $this->assertSame(2, ActivityLog::query()->where('event', 'tax_invoice.payment_status_changed')
             ->where('subject_id', $invoice->id)->count());

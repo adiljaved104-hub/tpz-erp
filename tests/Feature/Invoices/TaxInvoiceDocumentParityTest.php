@@ -150,7 +150,8 @@ class TaxInvoiceDocumentParityTest extends TestCase
         $this->actingAs($owner)
             ->get(route('tax-invoices.pdf', ['invoice' => $withTrn, 'print' => 1]))
             ->assertOk()
-            ->assertSee('Customer TRN: 100200300400500');
+            ->assertSee('Customer TRN:')
+            ->assertSee('class="value invoice-trn" dir="ltr">100200300400500</td>', false);
     }
 
     public function test_dompdf_receives_connected_visual_order_arabic_and_generates_one_item_pdf(): void

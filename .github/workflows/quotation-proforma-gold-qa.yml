@@ -1,0 +1,83 @@
+name: Quotation and Proforma Gold A4 QA
+on:
+  push:
+    branches: [codex/quotation-proforma-gold-parity-20261127]
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'resources/views/quotations/**'
+      - 'app/Services/Quotations/**'
+      - 'tests/Feature/Invoices/QuotationWorkflowTest.php'
+      - '.github/workflows/quotation-proforma-gold-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bilingual-a4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_quotation_gold_test
+          MYSQL_USER: tpz_test
+          MYSQL_PASSWORD: disposable_ci_only
+          MYSQL_ROOT_PASSWORD: disposable_root_only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pdisposable_root_only"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_quotation_gold_test
+      DB_USERNAME: tpz_test
+      DB_PASSWORD: disposable_ci_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, bcmath, intl, zip, pdo_mysql, gd
+          coverage: none
+      - name: Install locked PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+      - name: Test app key
+        run: echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Build Livewire UI assets
+        run: npm ci && npm run build
+      - name: Check syntax and formatting
+        run: |
+          php -l app/Services/Quotations/QuotationService.php
+          php -l app/Services/Quotations/QuotationPdfService.php
+          php -l tests/Feature/Invoices/QuotationWorkflowTest.php
+          vendor/bin/pint --test app/Services/Quotations/QuotationService.php app/Services/Quotations/QuotationPdfService.php tests/Feature/Invoices/QuotationWorkflowTest.php
+      - name: Prepare disposable DB and compile quotation views
+        run: |
+          php artisan migrate --force --no-interaction
+          php artisan view:cache
+      - name: Focused quotation/proforma A4 and authorization smoke
+        run: |
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit quotation-gold-results.xml \
+            --filter 'test_quotation_and_proforma_use_matching_gold_bilingual_a4_non_tax_layout|test_quotation_snapshots_footer_at_creation_and_does_not_inherit_future_branding|test_scope_ui_and_pdf_are_authorized' \
+            tests/Feature/Invoices/QuotationWorkflowTest.php
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quotation-proforma-gold-focused-results
+          path: quotation-gold-results.xml
+          if-no-files-found: ignore

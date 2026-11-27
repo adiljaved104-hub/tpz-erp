@@ -13,8 +13,7 @@ class QuotationPdfService
 {
     public function __construct(
         private readonly ArabicPdfText $arabic,
-    ) {
-    }
+    ) {}
 
     public function render(Quotation $quotation): DomPdf
     {

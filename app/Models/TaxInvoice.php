@@ -41,6 +41,21 @@ class TaxInvoice extends Model
         return $this->hasMany(TaxInvoiceItem::class)->orderBy('line_number');
     }
 
+    public function paymentEvents(): HasMany
+    {
+        return $this->hasMany(TaxInvoicePaymentEvent::class, 'tax_invoice_id');
+    }
+
+    public function latestPaymentEvent(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(TaxInvoicePaymentEvent::class, 'tax_invoice_id')->latestOfMany();
+    }
+
+    public function getPaymentStatusAttribute(): string
+    {
+        return $this->latestPaymentEvent?->status ?? 'unverified';
+    }
+
     public function sourceOrder(): BelongsTo
     {
         return $this->belongsTo(Order::class, 'source_order_id');

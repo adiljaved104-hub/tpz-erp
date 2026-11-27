@@ -3,7 +3,7 @@
         @php
             $sellerNameNeedsReview = str_contains(strtolower((string) ($data['company_name_en'] ?? '')), 'tradinv');
             $countryNeedsReview = strtoupper(trim((string) ($data['country'] ?? ''))) === 'AUE'
-                || preg_match('/\\bAUE\\b/i', (string) ($data['address_en'] ?? '')) === 1;
+                || preg_match('/\bAUE\b/i', (string) ($data['address_en'] ?? '')) === 1;
         @endphp
         @if($sellerNameNeedsReview || $countryNeedsReview)
             <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">

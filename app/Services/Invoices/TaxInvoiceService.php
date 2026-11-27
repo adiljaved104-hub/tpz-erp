@@ -2,6 +2,7 @@
 
 namespace App\Services\Invoices;
 
+use App\Enums\EmployeeRole;
 use App\Enums\InvoicePermission;
 use App\Enums\ProductCondition;
 use App\Enums\ProductTitleMode;
@@ -34,12 +35,19 @@ class TaxInvoiceService
             'title_mode' => ['required', Rule::enum(ProductTitleMode::class)],
             'terms_profile' => ['required', Rule::enum(TaxInvoiceTermsProfile::class)],
             'invoice_date' => ['required', 'date'], 'idempotency_key' => ['required', 'uuid'], 'items' => ['required', 'array', 'min:1', 'max:100'],
+            'payment_received_in_full' => ['sometimes', 'boolean'],
             'items.*.description' => ['required', 'string', 'max:2000'], 'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.unit_price_including_vat' => ['required', 'decimal:0,2', 'gt:0'],
             'items.*.source_order_item_id' => ['nullable', 'integer'],
         ])->validate();
         if ($existing = TaxInvoice::query()->where('idempotency_key', $validated['idempotency_key'])->first()) {
             return $existing;
+        }
+        $paymentConfirmed = (bool) ($validated['payment_received_in_full'] ?? false);
+        if ($paymentConfirmed && ! in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
+            throw ValidationException::withMessages([
+                'payment_received_in_full' => 'Only an Owner or Admin may confirm full customer payment on a Tax Invoice.',
+            ]);
         }
         $source = null;
         if (filled($validated['source_order_id'] ?? null)) {
@@ -68,7 +76,19 @@ class TaxInvoiceService
         $totals = $this->calculateTotals($validated['items'], (string) $settings->vat_rate);
         ['vat_rate' => $vatRate, 'divisor' => $divisor, 'grand_total' => $gross, 'subtotal' => $net, 'vat' => $vat] = $totals;
 
-        return DB::transaction(function () use ($validated, $actor, $source, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms): TaxInvoice {
+        return DB::transaction(function () use ($validated, $actor, $source, $settings, $profile, $number, $vatRate, $gross, $net, $vat, $divisor, $includesStandardTerms, $includesRenewedTerms, $paymentConfirmed): TaxInvoice {
+            // Financial disclosure, not an accounting posting. Only the authorized
+            // actor's affirmative confirmation can produce a paid-in-full invoice.
+            // Old issued invoice snapshots remain unchanged.
+            if ($paymentConfirmed) {
+                $profile['payment_receipt_snapshot'] = [
+                    'status' => 'confirmed_paid_in_full',
+                    'amount_received_aed' => $gross,
+                    'balance_due_aed' => '0.00',
+                    'confirmed_by_user_id' => $actor->id,
+                    'confirmed_at' => now()->utc()->toIso8601String(),
+                ];
+            }
             // Freeze the customer-facing marketplace reference at issuance, while the
             // source order is locked. Its later amendments must not rewrite a PDF.
             if ($source !== null) {
@@ -104,7 +124,11 @@ class TaxInvoiceService
                 $lineNet = bcadd(bcdiv($lineGross, $divisor, 4), '0.005', 2);
                 $invoice->items()->create(['description' => trim($item['description']), 'quantity' => $item['quantity'], 'unit_price_including_vat' => $item['unit_price_including_vat'], 'source_order_item_id' => $item['source_order_item_id'] ?? null, 'subtotal_excluding_vat' => $lineNet, 'vat_amount' => bcsub($lineGross, $lineNet, 2), 'total_including_vat' => $lineGross, 'line_number' => $index + 1]);
             }
-            $this->activity->log('tax_invoice.issued', $actor, $invoice, ['invoice_id' => $invoice->id, 'item_count' => count($validated['items']), 'actor_id' => $actor->id]);
+            $this->activity->log('tax_invoice.issued', $actor, $invoice, [
+                'invoice_id' => $invoice->id, 'item_count' => count($validated['items']),
+                'actor_id' => $actor->id, 'full_payment_confirmed' => $paymentConfirmed,
+                'payment_amount_aed' => $paymentConfirmed ? $gross : null,
+            ]);
 
             return $invoice->load(['items', 'createdBy']);
         });

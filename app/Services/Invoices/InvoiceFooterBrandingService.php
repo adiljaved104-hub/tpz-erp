@@ -29,7 +29,7 @@ class InvoiceFooterBrandingService
      * An edited Livewire draft must not retain an "Approved" badge merely
      * because it still contains old server-owned approval metadata.
      *
-     * @param array<string, mixed> $entry
+     * @param  array<string, mixed>  $entry
      */
     public function reviewStatus(array $entry, bool $pendingUpload = false): string
     {

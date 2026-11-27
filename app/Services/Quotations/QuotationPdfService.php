@@ -57,14 +57,14 @@ class QuotationPdfService
     {
         if (
             blank($path)
-            || !Storage::disk('public')->exists($path)
+            || Storage::disk('public')->missing($path)
         ) {
             return null;
         }
 
         $mime = Storage::disk('public')->mimeType($path);
 
-        if (!in_array(
+        if (in_array(
             $mime,
             [
                 'image/jpeg',
@@ -72,7 +72,7 @@ class QuotationPdfService
                 'image/webp',
             ],
             true
-        )) {
+        ) === false) {
             return null;
         }
 

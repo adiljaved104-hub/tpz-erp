@@ -39,20 +39,20 @@ class InvoiceFooterBrandingService
 
         $content = $entry;
         unset($content['approve'], $content['revoke_approval']);
-        $approved = !$pendingUpload
+        $approved = $pendingUpload === false
             && filled($entry['approved_by_user_id'] ?? null)
             && filled($entry['approved_at'] ?? null)
             && hash_equals((string) ($entry['approval_fingerprint'] ?? ''), $this->fingerprint($content));
 
         if ($approved) {
-            return ! empty($entry['enabled']) ? 'Approved & enabled' : 'Approved - disabled';
+            return empty($entry['enabled']) ? 'Approved - disabled' : 'Approved & enabled';
         }
 
-        if (!$hasAsset && !$hasCaption && !$hasEvidence) {
+        if ($hasAsset === false && $hasCaption === false && $hasEvidence === false) {
             return 'Not configured';
         }
 
-        if (!$hasAsset || !$hasCaption || !$hasEvidence) {
+        if ($hasAsset === false || $hasCaption === false || $hasEvidence === false) {
             return 'Draft - incomplete';
         }
 

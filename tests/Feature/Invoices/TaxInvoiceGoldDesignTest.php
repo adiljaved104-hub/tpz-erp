@@ -15,6 +15,7 @@ use App\Services\Invoices\InvoiceVerificationService;
 use App\Services\Invoices\TaxInvoiceDocumentService;
 use App\Services\Invoices\TaxInvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -59,8 +60,8 @@ class TaxInvoiceGoldDesignTest extends TestCase
 
     public function test_missing_external_identifier_is_honestly_labelled_as_erp_reference(): void
     {
-        $invoice = $this->invoice('Noon');
-        $invoice->sourceOrder->update(['external_order_number' => null]);
+        $invoice = $this->invoice('Noon', null, null);
+        $invoice->sourceOrder->update(['external_order_number' => 'ADDED-LATER']);
         $data = app(TaxInvoiceDocumentService::class)->printViewData($invoice->fresh());
         $this->assertSame($invoice->sourceOrder->reference, $data['orderContext']['reference']);
         $this->assertSame('ERP order reference', $data['orderContext']['referenceLabel']);
@@ -80,6 +81,69 @@ class TaxInvoiceGoldDesignTest extends TestCase
         $amendment->lines()->create(['field' => 'external_order_number', 'old_value' => 'CUSTOMER-EXTERNAL-123', 'new_value' => 'CORRECTED-REFERENCE']);
         $invoice->sourceOrder->update(['external_order_number' => 'CORRECTED-REFERENCE']);
         $this->assertSame('CUSTOMER-EXTERNAL-123', app(TaxInvoiceDocumentService::class)->printViewData($invoice->fresh())['orderContext']['reference']);
+    }
+
+    public function test_same_second_amendment_cannot_change_customer_facing_reference_or_platform_heading(): void
+    {
+        $this->freezeTime();
+        $invoice = $this->invoice('Amazon');
+        $original = $invoice->getRawOriginal();
+        $amendment = OrderAmendment::query()->create([
+            'order_id' => $invoice->source_order_id, 'amended_by_user_id' => $invoice->created_by_user_id,
+            'reason' => 'Corrected external reference in issuance second.',
+            'window_started_at' => now(), 'window_expired_at' => now()->addHour(),
+            'idempotency_key' => (string) Str::uuid(), 'request_hash' => str_repeat('b', 64),
+        ]);
+        $amendment->lines()->create([
+            'field' => 'external_order_number', 'old_value' => 'CUSTOMER-EXTERNAL-123',
+            'new_value' => 'CHANGED-IN-SAME-SECOND',
+        ]);
+        $invoice->sourceOrder->update([
+            'external_order_number' => 'CHANGED-IN-SAME-SECOND',
+            'marketplace_platform_id' => MarketplacePlatform::factory()->create(['name' => 'Noon'])->id,
+        ]);
+
+        $this->assertSame($invoice->issued_at->format('Y-m-d H:i:s'), $amendment->created_at->format('Y-m-d H:i:s'));
+        $data = app(TaxInvoiceDocumentService::class)->printViewData($invoice->fresh());
+        $this->assertSame('AMAZON.AE ORDER', $data['orderContext']['heading']);
+        $this->assertSame('CUSTOMER-EXTERNAL-123', $data['orderContext']['reference']);
+        $this->assertSame('CUSTOMER-EXTERNAL-123', $invoice->fresh()->seller_snapshot['order_context_snapshot']['external_reference']);
+        $this->assertSame($original, $invoice->fresh()->getRawOriginal());
+    }
+
+    public function test_legacy_invoice_with_same_second_ambiguity_falls_back_to_immutable_erp_reference(): void
+    {
+        $this->freezeTime();
+        $invoice = $this->invoice('Amazon');
+        // Simulate an invoice issued before order-context snapshots were introduced.
+        $seller = $invoice->seller_snapshot;
+        unset($seller['order_context_snapshot']);
+        DB::table('tax_invoices')->where('id', $invoice->id)
+            ->update(['seller_snapshot' => json_encode($seller, JSON_THROW_ON_ERROR)]);
+        $amendment = OrderAmendment::query()->create([
+            'order_id' => $invoice->source_order_id, 'amended_by_user_id' => $invoice->created_by_user_id,
+            'reason' => 'Same-second historical ambiguity.',
+            'window_started_at' => now(), 'window_expired_at' => now()->addHour(),
+            'idempotency_key' => (string) Str::uuid(), 'request_hash' => str_repeat('c', 64),
+        ]);
+        $amendment->lines()->create([
+            'field' => 'external_order_number', 'old_value' => 'CUSTOMER-EXTERNAL-123',
+            'new_value' => 'CORRECTED-IN-SAME-SECOND',
+        ]);
+        $invoice->sourceOrder->update(['external_order_number' => 'CORRECTED-IN-SAME-SECOND']);
+
+        $data = app(TaxInvoiceDocumentService::class)->printViewData($invoice->fresh());
+        $this->assertSame('SO-INTERNAL-123', $data['orderContext']['reference']);
+        $this->assertSame('ERP order reference', $data['orderContext']['referenceLabel']);
+    }
+
+    public function test_explicit_invoice_reference_remains_frozen_despite_same_second_amendments(): void
+    {
+        $this->freezeTime();
+        $invoice = $this->invoice('Amazon', 'EXPLICIT-REF');
+        $invoice->sourceOrder->update(['external_order_number' => 'LATER-CORRECTION']);
+        $this->assertSame('EXPLICIT-REF', app(TaxInvoiceDocumentService::class)
+            ->printViewData($invoice->fresh())['orderContext']['reference']);
     }
 
     public function test_render_uses_snapshot_assets_and_stored_financials_without_inventing_payment_or_supply_date(): void
@@ -107,7 +171,7 @@ class TaxInvoiceGoldDesignTest extends TestCase
         $this->assertSame('old.png', $invoice->fresh()->seller_snapshot['logo_path']);
     }
 
-    private function invoice(?string $platform, ?string $reference = null): TaxInvoice
+    private function invoice(?string $platform, ?string $reference = null, ?string $externalReference = 'CUSTOMER-EXTERNAL-123'): TaxInvoice
     {
         $owner = User::factory()->create();
         Employee::factory()->for($owner)->role(EmployeeRole::Owner)->create(['status' => true]);
@@ -116,7 +180,7 @@ class TaxInvoiceGoldDesignTest extends TestCase
             'trn' => '100000000000001', 'logo_path' => 'old.png', 'stamp_path' => 'old.png',
         ]);
         $order = $platform === null ? null : Order::query()->create([
-            'reference' => 'SO-INTERNAL-123', 'external_order_number' => 'CUSTOMER-EXTERNAL-123',
+            'reference' => 'SO-INTERNAL-123', 'external_order_number' => $externalReference,
             'marketplace_platform_id' => MarketplacePlatform::factory()->create(['name' => $platform])->id,
             'source' => 'marketplace', 'status' => 'reserved', 'warehouse_id' => Warehouse::factory()->create()->id,
             'order_date' => today()->toDateString(), 'created_by_user_id' => $owner->id,

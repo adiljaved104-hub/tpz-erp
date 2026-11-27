@@ -46,6 +46,7 @@ class ViewTaxInvoice extends ViewRecord
                 ->icon('heroicon-o-arrow-left')
                 ->color('gray')
                 ->url(TaxInvoiceResource::getUrl('index')),
+            ...TaxInvoiceResource::paymentStatusActions(),
             TaxInvoiceResource::editCustomerDetailsAction(),
             Action::make('correctPrices')
                 ->label('Request Price Adjustment')

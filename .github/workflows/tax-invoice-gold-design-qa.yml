@@ -2,7 +2,7 @@ name: Tax invoice gold design focused QA
 
 on:
   push:
-    branches: [codex/tax-invoice-gold-reference-197-20261127, codex/invoice-footer-settings-ui-polish-20261127]
+    branches: [codex/tax-invoice-gold-reference-197-20261127, codex/invoice-footer-settings-ui-polish-20261127, codex/invoice-footer-clear-stale-validation-20261127]
   workflow_dispatch:
 
 permissions:

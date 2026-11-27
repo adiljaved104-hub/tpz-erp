@@ -91,6 +91,13 @@ class InvoiceSettings extends Page
     public function saveFooterBranding(InvoiceSettingsService $service): void
     {
         abort_unless($this->canManageFooterBranding(), 403);
+        // Do not clear errors belonging to the separate invoice numbering/terms form.
+        foreach ($this->getErrorBag()->keys() as $field) {
+            if ($field === 'footerBranding' || str_starts_with($field, 'footerBranding.')
+                || $field === 'footerUploads' || str_starts_with($field, 'footerUploads.')) {
+                $this->resetValidation($field);
+            }
+        }
         try {
             $settings = $service->saveFooterBranding($this->footerBranding, $this->footerUploads, auth()->user());
         } catch (ValidationException $exception) {

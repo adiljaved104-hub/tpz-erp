@@ -87,7 +87,7 @@ class TaxInvoiceGoldDesignTest extends TestCase
     {
         $this->freezeTime();
         $invoice = $this->invoice('Amazon');
-        $original = $invoice->getRawOriginal();
+        $original = $invoice->fresh()->getRawOriginal();
         $amendment = OrderAmendment::query()->create([
             'order_id' => $invoice->source_order_id, 'amended_by_user_id' => $invoice->created_by_user_id,
             'reason' => 'Corrected external reference in issuance second.',

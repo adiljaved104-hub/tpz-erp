@@ -89,6 +89,7 @@ class QuotationWorkflowTest extends TestCase
         $before = $this->createQuote($owner, $this->items($product));
         $this->assertSame([], $before->seller_snapshot['footer_branding']);
 
+        app(\App\Services\Invoices\InvoiceSettingsService::class)->settings()->save();
         InvoiceSetting::query()->firstOrFail()->forceFill([
             'footer_branding' => [
                 'version' => 1,

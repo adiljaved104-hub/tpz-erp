@@ -262,7 +262,7 @@
                 <tr><td class="label">Invoice #:</td><td class="value"><strong>{{ $invoice->invoice_number }}</strong></td></tr>
                 <tr><td class="label">{{ $context['referenceLabel'] ?? 'Order ID' }}</td><td class="value">{{ $context['reference'] }}</td></tr>
                 <tr><td class="label">Invoice date</td><td class="value">{{ $invoice->invoice_date->format('d M Y') }}</td></tr>
-                <tr><td class="label">Supply date</td><td class="value">{{ \Illuminate\Support\Carbon::parse($seller['supply_date_snapshot'] ?? $invoice->invoice_date)->format('d M Y') }}</td></tr>
+                <tr><td class="label">Supply date</td><td class="value">@if(filled($seller['supply_date_snapshot'] ?? null)){{ \Illuminate\Support\Carbon::parse($seller['supply_date_snapshot'])->format('d M Y') }}@else Not recorded @endif</td></tr>
             </table>
         </td>
     </tr>

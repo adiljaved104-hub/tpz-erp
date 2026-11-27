@@ -56,7 +56,7 @@ class QuotationWorkflowTest extends TestCase
             $html = view('quotations.document', $pdfService->viewData($quote, 'pdf'))->render();
             $this->assertStringContainsString($type === QuotationDocumentType::Quotation ? 'QUOTATION' : 'PROFORMA INVOICE', $html);
             $this->assertStringContainsString('NOT A TAX INVOICE', $html);
-            $this->assertStringContainsString('gold', str_replace('#ad915d', 'gold', $html));
+            $this->assertStringContainsString('#ad915d', $html);
             $this->assertStringContainsString('Unit incl. VAT', $html);
             $this->assertStringContainsString('Valid Until', $html);
             $this->assertStringContainsString('Total incl. VAT', $html);
@@ -83,12 +83,12 @@ class QuotationWorkflowTest extends TestCase
         $before = $this->createQuote($owner, $this->items($product));
         $this->assertSame([], $before->seller_snapshot['footer_branding']);
 
-        InvoiceSetting::query()->update([
+        InvoiceSetting::query()->firstOrFail()->forceFill([
             'footer_branding' => [
                 'version' => 1,
                 'entries' => ['iso' => ['enabled' => true, 'caption' => 'Never approved']],
             ],
-        ]);
+        ])->save();
         $this->assertSame([], $before->fresh()->seller_snapshot['footer_branding']);
         $this->assertSame([], app(QuotationPdfService::class)->viewData($before)['footerBranding']['entries']);
 

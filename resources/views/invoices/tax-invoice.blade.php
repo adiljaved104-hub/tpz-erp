@@ -35,9 +35,8 @@
         .fields td { padding: 4px 1px; }
         .fields .label { color: #58554f; width: 30%; }
         .fields .value { border-bottom: .5px solid #ded5c3; width: 70%; overflow-wrap: break-word; }
-        .items-heading { margin: 7px 0 4px; }
-        .items-heading td:last-child { text-align: right; color: #58554f; }
-        .items { margin-bottom: 4px; table-layout: fixed; }
+        .items-heading { margin: 4px 0 3px; }
+        .items { margin-bottom: 0; table-layout: fixed; }
         .items thead { display: table-header-group; }
         .items tr { page-break-inside: avoid; }
         .items th { background: #f8f5ee; border-top: .6px solid #ad915d; border-bottom: .6px solid #cbb992; padding: 5px 3px; font-size: 7pt; text-align: right; }
@@ -47,7 +46,7 @@
         .items .num { text-align: right; }
         .items .description { white-space: pre-line; }
         .items .empty td { height: 12px; padding: 0; font-size: 1pt; line-height: 1; }
-        .line-note { font-size: 6.5pt; color: #58554f; margin: 4px 0 7px; }
+        .line-note { font-size: 6.5pt; color: #58554f; margin: 0; }
         .summary-layout { page-break-inside: avoid; }
         .summary-layout > tbody > tr > td:first-child { width: 47%; padding-right: 12px; }
         .summary-layout > tbody > tr > td:last-child { width: 53%; }
@@ -263,12 +262,12 @@
                 <tr><td class="label">Invoice #:</td><td class="value"><strong>{{ $invoice->invoice_number }}</strong></td></tr>
                 <tr><td class="label">{{ $context['referenceLabel'] ?? 'Order ID' }}</td><td class="value">{{ $context['reference'] }}</td></tr>
                 <tr><td class="label">Invoice date</td><td class="value">{{ $invoice->invoice_date->format('d M Y') }}</td></tr>
-                <tr><td class="label">Supply date</td><td class="value">Not recorded</td></tr>
+                <tr><td class="label">Supply date</td><td class="value">{{ \Illuminate\Support\Carbon::parse($seller['supply_date_snapshot'] ?? $invoice->invoice_date)->format('d M Y') }}</td></tr>
             </table>
         </td>
     </tr>
 </table>
-<table class="items-heading"><tr><td class="section-label">ITEMS <span class="{{ $arClass }}">{{ $ar('الأصناف') }}</span></td><td>Unit prices include {{ number_format((float) $invoice->vat_rate, 2) }}% VAT &nbsp; • &nbsp; AED</td></tr></table>
+<div class="items-heading section-label">ITEMS <span class="{{ $arClass }}">{{ $ar('الأصناف') }}</span></div>
 <table class="items">
     <thead><tr>
         <th style="width: 42%">Description / Serial Number<div class="sub {{ $arClass }}">{{ $ar('الوصف / الرقم التسلسلي') }}</div></th>
@@ -294,7 +293,6 @@
     @endif
     </tbody>
 </table>
-<div class="line-note">Line totals include any discount. Unit prices are rounded to the nearest fils.</div>
 <div class="closing-section{{ $usesLongLayout ? ' long-layout' : '' }}">
 <table class="summary-layout">
     <tr>
@@ -310,15 +308,8 @@
                 <tr><td>Payment received</td><td class="summary-ar {{ $arClass }}">{{ $ar('المبلغ المدفوع') }}</td><td>{{ $paidInFull ? number_format((float) $invoice->grand_total, 2) : ($confirmedUnpaid ? '0.00' : 'Not recorded') }}</td></tr>
                 <tr class="balance"><td>Balance due</td><td class="summary-ar {{ $arClass }}">{{ $ar('الرصيد المستحق') }}</td><td>{{ $paidInFull ? '0.00' : ($confirmedUnpaid ? number_format((float) $invoice->grand_total, 2) : 'Not verified') }}</td></tr>
             </table>
-            @if($paymentEvent !== null && $paymentEvent->source === 'manual_status')
-                <div class="payment-note">Payment status confirmed as {{ strtoupper($currentPaymentStatus) }} on {{ $paymentEvent->created_at?->format('d M Y') }}. Invoice amounts, VAT and original issuance records are unchanged. This is not an accounting receipt.</div>
-            @elseif($paidInFull)
-                <div class="payment-note">Full customer payment was confirmed when this invoice was issued. No separate payment or accounting journal is created by this document.</div>
-            @elseif($confirmedUnpaid)
-                <div class="payment-note">Customer payment was confirmed not received. This is a payment-status record, not an accounting posting.</div>
-            @else
-                <div class="payment-note">Customer payment is not recorded on this invoice. These labels do not assert an unpaid balance.</div>
-            @endif
+            {{-- Payment records and reasons remain in ERP audit history;
+                 the customer-facing PDF shows only amounts and balances. --}}
         </td>
     </tr>
 </table>

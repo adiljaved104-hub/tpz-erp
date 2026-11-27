@@ -68,34 +68,52 @@ class TaxInvoiceDocumentService
         if ($invoice->source_order_id === null) {
             return compact('reference', 'heading', 'headingAr', 'referenceLabel');
         }
-        $invoice->loadMissing('sourceOrder.platform');
-        $order = $invoice->sourceOrder;
-        if ($order === null) {
-            return compact('reference', 'heading', 'headingAr', 'referenceLabel');
-        }
-        $platform = strtolower((string) $order->platform?->name);
-        [$heading, $headingAr] = match (true) {
-            preg_match('/\bamazon\b/i', $platform) === 1 => ['AMAZON.AE ORDER', 'طلب أمازون'],
-            preg_match('/\bnoon\b/i', $platform) === 1 => ['NOON ORDER', 'طلب نون'],
-            preg_match('/\bcarrefour\b/i', $platform) === 1 => ['CARREFOUR ORDER', 'طلب كارفور'],
-            preg_match('/\bsharaf[\s_-]*dg\b/i', $platform) === 1 => ['SHARAF DG ORDER', 'طلب شرف دي جي'],
-            preg_match('/\bmicroless\b/i', $platform) === 1 => ['MICROLESS ORDER', 'طلب مايكروليس'],
-            default => ['ORDER ID', 'رقم الطلب'],
-        };
-        if ($reference === '' || $reference === $order->reference) {
-            $external = $order->external_order_number;
+
+        $snapshot = $invoice->seller_snapshot['order_context_snapshot'] ?? null;
+        if (is_array($snapshot) && array_key_exists('source_reference', $snapshot)) {
+            // All new sourced invoices use their issuance snapshot. Never consult
+            // current Orders or amendments for an identifier shown to customers.
+            $sourceReference = trim((string) $snapshot['source_reference']);
+            $external = trim((string) ($snapshot['external_reference'] ?? ''));
+            $platform = strtolower((string) ($snapshot['platform_name'] ?? ''));
+        } else {
+            // Older invoices predate the snapshot. Reconstruct only when
+            // amendment timestamps clearly establish a post-issue change.
+            $invoice->loadMissing('sourceOrder.platform');
+            $order = $invoice->sourceOrder;
+            if ($order === null) {
+                return compact('reference', 'heading', 'headingAr', 'referenceLabel');
+            }
+            $sourceReference = trim((string) $order->reference);
+            $platform = strtolower((string) $order->platform?->name);
+            $external = trim((string) $order->external_order_number);
             $issuedAt = $invoice->issued_at ?? $invoice->created_at;
             if ($issuedAt !== null) {
-                $change = OrderAmendmentLine::query()->where('field', 'external_order_number')
+                $changes = OrderAmendmentLine::query()->where('field', 'external_order_number')
                     ->whereHas('amendment', fn ($query) => $query
-                        ->where('order_id', $order->id)->where('created_at', '>', $issuedAt))
-                    ->orderBy('id')->first();
-                if ($change !== null) {
-                    $external = $change->old_value;
+                        ->where('order_id', $order->id)->where('created_at', '>=', $issuedAt))
+                    ->with('amendment')->orderBy('id')->get();
+                if ($changes->contains(fn (OrderAmendmentLine $line): bool => $line->amendment->created_at->equalTo($issuedAt))) {
+                    // Second-resolution timestamps cannot prove which event came
+                    // first. Prefer the immutable ERP reference, not a guess.
+                    $external = '';
+                } elseif ($changes->isNotEmpty()) {
+                    $external = trim((string) $changes->first()->old_value);
                 }
             }
-            if (filled($external)) {
-                $reference = trim((string) $external);
+        }
+
+        [$heading, $headingAr] = match (true) {
+            preg_match('/\\bamazon\\b/i', $platform) === 1 => ['AMAZON.AE ORDER', 'طلب أمازون'],
+            preg_match('/\\bnoon\\b/i', $platform) === 1 => ['NOON ORDER', 'طلب نون'],
+            preg_match('/\\bcarrefour\\b/i', $platform) === 1 => ['CARREFOUR ORDER', 'طلب كارفور'],
+            preg_match('/\\bsharaf[\\s_-]*dg\\b/i', $platform) === 1 => ['SHARAF DG ORDER', 'طلب شرف دي جي'],
+            preg_match('/\\bmicroless\\b/i', $platform) === 1 => ['MICROLESS ORDER', 'طلب مايكروليس'],
+            default => ['ORDER ID', 'رقم الطلب'],
+        };
+        if ($reference === '' || $reference === $sourceReference) {
+            if ($external !== '') {
+                $reference = $external;
             } elseif ($heading !== 'ORDER ID') {
                 $referenceLabel = 'ERP order reference';
             }

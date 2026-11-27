@@ -87,6 +87,25 @@ class TaxInvoiceFoundationTest extends TestCase
         ));
     }
 
+    public function test_invalid_customer_trn_cannot_be_printed_on_new_invoice(): void
+    {
+        $owner = $this->user(EmployeeRole::Owner);
+        app(CompanyProfileService::class)->save($this->profileData('Tech Point Zone'), $owner);
+        try {
+            app(TaxInvoiceService::class)->create([
+                'customer_name' => 'Customer', 'customer_address' => 'Dubai',
+                'customer_trn' => '796545621456',
+                'order_reference' => 'INVALID-TRN', 'invoice_date' => '2026-11-27',
+                'idempotency_key' => (string) Str::uuid(),
+                'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '105.00']],
+            ], $owner);
+            $this->fail('An invalid customer TRN was printed.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertArrayHasKey('customer_trn', $exception->errors());
+        }
+        $this->assertDatabaseCount('tax_invoices', 0);
+    }
+
     public function test_invoice_snapshots_survive_profile_and_terms_changes_and_void_preserves_number(): void
     {
         $owner = $this->user(EmployeeRole::Owner);

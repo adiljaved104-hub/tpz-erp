@@ -188,6 +188,9 @@ class TaxInvoiceResource extends Resource
                             ->default(today())
                             ->required(),
                     ] : []),
+                    DatePicker::make('supply_date')
+                        ->label('Supply Date (Optional)')
+                        ->helperText('Defaults to Invoice Date if blank. Select the actual date if goods/services were supplied on a different day.'),
                     TextInput::make('customer_phone')
                         ->label('Customer Phone (Optional)')
                         ->tel()
@@ -268,7 +271,7 @@ class TaxInvoiceResource extends Resource
                 Placeholder::make('totals_preview')->hiddenLabel()->content(fn (Get $get): HtmlString => self::totalsPreview($get))->columnSpanFull(),
                 Checkbox::make('payment_received_in_full')
                     ->label('I confirm full customer payment has already been received')
-                    ->helperText('Only select after checking the actual payment. The received amount will automatically equal the final invoice total and the printed balance will be AED 0.00. This does not post an accounting receipt.')
+                    ->helperText('Select only when actual full payment is confirmed. Otherwise the new invoice starts Unpaid (AED 0.00 received; balance due equals total). This does not post an accounting receipt.')
                     ->default(false)
                     ->visible(fn (): bool => ($user = auth()->user()) instanceof User
                         && app(InvoiceAuthorization::class)->allows($user, InvoicePermission::ManagePaymentStatus)),

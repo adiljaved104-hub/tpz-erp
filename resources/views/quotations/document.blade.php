@@ -261,6 +261,12 @@
             <td>Trade License No: {{ $seller['trade_license_number'] ?? '—' }} &nbsp; | &nbsp; DED Reg No: {{ $seller['ded_registration_number'] ?? '—' }}</td>
             <td class="right">TRN: {{ $seller['trn'] ?? '—' }}</td>
         </tr></table>
+        @if(filled($seller['legal_statement_en'] ?? null))
+            <div class="notes">{{ $seller['legal_statement_en'] }}</div>
+        @endif
+        @if(filled($seller['legal_statement_ar'] ?? null))
+            <div class="notes {{ $arClass }}">{{ $ar($seller['legal_statement_ar']) }}</div>
+        @endif
         <div class="non-tax-footer">NOT A TAX INVOICE &nbsp; • &nbsp; {{ $isProforma ? 'Proforma only — subject to acceptance and actual Tax Invoice issuance' : 'Quotation only — valid until the date above' }}</div>
         <div class="customer-copy">Customer copy <span class="{{ $arClass }}">{{ $ar('نسخة العميل') }}</span></div>
     </div>

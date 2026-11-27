@@ -201,7 +201,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
             ])
             ->setTableActionData([
                 'customer_name' => 'Modal Customer',
-                'customer_trn' => 'TRN-UPDATED',
+                'customer_trn' => '100000000000012',
                 'customer_address' => 'Modal Address',
                 'amendment_reason' => 'Corrected through the controlled modal.',
             ])
@@ -249,7 +249,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
 
         app(TaxInvoiceService::class)->updateCustomerDetails($invoice, [
             'customer_name' => 'History Customer LLC',
-            'customer_trn' => 'TRN-HISTORY',
+            'customer_trn' => '100000000000013',
             'customer_address' => 'History Address',
             'amendment_reason' => 'Customer requested legal-name correction.',
         ], $staff);
@@ -267,7 +267,7 @@ class TaxInvoiceCustomerDetailsAmendmentTest extends TestCase
             ->assertSee('Customer requested legal-name correction.')
             ->assertSee('Original Customer')
             ->assertSee('History Customer LLC')
-            ->assertSee('TRN-HISTORY')
+            ->assertSee('100000000000013')
             ->assertSee('Original Address')
             ->assertSee('History Address')
             ->assertSee('Amendment Employee');

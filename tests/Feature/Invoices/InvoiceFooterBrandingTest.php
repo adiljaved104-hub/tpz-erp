@@ -432,7 +432,7 @@ class InvoiceFooterBrandingTest extends TestCase
             'trn' => '100000000000001',
         ]);
         $invoice = app(TaxInvoiceService::class)->create([
-            'customer_name' => 'Sample Customer', 'customer_address' => 'Dubai, United Arab Emirates',
+            'customer_name' => 'Salman Khan', 'customer_address' => 'EBRAHIM & ISMAIL AL ABBAS 3, El-3 Shop No. 9, 26 Al Nahdha St, Al Fahidi St, Bur Dubai, Al Souq Al Kabeer, Dubai, United Arab Emirates',
             'customer_trn' => '100000000000011',
             'customer_phone' => '0551234567',
             'order_reference' => 'SAMPLE-9334',

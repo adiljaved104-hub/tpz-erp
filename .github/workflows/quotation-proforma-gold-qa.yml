@@ -76,6 +76,13 @@ jobs:
             --filter 'test_quotation_and_proforma_use_matching_gold_bilingual_a4_non_tax_layout|test_quotation_snapshots_footer_at_creation_and_does_not_inherit_future_branding|test_scope_ui_and_pdf_are_authorized' \
             tests/Feature/Invoices/QuotationWorkflowTest.php
       - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: quotation-proforma-gold-a4-samples
+          path: storage/app/quotation-gold-previews/*.pdf
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: quotation-proforma-gold-focused-results

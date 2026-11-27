@@ -286,6 +286,39 @@ class InvoiceFooterBrandingTest extends TestCase
         $this->assertStringContainsString('ISO 9001:2015', app(InvoiceFooterBrandingService::class)->preserveLatinRuns($shaped));
     }
 
+    public function test_successful_footer_save_clears_previous_certification_statement_error(): void
+    {
+        $owner = $this->user();
+        $draft = $this->input();
+        $draft['statement'] = array_replace($draft['statement'], [
+            'enabled' => true, 'en' => 'Certified test statement.',
+            'ar' => 'بيان اختبار معتمد.', 'evidence' => 'Isolated test proof', 'approve' => true,
+        ]);
+
+        $form = Livewire::actingAs($owner)->test(SettingsPage::class)
+            ->set('footerBranding', $draft)
+            ->call('saveFooterBranding')
+            ->assertHasErrors(['footerBranding.statement.enabled']);
+
+        $draft['entries']['iso'] = array_replace($draft['entries']['iso'], [
+            'enabled' => true, 'caption' => 'Certified QMS',
+            'evidence' => 'Isolated sample certificate', 'approve' => true,
+        ]);
+
+        $form->set('footerBranding', $draft)
+            ->set('footerUploads.iso', $this->logo())
+            ->call('saveFooterBranding')
+            ->assertHasNoErrors()
+            ->assertSet('footerBranding.entries.iso.enabled', true)
+            ->assertSet('footerBranding.statement.enabled', true);
+
+        $saved = InvoiceSetting::query()->sole()->footer_branding;
+        $this->assertTrue($saved['entries']['iso']['enabled']);
+        $this->assertTrue($saved['statement']['enabled']);
+        $this->assertSame('Certified test statement.', $saved['statement']['en']);
+        $this->assertSame('بيان اختبار معتمد.', $saved['statement']['ar']);
+    }
+
     public function test_livewire_upload_save_and_reopen_keep_invoice_terms_and_numbering_unchanged(): void
     {
         $owner = $this->user();

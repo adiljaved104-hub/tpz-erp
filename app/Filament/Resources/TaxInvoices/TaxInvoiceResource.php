@@ -34,6 +34,7 @@ use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -86,7 +87,7 @@ class TaxInvoiceResource extends Resource
         $components = self::formComponents(workspace: true);
 
         return $schema->components([
-            \Filament\Schemas\Components\Grid::make(['default' => 1, 'xl' => 12])
+            Grid::make(['default' => 1, 'xl' => 12])
                 ->extraAttributes(['class' => 'tpz-invoice-layout'])
                 ->schema([
                     // Keep each row's panels equal height (6/6 and 8/4),

@@ -463,6 +463,29 @@ class InvoiceFooterBrandingTest extends TestCase
         }
     }
 
+    public function test_long_soft_wrapped_legal_terms_still_have_page_break_points(): void
+    {
+        $owner = $this->user();
+        $this->enable($owner);
+        $english = str_repeat('Manufacturer warranty applies according to official terms. ', 43).'Final warranty clause.';
+        $arabic = str_repeat('يخضع الضمان لشروط الشركة المصنعة وفق الأنظمة المعمول بها. ', 43).'الشرط النهائي.';
+        InvoiceSetting::query()->sole()->forceFill([
+            'terms_en' => $english,
+            'terms_ar' => $arabic,
+        ])->save();
+        $invoice = $this->invoice($owner, 1);
+        $documents = app(TaxInvoiceDocumentService::class);
+        $html = view('invoices.tax-invoice', $documents->printViewData($invoice))->render();
+        $this->assertGreaterThan(3, substr_count($html, 'class="terms-independent-row"'));
+        $this->assertStringContainsString('Final warranty clause.', $html);
+        $this->assertStringContainsString('الشرط النهائي.', $html);
+
+        $pdf = $documents->pdf($invoice);
+        $pdf->render();
+        $this->assertGreaterThanOrEqual(2, $pdf->getDomPDF()->getCanvas()->get_page_count());
+        $this->assertLessThan(10, $pdf->getDomPDF()->getCanvas()->get_page_count());
+    }
+
     public function test_short_and_long_a4_pdfs_keep_logos_and_captions_together_on_the_last_page(): void
     {
         $owner = $this->user();

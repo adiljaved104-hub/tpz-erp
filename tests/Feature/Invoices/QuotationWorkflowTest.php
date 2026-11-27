@@ -467,7 +467,7 @@ class QuotationWorkflowTest extends TestCase
         Queue::fake();
         $owner = $this->owner();
         $this->profile($owner);
-        EmailSetting::query()->create(['id' => 1, 'enabled' => true, 'smtp_host' => 'smtp.example.test', 'smtp_port' => 587, 'encryption' => 'tls', 'smtp_username' => 'mailer@example.test', 'smtp_password_encrypted' => 'test-secret', 'from_email' => 'sales@example.test', 'from_name' => 'TPZ Sales', 'updated_by_user_id' => $owner->id]);
+        EmailSetting::query()->forceCreate(['id' => 1, 'enabled' => true, 'smtp_host' => 'smtp.example.test', 'smtp_port' => 587, 'encryption' => 'tls', 'smtp_username' => 'mailer@example.test', 'smtp_password_encrypted' => 'test-secret', 'from_email' => 'sales@example.test', 'from_name' => 'TPZ Sales', 'updated_by_user_id' => $owner->id]);
         $product = Product::factory()->create(['selling_price' => '105.00']);
         $quote = $this->createQuote($owner, $this->items($product));
         $key = (string) Str::uuid();

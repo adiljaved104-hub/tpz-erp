@@ -131,6 +131,7 @@
     $context = $orderContext ?? ['heading' => 'ORDER ID', 'reference' => $invoice->order_reference];
     $blankRowTarget = count($footerBranding['entries'] ?? []) > 0 ? 0 : 8;
     // Only a previously confirmed, immutable issuance snapshot may show paid.
+    $paymentEvent = $paymentEvent ?? null;
     $paymentSnapshot = $seller['payment_receipt_snapshot'] ?? [];
     $paymentConfirmed = is_array($paymentSnapshot)
         && ($paymentSnapshot['status'] ?? null) === 'confirmed_paid_in_full'

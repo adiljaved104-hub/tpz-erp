@@ -406,6 +406,33 @@ class InvoiceFooterBrandingTest extends TestCase
                 $this->assertGreaterThan(1, $pages);
             }
             $this->assertStringStartsWith('%PDF-', $pdf->output());
+            if (getenv('CI') === 'true') {
+                $previewDirectory = storage_path('app/ci-invoice-pdf-previews');
+                \Illuminate\Support\Facades\File::ensureDirectoryExists($previewDirectory);
+                $label = $count === 1 ? 'SAMPLE_01_standard_one_item_seven_brands.pdf' : 'SAMPLE_03_long_terms_multi_item.pdf';
+                file_put_contents($previewDirectory.'/'.$label, $pdf->output());
+            }
+        }
+
+        if (getenv('CI') === 'true') {
+            // Disposable, isolated synthetic paid example; never customer records.
+            $invoice = app(TaxInvoiceService::class)->create([
+                'customer_name' => 'Sample Customer — Not a Real Invoice',
+                'customer_address' => 'Dubai, United Arab Emirates',
+                'order_reference' => 'SAMPLE-9000-VAT',
+                'invoice_date' => today()->toDateString(),
+                'idempotency_key' => (string) Str::uuid(),
+                'payment_received_in_full' => true,
+                'items' => [
+                    ['description' => 'Sample Laptop A', 'quantity' => 1, 'unit_price_including_vat' => '4000.00'],
+                    ['description' => 'Sample Laptop B', 'quantity' => 1, 'unit_price_including_vat' => '5000.00'],
+                ],
+            ], $owner);
+            $this->assertSame('428.58', $invoice->vat_amount);
+            $this->assertSame('9000.00', $invoice->grand_total);
+            $paidPdf = $documents->pdf($invoice);
+            $paidPdf->render();
+            file_put_contents(storage_path('app/ci-invoice-pdf-previews/SAMPLE_02_paid_9000_vat_428_58.pdf'), $paidPdf->output());
         }
     }
 

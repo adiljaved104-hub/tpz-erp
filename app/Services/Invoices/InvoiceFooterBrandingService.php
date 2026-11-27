@@ -23,6 +23,42 @@ class InvoiceFooterBrandingService
             && app(InvoiceAuthorization::class)->allows($actor, InvoicePermission::SettingsManage);
     }
 
+    /**
+     * Presentation-only review label. Never used to authorize approval or publication.
+     *
+     * An edited Livewire draft must not retain an "Approved" badge merely
+     * because it still contains old server-owned approval metadata.
+     *
+     * @param array<string, mixed> $entry
+     */
+    public function reviewStatus(array $entry, bool $pendingUpload = false): string
+    {
+        $hasAsset = $pendingUpload || is_array($entry['asset'] ?? null);
+        $hasCaption = filled($entry['caption'] ?? null);
+        $hasEvidence = filled($entry['evidence'] ?? null);
+
+        $content = $entry;
+        unset($content['approve'], $content['revoke_approval']);
+        $approved = ! $pendingUpload
+            && filled($entry['approved_by_user_id'] ?? null)
+            && filled($entry['approved_at'] ?? null)
+            && hash_equals((string) ($entry['approval_fingerprint'] ?? ''), $this->fingerprint($content));
+
+        if ($approved) {
+            return ! empty($entry['enabled']) ? 'Approved & enabled' : 'Approved - disabled';
+        }
+
+        if (! $hasAsset && ! $hasCaption && ! $hasEvidence) {
+            return 'Not configured';
+        }
+
+        if (! $hasAsset || ! $hasCaption || ! $hasEvidence) {
+            return 'Draft - incomplete';
+        }
+
+        return 'Pending Owner approval';
+    }
+
     public function defaults(?array $saved = null): array
     {
         $entries = [];

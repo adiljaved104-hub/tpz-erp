@@ -45,7 +45,7 @@ class InvoiceFooterBrandingService
             && hash_equals((string) ($entry['approval_fingerprint'] ?? ''), $this->fingerprint($content));
 
         if ($approved) {
-            return ! empty($entry['enabled']) ? 'Approved & enabled' : 'Approved - disabled';
+            return !empty($entry['enabled']) ? 'Approved & enabled' : 'Approved - disabled';
         }
 
         if (! $hasAsset && ! $hasCaption && ! $hasEvidence) {

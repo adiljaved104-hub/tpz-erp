@@ -23,6 +23,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -408,7 +409,7 @@ class InvoiceFooterBrandingTest extends TestCase
             $this->assertStringStartsWith('%PDF-', $pdf->output());
             if (getenv('CI') === 'true') {
                 $previewDirectory = storage_path('app/ci-invoice-pdf-previews');
-                \Illuminate\Support\Facades\File::ensureDirectoryExists($previewDirectory);
+                File::ensureDirectoryExists($previewDirectory);
                 $label = $count === 1 ? 'SAMPLE_01_standard_one_item_seven_brands.pdf' : 'SAMPLE_03_long_terms_multi_item.pdf';
                 file_put_contents($previewDirectory.'/'.$label, $pdf->output());
             }

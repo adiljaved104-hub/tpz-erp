@@ -14,6 +14,7 @@ use App\Support\ArabicPdfText;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -86,7 +87,7 @@ class TaxInvoiceDocumentParityTest extends TestCase
                 'items' => [['description' => 'Laptop', 'quantity' => 1, 'unit_price_including_vat' => '105.00']],
             ], $staff);
             $this->fail('Staff member was allowed to confirm customer payment.');
-        } catch (\Illuminate\Validation\ValidationException $exception) {
+        } catch (ValidationException $exception) {
             $this->assertArrayHasKey('payment_received_in_full', $exception->errors());
         }
         $this->assertDatabaseCount('tax_invoices', 0);

@@ -7,6 +7,7 @@ use App\Enums\ProductCondition;
 use App\Enums\ProductTitleMode;
 use App\Enums\TaxInvoiceTermsProfile;
 use App\Models\TaxInvoice;
+use App\Models\TaxInvoiceAdjustmentDocument;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\Authorization\InvoiceAuthorization;
@@ -62,6 +63,7 @@ class TaxInvoiceService
         $includesStandardTerms = ! $includesRenewedTerms;
         $settings = $this->settings->settings();
         $profile = $this->company->snapshot();
+        $profile['footer_branding'] = app(InvoiceFooterBrandingService::class)->snapshot($settings->footer_branding);
         $number = $reservedInvoiceNumber ?? $this->references->nextTaxInvoiceNumber($settings->invoice_prefix, (int) $settings->starting_number);
         $totals = $this->calculateTotals($validated['items'], (string) $settings->vat_rate);
         ['vat_rate' => $vatRate, 'divisor' => $divisor, 'grand_total' => $gross, 'subtotal' => $net, 'vat' => $vat] = $totals;
@@ -102,7 +104,7 @@ class TaxInvoiceService
             if ($locked->status === 'void') {
                 throw ValidationException::withMessages(['reason' => 'This Invoice has already been voided.']);
             }
-            if (\App\Models\TaxInvoiceAdjustmentDocument::query()->where('original_invoice_id', $locked->id)->exists()) {
+            if (TaxInvoiceAdjustmentDocument::query()->where('original_invoice_id', $locked->id)->exists()) {
                 throw ValidationException::withMessages(['reason' => 'This Invoice has posted tax adjustment documents. Void is blocked until a compliant reversal workflow is available.']);
             }
             $previousStatus = $locked->status;

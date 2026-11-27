@@ -5,14 +5,22 @@ namespace App\Filament\Pages\Administration;
 use App\Enums\InvoicePermission;
 use App\Models\User;
 use App\Services\Authorization\InvoiceAuthorization;
+use App\Services\Invoices\InvoiceFooterBrandingService;
 use App\Services\Invoices\InvoiceSettingsService;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Validation\ValidationException;
+use Livewire\Features\SupportFileUploads\WithFileUploads;
 
 class InvoiceSettings extends Page
 {
+    use WithFileUploads;
+
+    public array $footerBranding = [];
+
+    public array $footerUploads = [];
+
     protected string $view = 'filament.pages.administration.invoice-settings';
 
     protected static ?string $slug = 'administration/invoice-settings';
@@ -70,6 +78,34 @@ class InvoiceSettings extends Page
         $this->quotationTermsAr = (string) ($s->quotation_terms_ar ?? $s->terms_ar);
         $this->proformaTermsEn = $s->proforma_terms_en ?? $s->terms_en;
         $this->proformaTermsAr = (string) ($s->proforma_terms_ar ?? $s->terms_ar);
+        if ($this->canManageFooterBranding()) {
+            $this->footerBranding = app(InvoiceFooterBrandingService::class)->defaults($s->footer_branding);
+        }
+    }
+
+    public function canManageFooterBranding(): bool
+    {
+        return app(InvoiceFooterBrandingService::class)->canManage(auth()->user());
+    }
+
+    public function saveFooterBranding(InvoiceSettingsService $service): void
+    {
+        abort_unless($this->canManageFooterBranding(), 403);
+        try {
+            $settings = $service->saveFooterBranding($this->footerBranding, $this->footerUploads, auth()->user());
+        } catch (ValidationException $exception) {
+            foreach ($exception->errors() as $key => $messages) {
+                $key = str_starts_with($key, 'uploads') ? 'footerUploads'.substr($key, 7) : 'footerBranding.'.$key;
+                foreach ($messages as $message) {
+                    $this->addError($key, $message);
+                }
+            }
+
+            return;
+        }
+        $this->footerBranding = app(InvoiceFooterBrandingService::class)->defaults($settings->footer_branding);
+        $this->footerUploads = [];
+        Notification::make()->success()->title('Footer branding saved')->body('Only enabled, Owner-approved artwork and claims appear on newly issued invoices. Historical invoices are unchanged.')->send();
     }
 
     public function save(InvoiceSettingsService $service): void

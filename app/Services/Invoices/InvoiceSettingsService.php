@@ -45,6 +45,7 @@ class InvoiceSettingsService
         $this->authorization->authorize($actor, InvoicePermission::SettingsManage);
 
         validator($data, [
+            'footer_branding' => ['prohibited'],
             'renewed_terms_en' => ['nullable', 'string', 'max:10000'],
             'renewed_terms_ar' => ['nullable', 'string', 'max:10000'],
         ])->validate();
@@ -78,6 +79,24 @@ class InvoiceSettingsService
                 $properties['new_next_number'] = $sequence['next'];
             }
             $this->activity->log('invoice_settings.updated', $actor, $settings, $properties);
+
+            return $settings->refresh();
+        });
+    }
+
+    public function saveFooterBranding(array $data, array $uploads, User $actor): InvoiceSetting
+    {
+        $branding = app(InvoiceFooterBrandingService::class);
+        abort_unless($branding->canManage($actor), 403);
+
+        return DB::transaction(function () use ($branding, $data, $uploads, $actor): InvoiceSetting {
+            $settings = InvoiceSetting::query()->lockForUpdate()->find(1) ?? $this->settings();
+            $previous = $settings->footer_branding;
+            $configuration = $branding->prepare($data, $uploads, $previous, $actor);
+            $settings->forceFill(['footer_branding' => $configuration, 'updated_by_user_id' => $actor->id])->save();
+            $this->activity->log('invoice_settings.footer_branding_updated', $actor, $settings, [
+                'previous_configuration' => $previous, 'configuration' => $configuration, 'actor_id' => $actor->id,
+            ]);
 
             return $settings->refresh();
         });

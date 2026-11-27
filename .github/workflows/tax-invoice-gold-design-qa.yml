@@ -68,6 +68,8 @@ jobs:
           vendor/bin/pint --test "${paths[@]}"
       - name: Disposable migrations and Blade compilation
         run: |
+          mysql -h 127.0.0.1 -uroot -pdisposable_root_only -e "CREATE DATABASE tpz_invoice_footer_rehearsal_test; GRANT ALL ON tpz_invoice_footer_rehearsal_test.* TO 'tpz_test'@'%';"
+          DB_DATABASE=tpz_invoice_footer_rehearsal_test php tests/Support/RehearseInvoiceFooterMigration.php
           php artisan migrate --force --no-interaction
           php artisan view:cache
       - name: Focused invoice rendering, authorization, VAT and history
@@ -75,6 +77,7 @@ jobs:
           vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit invoice-design-results.xml \
             --filter '^(?!.*test_additive_nullable_migration)' \
             tests/Feature/Invoices/TaxInvoiceGoldDesignTest.php \
+            tests/Feature/Invoices/InvoiceFooterBrandingTest.php \
             tests/Feature/Invoices/TaxInvoiceDocumentParityTest.php \
             tests/Feature/Invoices/TaxInvoicePhoneRenewedTermsTest.php \
             tests/Feature/Invoices/TaxInvoiceCustomerDetailsAmendmentTest.php \

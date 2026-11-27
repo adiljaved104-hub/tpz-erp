@@ -80,6 +80,18 @@
         .verification-footer { margin-top: 4px; font-size: 6pt; overflow-wrap: anywhere; word-break: break-all; text-align: center; }
         .verification-footer a { color: #58554f; text-decoration: none; }
         .customer-copy { text-align: right; font-size: 7pt; margin-top: 4px; font-weight: bold; }
+        .branding-strip { border-top: .6px solid #ad915d; margin-top: 6px; page-break-inside: avoid; }
+        .branding-logos { table-layout: fixed; }
+        .branding-logos td { text-align: center; padding: 5px 3px 4px; vertical-align: top; }
+        .brand-art { height: 25pt; line-height: 25pt; }
+        .brand-art img { max-width: 55pt; max-height: 24pt; vertical-align: middle; }
+        .brand-caption { font-size: 6pt; line-height: 1.2; overflow-wrap: break-word; margin-top: 3px; }
+        .branding-statement { border-top: .6px solid #cbb992; margin-top: 4px; font-size: 6pt; table-layout: fixed; }
+        .branding-statement td { width: 50%; padding: 4px 4px 0 0; overflow-wrap: break-word; }
+        .branding-statement td:last-child { padding-left: 4px; padding-right: 0; }
+        .footer.has-branding { page-break-inside: avoid; }
+        .has-branding .terms-table td { padding-top: 1px; padding-bottom: 1px; }
+        .has-branding .term-en, .has-branding .term-ar { font-size: 6.5pt; line-height: 1.2; }
         .void { color: #b91c1c; font-size: 70pt; font-weight: bold; left: 20%; opacity: .14; position: fixed; top: 42%; transform: rotate(-25deg); z-index: 10; }
         @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style>
@@ -117,6 +129,7 @@
     $usesBottomFooter = $invoice->items->count() <= 3 && $itemLayoutUnits <= 5 && ! $usesExtendedTerms;
     $usesLongLayout = ! $usesBottomFooter && ! $usesExtendedTerms;
     $context = $orderContext ?? ['heading' => 'ORDER ID', 'reference' => $invoice->order_reference];
+    $blankRowTarget = count($footerBranding['entries'] ?? []) > 0 ? 0 : 8;
 @endphp
 <div class="document-page{{ $usesBottomFooter ? ' bottom-footer' : '' }}">
 @if($invoice->status === 'void')<div class="void">VOID</div>@endif
@@ -194,7 +207,7 @@
         </tr>
     @endforeach
     @if($usesBottomFooter)
-        @for($empty = $invoice->items->count(); $empty < 8; $empty++)<tr class="empty"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>@endfor
+        @for($empty = $invoice->items->count(); $empty < $blankRowTarget; $empty++)<tr class="empty"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>@endfor
     @endif
     </tbody>
 </table>
@@ -219,10 +232,11 @@
     </tr>
 </table>
 </div>
-<div class="footer">
+<div class="footer{{ count($footerBranding['entries'] ?? []) > 0 ? ' has-branding' : '' }}">
     @if($usesExtendedTerms)<div class="extended-terms">@include('invoices.partials.tax-invoice-terms')</div>@else
         @include('invoices.partials.tax-invoice-terms')
     @endif
+    @include('invoices.partials.tax-invoice-branding')
     <div class="company-footer"><table><tr>
         <td>@if(filled($seller['legal_statement_en'] ?? null))<div class="legal">{{ $seller['legal_statement_en'] }}</div>@endif</td>
         <td>@if(filled($seller['legal_statement_ar'] ?? null))<div class="legal {{ $arClass }}">{{ $ar($seller['legal_statement_ar']) }}</div>@endif</td>

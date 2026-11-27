@@ -54,6 +54,7 @@ class TaxInvoiceDocumentService
             'verificationUrl' => $this->verification->url($invoice),
             'qrCodeDataUri' => $this->verification->qrCodeDataUri($invoice),
             'orderContext' => $this->orderContext($invoice),
+            'footerBranding' => app(InvoiceFooterBrandingService::class)->document($invoice->seller_snapshot['footer_branding'] ?? null),
         ];
     }
 

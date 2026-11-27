@@ -292,14 +292,21 @@ class TaxInvoiceService
     {
         $divisor = bcadd('1', bcdiv($vatRate, '100', 8), 8);
         $gross = '0.00';
+        $net = '0.00';
+        $vat = '0.00';
         foreach ($items as $item) {
             if (! is_numeric($item['quantity'] ?? null) || ! is_numeric($item['unit_price_including_vat'] ?? null)) {
                 continue;
             }
-            $gross = bcadd($gross, bcmul((string) $item['quantity'], (string) $item['unit_price_including_vat'], 2), 2);
+            $lineGross = bcmul((string) $item['quantity'], (string) $item['unit_price_including_vat'], 2);
+            // UAE full tax invoices round VAT on each invoice line to the nearest fils.
+            // Never round the sum of unrounded lines: it can disagree with printed rows.
+            $lineNet = bcadd(bcdiv($lineGross, $divisor, 4), '0.005', 2);
+            $gross = bcadd($gross, $lineGross, 2);
+            $net = bcadd($net, $lineNet, 2);
+            $vat = bcadd($vat, bcsub($lineGross, $lineNet, 2), 2);
         }
-        $net = bcadd(bcdiv($gross, $divisor, 4), '0.005', 2);
 
-        return ['subtotal' => $net, 'vat' => bcsub($gross, $net, 2), 'grand_total' => $gross, 'vat_rate' => $vatRate, 'divisor' => $divisor];
+        return ['subtotal' => $net, 'vat' => $vat, 'grand_total' => $gross, 'vat_rate' => $vatRate, 'divisor' => $divisor];
     }
 }

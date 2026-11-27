@@ -46,7 +46,8 @@ class TaxInvoiceEmployeeWorkflowTest extends TestCase
         $this->assertSame($invoice->grand_total, $invoice->fresh()->latestPaymentEvent->payment_received_aed);
         $this->assertSame('0.00', $invoice->fresh()->latestPaymentEvent->balance_due_aed);
         $paidHtml = view('invoices.tax-invoice', app(TaxInvoiceDocumentService::class)->printViewData($invoice->fresh()))->render();
-        $this->assertStringContainsString('Payment status confirmed as PAID', $paidHtml);
+        $this->assertStringContainsString('Payment received', $paidHtml);
+        $this->assertStringNotContainsString('Payment status confirmed as PAID', $paidHtml);
         $this->assertStringContainsString('Balance due', $paidHtml);
         $this->assertStringContainsString('0.00', $paidHtml);
 

@@ -62,9 +62,16 @@ class TaxInvoiceDocumentParityTest extends TestCase
         $owner = $this->owner();
         app(CompanyProfileService::class)->save($this->profileData(logoPath: null), $owner);
         $invoice = $this->invoice($owner);
-        // Simulate a pre-payment-status legacy invoice in this disposable database.
+        // Simulate a pre-payment-status/supply-date legacy invoice in this disposable DB.
         DB::table('tax_invoice_payment_events')->where('tax_invoice_id', $invoice->id)->delete();
+        $legacySnapshot = $invoice->seller_snapshot;
+        unset($legacySnapshot['supply_date_snapshot']);
+        DB::table('tax_invoices')->where('id', $invoice->id)->update([
+            'seller_snapshot' => json_encode($legacySnapshot, JSON_THROW_ON_ERROR),
+        ]);
+        $invoice->refresh();
 
+        $this->assertArrayNotHasKey('supply_date_snapshot', $invoice->seller_snapshot);
         $this->assertArrayNotHasKey('payment_receipt_snapshot', $invoice->seller_snapshot);
         $this->actingAs($owner)->get(route('tax-invoices.pdf', ['invoice' => $invoice, 'print' => 1]))
             ->assertOk()

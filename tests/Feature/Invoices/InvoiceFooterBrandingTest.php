@@ -319,6 +319,21 @@ class InvoiceFooterBrandingTest extends TestCase
         $this->assertSame('بيان اختبار معتمد.', $saved['statement']['ar']);
     }
 
+    public function test_footer_save_does_not_hide_errors_from_separate_invoice_settings_form(): void
+    {
+        $owner = $this->user();
+        $form = Livewire::actingAs($owner)->test(SettingsPage::class)
+            ->set('invoicePrefix', 'invalid!')
+            ->call('save')
+            ->assertHasErrors(['invoicePrefix']);
+
+        $form->call('saveFooterBranding')
+            ->assertHasErrors(['invoicePrefix'])
+            ->assertHasNoErrors(['footerBranding', 'footerUploads']);
+
+        $this->assertDatabaseHas('invoice_settings', ['id' => 1]);
+    }
+
     public function test_livewire_upload_save_and_reopen_keep_invoice_terms_and_numbering_unchanged(): void
     {
         $owner = $this->user();

@@ -2,7 +2,6 @@
 
 namespace App\Services\Invoices;
 
-use App\Enums\EmployeeRole;
 use App\Enums\InvoicePermission;
 use App\Enums\ProductCondition;
 use App\Enums\ProductTitleMode;
@@ -44,9 +43,9 @@ class TaxInvoiceService
             return $existing;
         }
         $paymentConfirmed = (bool) ($validated['payment_received_in_full'] ?? false);
-        if ($paymentConfirmed && ! in_array($actor->employee?->role, [EmployeeRole::Owner, EmployeeRole::Admin], true)) {
+        if ($paymentConfirmed && ! $this->authorization->allows($actor, InvoicePermission::ManagePaymentStatus)) {
             throw ValidationException::withMessages([
-                'payment_received_in_full' => 'Only an Owner or Admin may confirm full customer payment on a Tax Invoice.',
+                'payment_received_in_full' => 'You do not have permission to confirm full customer payment on a Tax Invoice.',
             ]);
         }
         $source = null;
@@ -124,13 +123,69 @@ class TaxInvoiceService
                 $lineNet = bcadd(bcdiv($lineGross, $divisor, 4), '0.005', 2);
                 $invoice->items()->create(['description' => trim($item['description']), 'quantity' => $item['quantity'], 'unit_price_including_vat' => $item['unit_price_including_vat'], 'source_order_item_id' => $item['source_order_item_id'] ?? null, 'subtotal_excluding_vat' => $lineNet, 'vat_amount' => bcsub($lineGross, $lineNet, 2), 'total_including_vat' => $lineGross, 'line_number' => $index + 1]);
             }
+            if ($paymentConfirmed) {
+                $invoice->paymentEvents()->create([
+                    'changed_by_user_id' => $actor->id, 'status' => 'paid',
+                    'payment_received_aed' => $gross, 'balance_due_aed' => '0.00',
+                    'source' => 'invoice_issuance', 'evidence_reference' => 'Confirmed paid at issuance',
+                ]);
+            }
             $this->activity->log('tax_invoice.issued', $actor, $invoice, [
                 'invoice_id' => $invoice->id, 'item_count' => count($validated['items']),
                 'actor_id' => $actor->id, 'full_payment_confirmed' => $paymentConfirmed,
-                'payment_amount_aed' => $paymentConfirmed ? $gross : null,
             ]);
 
             return $invoice->load(['items', 'createdBy']);
+        });
+    }
+
+    /**
+     * Appends an operational payment-state event. No receipt, refund, journal,
+     * original invoice field or VAT amount is written by this action.
+     */
+    public function markPaymentStatus(TaxInvoice $invoice, string $status, ?string $reference, ?string $reason, User $actor): void
+    {
+        $this->authorization->authorize($actor, InvoicePermission::ManagePaymentStatus, $invoice);
+        $validated = validator([
+            'status' => $status, 'evidence_reference' => $reference, 'reason' => $reason,
+        ], [
+            'status' => ['required', Rule::in(['paid', 'unpaid'])],
+            'evidence_reference' => [$status === 'paid' ? 'required' : 'nullable', 'string', 'max:190'],
+            'reason' => [$status === 'unpaid' ? 'required' : 'nullable', 'string', 'max:2000'],
+        ])->validate();
+        $reference = trim((string) ($validated['evidence_reference'] ?? ''));
+        $reason = trim((string) ($validated['reason'] ?? ''));
+        if ($status === 'paid' && mb_strlen($reference) < 4) {
+            throw ValidationException::withMessages(['evidence_reference' => 'Enter actual cash collection or payment evidence (at least 4 characters).']);
+        }
+        if ($status === 'unpaid' && mb_strlen($reason) < 5) {
+            throw ValidationException::withMessages(['reason' => 'Explain why this invoice is being marked unpaid.']);
+        }
+
+        DB::transaction(function () use ($invoice, $actor, $status, $reference, $reason): void {
+            $locked = TaxInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
+            $this->authorization->authorize($actor, InvoicePermission::ManagePaymentStatus, $locked);
+            if ($locked->status !== 'issued') {
+                throw ValidationException::withMessages(['status' => 'A void Tax Invoice cannot have its payment state changed.']);
+            }
+            $last = $locked->paymentEvents()->orderByDesc('id')->first();
+            if ($last?->status === $status) {
+                return;
+            }
+            $event = $locked->paymentEvents()->create([
+                'changed_by_user_id' => $actor->id, 'status' => $status,
+                'payment_received_aed' => $status === 'paid' ? $locked->grand_total : '0.00',
+                'balance_due_aed' => $status === 'paid' ? '0.00' : $locked->grand_total,
+                'evidence_reference' => $reference !== '' ? $reference : null,
+                'reason' => $reason !== '' ? $reason : null,
+                'source' => 'manual_status',
+            ]);
+            $this->activity->log('tax_invoice.payment_status_changed', $actor, $locked, [
+                'invoice_id' => $locked->id, 'event_id' => $event->id,
+                'previous_status' => $last?->status ?? 'unverified',
+                'new_status' => $status,
+                'actor_id' => $actor->id,
+            ]);
         });
     }
 

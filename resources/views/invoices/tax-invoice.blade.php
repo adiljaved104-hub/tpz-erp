@@ -63,35 +63,42 @@
         .stamp-area { display: inline-block; vertical-align: middle; text-align: right; padding-top: 10px; }
         .stamp { height: auto; max-height: 82px; max-width: 110px; width: auto; }
         .document-page { position: relative; }
-        .document-page.bottom-footer .footer { page-break-inside: avoid; }
+        .document-page.bottom-footer .footer:not(.has-branding) { page-break-inside: avoid; }
         .closing-section.long-layout { page-break-inside: avoid; }
-        .footer { margin-top: 12px; font-size: 7pt; color: #58554f; }
-        .terms { border-top: 1px solid #ad915d; padding-top: 5px; }
-        .terms-title { font-size: 9pt; color: #ad915d; font-weight: bold; }
-        .terms-table { table-layout: fixed; }
-        .terms-table td { width: 50%; padding: 2px 8px 3px 0; }
-        .terms-table td:last-child { padding: 2px 0 3px 8px; }
-        .term-en { white-space: pre-line; }
-        .term-ar { font-size: 7pt; }
+        .footer { margin-top: 7px; font-size: 7pt; color: #58554f; }
+        .terms { border-top: 1px solid #ad915d; padding-top: 3px; page-break-inside: auto; }
+        .terms-title { font-size: 8.5pt; color: #ad915d; font-weight: bold; }
+        .terms-table { table-layout: fixed; page-break-inside: auto; }
+        .terms-table tr { page-break-inside: avoid; }
+        .terms-table td { width: 50%; padding: 1px 8px 1px 0; }
+        .terms-table td:last-child { padding: 1px 0 1px 8px; }
+        .term-en { white-space: normal; line-height: 1.18; }
+        .term-ar { font-size: 6.8pt; line-height: 1.18; }
         .extended-terms .terms-table td { padding-top: 1px; padding-bottom: 1px; }
-        .extended-terms .term-en, .extended-terms .term-ar { font-size: 6.5pt; line-height: 1.2; }
+        .extended-terms .term-en, .extended-terms .term-ar { font-size: 6.5pt; line-height: 1.17; }
         .company-footer { border-top: .6px solid #cbb992; margin-top: 6px; padding-top: 5px; font-size: 6.5pt; }
         .company-footer td { width: 50%; }
         .verification-footer { margin-top: 4px; font-size: 6pt; overflow-wrap: anywhere; word-break: break-all; text-align: center; }
         .verification-footer a { color: #58554f; text-decoration: none; }
         .customer-copy { text-align: right; font-size: 7pt; margin-top: 4px; font-weight: bold; }
-        .branding-strip { border-top: .6px solid #ad915d; margin-top: 6px; page-break-inside: avoid; }
+        .branding-strip { border-top: .6px solid #ad915d; margin-top: 4px; page-break-inside: avoid; }
         .branding-logos { table-layout: fixed; }
-        .branding-logos td { text-align: center; padding: 5px 3px 4px; vertical-align: top; }
-        .brand-art { height: 25pt; line-height: 25pt; }
-        .brand-art img { max-width: 55pt; max-height: 24pt; vertical-align: middle; }
-        .brand-caption { font-size: 6pt; line-height: 1.2; overflow-wrap: break-word; margin-top: 3px; }
+        .branding-logos td { text-align: center; padding: 3px 2px 2px; vertical-align: top; }
+        .brand-art { height: 22pt; line-height: 22pt; }
+        .brand-art img { max-width: 55pt; max-height: 21pt; vertical-align: middle; }
+        .brand-caption { font-size: 6pt; line-height: 1.18; overflow-wrap: break-word; margin-top: 2px; }
         .branding-statement { border-top: .6px solid #cbb992; margin-top: 4px; font-size: 6pt; table-layout: fixed; }
         .branding-statement td { width: 50%; padding: 4px 4px 0 0; overflow-wrap: break-word; }
         .branding-statement td:last-child { padding-left: 4px; padding-right: 0; }
-        .footer.has-branding { page-break-inside: avoid; }
-        .has-branding .terms-table td { padding-top: 1px; padding-bottom: 1px; }
-        .has-branding .term-en, .has-branding .term-ar { font-size: 6.5pt; line-height: 1.2; }
+        .footer.has-branding { page-break-inside: auto; }
+        .document-page.compact .seller-details { margin-top: 4px; }
+        .document-page.compact .seller-details td { padding: 1px 0; }
+        .document-page.compact .rule { margin: 5px 0 8px; }
+        .document-page.compact .details-shell { margin-bottom: 6px; }
+        .document-page.compact .fields td { padding: 3px 1px; }
+        .document-page.compact .items td { padding: 4px 3px; }
+        .has-branding .terms-table td { padding-top: 0; padding-bottom: 1px; }
+        .has-branding .term-en, .has-branding .term-ar { font-size: 6.5pt; line-height: 1.16; }
         .void { color: #b91c1c; font-size: 70pt; font-weight: bold; left: 20%; opacity: .14; position: fixed; top: 42%; transform: rotate(-25deg); z-index: 10; }
         @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style>
@@ -114,10 +121,17 @@
         return $arabic->forDompdf(implode("\n", $lines));
     };
     $arClass = $isPdf ? 'arabic-pdf' : 'arabic';
-    $termsEn = preg_split('/\R/u', trim((string) $invoice->terms_en_snapshot)) ?: [];
-    $termsAr = preg_split('/\R/u', trim((string) $invoice->terms_ar_snapshot)) ?: [];
-    $renewedTermsEn = preg_split('/\R/u', trim((string) $invoice->renewed_terms_en_snapshot)) ?: [];
-    $renewedTermsAr = preg_split('/\R/u', trim((string) $invoice->renewed_terms_ar_snapshot)) ?: [];
+    // Terms are immutable at issuance. Collapse blank/whitespace-only lines only
+    // for display: independent English and Arabic paragraphs must not create
+    // empty table rows when the translations have different line breaks.
+    $termLines = fn (?string $text): array => array_values(array_filter(
+        array_map('trim', preg_split('/\R/u', trim((string) $text)) ?: []),
+        fn (string $line): bool => $line !== ''
+    ));
+    $termsEn = $termLines($invoice->terms_en_snapshot);
+    $termsAr = $termLines($invoice->terms_ar_snapshot);
+    $renewedTermsEn = $termLines($invoice->renewed_terms_en_snapshot);
+    $renewedTermsAr = $termLines($invoice->renewed_terms_ar_snapshot);
     $termsLayoutUnits = collect([...$termsEn, ...$termsAr, ...$renewedTermsEn, ...$renewedTermsAr])
         ->sum(fn ($line): int => filled($line) ? max(1, (int) ceil(mb_strlen($line) / 50)) : 0);
     $usesExtendedTerms = $termsLayoutUnits > 24;
@@ -128,6 +142,8 @@
     $itemLayoutUnits = $invoice->items->sum(fn ($item): int => max(1, (int) ceil(mb_strlen((string) $item->description) / 60)));
     $usesBottomFooter = $invoice->items->count() <= 3 && $itemLayoutUnits <= 5 && ! $usesExtendedTerms;
     $usesLongLayout = ! $usesBottomFooter && ! $usesExtendedTerms;
+    $usesCompactLayout = $invoice->items->count() <= 3 && $itemLayoutUnits <= 9
+        && count($footerBranding['entries'] ?? []) > 0;
     $context = $orderContext ?? ['heading' => 'ORDER ID', 'reference' => $invoice->order_reference];
     $blankRowTarget = count($footerBranding['entries'] ?? []) > 0 ? 0 : 8;
     // Only a previously confirmed, immutable issuance snapshot may show paid.
@@ -143,7 +159,7 @@
     $confirmedUnpaid = $currentPaymentStatus === 'unpaid'
         && $paymentEvent !== null && (string) $paymentEvent->balance_due_aed === (string) $invoice->grand_total;
 @endphp
-<div class="document-page{{ $usesBottomFooter ? ' bottom-footer' : '' }}">
+<div class="document-page{{ $usesBottomFooter ? ' bottom-footer' : '' }}{{ $usesCompactLayout ? ' compact' : '' }}">
 @if($invoice->status === 'void')<div class="void">VOID</div>@endif
 <table class="document-header">
     <tr>

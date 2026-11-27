@@ -427,6 +427,10 @@ class InvoiceFooterBrandingTest extends TestCase
             'terms_ar' => "تتمتع الأجهزة الجديدة بضمان من الشركة المصنعة لمدة عام واحد من تاريخ التسليم. مع سريان أي فترة ضمان أطول.\nلتقديم مطالبة بموجب سياسة ضمان العلامة التجارية، يرجى التواصل مع الشركة أو مركز الخدمة وإرفاق الفاتورة والرقم التسلسلي.\nقد تستثني سياسة الضمان التلف الناجم عن سوء الاستخدام والسوائل والحرائق الخارجية والتقلبات الكهربائية.",
         ])->save();
 
+        CompanyProfile::query()->firstOrCreate(['id' => 1], [
+            'company_name_en' => 'Tech Point Zone Electronics Trading LLC',
+            'trn' => '100000000000001',
+        ]);
         $invoice = app(TaxInvoiceService::class)->create([
             'customer_name' => 'Sample Customer', 'customer_address' => 'Dubai, United Arab Emirates',
             'customer_trn' => '100000000000011',

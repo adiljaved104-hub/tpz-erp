@@ -69,7 +69,11 @@ jobs:
           php -l app/Services/Quotations/QuotationService.php
           php -l app/Services/Quotations/QuotationPdfService.php
           php -l tests/Feature/Invoices/QuotationWorkflowTest.php
-          vendor/bin/pint --test app/Services/Quotations/QuotationService.php app/Services/Quotations/QuotationPdfService.php tests/Feature/Invoices/QuotationWorkflowTest.php
+          if ! vendor/bin/pint --test app/Services/Quotations/QuotationService.php app/Services/Quotations/QuotationPdfService.php tests/Feature/Invoices/QuotationWorkflowTest.php; then
+            vendor/bin/pint app/Services/Quotations/QuotationService.php app/Services/Quotations/QuotationPdfService.php tests/Feature/Invoices/QuotationWorkflowTest.php
+            git diff -- app/Services/Quotations/QuotationService.php app/Services/Quotations/QuotationPdfService.php tests/Feature/Invoices/QuotationWorkflowTest.php
+            exit 1
+          fi
       - name: Prepare disposable DB and compile quotation views
         run: |
           php artisan migrate --force --no-interaction

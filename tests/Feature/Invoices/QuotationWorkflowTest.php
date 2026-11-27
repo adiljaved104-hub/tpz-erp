@@ -21,6 +21,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Authorization\QuotationAuthorization;
+use App\Services\Invoices\InvoiceSettingsService;
 use App\Services\Quotations\QuotationConversionService;
 use App\Services\Quotations\QuotationEmailService;
 use App\Services\Quotations\QuotationPdfService;
@@ -89,7 +90,7 @@ class QuotationWorkflowTest extends TestCase
         $before = $this->createQuote($owner, $this->items($product));
         $this->assertSame([], $before->seller_snapshot['footer_branding']);
 
-        app(\App\Services\Invoices\InvoiceSettingsService::class)->settings()->save();
+        app(InvoiceSettingsService::class)->settings()->save();
         InvoiceSetting::query()->firstOrFail()->forceFill([
             'footer_branding' => [
                 'version' => 1,

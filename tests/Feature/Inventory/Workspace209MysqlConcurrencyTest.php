@@ -10,6 +10,7 @@ use App\Models\InventoryAllocationBalance;
 use App\Models\MarketplacePlatform;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\ProductBrand;
 use App\Models\ProductInventory;
 use App\Models\ResponsibilityAssignment;
 use App\Models\StockMovement;
@@ -87,7 +88,15 @@ class Workspace209MysqlConcurrencyTest extends TestCase
 
     public function test_concurrent_brand_handoff_with_production_reference_guard_moves_stock_once(): void
     {
-        $f = $this->responsibilityFoundation(10, 0);
+        // Committed fixtures coexist across these nontransactional tests. Do not
+        // reuse the transactional helper's fixed HP brand or reset the schema.
+        $owner = $this->responsibilityUser(EmployeeRole::Owner);
+        $employee = $this->responsibilityUser(EmployeeRole::Staff)->employee;
+        $brand = ProductBrand::factory()->create(['name' => 'Concurrency '.Str::uuid()]);
+        $product = Product::factory()->create(['brand' => $brand->name, 'brand_id' => $brand->id]);
+        $warehouse = Warehouse::factory()->create(['status' => true]);
+        $inventory = ProductInventory::factory()->create(['product_id' => $product->id, 'warehouse_id' => $warehouse->id, 'available_quantity' => 10, 'reserved_quantity' => 0]);
+        $f = compact('owner', 'employee', 'brand', 'product', 'inventory');
         $source = app(ResponsibilityAssignmentService::class)->create($this->assignmentData($f), $f['owner']);
         $ledger = app(InventoryAllocationService::class);
         $account = $ledger->employeeAccount($f['employee']->id);

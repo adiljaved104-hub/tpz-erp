@@ -30,15 +30,33 @@
         @empty<tr><td colspan="10">No stock matches your authorized scope and filters.</td></tr>@endforelse
     </tbody></table></div><div class="p-3">{{ $rows->links() }}</div>
     @if($details)
-        <div role="dialog" aria-modal="true" aria-label="Stock breakdown" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div class="tpz-stock-details max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-xl bg-white p-5 text-gray-950 shadow-xl dark:bg-gray-900 dark:text-white">
-            <h2 class="mb-3 text-lg font-bold">Product Details · Quick View</h2>
-            <div class="flex justify-between gap-4"><div><h2 class="whitespace-normal text-lg font-bold">{{ $details->product?->name }}</h2><small>{{ $details->product?->sku }} · {{ $details->warehouse?->name }}</small></div><x-filament::button color="gray" wire:click="closeDetails">Close</x-filament::button></div>
-            <div class="tpz-stock-product-summary">
-                <div><small>Brand / Category</small><strong>{{ $details->product?->brand }} · {{ $details->product?->category }}</strong><small>{{ ucfirst($details->product?->status?->value ?? '') }}</small></div>
-                <div><small>{{ $personal ? 'My allocated stock' : 'Authorized stock pool' }}</small><strong>{{ $personal ? (int) $detailOwn?->allocated_quantity : $details->available_quantity }}</strong></div>
-                <div><small>Reserved</small><button class="text-blue-700 font-semibold" wire:click="detailSection('reservations')">{{ $personal ? (int) $detailOwn?->reserved_quantity : $details->reserved_quantity }}</button></div>
-                @if($financial)<div><small>Average Cost</small><strong>{{ $detailCost === null ? 'No cost history' : \App\Support\AedMoney::format($detailCost) }}</strong></div>@endif
-            </div>
+        <div role="dialog" aria-modal="true" aria-label="Stock breakdown" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div class="tpz-stock-details tpz-stock-dialog bg-white text-gray-950 dark:bg-gray-900 dark:text-white">
+            <div class="tpz-stock-dialog-main">
+                <div class="tpz-stock-dialog-header flex items-center justify-between gap-4">
+                    <h2 class="tpz-stock-dialog-title"><x-filament::icon icon="heroicon-o-cube" class="size-5"/> Product Details</h2>
+                    <x-filament::button color="gray" wire:click="closeDetails">Close</x-filament::button>
+                </div>
+                <div class="tpz-stock-hero">
+                    <div class="min-w-0">
+                        <h3 class="tpz-stock-product-heading whitespace-normal break-words">{{ $details->product?->name }}</h3>
+                        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                            <span class="rounded-md bg-gray-100 px-2 py-1 dark:bg-gray-800">{{ $details->product?->sku }}</span>
+                            <span>Brand: <strong>{{ $details->product?->brand ?? '—' }}</strong></span>
+                            <span>Category: <strong>{{ $details->product?->category ?? '—' }}</strong></span>
+                            <span>Location: <strong>{{ $details->warehouse?->name ?? '—' }}</strong></span>
+                            <span class="rounded-md bg-green-50 px-2 py-1 text-green-800 dark:bg-green-950 dark:text-green-200">{{ ucfirst($details->product?->status?->value ?? 'Unknown') }}</span>
+                        </div>
+                        @if(\App\Filament\Resources\Products\ProductResource::canView($details->product))
+                            <a class="mt-3 inline-flex text-sm font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300" href="{{ \App\Filament\Resources\Products\ProductResource::getUrl('view',['record'=>$details->product]) }}">Open authorized product details ↗</a>
+                        @endif
+                    </div>
+                    <div class="tpz-stock-product-summary">
+                        <div><small>{{ $personal ? 'My allocated stock' : 'Authorized stock pool' }}</small><strong>{{ number_format((int) ($personal ? $detailOwn?->allocated_quantity : $details->available_quantity)) }}</strong></div>
+                        <div><small>Reserved</small><button class="text-blue-700 font-bold underline dark:text-blue-300" wire:click="detailSection('reservations')">{{ number_format((int) ($personal ? $detailOwn?->reserved_quantity : $details->reserved_quantity)) }}</button></div>
+                        <div><small>Sellable / Available</small><strong>{{ number_format(max(0, (int) ($personal ? $detailOwn?->allocated_quantity - $detailOwn?->reserved_quantity : $details->available_quantity - $details->reserved_quantity))) }}</strong></div>
+                        @if($financial)<div><small>Average Cost</small><strong>{{ $detailCost === null ? 'No cost history' : \App\Support\AedMoney::format($detailCost) }}</strong></div>@endif
+                    </div>
+                </div>
             @if($historyData)
                 <div class="mx-auto mt-3 max-w-4xl rounded-lg border border-gray-200 p-4 dark:border-gray-700" aria-label="Purchase Cost History">
                     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -48,7 +66,6 @@
                     @include('filament.purchases.purchase-cost-history', ['history'=>$historyData])
                 </div>
             @else
-                @if(\App\Filament\Resources\Products\ProductResource::canView($details->product))<a class="text-blue-700" href="{{ \App\Filament\Resources\Products\ProductResource::getUrl('view',['record'=>$details->product]) }}">Open authorized product details</a>@endif
                 <nav class="tpz-stock-detail-tabs" aria-label="Product details sections">
                     @foreach(['allocation'=>'Inventory & Allocation','info'=>'Product Info','provenance'=>'Stock Movements & Provenance','reservations'=>'Orders & Reservations'] as $key=>$label)<button type="button" class="{{ $detailTab === $key ? 'is-active' : '' }}" wire:click="detailSection('{{ $key }}')">{{ $label }}</button>@endforeach
                     @if($costHistory)<button type="button" wire:click="purchaseHistory({{ $details->id }})">Purchase History</button>@endif
@@ -127,6 +144,7 @@
                 @endif
                 @endif
             @endif
+            </div>
         </div></div>
     @endif
 </section>

@@ -9,6 +9,7 @@ use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Orders\OrderReservationReleaseService;
 use Filament\Notifications\Notification;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
@@ -65,7 +66,7 @@ class WorkspaceReservations extends Component
         abort_unless($record->orderItem?->order && $this->operationKey, 403);
         try {
             app(OrderReservationReleaseService::class)->release($record->orderItem->order, auth()->user(), $this->reason, $this->operationKey);
-        } catch (ValidationException|\Illuminate\Auth\Access\AuthorizationException|HttpException $exception) {
+        } catch (ValidationException|AuthorizationException|HttpException $exception) {
             throw $exception;
         } catch (\Throwable $exception) {
             report($exception);

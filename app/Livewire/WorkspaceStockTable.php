@@ -170,6 +170,22 @@ class WorkspaceStockTable extends Component
         }
         $details = $this->detailsId ? $this->query(false)->findOrFail($this->detailsId) : null;
         $detailLocations = $details ? $this->query(false)->where('product_inventories.product_id', $details->product_id)->get() : collect();
+        // Only totals within the current user's authorized location scope. This is
+        // an aggregate of physical pools, never a sum of employee allocations.
+        $detailTotals = [
+            'held' => $detailLocations->sum(fn ($item) => (int) $item->available_quantity),
+            'reserved' => $detailLocations->sum(fn ($item) => (int) $item->reserved_quantity),
+            'sellable' => $detailLocations->sum(fn ($item) => max(0, (int) $item->available_quantity - (int) $item->reserved_quantity)),
+        ];
+        $detailRowCosts = $financial && $detailLocations->isNotEmpty()
+            ? DB::table('product_inventories')->whereIn('id', $detailLocations->modelKeys())->pluck('average_cost', 'id')
+            : collect();
+        $detailTotalValue = $financial
+            ? $detailLocations->sum(fn ($item) => (float) ($detailRowCosts->get($item->id) ?? 0) * (int) $item->available_quantity)
+            : null;
+        $latestPurchaseData = $details && $costHistory
+            ? app(PurchaseCostHistoryService::class)->summaryForProduct($details->product_id, $user)
+            : null;
         $inTransit = (int) InventoryAllocationTransitionLine::query()->where('context_type', 'transfer')->where('status', 'dispatched')
             ->whereIn('source_product_inventory_id', $all->modelKeys())
             ->when($personal || $service->isEmployeeView($user), fn ($q) => $q->whereHas('account', fn ($q) => $q->where('employee_id', $user->employee->id)))
@@ -195,7 +211,9 @@ class WorkspaceStockTable extends Component
         return view('livewire.workspace-stock-table', [
             'rows' => $rows, 'summary' => $summary, 'own' => $own, 'personal' => $personal, 'financial' => $financial,
             'costHistory' => $costHistory, 'latest' => $latest, 'details' => $details,
-            'detailLocations' => $detailLocations, 'inTransit' => $inTransit,
+            'detailLocations' => $detailLocations, 'detailTotals' => $detailTotals,
+            'detailRowCosts' => $detailRowCosts, 'detailTotalValue' => $detailTotalValue,
+            'latestPurchaseData' => $latestPurchaseData, 'inTransit' => $inTransit,
             'detailOwn' => $details ? $service->metrics($user, collect([$details->id]))->get($details->id) : null,
             'detailCost' => $financial && $details ? DB::table('product_inventories')->where('id', $details->id)->value('average_cost') : null,
             'brandAssignments' => $details && $user->employee?->role === EmployeeRole::Owner

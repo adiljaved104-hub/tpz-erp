@@ -125,3 +125,68 @@ html.tpz-native-workspace .tpz-reference-inventory > nav.tpz-workspace-tabs > bu
 .dark .tpz-reservation-source-sales { background: #1c4164; color: #d4eafa; border-color: #3b6285; }
 .dark .tpz-reservation-source-hold { background: #544120; color: #ffe8b8; border-color: #796033; }
 @media(max-width: 700px) { .tpz-reservation-legend { width: 100%; } }
+
+/* Product Details reference parity: neutral white surfaces, gold cost emphasis, green status and actions. */
+.tpz-stock-dialog { width: min(100%, 92rem); border-radius: .9rem; }
+.tpz-stock-dialog-main { padding: 1.1rem 1.3rem 1.4rem; }
+.tpz-ref-hero { grid-template-columns: minmax(0,1.45fr) minmax(23rem,1fr); gap: 1rem; border-bottom: 1px solid #e6e9ee; padding: .95rem 0 1rem; }
+.tpz-ref-identity { display: flex; align-items: center; gap: 1.1rem; min-width: 0; }
+.tpz-ref-product-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 8.5rem; min-height: 8.5rem; color: #8c9cac; background: #f8f9fb; border: 1px solid #e5e7eb; border-radius: .6rem; }
+.tpz-ref-identity .tpz-stock-product-heading { font-size: 1.05rem; color: #171e29; }
+.tpz-ref-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .85rem; margin-top: .65rem; color: #4b5563; font-size: .75rem; }
+.tpz-ref-meta strong { font-weight: 700; color: #222b38; }
+.tpz-ref-active { background: #d9f8e7; color: #13783e; border-radius: 1rem; padding: .15rem .6rem; font-weight: 700; }
+.tpz-ref-responsible { margin-top: .7rem; font-size: .78rem; color: #4b5563; }
+.tpz-ref-responsible strong { margin-left: .3rem; border-radius: 1rem; padding: .22rem .6rem; background: #eef4fa; color: #253f59; }
+.tpz-ref-summary { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 0; align-content: center; }
+.tpz-ref-summary > div { background: #fff; border: 0; border-right: 1px solid #e0e3e8; border-radius: 0; padding: .35rem .75rem; min-height: 3.4rem; }
+.tpz-ref-summary > div:nth-child(3n) { border-right: 0; }
+.tpz-ref-summary > div:nth-child(n+4) { border-top: 1px solid #e8ebef; padding-top: .6rem; }
+.tpz-ref-summary small { color: #4b5563; font-size: .72rem; }
+.tpz-ref-summary strong { color: #131e2d; font-size: 1.04rem; }
+.tpz-ref-summary .tpz-ref-gold { background: #fffaf0; }
+.tpz-ref-summary .tpz-ref-gold :is(small,strong) { color: #805408; }
+.tpz-ref-link { color: #1460ac; text-decoration: underline; text-underline-offset: 2px; font-weight: 700; }
+.tpz-stock-detail-tabs .is-active { border-color: #1283dc; color: #0865ae; }
+.tpz-ref-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(18rem,.75fr) minmax(18rem,.75fr); gap: .75rem; align-items: stretch; }
+.tpz-ref-grid .tpz-stock-detail-card { margin: 0; padding: .75rem; background: #fff; border: 1px solid #d8dee7; border-radius: .55rem; box-shadow: 0 1px 2px #1c29430c; }
+.tpz-ref-grid .tpz-stock-detail-card h3 { display: flex; align-items: center; gap: .45rem; color: #182234; font-size: .88rem; font-weight: 800; }
+.tpz-ref-locations { grid-column: 1 / 3; }
+.tpz-ref-latest { grid-column: 3; }
+.tpz-ref-ownership { grid-column: 1; }
+.tpz-ref-personal { grid-column: 2; }
+.tpz-ref-brand { grid-column: 3; }
+.tpz-ref-location-table { min-width: 580px; }
+html.tpz-native-workspace .tpz-stock-panel .tpz-ref-location-table thead th { background: #f1f3f7; color: #253042; }
+.tpz-ref-location-table tbody td { color: #192536; }
+.tpz-ref-location-table tfoot th { background: #e1f0ff; color: #16253a; font-weight: 800; }
+.tpz-ref-location-table .tpz-ref-cost-cell { background: #fff8e9; color: #875711; }
+.tpz-ref-card-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .3rem; }
+.tpz-ref-card-header h3 { margin-bottom: 0 !important; }
+.tpz-ref-purchase-data { display: grid; gap: .35rem; margin-top: .5rem; }
+.tpz-ref-purchase-data > div { display: grid; grid-template-columns: minmax(8rem,1fr) minmax(0,1.2fr); gap: .5rem; font-size: .75rem; }
+.tpz-ref-purchase-data dt { color: #394455; }
+.tpz-ref-purchase-data dd { color: #182334; font-weight: 700; overflow-wrap: anywhere; }
+.tpz-ref-location-line { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin: .45rem 0; padding: .5rem .6rem; background: #f7f8fb; border-radius: .4rem; font-size: .78rem; }
+.tpz-ref-warning { margin-top: .6rem; padding: .55rem .65rem; color: #875308; background: #fff7e8; border: 1px solid #efdfbb; border-radius: .35rem; font-size: .72rem; }
+.tpz-ref-personal-values { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .4rem; }
+.tpz-ref-personal-values div { padding: .5rem .25rem; text-align: center; border-radius: .45rem; background: #f7f8fa; }
+.tpz-ref-personal-values small { display: block; color: #667085; font-size: .68rem; }
+.tpz-ref-personal-values strong { display: block; color: #1c293b; font-size: 1rem; }
+.tpz-ref-info, .tpz-ref-reservations-info { padding: .65rem .75rem; background: #eef7fe; border: 1px solid #cae4f7; border-radius: .45rem; color: #2b4c67; font-size: .74rem; line-height: 1.5; }
+.tpz-ref-responsibility-row { margin: .5rem 0; font-size: .78rem; }
+.tpz-ref-responsibility-row strong { margin-left: .4rem; padding: .22rem .45rem; background: #e9f3ff; border-radius: .4rem; }
+.tpz-ref-reassign { display: inline-flex; align-items: center; justify-content: center; margin-top: .7rem; border-radius: .4rem; padding: .6rem .8rem; background: #cb8a14; color: white; font-size: .75rem; font-weight: 800; text-decoration: none; }
+.tpz-ref-reassign:hover { background: #a76c0f; color: white; }
+.tpz-ref-reservations-info { display: flex; flex-wrap: wrap; align-items: start; gap: .5rem; margin-top: .5rem; }
+.tpz-ref-reservations-info strong { color: #1c344d; white-space: nowrap; }
+.dark .tpz-ref-grid .tpz-stock-detail-card, .dark .tpz-ref-summary > div { background: #1b2c41; border-color: #394b60; }
+.dark .tpz-ref-identity .tpz-stock-product-heading, .dark .tpz-ref-summary strong, .dark .tpz-ref-meta strong, .dark .tpz-ref-grid .tpz-stock-detail-card h3, .dark .tpz-ref-purchase-data dd { color: #e9f2fb; }
+.dark .tpz-ref-meta, .dark .tpz-ref-summary small { color: #bac8d8; }
+.dark .tpz-ref-summary .tpz-ref-gold { background: #43331c; }
+.dark .tpz-ref-summary .tpz-ref-gold :is(small,strong) { color: #ffe0a0; }
+.dark .tpz-ref-personal-values div, .dark .tpz-ref-location-line { background: #23384f; }
+.dark .tpz-ref-personal-values strong { color: #eef6ff; }
+@media (max-width: 1280px) { .tpz-ref-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .tpz-ref-locations { grid-column: 1 / -1; } .tpz-ref-latest,.tpz-ref-ownership,.tpz-ref-personal,.tpz-ref-brand { grid-column: auto; } }
+@media (max-width: 900px) { .tpz-ref-hero { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .tpz-ref-grid { grid-template-columns: 1fr; } .tpz-ref-grid > * { grid-column: 1 / -1; } .tpz-ref-identity { flex-wrap: wrap; } .tpz-ref-product-icon { flex-basis: 5rem; min-height: 5rem; } .tpz-ref-summary { grid-template-columns: repeat(2,minmax(0,1fr)); } .tpz-ref-summary > div:nth-child(3n) { border-right: 1px solid #e0e3e8; } .tpz-ref-summary > div:nth-child(2n) { border-right: 0; } }

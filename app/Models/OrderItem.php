@@ -62,7 +62,7 @@ class OrderItem extends Model
 
     public function reservation(): HasOne
     {
-        return $this->hasOne(InventoryReservation::class)->where('reservation_kind', 'base_product');
+        return $this->hasOne(InventoryReservation::class)->ofMany(['id' => 'max'], fn ($query) => $query->where('reservation_kind', 'base_product'));
     }
 
     public function reservations(): HasMany

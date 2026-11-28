@@ -192,7 +192,8 @@ class EmployeeOwnedInventoryTest extends TestCase
             ->assertViewHas('summary', fn ($summary) => $summary['usable'] === 2)
             ->assertDontSee('Other Allocated')->assertDontSee('System / Unallocated');
         Livewire::test(InventoryOverview::class)->assertDontSee('Damaged')->assertDontSee('QC Pending')->assertDontSee('In Transit');
-        Livewire::test(ListProductInventories::class)->assertTableColumnStateSet('available_quantity', 10, $f['inventory'])
+        Livewire::test(ListProductInventories::class)->assertTableColumnStateSet('my_allocated_quantity', 2, $f['inventory'])
+            ->assertTableColumnDoesNotExist('available_quantity')
             ->assertTableColumnDoesNotExist('damaged_quantity')->assertTableColumnDoesNotExist('average_cost');
     }
 

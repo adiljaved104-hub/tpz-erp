@@ -12,6 +12,7 @@ use App\DTOs\Responsibilities\ChangeResponsibilityScopeBatchData;
 use App\DTOs\Responsibilities\ChangeResponsibilityScopeData;
 use App\DTOs\Responsibilities\DeactivateResponsibilityAssignmentData;
 use App\DTOs\Responsibilities\TransferResponsibilityAssignmentData;
+use App\Enums\EmployeeRole;
 use App\Enums\ProductCondition;
 use App\Enums\ProductStatus;
 use App\Enums\ResponsibilityAssignmentMode;
@@ -31,6 +32,7 @@ use App\Services\Authorization\ResponsibilityAuthorization;
 use App\Services\Responsibilities\ResponsibilityAllocationService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use App\Services\Responsibilities\ResponsibilityCapacityService;
+use App\Services\Responsibilities\ResponsibilityStockTransitionService;
 use App\Services\UserTimezoneResolver;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -108,6 +110,21 @@ class ResponsibilityAssignmentsTable
                     }
                     Notification::make()->success()->title('Default stock assignment updated')->send();
                 }),
+            Action::make('transferScopeWithStock')->label('Reassign scope & current stock')->requiresConfirmation()
+                ->visible(fn (ResponsibilityAssignment $record): bool => auth()->user()?->employee?->role === EmployeeRole::Owner
+                    && $record->status === ResponsibilityAssignmentStatus::Active && $record->assignment_mode === ResponsibilityAssignmentMode::Scope
+                    && ($record->brandScope !== null || $record->productScope !== null))
+                ->authorize(fn (ResponsibilityAssignment $record): bool => auth()->user()->can('transfer', $record))
+                ->modalDescription('Explicit Owner handoff: matching current allocations move atomically with the responsibility. Reserved, transfer-held, marketplace, damaged, QC or inactive stock blocks the entire operation. Historical documents are unchanged. Other independent grants remain effective.')
+                ->modalContent(fn (ResponsibilityAssignment $record) => view('filament.pages.partials.responsibility-stock-plan', ['plan' => app(ResponsibilityStockTransitionService::class)->preview($record, auth()->user())]))
+                ->schema([
+                    Select::make('employee_id')->label('New responsible employee')->options(fn () => Employee::query()->where('status', true)->whereNotNull('user_id')->pluck('name', 'id'))->required()->searchable(),
+                    Textarea::make('reason')->required()->maxLength(2000),
+                    Hidden::make('operation_key')->default(fn () => (string) Str::uuid()),
+                    Hidden::make('stock_plan')->default(fn (ResponsibilityAssignment $record) => app(ResponsibilityStockTransitionService::class)->preview($record, auth()->user())),
+                    Checkbox::make('reviewed')->label('I reviewed the current allocation handoff and blocked exceptions')->accepted()->required(),
+                ])
+                ->action(fn (ResponsibilityAssignment $record, array $data) => app(ResponsibilityStockTransitionService::class)->transfer($record, new TransferResponsibilityAssignmentData((int) $data['employee_id'], $data['reason'], $data['operation_key']), auth()->user(), $data['stock_plan'])),
             Action::make('transfer')->label('Transfer Responsibility')->requiresConfirmation()
                 ->modalDescription('Future receipts follow the new default holder. Existing allocated stock remains with its current holder until transferred through the stock request workflow.')
                 ->authorize(fn (ResponsibilityAssignment $record): bool => auth()->user()->can('transfer', $record))

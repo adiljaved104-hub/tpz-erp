@@ -52,6 +52,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
 
@@ -191,6 +192,10 @@ class InventoryWorkspace extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+
+        if ($this->activeTab === 'inventory') {
+            $this->activeTab = 'locations';
+        }
 
         // The tab is restored from the URL on a full browser refresh.
         // Never trust query parameters to grant access to an ERP module.
@@ -354,7 +359,8 @@ class InventoryWorkspace extends Page
                 : ($inventoryQuery?->count() ?? 0);
         }
         if (ProductInventoryResource::canViewAny()) {
-            $tabCounts['myInventory'] = ProductInventoryResource::getEloquentQuery()->count();
+            $tabCounts['myInventory'] = app(EmployeeOwnedInventoryReadService::class)->inventoryIds($user)->count();
+            $tabCounts['locations'] = ProductInventoryResource::getEloquentQuery()->count();
         }
         if (ProductResource::canViewAny()) {
             $tabCounts['products'] = ProductResource::getEloquentQuery()->count();
@@ -493,6 +499,7 @@ class InventoryWorkspace extends Page
                 'createProduct' => ProductResource::canCreate() ? ProductResource::getUrl('create') : null,
                 'inventory' => InventoryOverview::canAccess() ? InventoryOverview::getUrl() : null,
                 'myInventory' => ProductInventoryResource::canViewAny() ? ProductInventoryResource::getUrl() : null,
+                'locations' => $canInventory && $canLocationBalances ? ProductInventoryResource::getUrl() : null,
                 'requests' => StockRequestResource::canViewAny() ? StockRequestResource::getUrl() : null,
                 'transfers' => StockTransferResource::canViewAny() ? StockTransferResource::getUrl() : null,
                 'createTransfer' => StockTransferResource::canCreate() ? StockTransferResource::getUrl('create') : null,
@@ -522,6 +529,9 @@ class InventoryWorkspace extends Page
     {
         $this->quickViewInventoryId = null;
     }
+
+    #[On('workspace-stock-changed')]
+    public function refreshStockCounters(): void {}
 
     private function loadInventoryQuickView(User $user, InventoryAuthorization $authorization): ?array
     {
@@ -959,12 +969,15 @@ class InventoryWorkspace extends Page
 
     private function extraModules(): Collection
     {
+        $sequence = array_flip(['My Allocated Stock', 'Damaged Items', 'QC Pending', 'Quality Control', 'Renewed QC/Dispatch', 'Stock Ownership', 'Upgrade Components', 'Sales Configurations']);
+
         return collect(app(NavigationPreferenceService::class)->workspaceModuleLinks(auth()->user(), 'Inventory & Warehouse'))
             ->reject(fn (array $item): bool => in_array($item['label'], [
-                'Products', 'Inventory Overview', 'My Inventory',
+                'Products', 'Inventory Overview', 'My Inventory', 'Inventory by Location',
                 'Stock Requests', 'Stock Transfers', 'Stock Adjustments',
                 'Inventory Workspace',
             ], true))
+            ->sortBy(fn (array $item): int => $sequence[str_replace(' / ', '/', $item['label'])] ?? 99)
             ->values();
     }
 
@@ -1025,6 +1038,7 @@ class InventoryWorkspace extends Page
 
     public function setTab(string $tab): void
     {
+        $tab = $tab === 'inventory' ? 'locations' : $tab;
         // Both clicks and refresh restoration enforce the same access rules.
         abort_unless($this->isPermittedWorkspaceTab($tab), 403);
 
@@ -1052,6 +1066,8 @@ class InventoryWorkspace extends Page
         return match ($tab) {
             'products' => ProductResource::canViewAny(),
             'inventory' => InventoryOverview::canAccess(),
+            'locations' => app(InventoryAuthorization::class)->allows($user, InventoryPermission::View)
+                && app(InventoryAuthorization::class)->allows($user, InventoryPermission::ViewLocationBalances),
             'myInventory' => ProductInventoryResource::canViewAny(),
             'requests' => StockRequestResource::canViewAny(),
             'transfers' => StockTransferResource::canViewAny(),

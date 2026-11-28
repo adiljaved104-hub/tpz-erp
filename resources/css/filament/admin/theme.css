@@ -1,7 +1,9 @@
 @import '../../../../vendor/filament/filament/resources/css/theme.css';
+@import './workspace-stock.css';
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+@source '../../../../resources/views/livewire/**/*';
 @source '../../../../resources/views/components/accounting/**/*';
 @source '../../../../resources/views/qc/**/*';
 @source '../../../../resources/views/returns/**/*';

@@ -151,6 +151,7 @@
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="Sales workspace sections" tabindex="0" title="Scroll horizontally or use the left/right arrow keys to see more modules" x-on:keydown.arrow-right.stop="$el.scrollBy({left: 190, behavior: 'smooth'})" x-on:keydown.arrow-left.stop="$el.scrollBy({left: -190, behavior: 'smooth'})">
+            @if($canViewReservations)<button type="button" class="tpz-workspace-tab {{ $activeTab === 'reservations' ? 'is-active' : '' }}" wire:click="setTab('reservations')">Reservations</button>@endif
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" /> Overview</button>
             @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
@@ -433,8 +434,15 @@
                 @endif
             </x-filament::section>
         @endif
+        @if($activeTab === 'reservations' && $canViewReservations)
+            @livewire(\App\Livewire\WorkspaceReservations::class, ['salesOnly' => true], key('sales-reservations-tab'))
+        @endif
         @if($activeTab === 'extra')
-            @include('filament.pages.partials.workspace-extra-preview')
+            @if($activeExtraModule !== null && isset($extraModules[$activeExtraModule]) && $extraModules[$activeExtraModule]['label'] === 'Reservations')
+                @livewire(\App\Livewire\WorkspaceReservations::class, key('sales-workspace-reservations'))
+            @else
+                @include('filament.pages.partials.workspace-extra-preview')
+            @endif
         @endif
     </div>
 
@@ -485,11 +493,14 @@
                         <p class="mt-2 text-xs text-gray-500">Audited documentary correction only. Original stock movements remain unchanged.</p>
                     </div>
                 @endif
+                @if($quickViewOrder['canRelease'])
+                    @livewire(\App\Livewire\WorkspaceReservations::class, ['orderId' => $quickViewOrder['orderId']], key('quick-view-order-reservations-'.$quickViewOrder['orderId']))
+                @endif
                 @if($quickViewOrder['canReserve'])
                     <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
                         @if($confirmQuickViewReserve)
                             <p class="font-semibold">Confirm reservation of this Draft Sales Order?</p>
-                            <p class="mt-1">This will reserve inventory using the existing stock allocation rules. It cannot be undone from this panel.</p>
+                            <p class="mt-1">This reserves inventory using existing allocation rules. Eligible complete reservations can be released through the authorized Release control.</p>
                             <div class="mt-3 flex flex-wrap gap-2">
                                 <x-filament::button color="success" size="sm" wire:click="reserveQuickViewDraft" wire:loading.attr="disabled" wire:target="reserveQuickViewDraft">Confirm &amp; Reserve</x-filament::button>
                                 <x-filament::button color="gray" size="sm" wire:click="$set('confirmQuickViewReserve', false)">Cancel</x-filament::button>

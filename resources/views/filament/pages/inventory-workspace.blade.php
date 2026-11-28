@@ -7,6 +7,7 @@
                 <p class="tpz-workspace-subtitle">Available Stock, reservations and actions within your authorized responsibility.</p>
             </div>
             <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected inventory section">
+                @if(\App\Filament\Resources\Orders\OrderResource::canCreate())<x-filament::button tag="a" :href="\App\Filament\Resources\Orders\OrderResource::getUrl('create')" icon="heroicon-o-plus">Create New Order</x-filament::button>@endif
                 @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
                     <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                         Open {{ $extraModules[$activeExtraModule]['label'] }}
@@ -54,7 +55,7 @@
 
         <nav class="tpz-workspace-tabs" aria-label="Inventory workspace sections" >
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" /> Overview</button>
-            @foreach (['products' => 'Products', 'inventory' => 'Inventory', 'myInventory' => 'My Inventory', 'requests' => 'Requests', 'transfers' => 'Transfers', 'adjustments' => 'Adjustments'] as $key => $label)
+            @foreach (['products' => 'Products', 'myInventory' => 'My Inventory', 'locations' => 'Inventory by Location', 'requests' => 'Requests', 'transfers' => 'Transfers', 'adjustments' => 'Adjustments'] as $key => $label)
                 @if(isset($links[$key]))
                     <button type="button" class="tpz-workspace-tab {{ $activeTab === $key ? 'is-active' : '' }}" aria-selected="{{ $activeTab === $key ? 'true' : 'false' }}" wire:click="setTab('{{ $key }}')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve((['products' => 'heroicon-o-cube', 'inventory' => 'heroicon-o-archive-box', 'myInventory' => 'heroicon-o-user', 'requests' => 'heroicon-o-clipboard-document-list', 'transfers' => 'heroicon-o-arrows-right-left', 'adjustments' => 'heroicon-o-adjustments-horizontal'][$key] ?? 'heroicon-o-document-text'))" class="tpz-native-tab-icon size-4" /> <span class="tpz-native-tab-copy"><span>{{ $label }}</span>@if(isset($tabCounts[$key]))<strong class="tpz-native-tab-count">{{ number_format($tabCounts[$key]) }}</strong>@endif</span></button>
                 @endif
@@ -66,6 +67,7 @@
                     wire:click="selectExtraModule({{ $index }})"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve(\App\Support\WorkspaceVisuals::moduleIcon($module['label'], $module['icon']))" class="tpz-native-tab-icon size-4" /> {{ $module['label'] }}</button>
             @endforeach
         </nav>
+        <p class="text-xs text-gray-500 dark:text-gray-400">Tab counters show all authorized records before filters. Stock tables distinguish SKUs, location rows and units; their summaries follow applied filters.</p>
 
         @if($activeTab === 'overview' && $inventoryCards->isNotEmpty())
             <section class="tpz-unified-overview-panel" aria-label="Inventory operational overview">
@@ -212,7 +214,7 @@
             </x-filament::section>
         @endif
 
-        @if(in_array($activeTab, ['overview', 'inventory'], true))
+        @if($activeTab === 'overview')
         <x-filament::section>
             <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -288,7 +290,10 @@
         </x-filament::section>
         @endif
 
-        @if(in_array($activeTab, ['products', 'myInventory', 'requests', 'transfers'], true) && isset($links[$activeTab]))
+        @if(in_array($activeTab, ['myInventory', 'locations', 'inventory'], true) && $canSeeSummary)
+            @livewire(\App\Livewire\WorkspaceStockTable::class, ['mode' => $activeTab === 'myInventory' ? 'mine' : 'locations'], key('workspace-stock-'.$activeTab))
+        @endif
+        @if(in_array($activeTab, ['products', 'requests', 'transfers'], true) && isset($links[$activeTab]))
             @php
                 $resourceClass = match ($activeTab) {
                     'products' => \App\Filament\Resources\Products\ProductResource::class,

@@ -16,6 +16,7 @@ use App\Filament\Pages\ReturnsQcWorkspace;
 use App\Filament\Pages\SalesWorkspace;
 use App\Filament\Pages\TeamHrWorkspace;
 use App\Models\Employee;
+use App\Models\InventoryAllocationBalance;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\Purchase;
@@ -557,7 +558,7 @@ class NativeWorkspacesTest extends TestCase
             ->call('setTab', 'requests')
             ->assertDontSee('Authorized Inventory')
             ->call('setTab', 'inventory')
-            ->assertSee('Authorized Inventory')
+            ->assertSee('Inventory by Location')
             ->assertSee('TPZ-PHASE2-STOCK-001');
     }
 
@@ -593,14 +594,14 @@ class NativeWorkspacesTest extends TestCase
             'sku' => 'TPZ-TITLE-VISIBLE-01',
             'name' => 'Visible Inventory Product Name',
         ]);
-        ProductInventory::factory()->create(['product_id' => $product->id]);
+        $inventory = ProductInventory::factory()->create(['product_id' => $product->id, 'available_quantity' => 2]);
+        InventoryAllocationBalance::create(['account_id' => app(InventoryAllocationService::class)->employeeAccount($owner->employee->id)->id, 'product_inventory_id' => $inventory->id, 'allocated_quantity' => 2, 'reserved_quantity' => 0]);
 
         Livewire::test(InventoryWorkspace::class)
             ->call('setTab', 'myInventory')
             ->assertSee('TPZ-TITLE-VISIBLE-01')
             ->assertSee('Visible Inventory Product Name')
-            ->assertSee('Quick View')
-            ->assertSee('Open full');
+            ->assertSee('Quick View');
     }
 
     public function test_inventory_quick_view_loads_authorized_stock_and_can_close(): void

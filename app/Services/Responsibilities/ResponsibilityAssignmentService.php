@@ -166,7 +166,7 @@ class ResponsibilityAssignmentService
         });
     }
 
-    public function transfer(ResponsibilityAssignment $source, TransferResponsibilityAssignmentData $data, User $actor): ResponsibilityAssignment
+    public function transfer(ResponsibilityAssignment $source, TransferResponsibilityAssignmentData $data, User $actor, ?string $preallocatedReference = null): ResponsibilityAssignment
     {
         $this->authorization->authorize($actor, ResponsibilityPermission::Reassign, $source);
         $this->validateReason($data->reason);
@@ -181,7 +181,7 @@ class ResponsibilityAssignmentService
             throw ValidationException::withMessages(['employee_id' => 'Select a different Employee for a transfer.']);
         }
 
-        $reference = $this->references->nextResponsibilityAssignmentReference();
+        $reference = $preallocatedReference ?? $this->references->nextResponsibilityAssignmentReference();
 
         return DB::transaction(function () use ($source, $data, $actor, $employee, $reference): ResponsibilityAssignment {
             $this->lockResponsibilityScopeMutations();

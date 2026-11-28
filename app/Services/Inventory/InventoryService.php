@@ -534,6 +534,10 @@ class InventoryService
             throw new InventoryInvariantException('Order reservation requires an active transaction.');
         }
 
+        if ($item->reservations()->where('reservation_kind', InventoryReservationKind::BaseProduct)->where('status', InventoryReservationStatus::Active)->exists()) {
+            throw new InventoryInvariantException('This order line already has an active base reservation.');
+        }
+
         $inventory = ProductInventory::query()
             ->where('product_id', $item->product_id)
             ->where('warehouse_id', $item->order->warehouse_id)
@@ -552,7 +556,8 @@ class InventoryService
             'order_item_upgrade_selection_id' => null,
             'upgrade_recipe_line_id' => null,
             'reservation_kind' => InventoryReservationKind::BaseProduct,
-            'reservation_key' => "order-item:{$item->id}:base",
+            'reservation_key' => InventoryReservation::query()->where('order_item_id', $item->id)->where('reservation_kind', InventoryReservationKind::BaseProduct)->exists()
+                ? "order-item:{$item->id}:base:{$idempotencyKey}" : "order-item:{$item->id}:base",
             'reference' => $reservationReference,
             'product_inventory_id' => $inventory->id,
             'product_id' => $inventory->product_id,
@@ -639,7 +644,8 @@ class InventoryService
             'order_item_upgrade_selection_id' => $selection->id,
             'upgrade_recipe_line_id' => $recipeLine->id,
             'reservation_kind' => InventoryReservationKind::UpgradeComponent,
-            'reservation_key' => "upgrade-selection:{$selection->id}:recipe-line:{$recipeLine->id}",
+            'reservation_key' => InventoryReservation::query()->where('order_item_upgrade_selection_id', $selection->id)->where('upgrade_recipe_line_id', $recipeLine->id)->exists()
+                ? "upgrade-selection:{$selection->id}:recipe-line:{$recipeLine->id}:{$idempotencyKey}" : "upgrade-selection:{$selection->id}:recipe-line:{$recipeLine->id}",
             'reference' => $reservationReference,
             'product_inventory_id' => $inventory->id,
             'product_id' => $inventory->product_id,

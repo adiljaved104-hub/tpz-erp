@@ -36,6 +36,7 @@ use App\Services\Navigation\WorkspaceRecordPreviewService;
 use App\Services\Orders\OrderAmendmentService;
 use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\Orders\OrderReadService;
+use App\Services\Orders\OrderReservationReleaseService;
 use App\Services\Orders\OrderService;
 use App\Services\Orders\WebSalesReadService;
 use App\Services\Orders\WebSalesService;
@@ -58,6 +59,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\On;
 use Livewire\WithPagination;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -832,6 +834,8 @@ class SalesWorkspace extends Page
 
         return [
             'type' => $type,
+            'orderId' => $order->id,
+            'canRelease' => $type === 'orders' && app(OrderReservationReleaseService::class)->allows($user, $order->fresh()),
             'canCorrectShipped' => $type === 'orders' && $this->workspaceCanCorrectShipped($order),
             'canShip' => $type === 'webSales' && $this->webSaleCanShip($order, $user),
             'canDeliver' => $type === 'webSales' && $this->webSaleCanDeliver($order, $user),
@@ -870,6 +874,9 @@ class SalesWorkspace extends Page
             ], true))
             ->values();
     }
+
+    #[On('workspace-stock-changed')]
+    public function refreshReservationActions(): void {}
 
     public function selectExtraModule(int $index): void
     {

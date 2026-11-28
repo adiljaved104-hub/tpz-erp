@@ -7,6 +7,7 @@ use App\Enums\OrderPermission;
 use App\Enums\ProductMatchContext;
 use App\Models\Employee;
 use App\Models\MarketplacePlatform;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\SalesConfiguration;
@@ -14,6 +15,7 @@ use App\Models\UpgradeRecipe;
 use App\Models\User;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Orders\ExternalOrderIdentityService;
 use App\Services\Orders\OrderFulfillmentLocationService;
 use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\ProductIntelligence\ProductSearchOptions;
@@ -60,7 +62,12 @@ class OrderForm
                     ->searchable()
                     ->live()
                     ->afterStateUpdated(fn ($state, Get $get, Set $set): mixed => self::refreshStockContexts($get, $set)),
-                TextInput::make('external_order_number')->label('External / Marketplace Order Number')->maxLength(255),
+                TextInput::make('external_order_number')->label('External / Marketplace Order Number')->maxLength(255)
+                    ->live(debounce: 500)
+                    ->helperText(fn (Get $get, ?Order $record): ?string => app(ExternalOrderIdentityService::class)->warning(
+                        filled($get('marketplace_platform_id')) ? (int) $get('marketplace_platform_id') : null,
+                        $get('external_order_number'), auth()->user(), $record?->id,
+                    )),
                 DatePicker::make('order_date')->default(now())->required(),
                 Select::make('handled_by_employee_id')
                     ->label('Handled By')

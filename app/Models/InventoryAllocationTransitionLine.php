@@ -18,4 +18,9 @@ class InventoryAllocationTransitionLine extends Model
     {
         return $this->belongsTo(InventoryAllocationAccount::class);
     }
+
+    public function destinationInventory(): BelongsTo
+    {
+        return $this->belongsTo(ProductInventory::class, 'destination_product_inventory_id');
+    }
 }

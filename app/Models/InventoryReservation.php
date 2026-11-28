@@ -73,6 +73,11 @@ class InventoryReservation extends Model
         return $this->belongsTo(User::class, 'fulfilled_by_user_id');
     }
 
+    public function reservedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reserved_by_user_id');
+    }
+
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);

@@ -434,7 +434,11 @@
             </x-filament::section>
         @endif
         @if($activeTab === 'extra')
-            @include('filament.pages.partials.workspace-extra-preview')
+            @if($activeExtraModule !== null && isset($extraModules[$activeExtraModule]) && $extraModules[$activeExtraModule]['label'] === 'Reservations')
+                @livewire(\App\Livewire\WorkspaceReservations::class, key('sales-workspace-reservations'))
+            @else
+                @include('filament.pages.partials.workspace-extra-preview')
+            @endif
         @endif
     </div>
 
@@ -485,11 +489,14 @@
                         <p class="mt-2 text-xs text-gray-500">Audited documentary correction only. Original stock movements remain unchanged.</p>
                     </div>
                 @endif
+                @if($quickViewOrder['canRelease'])
+                    @livewire(\App\Livewire\WorkspaceReservations::class, ['orderId' => $quickViewOrder['orderId']], key('quick-view-order-reservations-'.$quickViewOrder['orderId']))
+                @endif
                 @if($quickViewOrder['canReserve'])
                     <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
                         @if($confirmQuickViewReserve)
                             <p class="font-semibold">Confirm reservation of this Draft Sales Order?</p>
-                            <p class="mt-1">This will reserve inventory using the existing stock allocation rules. It cannot be undone from this panel.</p>
+                            <p class="mt-1">This reserves inventory using existing allocation rules. Eligible complete reservations can be released through the authorized Release control.</p>
                             <div class="mt-3 flex flex-wrap gap-2">
                                 <x-filament::button color="success" size="sm" wire:click="reserveQuickViewDraft" wire:loading.attr="disabled" wire:target="reserveQuickViewDraft">Confirm &amp; Reserve</x-filament::button>
                                 <x-filament::button color="gray" size="sm" wire:click="$set('confirmQuickViewReserve', false)">Cancel</x-filament::button>

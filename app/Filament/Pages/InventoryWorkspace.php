@@ -969,12 +969,15 @@ class InventoryWorkspace extends Page
 
     private function extraModules(): Collection
     {
+        $sequence = array_flip(['My Allocated Stock', 'Damaged Items', 'QC Pending', 'Quality Control', 'Renewed QC/Dispatch', 'Stock Ownership', 'Upgrade Components', 'Sales Configurations']);
+
         return collect(app(NavigationPreferenceService::class)->workspaceModuleLinks(auth()->user(), 'Inventory & Warehouse'))
             ->reject(fn (array $item): bool => in_array($item['label'], [
                 'Products', 'Inventory Overview', 'My Inventory', 'Inventory by Location',
                 'Stock Requests', 'Stock Transfers', 'Stock Adjustments',
                 'Inventory Workspace',
             ], true))
+            ->sortBy(fn (array $item): int => $sequence[$item['label']] ?? 99)
             ->values();
     }
 
@@ -1035,6 +1038,7 @@ class InventoryWorkspace extends Page
 
     public function setTab(string $tab): void
     {
+        $tab = $tab === 'inventory' ? 'locations' : $tab;
         // Both clicks and refresh restoration enforce the same access rules.
         abort_unless($this->isPermittedWorkspaceTab($tab), 403);
 

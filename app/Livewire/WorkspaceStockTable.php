@@ -42,6 +42,15 @@ class WorkspaceStockTable extends Component
     #[Locked]
     public bool $history = false;
 
+    #[Locked]
+    public string $detailTab = 'allocation';
+
+    public function detailSection(string $section): void
+    {
+        abort_unless(in_array($section, ['allocation', 'info', 'provenance', 'reservations'], true), 404);
+        $this->detailTab = $section;
+    }
+
     private function query(bool $filters = true)
     {
         $user = auth()->user();
@@ -84,7 +93,7 @@ class WorkspaceStockTable extends Component
             }
         }
 
-        return $query->with(['product:id,sku,name,status', 'warehouse:id,name,code']);
+        return $query->with(['product:id,sku,name,status,brand,brand_id,category,condition,model', 'warehouse:id,name,code']);
     }
 
     public function applyFilters(): void
@@ -101,11 +110,13 @@ class WorkspaceStockTable extends Component
         $this->resetPage('workspace-stock-page');
     }
 
-    public function details(int $inventoryId): void
+    public function details(int $inventoryId, string $section = 'allocation'): void
     {
         $this->query()->findOrFail($inventoryId);
+        abort_unless(in_array($section, ['allocation', 'info', 'provenance', 'reservations'], true), 404);
         $this->detailsId = $inventoryId;
         $this->history = false;
+        $this->detailTab = $section;
     }
 
     public function purchaseHistory(int $inventoryId): void
@@ -135,12 +146,13 @@ class WorkspaceStockTable extends Component
         $service = app(EmployeeOwnedInventoryReadService::class);
         $all = (clone $query)->get();
         $own = $service->metrics($user, $all->pluck('id'));
-        $summary = ['rows' => $all->count(), 'skus' => $all->pluck('product_id')->unique()->count(), 'held' => 0, 'reserved' => 0, 'sellable' => 0];
+        $summary = ['rows' => $all->count(), 'skus' => $all->pluck('product_id')->unique()->count(), 'held' => 0, 'reserved' => 0, 'allocated' => 0, 'sellable' => 0];
         foreach ($all as $row) {
             $held = (int) ($personal ? $own->get($row->id)?->allocated_quantity : $row->available_quantity);
             $reserved = (int) ($personal ? $own->get($row->id)?->reserved_quantity : $row->reserved_quantity);
             $summary['held'] += $held;
             $summary['reserved'] += $reserved;
+            $summary['allocated'] += $personal ? $held : (int) $row->allocated_quantity;
             $summary['sellable'] += $held - $reserved;
         }
         $rows = (clone $query)->orderBy('product_inventories.product_id')->orderBy('product_inventories.warehouse_id')->paginate(15, pageName: 'workspace-stock-page');
@@ -153,6 +165,11 @@ class WorkspaceStockTable extends Component
             $latest = $latestQuery->get()->keyBy('id');
         }
         $details = $this->detailsId ? $this->query()->findOrFail($this->detailsId) : null;
+        $detailLocations = $details ? $this->query(false)->where('product_inventories.product_id', $details->product_id)->get() : collect();
+        $inTransit = (int) InventoryAllocationTransitionLine::query()->where('context_type', 'transfer')->where('status', 'dispatched')
+            ->whereIn('source_product_inventory_id', $all->modelKeys())
+            ->when($personal || $service->isEmployeeView($user), fn ($q) => $q->whereHas('account', fn ($q) => $q->where('employee_id', $user->employee->id)))
+            ->sum('remaining_quantity');
         $reservationRows = $details ? InventoryReservation::query()->where('product_inventory_id', $details->id)
             ->when($service->isEmployeeView($user), fn ($q) => $q->whereHas('allocationLines.account', fn ($q) => $q->where('employee_id', $user->employee->id)))
             ->with('orderItem.order')->latest('id')->limit(30)->get() : collect();
@@ -174,6 +191,7 @@ class WorkspaceStockTable extends Component
         return view('livewire.workspace-stock-table', [
             'rows' => $rows, 'summary' => $summary, 'own' => $own, 'personal' => $personal, 'financial' => $financial,
             'costHistory' => $costHistory, 'latest' => $latest, 'details' => $details,
+            'detailLocations' => $detailLocations, 'inTransit' => $inTransit,
             'averageCosts' => $financial ? DB::table('product_inventories')->whereIn('id', $rows->getCollection()->modelKeys())->pluck('average_cost', 'id') : collect(),
             'breakdown' => $details ? app(InventoryAllocationBreakdownReadService::class)->forInventory($user, $details) : null,
             'reservationRows' => $reservationRows, 'events' => $events,

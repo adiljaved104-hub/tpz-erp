@@ -68,6 +68,13 @@ class OrderForm
                         filled($get('marketplace_platform_id')) ? (int) $get('marketplace_platform_id') : null,
                         $get('external_order_number'), auth()->user(), $record?->id,
                     )),
+                Placeholder::make('duplicate_order_notice')->hiddenLabel()->columnSpanFull()
+                    ->content(fn (Get $get, ?Order $record) => view('filament.orders.duplicate-order-notice', [
+                        'notice' => app(ExternalOrderIdentityService::class)->duplicateNotice(
+                            filled($get('marketplace_platform_id')) ? (int) $get('marketplace_platform_id') : null,
+                            $get('external_order_number'), auth()->user(), $record?->id,
+                        ),
+                    ])),
                 DatePicker::make('order_date')->default(now())->required(),
                 Select::make('handled_by_employee_id')
                     ->label('Handled By')

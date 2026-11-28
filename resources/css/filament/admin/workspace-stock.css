@@ -1,0 +1,43 @@
+/* Scoped Issue 209 components: no Classic table or operational form overrides. */
+.tpz-stock-panel { padding: .7rem; }
+.tpz-stock-panel .tpz-native-panel-title { padding: .25rem .15rem .55rem; align-items: center; }
+.tpz-stock-panel .tpz-native-panel-title h2 { font-size: 1.08rem; }
+.tpz-stock-panel small, .tpz-stock-note { color: #64748b; font-size: .7rem; }
+.tpz-stock-filters { display: flex; align-items: end; gap: .65rem; padding: .55rem 0 .7rem; }
+.tpz-stock-filters > label { min-width: 0; flex: 1 1 7rem; }
+.tpz-stock-filters > label:first-child { flex: 2.2 1 13rem; }
+.tpz-stock-personal .tpz-stock-filters > label { order: 3; }
+.tpz-stock-personal .tpz-stock-filters > label:first-child { order: 1; }
+.tpz-stock-personal .tpz-stock-filters > .tpz-stock-filter-stock { order: 2; }
+.tpz-stock-personal .tpz-stock-filters > button { order: 4; }
+.tpz-stock-filters .fi-input-wrp { margin-top: .2rem; border: 1px solid #d6dfeb; box-shadow: none; border-radius: .45rem; }
+.tpz-stock-filters .fi-btn { flex-shrink: 0; min-height: 2.2rem; font-size: .75rem; }
+.tpz-stock-kpis { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: .5rem; }
+.tpz-stock-kpis > div { display: flex; align-items: center; gap: .7rem; padding: .55rem .65rem; background: linear-gradient(130deg,#eff8ff,#f9fcff); border: 1px solid #d8e8fa; border-radius: .5rem; color: #0064b9; }
+.tpz-stock-kpis span { font-size: .67rem; color: #152d49; }
+.tpz-stock-kpis strong { display: block; font-size: 1.25rem; line-height: 1.25; color: #0c223e; }
+.tpz-stock-note { margin: .4rem 0 .6rem; }
+.tpz-stock-panel .tpz-workspace-table { width: 100%; margin: 0; font-size: .73rem; }
+.tpz-stock-panel .tpz-workspace-table :is(th,td) { padding: .5rem .4rem; vertical-align: middle; white-space: normal; overflow-wrap: break-word; }
+.tpz-stock-panel .tpz-workspace-table th { background: #f1f5fb; font-size: .67rem; line-height: 1.3; text-transform: none; color: #0d2540; }
+.tpz-stock-table { table-layout: fixed; min-width: 790px; }
+.tpz-stock-table .tpz-stock-product { width: 26%; }
+.tpz-stock-table td > button { font-weight: 650; }
+.tpz-stock-table td > small { display: block; margin-top: .15rem; }
+.tpz-stock-view { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; border: 1px solid #cdd9e7; border-radius: .4rem; background: #fff; color: #102a46; padding: .3rem .45rem; font-size: .7rem; font-weight: 600; line-height: 1.2; }
+.tpz-stock-view:hover { background: #eef7ff; border-color: #0089ec; }
+.tpz-stock-release { border-color: #9fd6b4; color: #148337; background: #f2fff6; }
+.tpz-stock-detail-tabs { display: flex; flex-wrap: wrap; gap: .4rem; border-block: 1px solid #dde6ef; margin: .8rem 0; }
+.tpz-stock-detail-tabs button { padding: .65rem .55rem; font-size: .8rem; border-bottom: 2px solid transparent; }
+.tpz-stock-detail-tabs .is-active { color: #0078dc; border-color: #0078dc; font-weight: 700; }
+.tpz-reservation-table { table-layout: fixed; min-width: 700px; }
+.tpz-reservation-table th:first-child { width: 35%; }
+.tpz-reservation-table th:last-child { width: 17%; }
+.tpz-reservation-status { display: inline-block; padding: .1rem .45rem; border: 1px solid #a9a0e8; border-radius: 1rem; background: #f4f0ff; color: #5f30ba; font-weight: 650; font-size: .68rem; }
+.dark .tpz-stock-kpis > div { background: #172f48; border-color: #2c4a66; }
+.dark .tpz-stock-kpis :is(span,strong), .dark .tpz-stock-panel .tpz-workspace-table th { color: #dcecff; }
+.dark .tpz-stock-panel .tpz-workspace-table th { background: #19314a; }
+.dark .tpz-stock-view { background: #172f48; border-color: #3e5a78; color: #dcecff; }
+.dark .tpz-stock-panel small, .dark .tpz-stock-note { color: #a4b5c9; }
+@media (max-width: 1050px) { .tpz-stock-filters { flex-wrap: wrap; } .tpz-stock-filters > label:first-child { flex-basis: 100%; } }
+@media (max-width: 600px) { .tpz-stock-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } .tpz-stock-panel { padding: .5rem; } }

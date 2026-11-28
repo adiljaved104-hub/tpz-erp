@@ -477,7 +477,7 @@ class InventoryAllocationService
         }
     }
 
-    public function transferExact(ProductInventory $inventory, InventoryAllocationAccount $source, InventoryAllocationAccount $destination, int $quantity, User $actor, Model $request, string $eventType = 'stock_request_transfer'): InventoryAllocationEvent
+    public function transferExact(ProductInventory $inventory, InventoryAllocationAccount $source, InventoryAllocationAccount $destination, int $quantity, User $actor, Model $request, string $eventType = 'stock_request_transfer', string $reason = 'Approved permanent Stock Request transfer'): InventoryAllocationEvent
     {
         $lockedInventory = ProductInventory::query()->lockForUpdate()->findOrFail($inventory->id);
         $sourceBalance = $this->balance($source, $lockedInventory, true);
@@ -494,7 +494,7 @@ class InventoryAllocationService
         $destinationBalance->increment('allocated_quantity', $quantity);
 
         return $this->event($eventType, $lockedInventory, $quantity, $actor,
-            'Approved permanent Stock Request transfer', $request, $source, $destination);
+            $reason, $request, $source, $destination);
     }
 
     public function release(InventoryReservation $reservation, User $actor, string $reason): void

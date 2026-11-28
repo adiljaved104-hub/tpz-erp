@@ -76,6 +76,7 @@ jobs:
             tests/Feature/Inventory/EmployeeOwnedInventoryTest.php \
             tests/Feature/Responsibilities/ResponsibilityAssignmentTest.php \
             tests/Feature/Upgrades/OrderUpgradeExecutionTest.php
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --filter 'inventory_workspace_keeps_overview_stock_visible|my_inventory_rows_show_product_name' --log-junit workspace-209-navigation-results.xml tests/Feature/Navigation/NativeWorkspacesTest.php
       - name: Nontransactional production reference guard and concurrent MySQL requests
         run: |
           vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit workspace-209-concurrency-results.xml tests/Feature/Inventory/Workspace209MysqlConcurrencyTest.php

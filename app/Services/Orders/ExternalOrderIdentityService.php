@@ -4,6 +4,7 @@ namespace App\Services\Orders;
 
 use App\Models\Order;
 use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
 
 class ExternalOrderIdentityService
 {
@@ -33,5 +34,22 @@ class ExternalOrderIdentityService
         }
 
         return app(OrderReferenceSearchService::class)->duplicateValidationMessage($actor, $hash, $ignoreOrderId);
+    }
+
+    public function duplicateNotice(?int $platformId, ?string $value, User $actor, ?int $ignoreOrderId = null): ?array
+    {
+        $warning = $this->warning($platformId, $value, $actor, $ignoreOrderId);
+        if ($warning === null) {
+            return null;
+        }
+        try {
+            $order = app(OrderReferenceSearchService::class)->query($actor)
+                ->where('external_identity_hash', $this->hash($platformId, $value))
+                ->when($ignoreOrderId, fn ($q) => $q->whereKeyNot($ignoreOrderId))->first();
+        } catch (AuthorizationException) {
+            $order = null;
+        }
+
+        return ['message' => $warning, 'order' => $order];
     }
 }

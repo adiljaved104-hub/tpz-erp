@@ -99,7 +99,7 @@ class ResponsibilityStockTransitionService
                 throw ValidationException::withMessages(['transition' => 'The destination allocation account is inactive. No changes were made.']);
             }
             foreach ($rows as $row) {
-                $ledger->transferExact($row->inventory, InventoryAllocationAccount::findOrFail($row->account_id), $destination, $row->allocated_quantity, $actor, $successor, 'responsibility_stock_transfer');
+                $ledger->transferExact($row->inventory, InventoryAllocationAccount::findOrFail($row->account_id), $destination, $row->allocated_quantity, $actor, $successor, 'responsibility_stock_transfer', trim($data->reason));
             }
             app(ActivityLogger::class)->log('responsibility.stock_transitioned', $actor, $successor, ['predecessor_assignment_id' => $source->id, 'inventory_ids' => $rows->pluck('product_inventory_id')->all(), 'operation_key' => $data->idempotencyKey]);
 

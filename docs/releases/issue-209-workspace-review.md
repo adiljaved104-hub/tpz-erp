@@ -23,4 +23,13 @@ Base: Staging `bed7de3ef855288013c80f4e291c9efda8d2b2ed`. Development only; no d
 
 ## Validation
 
+### Owner visual/review follow-up
+
+- Compact one-row metrics, horizontal filters, explicit Quick View, title-first wrapping, separate financial columns and grouped Product Details. The Tailwind source scan now includes the Livewire views; scoped CSS does not alter Classic tables.
+- Reserved quantities open the reservation section; Release still covers eligible complete regular-Sales bundles only and explicitly returns the order to Draft.
+- The real shared Sales Order form includes a scoped Duplicate Order Detected notice and authorized existing-order link. Submit-time platform identity and database uniqueness remain authoritative.
+- Responsibility handoff allocation events now contain the actual Owner-entered handoff reason, not the unrelated Stock Request reason. Original Stock Request callers retain their default reason.
+- Two navigation assertions were stale after intentional tab/personal-ownership changes: the old inventory alias now routes to Locations; the My Inventory fixture now has an actual personal balance. Both are included in focused CI.
+- Accounting B2's `ai_assistant.manage_settings` registry reconciliation failure is already present in the pinned Staging registry, which this PR does not change. It is a separate baseline issue, not an accounting regression introduced here; no permission assertion is disabled or weakened.
+
 Dedicated non-deploying PHP 8.3 / MySQL 8.4 workflow checks changed-file syntax/Pint, locked dependencies, Vite build, additive schema baseline and Blade, plus focused workspace, Sales identity, responsibility, allocation and upgrade tests. Separate non-transactional MySQL tests keep the production reference guard enabled and race actual duplicate-create, order-release and brand-handoff requests. No destructive reset commands or operational databases are used.

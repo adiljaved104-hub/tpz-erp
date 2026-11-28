@@ -7,6 +7,7 @@
                 <p class="tpz-workspace-subtitle">Available Stock, reservations and actions within your authorized responsibility.</p>
             </div>
             <div class="tpz-workspace-context-actions flex flex-wrap gap-2" aria-label="Actions for selected inventory section">
+                @if(\App\Filament\Resources\Orders\OrderResource::canCreate())<x-filament::button tag="a" :href="\App\Filament\Resources\Orders\OrderResource::getUrl('create')" icon="heroicon-o-plus">Create New Order</x-filament::button>@endif
                 @if($activeTab === 'extra' && $activeExtraModule !== null && isset($extraModules[$activeExtraModule]))
                     <x-filament::button tag="a" :href="$extraModules[$activeExtraModule]['url']" :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-arrow-up-right')">
                         Open {{ $extraModules[$activeExtraModule]['label'] }}

@@ -5,6 +5,7 @@ namespace App\Livewire;
 use App\Enums\InventoryPermission;
 use App\Enums\InventoryReservationStatus;
 use App\Models\InventoryReservation;
+use App\Models\MarketplacePlatform;
 use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Inventory\InventoryReadService;
 use App\Services\Orders\OrderReservationReleaseService;
@@ -25,6 +26,24 @@ class WorkspaceReservations extends Component
 
     public string $reason = '';
 
+    public string $status = '';
+
+    public string $location = '';
+
+    public string $platform = '';
+
+    public function applyFilters(): void
+    {
+        $this->validate(['search' => ['string', 'max:200'], 'status' => ['in:,active,released,fulfilled'], 'location' => ['nullable', 'integer', 'min:1'], 'platform' => ['nullable', 'integer', 'min:1']]);
+        $this->resetPage('reservation-page');
+    }
+
+    public function resetFilters(): void
+    {
+        $this->reset('search', 'status', 'location', 'platform');
+        $this->resetPage('reservation-page');
+    }
+
     #[Locked]
     public ?int $releaseReservationId = null;
 
@@ -40,7 +59,7 @@ class WorkspaceReservations extends Component
     #[Locked]
     public bool $salesOnly = false;
 
-    private function query()
+    private function query(bool $filters = true)
     {
         $user = auth()->user();
         abort_unless($user && app(InventoryAuthorization::class)->allows($user, InventoryPermission::View), 403);
@@ -49,8 +68,11 @@ class WorkspaceReservations extends Component
             ->when($this->inventoryId !== null, fn ($q) => $q->where('product_inventory_id', $this->inventoryId))
             ->when($this->orderId !== null, fn ($q) => $q->whereHas('orderItem', fn ($q) => $q->where('order_id', $this->orderId)))
             ->when($this->salesOnly, fn ($q) => $q->whereHas('orderItem.order', fn ($q) => $q->whereNull('web_sales_channel')))
+            ->when($filters && $this->status !== '', fn ($q) => $q->where('status', $this->status))
+            ->when($filters && $this->location !== '', fn ($q) => $q->where('warehouse_id', $this->location))
+            ->when($filters && $this->platform !== '', fn ($q) => $q->whereHas('orderItem.order', fn ($q) => $q->where('marketplace_platform_id', $this->platform)))
             ->with(['product:id,sku,name', 'warehouse:id,name', 'orderItem.order', 'reservedBy:id,name'])
-            ->when(trim($this->search) !== '', fn ($q) => $q->where(fn ($q) => $q->where('reference', 'like', '%'.addcslashes(trim($this->search), '%_').'%')->orWhereHas('product', fn ($q) => $q->where('sku', 'like', '%'.addcslashes(trim($this->search), '%_').'%')->orWhere('name', 'like', '%'.addcslashes(trim($this->search), '%_').'%'))));
+            ->when($filters && trim($this->search) !== '', fn ($q) => $q->where(fn ($q) => $q->where('reference', 'like', '%'.addcslashes(trim($this->search), '%_').'%')->orWhereHas('product', fn ($q) => $q->where('sku', 'like', '%'.addcslashes(trim($this->search), '%_').'%')->orWhere('name', 'like', '%'.addcslashes(trim($this->search), '%_').'%'))->orWhereHas('orderItem.order', fn ($q) => $q->where('reference', 'like', '%'.addcslashes(trim($this->search), '%_').'%'))));
     }
 
     public function prepareRelease(int $reservationId): void
@@ -94,6 +116,8 @@ class WorkspaceReservations extends Component
         $pending = $this->releaseReservationId ? $this->query()->findOrFail($this->releaseReservationId) : null;
 
         return view('livewire.workspace-reservations', [
+            'locations' => $this->query(false)->get()->pluck('warehouse')->unique('id')->pluck('name', 'id'),
+            'platforms' => MarketplacePlatform::query()->whereIn('id', $this->query(false)->get()->pluck('orderItem.order.marketplace_platform_id')->filter()->unique())->pluck('name', 'id'),
             'rows' => $this->query()->latest('id')->paginate(15, pageName: 'reservation-page'),
             'pending' => $pending,
             'bundle' => $pending?->orderItem?->order ? app(OrderReservationReleaseService::class)->reservations($pending->orderItem->order)->where('status', InventoryReservationStatus::Active)->with('product:id,sku,name', 'warehouse:id,name')->get() : collect(),

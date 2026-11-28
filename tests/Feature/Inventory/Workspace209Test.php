@@ -9,6 +9,7 @@ use App\DTOs\Responsibilities\TransferResponsibilityAssignmentData;
 use App\Enums\EmployeeRole;
 use App\Enums\OrderStatus;
 use App\Exceptions\InventoryInvariantException;
+use App\Filament\Pages\SalesWorkspace;
 use App\Livewire\WorkspaceReservations;
 use App\Livewire\WorkspaceStockTable;
 use App\Models\EmployeePermissionOverride;
@@ -20,12 +21,14 @@ use App\Models\Product;
 use App\Models\ProductInventory;
 use App\Models\StockMovement;
 use App\Services\Inventory\InventoryAllocationService;
+use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Orders\ExternalOrderIdentityService;
 use App\Services\Orders\OrderReservationReleaseService;
 use App\Services\Orders\OrderService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
 use App\Services\Responsibilities\ResponsibilityStockTransitionService;
+use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -137,6 +140,7 @@ class Workspace209Test extends TestCase
         $this->assertTrue(app(ResponsibilityProductScopeService::class)->canAccessProduct($destination, $zero->id));
         $this->assertFalse(app(ResponsibilityProductScopeService::class)->canAccessProduct($f['employee']->user, $zero->id));
         $this->assertSame(1, InventoryAllocationEvent::query()->where('event_type', 'responsibility_stock_transfer')->count());
+        $this->assertSame($data->reason, InventoryAllocationEvent::query()->where('event_type', 'responsibility_stock_transfer')->sole()->reason);
         $this->assertDatabaseCount('stock_movements', 0);
         $this->assertSame($before, $historical->fresh()->toArray());
     }
@@ -172,6 +176,50 @@ class Workspace209Test extends TestCase
         $this->assertNull($identity->warning(null, 'external-209', $f['owner']));
         $staff = $this->responsibilityUser(EmployeeRole::Staff);
         $this->assertSame('This Platform Order Number already exists.', $identity->warning($platform->id, 'external-209', $staff));
+        $this->assertNull($identity->duplicateNotice($platform->id, 'external-209', $staff)['order']);
+        $this->assertSame($order->id, $identity->duplicateNotice($platform->id, 'external-209', $f['owner'])['order']->id);
+    }
+
+    public function test_real_sales_create_modal_displays_duplicate_and_rejects_submit_without_stock_changes(): void
+    {
+        [$f, $order] = $this->reserved();
+        $platform = $f['platform'];
+        $f['inventory']->warehouse->update(['code' => 'MAIN']);
+        $order->update(['marketplace_platform_id' => $platform->id, 'external_order_number' => 'ACTUAL-MODAL-209', 'external_identity_hash' => app(ExternalOrderIdentityService::class)->hash($platform->id, 'ACTUAL-MODAL-209')]);
+        $this->actingAs($f['owner']);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        app(NavigationPreferenceService::class)->setWorkspaceMode($f['owner'], true);
+        Livewire::test(SalesWorkspace::class)->mountAction('createSalesOrder')
+            ->set('mountedActions.0.data', [
+                'warehouse_id' => $f['inventory']->warehouse_id, 'marketplace_platform_id' => $platform->id,
+                'external_order_number' => 'actual-modal-209', 'order_date' => today()->toDateString(),
+                'handled_by_employee_id' => $f['owner']->employee->id, 'idempotency_key' => (string) Str::uuid(),
+                'items' => [['product_id' => $f['product']->id, 'quantity' => 1, 'selling_price' => '150.00', 'discount_total' => '0.00', 'vat_rate' => '0.0000']],
+            ])->assertSee('Duplicate Order Detected')->assertSee($order->reference)
+            ->callMountedAction(arguments: ['mode' => 'draft'])->assertHasActionErrors(['external_order_number']);
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertSame(2, $f['inventory']->fresh()->reserved_quantity);
+    }
+
+    public function test_reservation_filters_match_order_reference_and_reset_without_mutations(): void
+    {
+        [$f, $order] = $this->reserved();
+        $this->actingAs($f['owner']);
+        Livewire::test(WorkspaceReservations::class)->set('search', $order->reference)->call('applyFilters')
+            ->assertViewHas('rows', fn ($rows) => $rows->total() === 1)
+            ->set('status', 'released')->call('applyFilters')->assertViewHas('rows', fn ($rows) => $rows->total() === 0)
+            ->call('resetFilters')->assertViewHas('rows', fn ($rows) => $rows->total() === 1);
+        $this->assertSame(2, $f['inventory']->fresh()->reserved_quantity);
+    }
+
+    public function test_quick_view_has_scoped_locations_and_reserved_section_without_financial_leakage(): void
+    {
+        $f = $this->responsibilityFoundation(10, 0);
+        $this->actingAs($f['owner']);
+        Livewire::test(WorkspaceStockTable::class)->call('details', $f['inventory']->id, 'reservations')
+            ->assertSet('detailTab', 'reservations')->assertSee('Transfer holds and employee allocations are not released here')
+            ->call('detailSection', 'allocation')->assertViewHas('detailLocations', fn ($rows) => $rows->modelKeys() === [$f['inventory']->id]);
+        Livewire::test(WorkspaceStockTable::class)->call('details', $f['inventory']->id, 'unexpected')->assertNotFound();
     }
 
     public function test_unapproved_actor_cannot_move_brand_scope_or_allocations(): void

@@ -43,7 +43,7 @@
                 <div class="mx-auto mt-3 max-w-4xl rounded-lg border border-gray-200 p-4 dark:border-gray-700" aria-label="Purchase Cost History">
                     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <div><h3 class="font-semibold">Purchase Cost History</h3><p class="text-xs text-gray-500">Latest received cost and posted Goods Receipts (GRNs).</p></div>
-                        <button type="button" class="tpz-stock-view" wire:click="detailSection('allocation')">Back to stock details</button>
+                        <button type="button" class="tpz-stock-view" wire:click="details({{ $details->id }})">Back to stock details</button>
                     </div>
                     @include('filament.purchases.purchase-cost-history', ['history'=>$historyData])
                 </div>

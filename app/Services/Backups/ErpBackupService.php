@@ -22,8 +22,12 @@ class ErpBackupService
     private const FILE_MODE = 0660;
 
     /** @return array<string, mixed> */
-    public function create(bool $includeDatabase = true, bool $includeStorage = true): array
+    public function create(bool $includeDatabase = true, bool $includeStorage = true, string $purpose = 'manual'): array
     {
+        if (! in_array($purpose, ['scheduled', 'manual', 'deployment', 'operational_reset'], true)) {
+            throw new RuntimeException('Invalid backup purpose.');
+        }
+
         if (! $includeDatabase && ! $includeStorage) {
             throw new RuntimeException('At least one backup component must be selected.');
         }
@@ -58,7 +62,7 @@ class ErpBackupService
                 $files[] = $this->fileMetadata($storageFile, 'storage');
             }
 
-            $manifest = $this->manifest($timestamp->toImmutable(), $driver, $files, 'successful');
+            $manifest = $this->manifest($timestamp->toImmutable(), $driver, $files, 'successful', $purpose);
             $this->writeManifest($temporary, $manifest);
 
             if (is_dir($final)) {
@@ -71,7 +75,7 @@ class ErpBackupService
 
             return ['path' => $final, 'manifest' => $manifest];
         } catch (Throwable $exception) {
-            $this->writeManifest($temporary, $this->manifest($timestamp->toImmutable(), (string) DB::connection()->getDriverName(), [], 'failed'));
+            $this->writeManifest($temporary, $this->manifest($timestamp->toImmutable(), (string) DB::connection()->getDriverName(), [], 'failed', $purpose));
             $this->secureIncompleteBackup($temporary);
             Log::error('ERP backup failed safely.', ['exception' => $exception::class, 'backup_path' => $temporary]);
 
@@ -236,11 +240,13 @@ class ErpBackupService
     }
 
     /** @param array<int, array<string, mixed>> $files */
-    private function manifest(CarbonImmutable $timestamp, string $driver, array $files, string $status): array
+    private function manifest(CarbonImmutable $timestamp, string $driver, array $files, string $status, string $purpose): array
     {
         return [
             'manifest_version' => self::VERSION,
             'status' => $status,
+            'purpose' => $purpose,
+            'retention_protected' => $purpose !== 'scheduled',
             'backup_timestamp' => $timestamp->setTimezone('UTC')->toIso8601String(),
             'application' => [
                 'name' => (string) config('app.name'),

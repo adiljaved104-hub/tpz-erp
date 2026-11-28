@@ -83,6 +83,8 @@ class BackupRestoreTest extends TestCase
 
         $this->assertDirectoryExists($result['path']);
         $this->assertSame('successful', $manifest['status']);
+        $this->assertSame('manual', $manifest['purpose']);
+        $this->assertTrue($manifest['retention_protected']);
         $this->assertSame('sqlite', $manifest['database_driver']);
         $this->assertStringEndsWith('+00:00', $manifest['backup_timestamp']);
         $this->assertSame('2026_08_26_090000_create_login_email_recovery_and_expenses', $manifest['latest_migration']);
@@ -124,6 +126,47 @@ class BackupRestoreTest extends TestCase
         $this->assertSame(0750, $permissions['dir']['private']);
         $this->assertSame('private', config('filesystems.disks.local.visibility'));
         $this->assertSame('local', config('filesystems.default'));
+    }
+
+    public function test_cli_full_deployment_backup_includes_database_and_storage_and_survives_rotation(): void
+    {
+        config([
+            'backup.database.enabled' => false,
+            'backup.storage.enabled' => false,
+            'backup.retention.daily' => 1,
+            'backup.retention.weekly' => 0,
+            'backup.retention.monthly' => 0,
+        ]);
+
+        // --full overrides disabled component settings, and dry-run must not
+        // delete anything. The deployment backup is permanently protected.
+        $this->artisan('erp:backup', [
+            '--full' => true,
+            '--purpose' => 'deployment',
+            '--retention-dry-run' => true,
+        ])->assertSuccessful();
+
+        $directories = File::directories(config('backup.root'));
+        $this->assertCount(1, $directories);
+        $protected = $directories[0];
+        $manifest = json_decode(file_get_contents($protected.'/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('deployment', $manifest['purpose']);
+        $this->assertTrue($manifest['retention_protected']);
+        $this->assertSame(['database', 'storage'], array_column($manifest['files'], 'kind'));
+        $this->assertFileExists($protected.'/database.sqlite');
+        $this->assertFileExists($protected.'/storage.zip');
+        $this->assertNotContains($protected, app(BackupRetentionService::class)->plan()['expired']);
+    }
+
+    public function test_scheduled_backups_are_explicitly_unprotected_and_default_manual_backups_are_protected(): void
+    {
+        $result = app(ErpBackupService::class)->create(includeDatabase: true, includeStorage: true, purpose: 'scheduled');
+        $this->assertSame('scheduled', $result['manifest']['purpose']);
+        $this->assertFalse($result['manifest']['retention_protected']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Invalid backup purpose');
+        app(ErpBackupService::class)->create(purpose: 'untrusted');
     }
 
     public function test_storage_only_backup_creates_a_verified_archive_for_empty_configured_roots(): void
@@ -323,6 +366,8 @@ class BackupRestoreTest extends TestCase
             File::ensureDirectoryExists($directory);
             file_put_contents($directory.'/manifest.json', json_encode([
                 'status' => 'successful',
+                'purpose' => 'scheduled',
+                'retention_protected' => false,
                 'backup_timestamp' => $timestamp->toIso8601String(),
             ], JSON_THROW_ON_ERROR));
         }
@@ -337,6 +382,87 @@ class BackupRestoreTest extends TestCase
         app(BackupRetentionService::class)->prune(false);
         $this->assertDirectoryExists($newest);
         $this->assertDirectoryDoesNotExist($plan['expired'][0]);
+    }
+
+    public function test_retention_preserves_legacy_and_protected_same_day_backups_after_a_newer_scheduled_run(): void
+    {
+        config([
+            'backup.retention.daily' => 1,
+            'backup.retention.weekly' => 0,
+            'backup.retention.monthly' => 0,
+        ]);
+
+        $root = config('backup.root');
+        File::ensureDirectoryExists($root);
+        $fixture = function (string $name, array $metadata) use ($root): string {
+            $directory = $root.DIRECTORY_SEPARATOR.$name;
+            File::ensureDirectoryExists($directory);
+            file_put_contents($directory.'/manifest.json', json_encode([
+                'status' => 'successful',
+                'backup_timestamp' => CarbonImmutable::createFromFormat('!Y-m-d_His', $name, 'UTC')->toIso8601String(),
+            ] + $metadata, JSON_THROW_ON_ERROR));
+
+            return $directory;
+        };
+
+        // All five share the same UTC daily, weekly and monthly buckets.
+        $legacyFull = $fixture('2026-11-01_141816', []); // old manifest with unknown intent
+        $deployment = $fixture('2026-11-01_142930', ['purpose' => 'deployment', 'retention_protected' => true]);
+        $manual = $fixture('2026-11-01_143030', ['purpose' => 'manual', 'retention_protected' => true]);
+        $earlyScheduled = $fixture('2026-11-01_150000', ['purpose' => 'scheduled', 'retention_protected' => false]);
+        $latestScheduled = $fixture('2026-11-01_210016', ['purpose' => 'scheduled', 'retention_protected' => false]);
+
+        $plan = app(BackupRetentionService::class)->plan();
+        foreach ([$legacyFull, $deployment, $manual, $latestScheduled] as $mustKeep) {
+            $this->assertContains($mustKeep, $plan['kept']);
+            $this->assertNotContains($mustKeep, $plan['expired']);
+        }
+        $this->assertSame([$earlyScheduled], $plan['expired']);
+
+        $dryRun = app(BackupRetentionService::class)->prune(true);
+        $this->assertSame([$earlyScheduled], $dryRun['deleted']);
+        $this->assertDirectoryExists($earlyScheduled);
+
+        $actual = app(BackupRetentionService::class)->prune();
+        $this->assertSame([$earlyScheduled], $actual['deleted']);
+        $this->assertDirectoryDoesNotExist($earlyScheduled);
+        foreach ([$legacyFull, $deployment, $manual, $latestScheduled] as $mustKeep) {
+            $this->assertDirectoryExists($mustKeep);
+        }
+    }
+
+    public function test_retention_rejects_protected_manifests_even_if_the_plan_was_cached_prior_to_protection(): void
+    {
+        config([
+            'backup.retention.daily' => 1,
+            'backup.retention.weekly' => 0,
+            'backup.retention.monthly' => 0,
+        ]);
+        $root = config('backup.root');
+        File::ensureDirectoryExists($root);
+
+        foreach (['2026-11-01_120000', '2026-11-01_210000'] as $name) {
+            $directory = $root.DIRECTORY_SEPARATOR.$name;
+            File::ensureDirectoryExists($directory);
+            file_put_contents($directory.'/manifest.json', json_encode([
+                'status' => 'successful',
+                'purpose' => 'scheduled',
+                'retention_protected' => false,
+                'backup_timestamp' => CarbonImmutable::createFromFormat('!Y-m-d_His', $name, 'UTC')->toIso8601String(),
+            ], JSON_THROW_ON_ERROR));
+        }
+
+        $candidate = $root.DIRECTORY_SEPARATOR.'2026-11-01_120000';
+        $this->assertContains($candidate, app(BackupRetentionService::class)->plan()['expired']);
+        // A protected backup with the same day never enters a prune plan.
+        $manifest = json_decode(file_get_contents($candidate.'/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
+        $manifest['retention_protected'] = true;
+        file_put_contents($candidate.'/manifest.json', json_encode($manifest, JSON_THROW_ON_ERROR));
+
+        $plan = app(BackupRetentionService::class)->plan();
+        $this->assertNotContains($candidate, $plan['expired']);
+        app(BackupRetentionService::class)->prune();
+        $this->assertDirectoryExists($candidate);
     }
 
     public function test_failed_backup_does_not_prune_a_previous_successful_backup(): void

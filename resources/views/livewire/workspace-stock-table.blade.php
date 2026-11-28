@@ -66,13 +66,54 @@
                 @endif
                 @if($detailTab === 'reservations')
                 <p class="tpz-stock-note">Only authorized Sales reservations can be released. Transfer holds and employee allocations are not released here; filtered lines may be a subset of the physical reserved balance.</p>
-                <h3 class="mt-4 font-semibold">Reservations</h3>@forelse($reservationRows as $r)<p class="text-sm">{{ $r->reference }} · {{ $r->quantity }} · {{ $r->status->value }} · {{ $r->orderItem?->order ? (app(\App\Services\Authorization\OrderAuthorization::class)->allows(auth()->user(), \App\Enums\OrderPermission::View, $r->orderItem->order) ? $r->orderItem->order->reference : 'Restricted order') : 'Standalone / transfer hold' }}</p>@empty<p class="text-sm">No reservation lines visible in your scope.</p>@endforelse
-                @livewire(\App\Livewire\WorkspaceReservations::class, ['inventoryId'=>$details->id], key('stock-reservations-'.$details->id))
+                <div class="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div><h3 class="font-semibold">Stock Reservations</h3><p class="text-xs text-gray-500">One authorized list of Sales reservations and non-releasable transfer holds.</p></div>
+                        <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">Physical reserved: {{ number_format($details->reserved_quantity) }} units</span>
+                    </div>
+                    @livewire(\App\Livewire\WorkspaceReservations::class, ['inventoryId'=>$details->id], key('stock-reservations-'.$details->id))
+                </div>
                 @endif
                 @if($detailTab === 'provenance')
-                <h3 class="mt-4 font-semibold">Allocation provenance (read-only)</h3><p class="text-xs text-gray-500">Pooled ledger events, not serial-number tracking or a second spendable balance.</p>
-                @forelse($events as $event)<p class="text-sm">#{{ $event->id }} {{ $event->event_type }} · {{ $event->fromAccount?->name ?? 'Receipt / external' }} → {{ $event->toAccount?->name ?? 'Consumed / dispatched' }} · {{ $event->quantity }} units</p>@empty<p class="text-sm">No allocation events visible in your scope.</p>@endforelse
-                @foreach($provenanceReceipts as $receipt)<p class="text-sm">Physical transfer line #{{ $receipt->context_id }} · {{ $receipt->status }} · destination {{ $receipt->destinationInventory?->warehouse?->name ?? 'Awaiting receipt' }}. Pooled movement evidence; not a second spendable allocation.</p>@endforeach
+                <div class="mt-4 mb-3">
+                    <h3 class="font-semibold">Stock Movements &amp; Allocation Provenance</h3>
+                    <p class="text-xs text-gray-500">Read-only pooled ledger history. Previous holders are shown for traceability only; historical events do not grant current stock ownership or create a second sellable balance.</p>
+                </div>
+                <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                    <table class="tpz-workspace-table w-full text-sm">
+                        <thead><tr><th>Date</th><th>Movement</th><th>From → To</th><th>Qty</th><th>Reference</th></tr></thead>
+                        <tbody>
+                            @forelse($events as $event)
+                                <tr wire:key="allocation-history-{{ $event->id }}">
+                                    <td class="whitespace-nowrap">{{ $event->created_at?->format('d M Y, H:i') ?? '—' }}</td>
+                                    <td class="whitespace-normal">{{ str_replace('_', ' ', ucfirst((string) $event->event_type)) }}</td>
+                                    <td class="whitespace-normal">{{ $event->fromAccount?->name ?? 'Receipt / external' }} → {{ $event->toAccount?->name ?? 'Consumed / dispatched' }}</td>
+                                    <td class="tabular-nums">{{ number_format((int) $event->quantity) }}</td>
+                                    <td class="whitespace-nowrap">Event #{{ $event->id }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="5" class="py-4 text-gray-500">No allocation movements visible in your authorized scope.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                @if($provenanceReceipts->isNotEmpty())
+                    <h4 class="mt-5 mb-2 font-semibold">Physical warehouse transfers</h4>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                        <table class="tpz-workspace-table w-full text-sm">
+                            <thead><tr><th>Transfer line</th><th>Destination</th><th>Receipt status</th></tr></thead>
+                            <tbody>
+                                @foreach($provenanceReceipts as $receipt)
+                                    <tr wire:key="warehouse-receipt-{{ $receipt->id }}">
+                                        <td>Line #{{ $receipt->context_id }}</td>
+                                        <td>{{ $receipt->destinationInventory?->warehouse?->name ?? 'Awaiting destination confirmation' }}</td>
+                                        <td>{{ str_replace('_', ' ', ucfirst((string) $receipt->status)) }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
                 @endif
             @endif
         </div></div>

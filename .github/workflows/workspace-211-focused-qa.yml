@@ -61,8 +61,10 @@ jobs:
           git diff --check 3b0e900eed5270877182617ddd0f5090589788e4..HEAD
           test -z "$(git diff 3b0e900eed5270877182617ddd0f5090589788e4..HEAD --name-only -- database/migrations composer.lock)"
           mapfile -t paths < <(git diff 3b0e900eed5270877182617ddd0f5090589788e4..HEAD --name-only -- '*.php')
-          for path in "${paths[@]}"; do php -l "$path"; done
-          vendor/bin/pint --test "${paths[@]}"
+          if (( ${#paths[@]} > 0 )); then
+            for path in "${paths[@]}"; do php -l "$path"; done
+            vendor/bin/pint --test "${paths[@]}"
+          fi
       - name: Disposable MySQL schema and Blade
         run: |
           php artisan migrate --force --no-interaction

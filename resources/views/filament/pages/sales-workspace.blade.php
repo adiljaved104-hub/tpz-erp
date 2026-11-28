@@ -151,6 +151,7 @@
         </header>
 
         <nav class="tpz-workspace-tabs" aria-label="Sales workspace sections" tabindex="0" title="Scroll horizontally or use the left/right arrow keys to see more modules" x-on:keydown.arrow-right.stop="$el.scrollBy({left: 190, behavior: 'smooth'})" x-on:keydown.arrow-left.stop="$el.scrollBy({left: -190, behavior: 'smooth'})">
+            @if($canViewReservations)<button type="button" class="tpz-workspace-tab {{ $activeTab === 'reservations' ? 'is-active' : '' }}" wire:click="setTab('reservations')">Reservations</button>@endif
             <button type="button" class="tpz-workspace-tab {{ $activeTab === 'overview' ? 'is-active' : '' }}" aria-selected="{{ $activeTab === 'overview' ? 'true' : 'false' }}" wire:click="setTab('overview')"><x-filament::icon :icon="\App\Support\SafeWorkspaceIcon::resolve('heroicon-o-squares-2x2')" class="tpz-native-tab-icon size-4" /> Overview</button>
             @foreach (['orders' => 'Sales Orders', 'webSales' => 'Web Sales', 'quotations' => 'Quotations'] as $key => $label)
                 @if(isset($links[$key]))
@@ -432,6 +433,9 @@
                     <div class="mt-4">{{ $quotations->links() }}</div>
                 @endif
             </x-filament::section>
+        @endif
+        @if($activeTab === 'reservations' && $canViewReservations)
+            @livewire(\App\Livewire\WorkspaceReservations::class, ['salesOnly' => true], key('sales-reservations-tab'))
         @endif
         @if($activeTab === 'extra')
             @if($activeExtraModule !== null && isset($extraModules[$activeExtraModule]) && $extraModules[$activeExtraModule]['label'] === 'Reservations')

@@ -7,6 +7,7 @@ use App\Actions\Orders\SaveAndReserveOrder;
 use App\Actions\Orders\SaveAsShippedOrder;
 use App\DTOs\Orders\OrderItemData;
 use App\DTOs\Orders\SaveAndReserveOrderData;
+use App\Enums\InventoryPermission;
 use App\Enums\OrderPermission;
 use App\Enums\OrderStatus;
 use App\Enums\QcPermission;
@@ -24,6 +25,7 @@ use App\Filament\Resources\WebSalesOrders\WebSalesOrderResource;
 use App\Models\Order;
 use App\Models\TaxInvoice;
 use App\Models\User;
+use App\Services\Authorization\InventoryAuthorization;
 use App\Services\Authorization\OrderAuthorization;
 use App\Services\Authorization\QcAuthorization;
 use App\Services\Authorization\QuotationAuthorization;
@@ -588,6 +590,8 @@ class SalesWorkspace extends Page
 
         return [
             'quickViewOrder' => $quickViewOrder,
+            'canViewReservations' => app(InventoryAuthorization::class)->allows($user, InventoryPermission::View)
+                && app(OrderAuthorization::class)->allows($user, OrderPermission::View),
             'extraPreview' => $extraPreview,
             'salesCounts' => $salesCounts,
             'salesAttention' => $salesAttention,
@@ -894,6 +898,8 @@ class SalesWorkspace extends Page
         $permitted = match ($tab) {
             'overview' => true,
             'orders' => app(OrderAuthorization::class)->allows($user, OrderPermission::View),
+            'reservations' => app(OrderAuthorization::class)->allows($user, OrderPermission::View)
+                && app(InventoryAuthorization::class)->allows($user, InventoryPermission::View),
             'webSales' => app(WebSalesAuthorization::class)->allows($user, WebSalesPermission::View),
             'quotations' => app(QuotationAuthorization::class)->allows($user, QuotationPermission::View),
             default => false,

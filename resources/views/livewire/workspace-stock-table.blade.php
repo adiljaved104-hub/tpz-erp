@@ -12,7 +12,7 @@
         @foreach(['held'=>($personal?'My allocated':'Physical available pool'),'reserved'=>'Reserved','sellable'=>'Sellable'] as $key=>$label)<div class="rounded-lg border border-blue-100 bg-blue-50 p-3 dark:border-blue-900 dark:bg-gray-900"><span class="text-xs text-gray-500">{{ $label }}</span><strong class="block text-xl">{{ number_format($summary[$key]) }}</strong></div>@endforeach
         <p class="text-xs text-gray-500">Reserved units are included in the available pool. Employee allocations subdivide stock; do not add them to physical totals.</p>
     </div>
-    <div class="overflow-x-auto"><table class="tpz-workspace-table"><thead><tr><th class="min-w-64">Product / SKU</th><th>Location</th><th>{{ $personal ? 'My allocated' : 'Physical pool' }}</th><th>Allocated</th><th>Reserved</th><th>Sellable</th>@if($financial)<th>Average cost / value</th>@endif @if($costHistory)<th>Latest receipt cost</th>@endif<th>Details</th></tr></thead><tbody>
+    <div class="overflow-x-auto"><table class="tpz-workspace-table"><thead><tr><th class="min-w-64">Product / SKU</th><th>Location</th><th>{{ $personal ? 'My allocated' : 'Physical pool' }}</th><th>Allocated</th><th>Reserved</th><th>Sellable</th>@if($financial)<th>Average cost / value</th>@endif @if($costHistory)<th>Latest receipt cost</th>@endif</tr></thead><tbody>
         @forelse($rows as $row)
             @php($held = (int) ($personal ? $own->get($row->id)?->allocated_quantity : $row->available_quantity))
             @php($reserved = (int) ($personal ? $own->get($row->id)?->reserved_quantity : $row->reserved_quantity))
@@ -23,7 +23,6 @@
                 <td><button wire:click="details({{ $row->id }})" class="text-blue-700 dark:text-blue-300">{{ $held-$reserved }}</button></td>
                 @if($financial)<td>{{ $averageCosts->get($row->id) === null ? '—' : \App\Support\AedMoney::format($averageCosts->get($row->id)) }}<small class="block" title="Available-pool value; reserved units are included">{{ $averageCosts->get($row->id) === null ? '' : \App\Support\AedMoney::format(bcmul((string)$averageCosts->get($row->id),(string)$held,4)) }}</small></td>@endif
                 @if($costHistory)<td><button wire:click="purchaseHistory({{ $row->id }})" class="text-blue-700 dark:text-blue-300">{{ $latest->get($row->id)?->latest_purchase_cost === null ? 'History' : 'AED '.number_format((float)$latest->get($row->id)->latest_purchase_cost,2) }}</button></td>@endif
-                <td><x-filament::button color="gray" size="xs" wire:click="details({{ $row->id }})">Quick View</x-filament::button></td>
             </tr>
         @empty<tr><td colspan="9">No stock matches your authorized scope and filters.</td></tr>@endforelse
     </tbody></table></div><div class="p-3">{{ $rows->links() }}</div>

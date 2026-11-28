@@ -74,7 +74,7 @@ class ResponsibilityAssignmentTest extends TestCase
         $secondUser = $this->responsibilityUser(EmployeeRole::Staff);
         $action->handle($this->assignmentData($f, ResponsibilityAssignmentMode::Quantity, ['employeeId' => $secondUser->employee->id, 'assignedQuantity' => 7]), $f['owner']);
 
-        $this->assertSame(15, InventoryResponsibilityQuantity::query()->sum('assigned_quantity'));
+        $this->assertSame(15, (int) InventoryResponsibilityQuantity::query()->sum('assigned_quantity'));
         $this->assertSame($before, $f['inventory']->refresh()->only(array_keys($before)));
         $this->assertSame(0, StockMovement::query()->count());
 

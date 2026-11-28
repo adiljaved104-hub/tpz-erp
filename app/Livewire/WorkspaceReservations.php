@@ -37,6 +37,9 @@ class WorkspaceReservations extends Component
     #[Locked]
     public ?int $orderId = null;
 
+    #[Locked]
+    public bool $salesOnly = false;
+
     private function query()
     {
         $user = auth()->user();
@@ -45,6 +48,7 @@ class WorkspaceReservations extends Component
         return InventoryReservation::query()->whereIn('product_inventory_id', app(InventoryReadService::class)->inventories($user)->select('product_inventories.id'))
             ->when($this->inventoryId !== null, fn ($q) => $q->where('product_inventory_id', $this->inventoryId))
             ->when($this->orderId !== null, fn ($q) => $q->whereHas('orderItem', fn ($q) => $q->where('order_id', $this->orderId)))
+            ->when($this->salesOnly, fn ($q) => $q->whereHas('orderItem.order', fn ($q) => $q->whereNull('web_sales_channel')))
             ->with(['product:id,sku,name', 'warehouse:id,name', 'orderItem.order', 'reservedBy:id,name'])
             ->when(trim($this->search) !== '', fn ($q) => $q->where(fn ($q) => $q->where('reference', 'like', '%'.addcslashes(trim($this->search), '%_').'%')->orWhereHas('product', fn ($q) => $q->where('sku', 'like', '%'.addcslashes(trim($this->search), '%_').'%')->orWhere('name', 'like', '%'.addcslashes(trim($this->search), '%_').'%'))));
     }

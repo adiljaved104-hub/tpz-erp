@@ -29,6 +29,10 @@ class ProductInventory extends Model
         return [
             'available_quantity' => 'integer',
             'reserved_quantity' => 'integer',
+            'allocated_quantity' => 'integer',
+            'allocation_reserved_quantity' => 'integer',
+            'my_allocated_quantity' => 'integer',
+            'my_reserved_quantity' => 'integer',
             'damaged_quantity' => 'integer',
             'average_cost' => 'decimal:4',
             'marketplace_non_sellable_quantity' => 'integer',

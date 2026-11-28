@@ -114,7 +114,9 @@ class WorkspaceStockTable extends Component
 
     public function details(int $inventoryId, string $section = 'allocation'): void
     {
-        $this->query()->findOrFail($inventoryId);
+        // Display filters are not authorization. A location shown in the scoped
+        // product breakdown must remain openable without clearing table filters.
+        $this->query(false)->findOrFail($inventoryId);
         abort_unless(in_array($section, ['allocation', 'info', 'provenance', 'reservations'], true), 404);
         $this->detailsId = $inventoryId;
         $this->history = false;
@@ -166,7 +168,7 @@ class WorkspaceStockTable extends Component
             app(PurchaseCostHistoryService::class)->addLatestCostSelect($latestQuery, 'product_inventories.product_id', $user);
             $latest = $latestQuery->get()->keyBy('id');
         }
-        $details = $this->detailsId ? $this->query()->findOrFail($this->detailsId) : null;
+        $details = $this->detailsId ? $this->query(false)->findOrFail($this->detailsId) : null;
         $detailLocations = $details ? $this->query(false)->where('product_inventories.product_id', $details->product_id)->get() : collect();
         $inTransit = (int) InventoryAllocationTransitionLine::query()->where('context_type', 'transfer')->where('status', 'dispatched')
             ->whereIn('source_product_inventory_id', $all->modelKeys())
@@ -194,6 +196,7 @@ class WorkspaceStockTable extends Component
             'rows' => $rows, 'summary' => $summary, 'own' => $own, 'personal' => $personal, 'financial' => $financial,
             'costHistory' => $costHistory, 'latest' => $latest, 'details' => $details,
             'detailLocations' => $detailLocations, 'inTransit' => $inTransit,
+            'detailOwn' => $details ? $service->metrics($user, collect([$details->id]))->get($details->id) : null,
             'detailCost' => $financial && $details ? DB::table('product_inventories')->where('id', $details->id)->value('average_cost') : null,
             'brandAssignments' => $details && $user->employee?->role === EmployeeRole::Owner
                 && ResponsibilityAssignmentResource::canViewAny()

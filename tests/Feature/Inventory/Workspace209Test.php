@@ -227,6 +227,21 @@ class Workspace209Test extends TestCase
         Livewire::test(WorkspaceStockTable::class)->call('details', $f['inventory']->id, 'unexpected')->assertNotFound();
     }
 
+    public function test_scoped_product_locations_can_open_independently_of_table_filters(): void
+    {
+        $f = $this->responsibilityFoundation(10, 0);
+        $other = ProductInventory::factory()->create(['product_id' => $f['product']->id, 'available_quantity' => 7, 'reserved_quantity' => 0]);
+        $this->balance($f['owner']->employee->id, $f['inventory'], 2, 0);
+        $this->balance($f['owner']->employee->id, $other, 7, 0);
+        $this->actingAs($f['owner']);
+        Livewire::test(WorkspaceStockTable::class, ['mode' => 'mine'])
+            ->set('location', (string) $f['inventory']->warehouse_id)->call('applyFilters')
+            ->assertViewHas('summary', fn ($summary) => $summary['held'] === 2)
+            ->call('details', $other->id)->assertViewHas('details', fn ($record) => $record->id === $other->id)
+            ->assertViewHas('detailOwn', fn ($balance) => $balance->allocated_quantity === 7)
+            ->assertViewHas('summary', fn ($summary) => $summary['held'] === 2);
+    }
+
     public function test_unapproved_actor_cannot_move_brand_scope_or_allocations(): void
     {
         $f = $this->responsibilityFoundation();

@@ -35,8 +35,8 @@
             <div class="flex justify-between gap-4"><div><h2 class="whitespace-normal text-lg font-bold">{{ $details->product?->name }}</h2><small>{{ $details->product?->sku }} · {{ $details->warehouse?->name }}</small></div><x-filament::button color="gray" wire:click="closeDetails">Close</x-filament::button></div>
             <div class="tpz-stock-product-summary">
                 <div><small>Brand / Category</small><strong>{{ $details->product?->brand }} · {{ $details->product?->category }}</strong><small>{{ ucfirst($details->product?->status?->value ?? '') }}</small></div>
-                <div><small>{{ $personal ? 'My allocated stock' : 'Authorized stock pool' }}</small><strong>{{ $personal ? (int) $own->get($details->id)?->allocated_quantity : $details->available_quantity }}</strong></div>
-                <div><small>Reserved</small><button class="text-blue-700 font-semibold" wire:click="detailSection('reservations')">{{ $personal ? (int) $own->get($details->id)?->reserved_quantity : $details->reserved_quantity }}</button></div>
+                <div><small>{{ $personal ? 'My allocated stock' : 'Authorized stock pool' }}</small><strong>{{ $personal ? (int) $detailOwn?->allocated_quantity : $details->available_quantity }}</strong></div>
+                <div><small>Reserved</small><button class="text-blue-700 font-semibold" wire:click="detailSection('reservations')">{{ $personal ? (int) $detailOwn?->reserved_quantity : $details->reserved_quantity }}</button></div>
                 @if($financial)<div><small>Average Cost</small><strong>{{ $detailCost === null ? 'No cost history' : \App\Support\AedMoney::format($detailCost) }}</strong></div>@endif
             </div>
             @if($historyData)
@@ -59,7 +59,7 @@
                     @foreach($breakdown['lines'] as $line)<p class="text-sm">{{ $line['label'] }} — {{ $line['allocated'] }} held, {{ $line['reserved'] }} reserved, {{ $line['sellable'] }} available</p>@endforeach
                 @endif
                 </div><aside>
-                    <div class="tpz-stock-detail-card"><h3 class="font-semibold">Current Employee Allocation</h3><p class="tpz-stock-note">{{ (int) $own->get($details->id)?->allocated_quantity }} allocated · {{ (int) $own->get($details->id)?->reserved_quantity }} reserved. These units are included in the stock pool, not additional inventory.</p></div>
+                    <div class="tpz-stock-detail-card"><h3 class="font-semibold">Current Employee Allocation</h3><p class="tpz-stock-note">{{ (int) $detailOwn?->allocated_quantity }} allocated · {{ (int) $detailOwn?->reserved_quantity }} reserved. These units are included in the stock pool, not additional inventory.</p></div>
                     @if($costHistory)<div class="tpz-stock-detail-card"><h3 class="font-semibold">Purchase Cost History</h3><p class="tpz-stock-note">Completed goods receipts; Purchase Date and Receipt Date remain separate.</p><button class="tpz-stock-view" wire:click="purchaseHistory({{ $details->id }})">View Purchase History</button></div>@endif
                     @if($brandAssignments->isNotEmpty())<div class="tpz-stock-detail-card"><h3 class="font-semibold">Brand / Product Responsibility</h3>@foreach($brandAssignments as $assignment)<p class="text-sm">{{ $assignment->employee?->name }} · {{ $assignment->reference }}</p>@endforeach<p class="tpz-stock-note">Each assignment retains its platform, warehouse and other scope restrictions. Owner-reviewed current stock handoff never rewrites historical documents.</p><a class="tpz-stock-view" href="{{ \App\Filament\Resources\ResponsibilityAssignments\ResponsibilityAssignmentResource::getUrl('index', ['tableSearch'=>$brandAssignments->first()->reference]) }}">Review Reassignment &amp; Current Stock</a></div>@endif
                 </aside></div>

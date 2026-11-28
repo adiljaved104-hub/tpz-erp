@@ -1,7 +1,7 @@
 name: Workspace 209 focused QA (non-deploying)
 on:
   push:
-    branches: [codex/inventory-sales-workspaces-209-20261128]
+    branches: [codex/inventory-sales-workspaces-209-20261128, chatgpt/issue-211-visual-parity-20261128]
   workflow_dispatch:
 permissions:
   contents: read

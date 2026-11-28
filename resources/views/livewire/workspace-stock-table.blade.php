@@ -30,25 +30,53 @@
         @empty<tr><td colspan="10">No stock matches your authorized scope and filters.</td></tr>@endforelse
     </tbody></table></div><div class="p-3">{{ $rows->links() }}</div>
     @if($details)
-        <div role="dialog" aria-modal="true" aria-label="Stock breakdown" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div class="tpz-stock-details max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-xl bg-white p-5 text-gray-950 shadow-xl dark:bg-gray-900 dark:text-white">
-            <h2 class="mb-3 text-lg font-bold">Product Details · Quick View</h2>
-            <div class="flex justify-between gap-4"><div><h2 class="whitespace-normal text-lg font-bold">{{ $details->product?->name }}</h2><small>{{ $details->product?->sku }} · {{ $details->warehouse?->name }}</small></div><x-filament::button color="gray" wire:click="closeDetails">Close</x-filament::button></div>
-            <div class="tpz-stock-product-summary">
-                <div><small>Brand / Category</small><strong>{{ $details->product?->brand }} · {{ $details->product?->category }}</strong><small>{{ ucfirst($details->product?->status?->value ?? '') }}</small></div>
-                <div><small>{{ $personal ? 'My allocated stock' : 'Authorized stock pool' }}</small><strong>{{ $personal ? (int) $detailOwn?->allocated_quantity : $details->available_quantity }}</strong></div>
-                <div><small>Reserved</small><button class="text-blue-700 font-semibold" wire:click="detailSection('reservations')">{{ $personal ? (int) $detailOwn?->reserved_quantity : $details->reserved_quantity }}</button></div>
-                @if($financial)<div><small>Average Cost</small><strong>{{ $detailCost === null ? 'No cost history' : \App\Support\AedMoney::format($detailCost) }}</strong></div>@endif
-            </div>
+        <div role="dialog" aria-modal="true" aria-label="Stock breakdown" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div class="tpz-stock-details tpz-stock-dialog bg-white text-gray-950 dark:bg-gray-900 dark:text-white">
+            <div class="tpz-stock-dialog-main">
+                <div class="tpz-stock-dialog-header flex items-center justify-between gap-4">
+                    <h2 class="tpz-stock-dialog-title"><x-filament::icon icon="heroicon-o-cube" class="size-5"/> Product Details</h2>
+                    <x-filament::button color="gray" wire:click="closeDetails">Close</x-filament::button>
+                </div>
+                <div class="tpz-stock-hero">
+                    <div class="min-w-0">
+                        <h3 class="tpz-stock-product-heading whitespace-normal break-words">{{ $details->product?->name }}</h3>
+                        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                            <span class="rounded-md bg-gray-100 px-2 py-1 dark:bg-gray-800">{{ $details->product?->sku }}</span>
+                            <span>Brand: <strong>{{ $details->product?->brand ?? '—' }}</strong></span>
+                            <span>Category: <strong>{{ $details->product?->category ?? '—' }}</strong></span>
+                            <span>Location: <strong>{{ $details->warehouse?->name ?? '—' }}</strong></span>
+                            <span class="rounded-md bg-green-50 px-2 py-1 text-green-800 dark:bg-green-950 dark:text-green-200">{{ ucfirst($details->product?->status?->value ?? 'Unknown') }}</span>
+                        </div>
+                        @if(\App\Filament\Resources\Products\ProductResource::canView($details->product))
+                            <a class="mt-3 inline-flex text-sm font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300" href="{{ \App\Filament\Resources\Products\ProductResource::getUrl('view',['record'=>$details->product]) }}">Open authorized product details ↗</a>
+                        @endif
+                    </div>
+                    <div class="tpz-stock-product-summary">
+                        <div><small>{{ $personal ? 'My allocated stock' : 'Authorized stock pool' }}</small><strong>{{ number_format((int) ($personal ? $detailOwn?->allocated_quantity : $details->available_quantity)) }}</strong></div>
+                        <div><small>Reserved</small><button class="text-blue-700 font-bold underline dark:text-blue-300" wire:click="detailSection('reservations')">{{ number_format((int) ($personal ? $detailOwn?->reserved_quantity : $details->reserved_quantity)) }}</button></div>
+                        <div><small>Sellable / Available</small><strong>{{ number_format(max(0, $personal ? ((int) $detailOwn?->allocated_quantity - (int) $detailOwn?->reserved_quantity) : ((int) $details->available_quantity - (int) $details->reserved_quantity))) }}</strong></div>
+                        @if($financial)<div><small>Average Cost</small><strong>{{ $detailCost === null ? 'No cost history' : \App\Support\AedMoney::format($detailCost) }}</strong></div>@endif
+                    </div>
+                </div>
             @if($historyData)
-                @include('filament.purchases.purchase-cost-history', ['history'=>$historyData])
+                <div class="mx-auto mt-3 max-w-4xl rounded-lg border border-gray-200 p-4 dark:border-gray-700" aria-label="Purchase Cost History">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div><h3 class="font-semibold">Purchase Cost History</h3><p class="text-xs text-gray-500">Latest received cost and posted Goods Receipts (GRNs).</p></div>
+                        <button type="button" class="tpz-stock-view" wire:click="details({{ $details->id }})">Back to stock details</button>
+                    </div>
+                    @include('filament.purchases.purchase-cost-history', ['history'=>$historyData])
+                </div>
             @else
-                @if(\App\Filament\Resources\Products\ProductResource::canView($details->product))<a class="text-blue-700" href="{{ \App\Filament\Resources\Products\ProductResource::getUrl('view',['record'=>$details->product]) }}">Open authorized product details</a>@endif
                 <nav class="tpz-stock-detail-tabs" aria-label="Product details sections">
                     @foreach(['allocation'=>'Inventory & Allocation','info'=>'Product Info','provenance'=>'Stock Movements & Provenance','reservations'=>'Orders & Reservations'] as $key=>$label)<button type="button" class="{{ $detailTab === $key ? 'is-active' : '' }}" wire:click="detailSection('{{ $key }}')">{{ $label }}</button>@endforeach
                     @if($costHistory)<button type="button" wire:click="purchaseHistory({{ $details->id }})">Purchase History</button>@endif
                 </nav>
                 @if($detailTab === 'info')
-                    <dl class="grid grid-cols-2 gap-4 py-4"><div><dt>Brand</dt><dd>{{ $details->product?->brand }}</dd></div><div><dt>Category</dt><dd>{{ $details->product?->category }}</dd></div><div><dt>Model</dt><dd>{{ $details->product?->model ?? '—' }}</dd></div><div><dt>Status</dt><dd>{{ $details->product?->status?->value }}</dd></div></dl>
+                    <dl class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><dt class="text-xs text-gray-500">Brand</dt><dd class="mt-1 font-semibold">{{ $details->product?->brand ?? '—' }}</dd></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><dt class="text-xs text-gray-500">Category</dt><dd class="mt-1 font-semibold">{{ $details->product?->category ?? '—' }}</dd></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><dt class="text-xs text-gray-500">Model</dt><dd class="mt-1 font-semibold">{{ $details->product?->model ?? '—' }}</dd></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><dt class="text-xs text-gray-500">Product status</dt><dd class="mt-1 font-semibold">{{ ucfirst($details->product?->status?->value ?? 'Unknown') }}</dd></div>
+                    </dl>
                 @endif
                 @if($detailTab === 'allocation')
                 <div class="tpz-stock-detail-columns"><div class="tpz-stock-detail-card">
@@ -56,25 +84,88 @@
                     <table class="tpz-workspace-table"><thead><tr><th>Location</th><th>Authorized Pool</th><th>Reserved</th><th>Available</th><th>Actions</th></tr></thead><tbody>@foreach($detailLocations as $place)<tr><td>{{ $place->warehouse?->name }}</td><td>{{ $place->available_quantity }}</td><td><button class="text-blue-700" wire:click="details({{ $place->id }})">{{ $place->reserved_quantity }}</button></td><td>{{ $place->available_quantity-$place->reserved_quantity }}</td><td><button class="tpz-stock-view" wire:click="details({{ $place->id }})">Quick View</button></td></tr>@endforeach</tbody></table>
                 @if($breakdown)<p class="my-3 text-sm">Physical available pool {{ $breakdown['total_stock'] }} − reserved {{ $breakdown['reserved'] }} = sellable {{ $breakdown['sellable'] }}. Allocated {{ $breakdown['allocated'] }} is included, not additional stock.</p>
                     @if(!$breakdown['reconciled'])<p class="text-sm text-amber-700">Ledger coverage difference: {{ $breakdown['allocation_gap'] }} units. Reservation difference: {{ $breakdown['reserved_gap'] }} (may include transfer holds). No balances are changed by this view.</p>@endif
-                    @foreach($breakdown['lines'] as $line)<p class="text-sm">{{ $line['label'] }} — {{ $line['allocated'] }} held, {{ $line['reserved'] }} reserved, {{ $line['sellable'] }} available</p>@endforeach
+                    <div class="mt-3 rounded-md border border-gray-200 dark:border-gray-700">
+                        <div class="bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200">Authorized Stock Ownership Breakdown</div>
+                        <div class="px-3">
+                            @foreach($breakdown['lines'] as $line)
+                                <div class="tpz-stock-ownership-line">
+                                    <span class="break-words">{{ $line['label'] }}</span>
+                                    <span class="shrink-0 text-right"><strong>{{ number_format((int) $line['allocated']) }}</strong> held · <strong>{{ number_format((int) $line['reserved']) }}</strong> reserved · <strong>{{ number_format((int) $line['sellable']) }}</strong> available</span>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
                 @endif
                 </div><aside>
-                    <div class="tpz-stock-detail-card"><h3 class="font-semibold">Current Employee Allocation</h3><p class="tpz-stock-note">{{ (int) $detailOwn?->allocated_quantity }} allocated · {{ (int) $detailOwn?->reserved_quantity }} reserved. These units are included in the stock pool, not additional inventory.</p></div>
-                    @if($costHistory)<div class="tpz-stock-detail-card"><h3 class="font-semibold">Purchase Cost History</h3><p class="tpz-stock-note">Completed goods receipts; Purchase Date and Receipt Date remain separate.</p><button class="tpz-stock-view" wire:click="purchaseHistory({{ $details->id }})">View Purchase History</button></div>@endif
+                    <div class="tpz-stock-detail-card">
+                        <h3 class="font-semibold">Current Employee Allocation</h3>
+                        <div class="grid grid-cols-3 gap-2 text-center">
+                            <div class="rounded-md bg-blue-50 p-2 dark:bg-slate-800"><small class="block">Allocated</small><strong>{{ number_format((int) $detailOwn?->allocated_quantity) }}</strong></div>
+                            <div class="rounded-md bg-blue-50 p-2 dark:bg-slate-800"><small class="block">Reserved</small><strong>{{ number_format((int) $detailOwn?->reserved_quantity) }}</strong></div>
+                            <div class="rounded-md bg-blue-50 p-2 dark:bg-slate-800"><small class="block">Available</small><strong>{{ number_format(max(0, (int) $detailOwn?->allocated_quantity - (int) $detailOwn?->reserved_quantity)) }}</strong></div>
+                        </div>
+                        <p class="tpz-stock-note mt-2">Your personal allocation, when authorized; units are already included in the physical pool.</p>
+                    </div>
+                    @if($costHistory)<div class="tpz-stock-detail-card">
+                        <div class="flex items-center justify-between gap-2"><h3 class="font-semibold">Latest Purchase</h3><button class="tpz-stock-view" wire:click="purchaseHistory({{ $details->id }})">View Details ↗</button></div>
+                        <p class="tpz-stock-detail-hint">Authorized received-GRN cost history, purchase dates, receipt dates and quantities are available in Purchase Cost History. No cost is inferred from unreceived purchases.</p>
+                    </div>@endif
                     @if($brandAssignments->isNotEmpty())<div class="tpz-stock-detail-card"><h3 class="font-semibold">Brand / Product Responsibility</h3>@foreach($brandAssignments as $assignment)<p class="text-sm">{{ $assignment->employee?->name }} · {{ $assignment->reference }}</p>@endforeach<p class="tpz-stock-note">Each assignment retains its platform, warehouse and other scope restrictions. Owner-reviewed current stock handoff never rewrites historical documents.</p><a class="tpz-stock-view" href="{{ \App\Filament\Resources\ResponsibilityAssignments\ResponsibilityAssignmentResource::getUrl('index', ['tableSearch'=>$brandAssignments->first()->reference]) }}">Review Reassignment &amp; Current Stock</a></div>@endif
                 </aside></div>
                 @endif
                 @if($detailTab === 'reservations')
                 <p class="tpz-stock-note">Only authorized Sales reservations can be released. Transfer holds and employee allocations are not released here; filtered lines may be a subset of the physical reserved balance.</p>
-                <h3 class="mt-4 font-semibold">Reservations</h3>@forelse($reservationRows as $r)<p class="text-sm">{{ $r->reference }} · {{ $r->quantity }} · {{ $r->status->value }} · {{ $r->orderItem?->order ? (app(\App\Services\Authorization\OrderAuthorization::class)->allows(auth()->user(), \App\Enums\OrderPermission::View, $r->orderItem->order) ? $r->orderItem->order->reference : 'Restricted order') : 'Standalone / transfer hold' }}</p>@empty<p class="text-sm">No reservation lines visible in your scope.</p>@endforelse
-                @livewire(\App\Livewire\WorkspaceReservations::class, ['inventoryId'=>$details->id], key('stock-reservations-'.$details->id))
+                <div class="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div><h3 class="font-semibold">Stock Reservations</h3><p class="text-xs text-gray-500">One authorized list of Sales reservations and non-releasable transfer holds.</p></div>
+                        <span class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">Physical reserved: {{ number_format($details->reserved_quantity) }} units</span>
+                    </div>
+                    @livewire(\App\Livewire\WorkspaceReservations::class, ['inventoryId'=>$details->id], key('stock-reservations-'.$details->id))
+                </div>
                 @endif
                 @if($detailTab === 'provenance')
-                <h3 class="mt-4 font-semibold">Allocation provenance (read-only)</h3><p class="text-xs text-gray-500">Pooled ledger events, not serial-number tracking or a second spendable balance.</p>
-                @forelse($events as $event)<p class="text-sm">#{{ $event->id }} {{ $event->event_type }} · {{ $event->fromAccount?->name ?? 'Receipt / external' }} → {{ $event->toAccount?->name ?? 'Consumed / dispatched' }} · {{ $event->quantity }} units</p>@empty<p class="text-sm">No allocation events visible in your scope.</p>@endforelse
-                @foreach($provenanceReceipts as $receipt)<p class="text-sm">Physical transfer line #{{ $receipt->context_id }} · {{ $receipt->status }} · destination {{ $receipt->destinationInventory?->warehouse?->name ?? 'Awaiting receipt' }}. Pooled movement evidence; not a second spendable allocation.</p>@endforeach
+                <div class="mt-4 mb-3">
+                    <h3 class="font-semibold">Stock Movements &amp; Allocation Provenance</h3>
+                    <p class="text-xs text-gray-500">Read-only pooled ledger history. Previous holders are shown for traceability only; historical events do not grant current stock ownership or create a second sellable balance.</p>
+                </div>
+                <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                    <table class="tpz-workspace-table w-full text-sm">
+                        <thead><tr><th>Date</th><th>Movement</th><th>From → To</th><th>Qty</th><th>Reference</th></tr></thead>
+                        <tbody>
+                            @forelse($events as $event)
+                                <tr wire:key="allocation-history-{{ $event->id }}">
+                                    <td class="whitespace-nowrap">{{ $event->created_at?->format('d M Y, H:i') ?? '—' }}</td>
+                                    <td class="whitespace-normal">{{ str_replace('_', ' ', ucfirst((string) $event->event_type)) }}</td>
+                                    <td class="whitespace-normal">{{ $event->fromAccount?->name ?? 'Receipt / external' }} → {{ $event->toAccount?->name ?? 'Consumed / dispatched' }}</td>
+                                    <td class="tabular-nums">{{ number_format((int) $event->quantity) }}</td>
+                                    <td class="whitespace-nowrap">Event #{{ $event->id }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="5" class="py-4 text-gray-500">No allocation movements visible in your authorized scope.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                @if($provenanceReceipts->isNotEmpty())
+                    <h4 class="mt-5 mb-2 font-semibold">Physical warehouse transfers</h4>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                        <table class="tpz-workspace-table w-full text-sm">
+                            <thead><tr><th>Transfer line</th><th>Destination</th><th>Receipt status</th></tr></thead>
+                            <tbody>
+                                @foreach($provenanceReceipts as $receipt)
+                                    <tr wire:key="warehouse-receipt-{{ $receipt->id }}">
+                                        <td>Line #{{ $receipt->context_id }}</td>
+                                        <td>{{ $receipt->destinationInventory?->warehouse?->name ?? 'Awaiting destination confirmation' }}</td>
+                                        <td>{{ str_replace('_', ' ', ucfirst((string) $receipt->status)) }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
                 @endif
             @endif
+            </div>
         </div></div>
     @endif
 </section>

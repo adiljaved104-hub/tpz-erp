@@ -24,6 +24,7 @@ use App\Services\Inventory\InventoryAllocationService;
 use App\Services\Navigation\NavigationPreferenceService;
 use App\Services\Orders\ExternalOrderIdentityService;
 use App\Services\Orders\OrderReservationReleaseService;
+use App\Services\Orders\OrderResponsibilityScopeService;
 use App\Services\Orders\OrderService;
 use App\Services\Responsibilities\ResponsibilityAssignmentService;
 use App\Services\Responsibilities\ResponsibilityProductScopeService;
@@ -139,6 +140,8 @@ class Workspace209Test extends TestCase
         $this->assertSame(10, (int) app(InventoryAllocationService::class)->employeeAccount($destination->employee->id)->balances()->sum('allocated_quantity'));
         $this->assertTrue(app(ResponsibilityProductScopeService::class)->canAccessProduct($destination, $zero->id));
         $this->assertFalse(app(ResponsibilityProductScopeService::class)->canAccessProduct($f['employee']->user, $zero->id));
+        $this->assertFalse(app(OrderResponsibilityScopeService::class)->canAccessProduct($f['employee']->user, $f['product']->id, null, $f['inventory']->warehouse_id));
+        $this->assertTrue(app(OrderResponsibilityScopeService::class)->canAccessProduct($destination, $f['product']->id, null, $f['inventory']->warehouse_id));
         $this->assertSame(1, InventoryAllocationEvent::query()->where('event_type', 'responsibility_stock_transfer')->count());
         $this->assertSame($data->reason, InventoryAllocationEvent::query()->where('event_type', 'responsibility_stock_transfer')->sole()->reason);
         $this->assertDatabaseCount('stock_movements', 0);
@@ -184,19 +187,21 @@ class Workspace209Test extends TestCase
     {
         [$f, $order] = $this->reserved();
         $platform = $f['platform'];
-        $f['inventory']->warehouse->update(['code' => 'MAIN']);
         $order->update(['marketplace_platform_id' => $platform->id, 'external_order_number' => 'ACTUAL-MODAL-209', 'external_identity_hash' => app(ExternalOrderIdentityService::class)->hash($platform->id, 'ACTUAL-MODAL-209')]);
         $this->actingAs($f['owner']);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         app(NavigationPreferenceService::class)->setWorkspaceMode($f['owner'], true);
-        Livewire::test(SalesWorkspace::class)->mountAction('createSalesOrder')
-            ->set('mountedActions.0.data', [
+        $component = Livewire::test(SalesWorkspace::class)->mountAction('createSalesOrder')->assertActionMounted('createSalesOrder')
+            ->fillForm([
                 'warehouse_id' => $f['inventory']->warehouse_id, 'marketplace_platform_id' => $platform->id,
                 'external_order_number' => 'actual-modal-209', 'order_date' => today()->toDateString(),
                 'handled_by_employee_id' => $f['owner']->employee->id, 'idempotency_key' => (string) Str::uuid(),
                 'items' => [['product_id' => $f['product']->id, 'quantity' => 1, 'selling_price' => '150.00', 'discount_total' => '0.00', 'vat_rate' => '0.0000']],
-            ])->assertSee('Duplicate Order Detected')->assertSee($order->reference)
-            ->callMountedAction(arguments: ['mode' => 'draft'])->assertHasActionErrors(['external_order_number']);
+            ]);
+        $notice = $component->instance()->getSchema($component->instance()->getMountedActionSchemaName())->toHtml();
+        $this->assertStringContainsString('Duplicate Order Detected', $notice);
+        $this->assertStringContainsString($order->reference, $notice);
+        $component->callMountedAction(arguments: ['mode' => 'draft'])->assertHasActionErrors(['external_order_number']);
         $this->assertDatabaseCount('orders', 1);
         $this->assertSame(2, $f['inventory']->fresh()->reserved_quantity);
     }

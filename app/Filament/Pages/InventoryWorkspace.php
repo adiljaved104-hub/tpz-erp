@@ -977,7 +977,7 @@ class InventoryWorkspace extends Page
                 'Stock Requests', 'Stock Transfers', 'Stock Adjustments',
                 'Inventory Workspace',
             ], true))
-            ->sortBy(fn (array $item): int => $sequence[$item['label']] ?? 99)
+            ->sortBy(fn (array $item): int => $sequence[str_replace(' / ', '/', $item['label'])] ?? 99)
             ->values();
     }
 

@@ -64,6 +64,15 @@ class OrderForm
                     ->afterStateUpdated(fn ($state, Get $get, Set $set): mixed => self::refreshStockContexts($get, $set)),
                 TextInput::make('external_order_number')->label('External / Marketplace Order Number')->maxLength(255)
                     ->live(debounce: 500)
+                    ->rules(fn (Get $get, ?Order $record): array => [function (string $attribute, mixed $value, \Closure $fail) use ($get, $record): void {
+                        $warning = app(ExternalOrderIdentityService::class)->warning(
+                            filled($get('marketplace_platform_id')) ? (int) $get('marketplace_platform_id') : null,
+                            $value, auth()->user(), $record?->id,
+                        );
+                        if ($warning !== null) {
+                            $fail($warning);
+                        }
+                    }])
                     ->helperText(fn (Get $get, ?Order $record): ?string => app(ExternalOrderIdentityService::class)->warning(
                         filled($get('marketplace_platform_id')) ? (int) $get('marketplace_platform_id') : null,
                         $get('external_order_number'), auth()->user(), $record?->id,

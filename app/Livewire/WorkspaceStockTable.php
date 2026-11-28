@@ -2,7 +2,9 @@
 
 namespace App\Livewire;
 
+use App\Enums\EmployeeRole;
 use App\Enums\InventoryPermission;
+use App\Filament\Resources\ResponsibilityAssignments\ResponsibilityAssignmentResource;
 use App\Filament\Tables\Columns\PurchaseCostHistoryColumn;
 use App\Models\InventoryAllocationAccount;
 use App\Models\InventoryAllocationEvent;
@@ -192,6 +194,13 @@ class WorkspaceStockTable extends Component
             'rows' => $rows, 'summary' => $summary, 'own' => $own, 'personal' => $personal, 'financial' => $financial,
             'costHistory' => $costHistory, 'latest' => $latest, 'details' => $details,
             'detailLocations' => $detailLocations, 'inTransit' => $inTransit,
+            'detailCost' => $financial && $details ? DB::table('product_inventories')->where('id', $details->id)->value('average_cost') : null,
+            'brandAssignments' => $details && $user->employee?->role === EmployeeRole::Owner
+                && ResponsibilityAssignmentResource::canViewAny()
+                    ? ResponsibilityAssignmentResource::getEloquentQuery()->active()
+                        ->where(fn ($q) => $q->whereHas('brandScope', fn ($q) => $q->where('product_brand_id', $details->product->brand_id))
+                            ->orWhereHas('productScope', fn ($q) => $q->where('product_id', $details->product_id)))
+                        ->with('employee')->get() : collect(),
             'averageCosts' => $financial ? DB::table('product_inventories')->whereIn('id', $rows->getCollection()->modelKeys())->pluck('average_cost', 'id') : collect(),
             'breakdown' => $details ? app(InventoryAllocationBreakdownReadService::class)->forInventory($user, $details) : null,
             'reservationRows' => $reservationRows, 'events' => $events,

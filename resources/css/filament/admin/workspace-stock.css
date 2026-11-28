@@ -17,14 +17,14 @@
 .tpz-stock-kpis span { font-size: .67rem; color: #152d49; }
 .tpz-stock-kpis strong { display: block; font-size: 1.25rem; line-height: 1.25; color: #0c223e; }
 .tpz-stock-note { margin: .4rem 0 .6rem; }
-.tpz-stock-panel .tpz-workspace-table { width: 100%; margin: 0; font-size: .73rem; }
-.tpz-stock-panel .tpz-workspace-table :is(th,td) { padding: .5rem .4rem; vertical-align: middle; white-space: normal; overflow-wrap: break-word; }
-.tpz-stock-panel .tpz-workspace-table th { background: #f1f5fb; font-size: .67rem; line-height: 1.3; text-transform: none; color: #0d2540; }
+html.tpz-native-workspace .tpz-stock-panel table.tpz-workspace-table { width: 100%; margin: 0; font-size: .73rem; }
+html.tpz-native-workspace .tpz-stock-panel table.tpz-workspace-table :is(th,td) { padding: .5rem .4rem; vertical-align: middle; white-space: normal; overflow-wrap: break-word; }
+html.tpz-native-workspace .tpz-stock-panel table.tpz-workspace-table th { background: #f1f5fb; font-size: .67rem; line-height: 1.3; text-transform: none; color: #0d2540; }
 .tpz-stock-table { table-layout: fixed; min-width: 790px; }
 .tpz-stock-table .tpz-stock-product { width: 26%; }
 .tpz-stock-table td > button { font-weight: 650; }
 .tpz-stock-table td > small { display: block; margin-top: .15rem; }
-.tpz-stock-view { display: inline-flex; align-items: center; justify-content: center; gap: .25rem; border: 1px solid #cdd9e7; border-radius: .4rem; background: #fff; color: #102a46; padding: .3rem .45rem; font-size: .7rem; font-weight: 600; line-height: 1.2; }
+.tpz-stock-view { display: inline-flex; align-items: center; justify-content: center; gap: .15rem; max-width: 100%; white-space: normal; border: 1px solid #cdd9e7; border-radius: .4rem; background: #fff; color: #102a46; padding: .25rem; font-size: .65rem; font-weight: 600; line-height: 1.2; }
 .tpz-stock-view:hover { background: #eef7ff; border-color: #0089ec; }
 .tpz-stock-release { border-color: #9fd6b4; color: #148337; background: #f2fff6; }
 .tpz-stock-detail-tabs { display: flex; flex-wrap: wrap; gap: .4rem; border-block: 1px solid #dde6ef; margin: .8rem 0; }
@@ -34,10 +34,21 @@
 .tpz-reservation-table th:first-child { width: 35%; }
 .tpz-reservation-table th:last-child { width: 17%; }
 .tpz-reservation-status { display: inline-block; padding: .1rem .45rem; border: 1px solid #a9a0e8; border-radius: 1rem; background: #f4f0ff; color: #5f30ba; font-weight: 650; font-size: .68rem; }
+.tpz-stock-filters .fi-btn.fi-color-primary { background: #087af5; color: white; }
+.tpz-reference-inventory > .tpz-workspace-tabs { padding: .3rem; gap: .2rem; }
+html.tpz-native-workspace .tpz-reference-inventory > nav.tpz-workspace-tabs > button.tpz-workspace-tab { padding: .35rem .4rem; gap: .3rem; min-height: 2.25rem; font-size: .7rem; max-width: none; }
+.tpz-stock-product-summary { display: grid; grid-template-columns: 2fr repeat(3,1fr); gap: .7rem; padding: .8rem 0; }
+.tpz-stock-product-summary > div { border-right: 1px solid #dce5f0; }
+.tpz-stock-product-summary :is(strong,small) { display: block; }
+.tpz-stock-product-summary strong { font-size: .85rem; }
+.tpz-stock-detail-columns { display: grid; grid-template-columns: 1.8fr 1fr; gap: .75rem; }
+.tpz-stock-detail-card { padding: .65rem; border: 1px solid #d7e1ee; border-radius: .55rem; margin: .6rem 0; }
+.tpz-stock-detail-card h3 { margin-top: 0; font-size: .9rem; }
+.dark .tpz-stock-detail-card { border-color: #3b506d; }
 .dark .tpz-stock-kpis > div { background: #172f48; border-color: #2c4a66; }
 .dark .tpz-stock-kpis :is(span,strong), .dark .tpz-stock-panel .tpz-workspace-table th { color: #dcecff; }
 .dark .tpz-stock-panel .tpz-workspace-table th { background: #19314a; }
 .dark .tpz-stock-view { background: #172f48; border-color: #3e5a78; color: #dcecff; }
 .dark .tpz-stock-panel small, .dark .tpz-stock-note { color: #a4b5c9; }
 @media (max-width: 1050px) { .tpz-stock-filters { flex-wrap: wrap; } .tpz-stock-filters > label:first-child { flex-basis: 100%; } }
-@media (max-width: 600px) { .tpz-stock-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } .tpz-stock-panel { padding: .5rem; } }
+@media (max-width: 600px) { .tpz-stock-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } .tpz-stock-panel { padding: .5rem; } .tpz-stock-detail-columns { grid-template-columns: 1fr; } .tpz-stock-product-summary { grid-template-columns: 1fr 1fr; } }

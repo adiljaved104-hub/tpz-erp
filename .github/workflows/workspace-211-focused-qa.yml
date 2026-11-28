@@ -1,0 +1,87 @@
+name: Workspace 211 visual parity focused QA (non-deploying)
+on:
+  push:
+    branches: [chatgpt/issue-211-visual-parity-20261128]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mysql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: tpz_invoice_design_ci_test
+          MYSQL_USER: tpz_test
+          MYSQL_PASSWORD: isolated_ci_only
+          MYSQL_ROOT_PASSWORD: isolated_root_only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pisolated_root_only"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: tpz_invoice_design_ci_test
+      DB_USERNAME: tpz_test
+      DB_PASSWORD: isolated_ci_only
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      ERP_BACKUP_SCHEDULE_ENABLED: 'false'
+      HIKVISION_ENABLED: 'false'
+      MARKETPLACE_BROWSER_WORKER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, bcmath, intl, zip, pdo_mysql, gd
+          coverage: none
+      - name: Locked dependencies and isolated key
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress --no-scripts
+          echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Frontend, syntax, Pint and migration delta
+        run: |
+          npm ci
+          npm run build
+          git diff --check 3b0e900eed5270877182617ddd0f5090589788e4..HEAD
+          test -z "$(git diff 3b0e900eed5270877182617ddd0f5090589788e4..HEAD --name-only -- database/migrations composer.lock)"
+          mapfile -t paths < <(git diff 3b0e900eed5270877182617ddd0f5090589788e4..HEAD --name-only -- '*.php')
+          for path in "${paths[@]}"; do php -l "$path"; done
+          vendor/bin/pint --test "${paths[@]}"
+      - name: Disposable MySQL schema and Blade
+        run: |
+          php artisan migrate --force --no-interaction
+          php artisan view:cache
+      - name: Workspace, Sales identity, allocation, responsibility and upgrade regressions
+        run: |
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit workspace-211-results.xml \
+            tests/Feature/Inventory/Workspace209Test.php \
+            tests/Feature/Orders/OrderReferenceSearchTest.php \
+            tests/Feature/Orders/OrderWorkflowTest.php \
+            tests/Feature/Inventory/EmployeeOwnedInventoryTest.php \
+            tests/Feature/Responsibilities/ResponsibilityAssignmentTest.php \
+            tests/Feature/Upgrades/OrderUpgradeExecutionTest.php
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --filter 'inventory_workspace_keeps_overview_stock_visible|my_inventory_rows_show_product_name' --log-junit workspace-211-navigation-results.xml tests/Feature/Navigation/NativeWorkspacesTest.php
+      - name: Nontransactional production reference guard and concurrent MySQL requests
+        run: |
+          vendor/bin/phpunit --bootstrap tests/Support/TaxInvoiceDesignMysqlBootstrap.php --log-junit workspace-211-concurrency-results.xml tests/Feature/Inventory/Workspace209MysqlConcurrencyTest.php
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-211-focused-results
+          path: workspace-211*-results.xml

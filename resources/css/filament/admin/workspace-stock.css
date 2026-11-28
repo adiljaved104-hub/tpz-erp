@@ -105,3 +105,23 @@ html.tpz-native-workspace .tpz-reference-inventory > nav.tpz-workspace-tabs > bu
     .tpz-stock-detail-tabs { gap: .6rem; }
     .tpz-stock-product-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
+
+/* Issue 211: Sales reservation table and actionable status clarity. */
+.tpz-reservations-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .6rem; }
+.tpz-reservation-legend { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; color: #536980; font-size: .68rem; }
+.tpz-reservation-legend span:first-child { color: #673ab7; }
+.tpz-reservation-source-sales, .tpz-reservation-source-hold {
+    display: inline-flex; max-width: 100%; border-radius: .4rem; padding: .23rem .42rem;
+    font-size: .67rem; line-height: 1.35; font-weight: 700; white-space: normal;
+}
+.tpz-reservation-source-sales { background: #eaf4ff; color: #155b9b; border: 1px solid #beddf7; }
+.tpz-reservation-source-hold { background: #fff7e7; color: #8a5700; border: 1px solid #f1dda6; }
+.tpz-reservation-table { min-width: 900px; table-layout: auto; }
+.tpz-reservation-table th:first-child { width: 23%; }
+.tpz-reservation-table th:last-child { width: 14%; }
+.tpz-reservation-table tbody tr { border-bottom: 1px solid #e5edf5; }
+.tpz-reservation-table td { vertical-align: middle; }
+.tpz-reservation-table td:last-child { white-space: nowrap; }
+.dark .tpz-reservation-source-sales { background: #1c4164; color: #d4eafa; border-color: #3b6285; }
+.dark .tpz-reservation-source-hold { background: #544120; color: #ffe8b8; border-color: #796033; }
+@media(max-width: 700px) { .tpz-reservation-legend { width: 100%; } }

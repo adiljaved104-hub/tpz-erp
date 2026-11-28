@@ -40,7 +40,13 @@
                 @if($financial)<div><small>Average Cost</small><strong>{{ $detailCost === null ? 'No cost history' : \App\Support\AedMoney::format($detailCost) }}</strong></div>@endif
             </div>
             @if($historyData)
-                @include('filament.purchases.purchase-cost-history', ['history'=>$historyData])
+                <div class="mx-auto mt-3 max-w-4xl rounded-lg border border-gray-200 p-4 dark:border-gray-700" aria-label="Purchase Cost History">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div><h3 class="font-semibold">Purchase Cost History</h3><p class="text-xs text-gray-500">Latest received cost and posted Goods Receipts (GRNs).</p></div>
+                        <button type="button" class="tpz-stock-view" wire:click="detailSection('allocation')">Back to stock details</button>
+                    </div>
+                    @include('filament.purchases.purchase-cost-history', ['history'=>$historyData])
+                </div>
             @else
                 @if(\App\Filament\Resources\Products\ProductResource::canView($details->product))<a class="text-blue-700" href="{{ \App\Filament\Resources\Products\ProductResource::getUrl('view',['record'=>$details->product]) }}">Open authorized product details</a>@endif
                 <nav class="tpz-stock-detail-tabs" aria-label="Product details sections">
@@ -48,7 +54,12 @@
                     @if($costHistory)<button type="button" wire:click="purchaseHistory({{ $details->id }})">Purchase History</button>@endif
                 </nav>
                 @if($detailTab === 'info')
-                    <dl class="grid grid-cols-2 gap-4 py-4"><div><dt>Brand</dt><dd>{{ $details->product?->brand }}</dd></div><div><dt>Category</dt><dd>{{ $details->product?->category }}</dd></div><div><dt>Model</dt><dd>{{ $details->product?->model ?? '—' }}</dd></div><div><dt>Status</dt><dd>{{ $details->product?->status?->value }}</dd></div></dl>
+                    <dl class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><dt class="text-xs text-gray-500">Brand</dt><dd class="mt-1 font-semibold">{{ $details->product?->brand ?? '—' }}</dd></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><dt class="text-xs text-gray-500">Category</dt><dd class="mt-1 font-semibold">{{ $details->product?->category ?? '—' }}</dd></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><dt class="text-xs text-gray-500">Model</dt><dd class="mt-1 font-semibold">{{ $details->product?->model ?? '—' }}</dd></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><dt class="text-xs text-gray-500">Product status</dt><dd class="mt-1 font-semibold">{{ ucfirst($details->product?->status?->value ?? 'Unknown') }}</dd></div>
+                    </dl>
                 @endif
                 @if($detailTab === 'allocation')
                 <div class="tpz-stock-detail-columns"><div class="tpz-stock-detail-card">
